@@ -70,7 +70,7 @@
 (template [<name> <category> <parser>]
   [(def: #export <name>
      (Parser (Type <category>))
-     (<text>.embed <parser> <synthesis>.text))]
+     (<text>.then <parser> <synthesis>.text))]
 
   [var Var parser.var]
   [class Class parser.class]
@@ -94,15 +94,15 @@
 (def: #export object_array
   (Parser (Type Object))
   (do <>.monad
-    [arrayJT (<text>.embed parser.array <synthesis>.text)]
+    [arrayJT (<text>.then parser.array <synthesis>.text)]
     (case (parser.array? arrayJT)
       (#.Some elementJT)
       (case (parser.object? elementJT)
         (#.Some elementJT)
-        (wrap elementJT)
+        (in elementJT)
 
         #.None
-        (<>.failure (exception.construct ..not_an_object_array arrayJT)))
+        (<>.failure (exception.error ..not_an_object_array [arrayJT])))
       
       #.None
       (undefined))))
@@ -110,11 +110,11 @@
 (template [<name> <inst>]
   [(def: <name>
      Inst
-     <inst>)]
+     (|>> _.L2I <inst>))]
 
-  [L2S (|>> _.L2I _.I2S)]
-  [L2B (|>> _.L2I _.I2B)]
-  [L2C (|>> _.L2I _.I2C)]
+  [L2S _.I2S]
+  [L2B _.I2B]
+  [L2C _.I2C]
   )
 
 (template [<conversion> <name>]
@@ -355,9 +355,9 @@
     (function (_ extension_name generate archive arrayS)
       (do phase.monad
         [arrayI (generate archive arrayS)]
-        (wrap (|>> arrayI
-                   (_.CHECKCAST (type.array jvm_primitive))
-                   _.ARRAYLENGTH))))]))
+        (in (|>> arrayI
+                 (_.CHECKCAST (type.array jvm_primitive))
+                 _.ARRAYLENGTH))))]))
 
 (def: array::length::object
   Handler
@@ -366,9 +366,9 @@
     (function (_ extension_name generate archive [elementJT arrayS])
       (do phase.monad
         [arrayI (generate archive arrayS)]
-        (wrap (|>> arrayI
-                   (_.CHECKCAST (type.array elementJT))
-                   _.ARRAYLENGTH))))]))
+        (in (|>> arrayI
+                 (_.CHECKCAST (type.array elementJT))
+                 _.ARRAYLENGTH))))]))
 
 (def: (new_primitive_array_handler jvm_primitive)
   (-> (Type Primitive) Handler)
@@ -377,11 +377,11 @@
       (^ (list lengthS))
       (do phase.monad
         [lengthI (generate archive lengthS)]
-        (wrap (|>> lengthI
-                   (_.array jvm_primitive))))
+        (in (|>> lengthI
+                 (_.array jvm_primitive))))
 
       _
-      (phase.throw extension.invalid_syntax [extension_name %synthesis inputs]))))
+      (phase.except extension.invalid_syntax [extension_name %synthesis inputs]))))
 
 (def: array::new::object
   Handler
@@ -390,8 +390,8 @@
     (function (_ extension_name generate archive [objectJT lengthS])
       (do phase.monad
         [lengthI (generate archive lengthS)]
-        (wrap (|>> lengthI
-                   (_.ANEWARRAY objectJT)))))]))
+        (in (|>> lengthI
+                 (_.ANEWARRAY objectJT)))))]))
 
 (def: (read_primitive_array_handler jvm_primitive loadI)
   (-> (Type Primitive) Inst Handler)
@@ -401,13 +401,13 @@
       (do phase.monad
         [arrayI (generate archive arrayS)
          idxI (generate archive idxS)]
-        (wrap (|>> arrayI
-                   (_.CHECKCAST (type.array jvm_primitive))
-                   idxI
-                   loadI)))
+        (in (|>> arrayI
+                 (_.CHECKCAST (type.array jvm_primitive))
+                 idxI
+                 loadI)))
 
       _
-      (phase.throw extension.invalid_syntax [extension_name %synthesis inputs]))))
+      (phase.except extension.invalid_syntax [extension_name %synthesis inputs]))))
 
 (def: array::read::object
   Handler
@@ -417,10 +417,10 @@
       (do phase.monad
         [arrayI (generate archive arrayS)
          idxI (generate archive idxS)]
-        (wrap (|>> arrayI
-                   (_.CHECKCAST (type.array elementJT))
-                   idxI
-                   _.AALOAD))))]))
+        (in (|>> arrayI
+                 (_.CHECKCAST (type.array elementJT))
+                 idxI
+                 _.AALOAD))))]))
 
 (def: (write_primitive_array_handler jvm_primitive storeI)
   (-> (Type Primitive) Inst Handler)
@@ -431,15 +431,15 @@
         [arrayI (generate archive arrayS)
          idxI (generate archive idxS)
          valueI (generate archive valueS)]
-        (wrap (|>> arrayI
-                   (_.CHECKCAST (type.array jvm_primitive))
-                   _.DUP
-                   idxI
-                   valueI
-                   storeI)))
+        (in (|>> arrayI
+                 (_.CHECKCAST (type.array jvm_primitive))
+                 _.DUP
+                 idxI
+                 valueI
+                 storeI)))
 
       _
-      (phase.throw extension.invalid_syntax [extension_name %synthesis inputs]))))
+      (phase.except extension.invalid_syntax [extension_name %synthesis inputs]))))
 
 (def: array::write::object
   Handler
@@ -450,61 +450,61 @@
         [arrayI (generate archive arrayS)
          idxI (generate archive idxS)
          valueI (generate archive valueS)]
-        (wrap (|>> arrayI
-                   (_.CHECKCAST (type.array elementJT))
-                   _.DUP
-                   idxI
-                   valueI
-                   _.AASTORE))))]))
+        (in (|>> arrayI
+                 (_.CHECKCAST (type.array elementJT))
+                 _.DUP
+                 idxI
+                 valueI
+                 _.AASTORE))))]))
 
 (def: array_bundle
   Bundle
   (<| (bundle.prefix "array")
       (|> bundle.empty
-          (dictionary.merge (<| (bundle.prefix "length")
-                                (|> bundle.empty
-                                    (bundle.install (reflection.reflection reflection.boolean) (primitive_array_length_handler type.boolean))
-                                    (bundle.install (reflection.reflection reflection.byte) (primitive_array_length_handler type.byte))
-                                    (bundle.install (reflection.reflection reflection.short) (primitive_array_length_handler type.short))
-                                    (bundle.install (reflection.reflection reflection.int) (primitive_array_length_handler type.int))
-                                    (bundle.install (reflection.reflection reflection.long) (primitive_array_length_handler type.long))
-                                    (bundle.install (reflection.reflection reflection.float) (primitive_array_length_handler type.float))
-                                    (bundle.install (reflection.reflection reflection.double) (primitive_array_length_handler type.double))
-                                    (bundle.install (reflection.reflection reflection.char) (primitive_array_length_handler type.char))
-                                    (bundle.install "object" array::length::object))))
-          (dictionary.merge (<| (bundle.prefix "new")
-                                (|> bundle.empty
-                                    (bundle.install (reflection.reflection reflection.boolean) (new_primitive_array_handler type.boolean))
-                                    (bundle.install (reflection.reflection reflection.byte) (new_primitive_array_handler type.byte))
-                                    (bundle.install (reflection.reflection reflection.short) (new_primitive_array_handler type.short))
-                                    (bundle.install (reflection.reflection reflection.int) (new_primitive_array_handler type.int))
-                                    (bundle.install (reflection.reflection reflection.long) (new_primitive_array_handler type.long))
-                                    (bundle.install (reflection.reflection reflection.float) (new_primitive_array_handler type.float))
-                                    (bundle.install (reflection.reflection reflection.double) (new_primitive_array_handler type.double))
-                                    (bundle.install (reflection.reflection reflection.char) (new_primitive_array_handler type.char))
-                                    (bundle.install "object" array::new::object))))
-          (dictionary.merge (<| (bundle.prefix "read")
-                                (|> bundle.empty
-                                    (bundle.install (reflection.reflection reflection.boolean) (read_primitive_array_handler type.boolean _.BALOAD))
-                                    (bundle.install (reflection.reflection reflection.byte) (read_primitive_array_handler type.byte _.BALOAD))
-                                    (bundle.install (reflection.reflection reflection.short) (read_primitive_array_handler type.short _.SALOAD))
-                                    (bundle.install (reflection.reflection reflection.int) (read_primitive_array_handler type.int _.IALOAD))
-                                    (bundle.install (reflection.reflection reflection.long) (read_primitive_array_handler type.long _.LALOAD))
-                                    (bundle.install (reflection.reflection reflection.float) (read_primitive_array_handler type.float _.FALOAD))
-                                    (bundle.install (reflection.reflection reflection.double) (read_primitive_array_handler type.double _.DALOAD))
-                                    (bundle.install (reflection.reflection reflection.char) (read_primitive_array_handler type.char _.CALOAD))
-                                    (bundle.install "object" array::read::object))))
-          (dictionary.merge (<| (bundle.prefix "write")
-                                (|> bundle.empty
-                                    (bundle.install (reflection.reflection reflection.boolean) (write_primitive_array_handler type.boolean _.BASTORE))
-                                    (bundle.install (reflection.reflection reflection.byte) (write_primitive_array_handler type.byte _.BASTORE))
-                                    (bundle.install (reflection.reflection reflection.short) (write_primitive_array_handler type.short _.SASTORE))
-                                    (bundle.install (reflection.reflection reflection.int) (write_primitive_array_handler type.int _.IASTORE))
-                                    (bundle.install (reflection.reflection reflection.long) (write_primitive_array_handler type.long _.LASTORE))
-                                    (bundle.install (reflection.reflection reflection.float) (write_primitive_array_handler type.float _.FASTORE))
-                                    (bundle.install (reflection.reflection reflection.double) (write_primitive_array_handler type.double _.DASTORE))
-                                    (bundle.install (reflection.reflection reflection.char) (write_primitive_array_handler type.char _.CASTORE))
-                                    (bundle.install "object" array::write::object))))
+          (dictionary.merged (<| (bundle.prefix "length")
+                                 (|> bundle.empty
+                                     (bundle.install (reflection.reflection reflection.boolean) (primitive_array_length_handler type.boolean))
+                                     (bundle.install (reflection.reflection reflection.byte) (primitive_array_length_handler type.byte))
+                                     (bundle.install (reflection.reflection reflection.short) (primitive_array_length_handler type.short))
+                                     (bundle.install (reflection.reflection reflection.int) (primitive_array_length_handler type.int))
+                                     (bundle.install (reflection.reflection reflection.long) (primitive_array_length_handler type.long))
+                                     (bundle.install (reflection.reflection reflection.float) (primitive_array_length_handler type.float))
+                                     (bundle.install (reflection.reflection reflection.double) (primitive_array_length_handler type.double))
+                                     (bundle.install (reflection.reflection reflection.char) (primitive_array_length_handler type.char))
+                                     (bundle.install "object" array::length::object))))
+          (dictionary.merged (<| (bundle.prefix "new")
+                                 (|> bundle.empty
+                                     (bundle.install (reflection.reflection reflection.boolean) (new_primitive_array_handler type.boolean))
+                                     (bundle.install (reflection.reflection reflection.byte) (new_primitive_array_handler type.byte))
+                                     (bundle.install (reflection.reflection reflection.short) (new_primitive_array_handler type.short))
+                                     (bundle.install (reflection.reflection reflection.int) (new_primitive_array_handler type.int))
+                                     (bundle.install (reflection.reflection reflection.long) (new_primitive_array_handler type.long))
+                                     (bundle.install (reflection.reflection reflection.float) (new_primitive_array_handler type.float))
+                                     (bundle.install (reflection.reflection reflection.double) (new_primitive_array_handler type.double))
+                                     (bundle.install (reflection.reflection reflection.char) (new_primitive_array_handler type.char))
+                                     (bundle.install "object" array::new::object))))
+          (dictionary.merged (<| (bundle.prefix "read")
+                                 (|> bundle.empty
+                                     (bundle.install (reflection.reflection reflection.boolean) (read_primitive_array_handler type.boolean _.BALOAD))
+                                     (bundle.install (reflection.reflection reflection.byte) (read_primitive_array_handler type.byte _.BALOAD))
+                                     (bundle.install (reflection.reflection reflection.short) (read_primitive_array_handler type.short _.SALOAD))
+                                     (bundle.install (reflection.reflection reflection.int) (read_primitive_array_handler type.int _.IALOAD))
+                                     (bundle.install (reflection.reflection reflection.long) (read_primitive_array_handler type.long _.LALOAD))
+                                     (bundle.install (reflection.reflection reflection.float) (read_primitive_array_handler type.float _.FALOAD))
+                                     (bundle.install (reflection.reflection reflection.double) (read_primitive_array_handler type.double _.DALOAD))
+                                     (bundle.install (reflection.reflection reflection.char) (read_primitive_array_handler type.char _.CALOAD))
+                                     (bundle.install "object" array::read::object))))
+          (dictionary.merged (<| (bundle.prefix "write")
+                                 (|> bundle.empty
+                                     (bundle.install (reflection.reflection reflection.boolean) (write_primitive_array_handler type.boolean _.BASTORE))
+                                     (bundle.install (reflection.reflection reflection.byte) (write_primitive_array_handler type.byte _.BASTORE))
+                                     (bundle.install (reflection.reflection reflection.short) (write_primitive_array_handler type.short _.SASTORE))
+                                     (bundle.install (reflection.reflection reflection.int) (write_primitive_array_handler type.int _.IASTORE))
+                                     (bundle.install (reflection.reflection reflection.long) (write_primitive_array_handler type.long _.LASTORE))
+                                     (bundle.install (reflection.reflection reflection.float) (write_primitive_array_handler type.float _.FASTORE))
+                                     (bundle.install (reflection.reflection reflection.double) (write_primitive_array_handler type.double _.DASTORE))
+                                     (bundle.install (reflection.reflection reflection.char) (write_primitive_array_handler type.char _.CASTORE))
+                                     (bundle.install "object" array::write::object))))
           )))
 
 (def: (object::null _)
@@ -546,11 +546,11 @@
     (^ (list (synthesis.text class)))
     (do phase.monad
       []
-      (wrap (|>> (_.string class)
-                 (_.INVOKESTATIC $Class "forName" (type.method [(list) (list (type.class "java.lang.String" (list))) $Class (list)])))))
+      (in (|>> (_.string class)
+               (_.INVOKESTATIC $Class "forName" (type.method [(list) (list (type.class "java.lang.String" (list))) $Class (list)])))))
 
     _
-    (phase.throw extension.invalid_syntax [extension_name %synthesis inputs])))
+    (phase.except extension.invalid_syntax [extension_name %synthesis inputs])))
 
 (def: object::instance?
   Handler
@@ -559,9 +559,9 @@
     (function (_ extension_name generate archive [class objectS])
       (do phase.monad
         [objectI (generate archive objectS)]
-        (wrap (|>> objectI
-                   (_.INSTANCEOF (type.class class (list)))
-                   (_.wrap type.boolean)))))]))
+        (in (|>> objectI
+                 (_.INSTANCEOF (type.class class (list)))
+                 (_.wrap type.boolean)))))]))
 
 (def: (object::cast extension_name generate archive inputs)
   Handler
@@ -574,13 +574,13 @@
                                     from)
                             (text\= <object>
                                     to))
-                       (wrap (|>> valueI (_.wrap <primitive>)))
+                       (in (|>> valueI (_.wrap <primitive>)))
 
                        (and (text\= <object>
                                     from)
                             (text\= (reflection.reflection (type.reflection <primitive>))
                                     to))
-                       (wrap (|>> valueI (_.unwrap <primitive>)))]
+                       (in (|>> valueI (_.unwrap <primitive>)))]
                       
                       [box.boolean type.boolean]
                       [box.byte    type.byte]
@@ -591,10 +591,10 @@
                       [box.double  type.double]
                       [box.char    type.char]))
                 ## else
-                (wrap valueI))))
+                (in valueI))))
 
     _
-    (phase.throw extension.invalid_syntax [extension_name %synthesis inputs])))
+    (phase.except extension.invalid_syntax [extension_name %synthesis inputs])))
 
 (def: object_bundle
   Bundle
@@ -630,10 +630,10 @@
         []
         (case (dictionary.get unboxed ..primitives)
           (#.Some primitive)
-          (wrap (_.GETSTATIC (type.class class (list)) field primitive))
+          (in (_.GETSTATIC (type.class class (list)) field primitive))
           
           #.None
-          (wrap (_.GETSTATIC (type.class class (list)) field (type.class unboxed (list)))))))]))
+          (in (_.GETSTATIC (type.class class (list)) field (type.class unboxed (list)))))))]))
 
 (def: put::static
   Handler
@@ -645,15 +645,15 @@
          #let [$class (type.class class (list))]]
         (case (dictionary.get unboxed ..primitives)
           (#.Some primitive)
-          (wrap (|>> valueI
-                     (_.PUTSTATIC $class field primitive)
-                     (_.string synthesis.unit)))
+          (in (|>> valueI
+                   (_.PUTSTATIC $class field primitive)
+                   (_.string synthesis.unit)))
           
           #.None
-          (wrap (|>> valueI
-                     (_.CHECKCAST $class)
-                     (_.PUTSTATIC $class field $class)
-                     (_.string synthesis.unit))))))]))
+          (in (|>> valueI
+                   (_.CHECKCAST $class)
+                   (_.PUTSTATIC $class field $class)
+                   (_.string synthesis.unit))))))]))
 
 (def: get::virtual
   Handler
@@ -669,9 +669,9 @@
                       
                       #.None
                       (_.GETFIELD $class field (type.class unboxed (list))))]]
-        (wrap (|>> objectI
-                   (_.CHECKCAST $class)
-                   getI))))]))
+        (in (|>> objectI
+                 (_.CHECKCAST $class)
+                 getI))))]))
 
 (def: put::virtual
   Handler
@@ -690,11 +690,11 @@
                       (let [$unboxed (type.class unboxed (list))]
                         (|>> (_.CHECKCAST $unboxed)
                              (_.PUTFIELD $class field $unboxed))))]]
-        (wrap (|>> objectI
-                   (_.CHECKCAST $class)
-                   _.DUP
-                   valueI
-                   putI))))]))
+        (in (|>> objectI
+                 (_.CHECKCAST $class)
+                 _.DUP
+                 valueI
+                 putI))))]))
 
 (type: Input
   (Typed Synthesis))
@@ -710,11 +710,11 @@
     [valueI (generate archive valueS)]
     (case (type.primitive? valueT)
       (#.Right valueT)
-      (wrap [valueT valueI])
+      (in [valueT valueI])
       
       (#.Left valueT)
-      (wrap [valueT (|>> valueI
-                         (_.CHECKCAST valueT))]))))
+      (in [valueT (|>> valueI
+                       (_.CHECKCAST valueT))]))))
 
 (def: voidI
   (_.string synthesis.unit))
@@ -735,9 +735,9 @@
     (function (_ extension_name generate archive [class method outputT inputsTS])
       (do {! phase.monad}
         [inputsTI (monad.map ! (generate_input generate archive) inputsTS)]
-        (wrap (|>> (_.fuse (list\map product.right inputsTI))
-                   (_.INVOKESTATIC class method (type.method [(list) (list\map product.left inputsTI) outputT (list)]))
-                   (prepare_output outputT)))))]))
+        (in (|>> (_.fuse (list\map product.right inputsTI))
+                 (_.INVOKESTATIC class method (type.method [(list) (list\map product.left inputsTI) outputT (list)]))
+                 (prepare_output outputT)))))]))
 
 (template [<name> <invoke>]
   [(def: <name>
@@ -748,15 +748,15 @@
          (do {! phase.monad}
            [objectI (generate archive objectS)
             inputsTI (monad.map ! (generate_input generate archive) inputsTS)]
-           (wrap (|>> objectI
-                      (_.CHECKCAST class)
-                      (_.fuse (list\map product.right inputsTI))
-                      (<invoke> class method
-                                (type.method [(list)
-                                              (list\map product.left inputsTI)
-                                              outputT
-                                              (list)]))
-                      (prepare_output outputT)))))]))]
+           (in (|>> objectI
+                    (_.CHECKCAST class)
+                    (_.fuse (list\map product.right inputsTI))
+                    (<invoke> class method
+                              (type.method [(list)
+                                            (list\map product.left inputsTI)
+                                            outputT
+                                            (list)]))
+                    (prepare_output outputT)))))]))]
 
   [invoke::virtual _.INVOKEVIRTUAL]
   [invoke::special _.INVOKESPECIAL]
@@ -770,30 +770,30 @@
     (function (_ extension_name generate archive [class inputsTS])
       (do {! phase.monad}
         [inputsTI (monad.map ! (generate_input generate archive) inputsTS)]
-        (wrap (|>> (_.NEW class)
-                   _.DUP
-                   (_.fuse (list\map product.right inputsTI))
-                   (_.INVOKESPECIAL class "<init>" (type.method [(list) (list\map product.left inputsTI) type.void (list)]))))))]))
+        (in (|>> (_.NEW class)
+                 _.DUP
+                 (_.fuse (list\map product.right inputsTI))
+                 (_.INVOKESPECIAL class "<init>" (type.method [(list) (list\map product.left inputsTI) type.void (list)]))))))]))
 
 (def: member_bundle
   Bundle
   (<| (bundle.prefix "member")
       (|> (: Bundle bundle.empty)
-          (dictionary.merge (<| (bundle.prefix "get")
-                                (|> (: Bundle bundle.empty)
-                                    (bundle.install "static" get::static)
-                                    (bundle.install "virtual" get::virtual))))
-          (dictionary.merge (<| (bundle.prefix "put")
-                                (|> (: Bundle bundle.empty)
-                                    (bundle.install "static" put::static)
-                                    (bundle.install "virtual" put::virtual))))
-          (dictionary.merge (<| (bundle.prefix "invoke")
-                                (|> (: Bundle bundle.empty)
-                                    (bundle.install "static" invoke::static)
-                                    (bundle.install "virtual" invoke::virtual)
-                                    (bundle.install "special" invoke::special)
-                                    (bundle.install "interface" invoke::interface)
-                                    (bundle.install "constructor" invoke::constructor))))
+          (dictionary.merged (<| (bundle.prefix "get")
+                                 (|> (: Bundle bundle.empty)
+                                     (bundle.install "static" get::static)
+                                     (bundle.install "virtual" get::virtual))))
+          (dictionary.merged (<| (bundle.prefix "put")
+                                 (|> (: Bundle bundle.empty)
+                                     (bundle.install "static" put::static)
+                                     (bundle.install "virtual" put::virtual))))
+          (dictionary.merged (<| (bundle.prefix "invoke")
+                                 (|> (: Bundle bundle.empty)
+                                     (bundle.install "static" invoke::static)
+                                     (bundle.install "virtual" invoke::virtual)
+                                     (bundle.install "special" invoke::special)
+                                     (bundle.install "interface" invoke::interface)
+                                     (bundle.install "constructor" invoke::constructor))))
           )))
 
 (def: annotation_parameter
@@ -858,11 +858,11 @@
                                  <synthesis>.tuple
                                  (<>.after <synthesis>.any)
                                  <synthesis>.any)]
-     (wrap [environment
-            [ownerT name
-             strict_fp? annotations vars
-             self_name arguments returnT exceptionsT
-             (..hidden_method_body (list.size arguments) body)]]))))
+     (in [environment
+          [ownerT name
+           strict_fp? annotations vars
+           self_name arguments returnT exceptionsT
+           (..hidden_method_body (list.size arguments) body)]]))))
 
 (def: (normalize_path normalize)
   (-> (-> Synthesis Synthesis)
@@ -918,7 +918,7 @@
       (^ (synthesis.variable var))
       (|> mapping
           (dictionary.get body)
-          (maybe.default var)
+          (maybe.else var)
           synthesis.variable)
 
       (^ (synthesis.branch/case [inputS pathS]))
@@ -945,7 +945,7 @@
                                                      (^ (synthesis.variable var))
                                                      (|> mapping
                                                          (dictionary.get captured)
-                                                         (maybe.default var)
+                                                         (maybe.else var)
                                                          synthesis.variable)
 
                                                      _
@@ -991,10 +991,10 @@
   (-> Phase Archive (Type Class) (Environment Synthesis) (Operation Inst))
   (do {! phase.monad}
     [captureI+ (monad.map ! (generate archive) env)]
-    (wrap (|>> (_.NEW class)
-               _.DUP
-               (_.fuse captureI+)
-               (_.INVOKESPECIAL class "<init>" (anonymous_init_method env))))))
+    (in (|>> (_.NEW class)
+             _.DUP
+             (_.fuse captureI+)
+             (_.INVOKESPECIAL class "<init>" (anonymous_init_method env))))))
 
 (def: (prepare_argument lux_register argumentT jvm_register)
   (-> Register (Type Value) Register [Register Inst])
@@ -1086,7 +1086,7 @@
                                                   inputsTS
                                                   overriden_methods])
       (do {! phase.monad}
-        [[context _] (generation.with_new_context archive (wrap []))
+        [[context _] (generation.with_new_context archive (in []))
          #let [[module_id artifact_id] context
                anonymous_class_name (///.class_name context)
                class (type.class anonymous_class_name (list))
@@ -1132,15 +1132,15 @@
                                                  [bodyG (generation.with_context artifact_id
                                                           (generate archive bodyS))
                                                   #let [argumentsT (list\map product.right arguments)]]
-                                                 (wrap (_def.method #$.Public
-                                                                    (if strict_fp?
-                                                                      ($_ $.++M $.finalM $.strictM)
-                                                                      $.finalM)
-                                                                    name
-                                                                    (type.method [varsT argumentsT returnT exceptionsT])
-                                                                    (|>> (prepare_arguments 1 argumentsT)
-                                                                         bodyG
-                                                                         (returnI returnT)))))))
+                                                 (in (_def.method #$.Public
+                                                                  (if strict_fp?
+                                                                    ($_ $.++M $.finalM $.strictM)
+                                                                    $.finalM)
+                                                                  name
+                                                                  (type.method [varsT argumentsT returnT exceptionsT])
+                                                                  (|>> (prepare_arguments 1 argumentsT)
+                                                                       bodyG
+                                                                       (returnI returnT)))))))
                                 (\ ! map _def.fuse))
          #let [directive [anonymous_class_name
                           (_def.class #$.V1_6 #$.Public $.finalC
@@ -1164,13 +1164,13 @@
   Bundle
   (<| (bundle.prefix "jvm")
       (|> ..conversion_bundle
-          (dictionary.merge ..int_bundle)
-          (dictionary.merge ..long_bundle)
-          (dictionary.merge ..float_bundle)
-          (dictionary.merge ..double_bundle)
-          (dictionary.merge ..char_bundle)
-          (dictionary.merge ..array_bundle)
-          (dictionary.merge ..object_bundle)
-          (dictionary.merge ..member_bundle)
-          (dictionary.merge ..class_bundle)
+          (dictionary.merged ..int_bundle)
+          (dictionary.merged ..long_bundle)
+          (dictionary.merged ..float_bundle)
+          (dictionary.merged ..double_bundle)
+          (dictionary.merged ..char_bundle)
+          (dictionary.merged ..array_bundle)
+          (dictionary.merged ..object_bundle)
+          (dictionary.merged ..member_bundle)
+          (dictionary.merged ..class_bundle)
           )))

@@ -186,5 +186,5 @@ It may be the case that in the future Lux adds new mechanisms for achieving the 
 
 Now that we've discussed _interfaces_ and _implementations_, it's time to talk about a _very special family of interfaces_.
 
-See you in the next chapter!
+See you in [the next chapter](chapter_8.md)!
 

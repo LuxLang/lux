@@ -8,7 +8,7 @@
      ["." monad (#+ Monad do)]]
     [control
      ["." function]
-     ["." try (#+ Try) ("#\." functor)]
+     ["." try (#+ Try) ("#\." monad)]
      ["." exception (#+ exception:)]
      [concurrency
       ["." async (#+ Async Resolver) ("#\." monad)]
@@ -366,6 +366,12 @@
        ["Importer" (%.text importer)]
        ["importee" (%.text importee)]))
 
+    (exception: #export (cannot_import_twice {importer Module}
+                                             {duplicates (Set Module)})
+      (exception.report
+       ["Importer" (%.text importer)]
+       ["Duplicates" (%.list %.text (set.to_list duplicates))]))
+
     (def: (verify_dependencies importer importee dependence)
       (-> Module Module Dependence (Try Any))
       (cond (text\= importer importee)
@@ -541,20 +547,34 @@
                                                  module)]
                             (loop [[archive state] [archive state]
                                    compilation (base_compiler (:as ///.Input input))
-                                   all_dependencies (: (List Module)
-                                                       (list))]
-                              (let [new_dependencies (get@ #///.dependencies compilation)
-                                    all_dependencies (list\compose new_dependencies all_dependencies)
-                                    continue! (:sharing [<type_vars>]
-                                                        <Platform>
-                                                        platform
-                                                        
-                                                        (-> <Context> (///.Compilation <State+> .Module Any) (List Module)
-                                                            (Action [Archive <State+>]))
-                                                        (:assume
-                                                         recur))]
-                                (do !
-                                  [[archive state] (case new_dependencies
+                                   all_dependencies (: (Set Module)
+                                                       (set.of_list text.hash (list)))]
+                              (do !
+                                [#let [new_dependencies (get@ #///.dependencies compilation)
+                                       continue! (:sharing [<type_vars>]
+                                                           <Platform>
+                                                           platform
+                                                           
+                                                           (-> <Context> (///.Compilation <State+> .Module Any) (Set Module)
+                                                               (Action [Archive <State+>]))
+                                                           (:assume recur))
+                                       ## TODO: Come up with a less hacky way to prevent duplicate imports.
+                                       ## This currently assumes that all imports will be specified once in a single .module: form.
+                                       ## This might not be the case in the future.
+                                       [all_dependencies duplicates _] (: [(Set Module) (Set Module) Bit]
+                                                                          (list\fold (function (_ new [all duplicates seen_prelude?])
+                                                                                       (if (set.member? all new)
+                                                                                         (if (text\= .prelude_module new)
+                                                                                           (if seen_prelude?
+                                                                                             [all (set.add new duplicates) seen_prelude?]
+                                                                                             [all duplicates true])
+                                                                                           [all (set.add new duplicates) seen_prelude?])
+                                                                                         [(set.add new all) duplicates seen_prelude?]))
+                                                                                     (: [(Set Module) (Set Module) Bit]
+                                                                                        [all_dependencies ..empty (set.empty? all_dependencies)])
+                                                                                     new_dependencies))]
+                                 [archive state] (if (set.empty? duplicates)
+                                                   (case new_dependencies
                                                      #.End
                                                      (in [archive state])
 
@@ -567,36 +587,37 @@
                                                                           (list\map product.left)
                                                                           (list\fold archive.merged archive))]]
                                                        (in [archive (try.assumed
-                                                                     (..updated_state archive state))])))]
-                                  (case ((get@ #///.process compilation)
-                                         ## TODO: The "///directive.set_current_module" below shouldn't be necessary. Remove it ASAP.
-                                         ## TODO: The context shouldn't need to be re-set either.
-                                         (|> (///directive.set_current_module module)
-                                             (///phase.run' state)
-                                             try.assumed
-                                             product.left)
-                                         archive)
-                                    (#try.Success [state more|done])
-                                    (case more|done
-                                      (#.Left more)
-                                      (continue! [archive state] more all_dependencies)
+                                                                     (..updated_state archive state))])))
+                                                   (async\in (exception.except ..cannot_import_twice [module duplicates])))]
+                                (case ((get@ #///.process compilation)
+                                       ## TODO: The "///directive.set_current_module" below shouldn't be necessary. Remove it ASAP.
+                                       ## TODO: The context shouldn't need to be re-set either.
+                                       (|> (///directive.set_current_module module)
+                                           (///phase.run' state)
+                                           try.assumed
+                                           product.left)
+                                       archive)
+                                  (#try.Success [state more|done])
+                                  (case more|done
+                                    (#.Left more)
+                                    (continue! [archive state] more all_dependencies)
 
-                                      (#.Right [descriptor document output])
-                                      (do !
-                                        [#let [_ (debug.log! (..module_compilation_log module state))
-                                               descriptor (set@ #descriptor.references (set.of_list text.hash all_dependencies) descriptor)]
-                                         _ (..cache_module static platform module_id [descriptor document output])]
-                                        (case (archive.add module [descriptor document output] archive)
-                                          (#try.Success archive)
-                                          (in [archive
-                                               (..with_reset_log state)])
-                                          
-                                          (#try.Failure error)
-                                          (async\in (#try.Failure error)))))
-
-                                    (#try.Failure error)
+                                    (#.Right [descriptor document output])
                                     (do !
-                                      [_ (ioW.freeze (get@ #&file_system platform) static archive)]
-                                      (async\in (#try.Failure error))))))))))]
+                                      [#let [_ (debug.log! (..module_compilation_log module state))
+                                             descriptor (set@ #descriptor.references all_dependencies descriptor)]
+                                       _ (..cache_module static platform module_id [descriptor document output])]
+                                      (case (archive.add module [descriptor document output] archive)
+                                        (#try.Success archive)
+                                        (in [archive
+                                             (..with_reset_log state)])
+                                        
+                                        (#try.Failure error)
+                                        (async\in (#try.Failure error)))))
+
+                                  (#try.Failure error)
+                                  (do !
+                                    [_ (ioW.freeze (get@ #&file_system platform) static archive)]
+                                    (async\in (#try.Failure error)))))))))]
           (compiler archive.runtime_module compilation_module)))
       )))

@@ -1476,7 +1476,7 @@
            ys}
           xs))
 
-(def:''' (_$_joiner op a1 a2)
+(def:''' (right_associativity op a1 a2)
          #End
          (-> Code Code Code Code)
          ({[_ (#Form parts)]
@@ -1486,7 +1486,7 @@
            (form$ (list op a1 a2))}
           op))
 
-(def:''' (function/flip func)
+(def:''' (function\flip func)
          #End
          (All [a b c]
            (-> (-> a b c) (-> b a c)))
@@ -1505,7 +1505,7 @@
                 #End)
          ({(#Item op tokens')
            ({(#Item first nexts)
-             (return (list (list\fold (function/flip (_$_joiner op)) first nexts)))
+             (return (list (list\fold (function\flip (right_associativity op)) first nexts)))
 
              _
              (failure "Wrong syntax for _$")}
@@ -1527,7 +1527,7 @@
                 #End)
          ({(#Item op tokens')
            ({(#Item last prevs)
-             (return (list (list\fold (_$_joiner op) last prevs)))
+             (return (list (list\fold (right_associativity op) last prevs)))
 
              _
              (failure "Wrong syntax for $_")}
@@ -1734,7 +1734,7 @@
                  #None}
                 def_meta)))
 
-(def:''' (resolve_global_identifier full_name state)
+(def:''' (global_identifier full_name state)
          #End
          (-> Name ($' Meta Name))
          (let' [[module name] full_name
@@ -1850,7 +1850,7 @@
              [real_name ({""
                           (if (text\= "" subst)
                             (in [module name])
-                            (resolve_global_identifier [subst name]))
+                            (global_identifier [subst name]))
 
                           _
                           (in [module name])}
@@ -2069,7 +2069,7 @@
            #None}
           x))
 
-(def:''' (tuple_to_list tuple)
+(def:''' (tuple_list tuple)
          #End
          (-> Code ($' Maybe ($' List Code)))
          ({[_ (#Tuple members)]
@@ -2178,7 +2178,7 @@
              _
              (failure "Wrong syntax for template")}
             [(monad\map maybe_monad get_short bindings)
-             (monad\map maybe_monad tuple_to_list data)])
+             (monad\map maybe_monad tuple_list data)])
 
            _
            (failure "Wrong syntax for template")}
@@ -2465,20 +2465,20 @@
            (return (list syntax))}
           syntax))
 
-(def:''' (walk_type type)
+(def:''' (normal_type type)
          #End
          (-> Code Code)
          ({[_ (#Form (#Item [_ (#Tag tag)] parts))]
-           (form$ (#Item [(tag$ tag) (list\map walk_type parts)]))
+           (form$ (#Item [(tag$ tag) (list\map normal_type parts)]))
 
            [_ (#Tuple members)]
-           (` (Tuple (~+ (list\map walk_type members))))
+           (` (Tuple (~+ (list\map normal_type members))))
 
            [_ (#Form (#Item [_ (#Text "lux in-module")]
                             (#Item [_ (#Text module)]
                                    (#Item type'
                                           #End))))]
-           (` ("lux in-module" (~ (text$ module)) (~ (walk_type type'))))
+           (` ("lux in-module" (~ (text$ module)) (~ (normal_type type'))))
 
            [_ (#Form (#Item [_ (#Identifier ["" ":~"])] (#Item expression #End)))]
            expression
@@ -2486,8 +2486,8 @@
            [_ (#Form (#Item type_fn args))]
            (list\fold ("lux type check" (-> Code Code Code)
                        (function' [arg type_fn] (` (#.Apply (~ arg) (~ type_fn)))))
-                      (walk_type type_fn)
-                      (list\map walk_type args))
+                      (normal_type type_fn)
+                      (list\map normal_type args))
            
            _
            type}
@@ -2502,7 +2502,7 @@
            (do meta_monad
              [type+ (full_expansion type)]
              ({(#Item type' #End)
-               (in (list (walk_type type')))
+               (in (list (normal_type type')))
                
                _
                (failure "The expansion of the type-syntax had to yield a single element.")}
@@ -2552,7 +2552,7 @@
   [first  a x]
   [second b y])
 
-(def:''' (unfold_type_def type_codes)
+(def:''' (type_declaration type_codes)
          #End
          (-> ($' List Code) ($' Meta (Tuple Code ($' Maybe ($' List Text)))))
          ({(#Item [_ (#Record pairs)] #End)
@@ -2704,11 +2704,6 @@
                  #None
                  (failure "Wrong syntax for def'")}
                 parts)))
-
-(def:' (rejoin_pair pair)
-       (-> [Code Code] (List Code))
-       (let' [[left right] pair]
-             (list left right)))
 
 (def:' (text\encode original)
        (-> Text Text)
@@ -2940,7 +2935,7 @@
            #None
            (failure "Wrong syntax for function")))
 
-(def:' (process_def_meta_value code)
+(def:' (definition_annotation_value code)
        (-> Code Code)
        (case code
          [_ (#Bit value)]
@@ -2969,7 +2964,7 @@
 
          [_ (#Tuple xs)]
          (|> xs
-             (list\map process_def_meta_value)
+             (list\map definition_annotation_value)
              untemplated_list
              (meta_code ["library/lux" "Tuple"]))
 
@@ -2977,18 +2972,18 @@
          (|> kvs
              (list\map (: (-> [Code Code] Code)
                           (function (_ [k v])
-                            (` [(~ (process_def_meta_value k))
-                                (~ (process_def_meta_value v))]))))
+                            (` [(~ (definition_annotation_value k))
+                                (~ (definition_annotation_value v))]))))
              untemplated_list
              (meta_code ["library/lux" "Record"]))
          ))
 
-(def:' (process_def_meta kvs)
+(def:' (definition_annotations kvs)
        (-> (List [Code Code]) Code)
        (untemplated_list (list\map (: (-> [Code Code] Code)
                                       (function (_ [k v])
-                                        (` [(~ (process_def_meta_value k))
-                                            (~ (process_def_meta_value v))])))
+                                        (` [(~ (definition_annotation_value k))
+                                            (~ (definition_annotation_value v))])))
                                    kvs)))
 
 (def:' (with_func_args args meta)
@@ -3028,7 +3023,7 @@
          (list [(tag$ ["library/lux" "doc"])
                 (text$ ($_ "lux text concat"
                            "## Defines global constants/functions." ..\n
-                           "(def: (rejoin_pair pair)" ..\n
+                           "(def: (pair_list pair)" ..\n
                            "  (-> [Code Code] (List Code))" ..\n
                            "  (let [[left right] pair]" ..\n
                            "    (list left right)))"
@@ -3079,7 +3074,7 @@
                           
                           #None
                           body)
-                   =meta (process_def_meta meta)]
+                   =meta (definition_annotations meta)]
                (return (list (` ("lux def" (~ name)
                                  (~ body)
                                  [(~ location_code)
@@ -3089,7 +3084,7 @@
              #None
              (failure "Wrong syntax for def:"))))
 
-(def: (meta_code_add addition meta)
+(def: (with_definition_annotation addition meta)
   (-> [Code Code] Code Code)
   (case [addition meta]
     [[name value] [location (#Record pairs)]]
@@ -3098,11 +3093,11 @@
     _
     meta))
 
-(def: (meta_code_merge addition base)
+(def: (merged_definition_annotations addition base)
   (-> Code Code Code)
   (case addition
     [location (#Record pairs)]
-    (list\fold meta_code_add base pairs)
+    (list\fold with_definition_annotation base pairs)
     
     _
     base))
@@ -3147,7 +3142,7 @@
                           _
                           (` ("lux macro"
                               (function ((~ name) (~+ args)) (~ body)))))
-                   =meta (process_def_meta meta)]
+                   =meta (definition_annotations meta)]
                (return (list (` ("lux def" (~ name)
                                  (~ body)
                                  [(~ location_code)
@@ -3210,8 +3205,8 @@
                                               (function (_ [m_name m_type])
                                                 [(local_tag$ m_name) m_type]))
                                            members))
-               sig_meta (meta_code_merge (` {#.sig? #1})
-                                         meta)
+               sig_meta (merged_definition_annotations (` {#.sig? #1})
+                                                       meta)
                usage (case args
                        #End
                        def_name
@@ -3265,14 +3260,14 @@
   (-> Text Nothing)
   ("lux io error" message))
 
-(macro: (default tokens state)
+(macro: (else tokens state)
   {#.doc (text$ ($_ "lux text concat"
                     "## Allows you to provide a default value that will be used" ..\n
                     "## if a (Maybe x) value turns out to be #.None."
                     __paragraph
-                    "(default +20 (#.Some +10)) ## => +10"
+                    "(else +20 (#.Some +10)) ## => +10"
                     __paragraph
-                    "(default +20 #.None) ## => +20"))}
+                    "(else +20 #.None) ## => +20"))}
   (case tokens
     (^ (list else maybe))
     (let [g!temp (: Code [dummy_location (#Identifier ["" ""])])
@@ -3285,7 +3280,7 @@
       (#Right [state (list code)]))
 
     _
-    (#Left "Wrong syntax for default")))
+    (#Left "Wrong syntax for else")))
 
 (def: (text\split_all_with splitter input)
   (-> Text Text (List Text))
@@ -3302,7 +3297,7 @@
                                                     ("lux text size" input))]
                                   ("lux text clip" after_offset after_length input))))))
 
-(def: (nth idx xs)
+(def: (item idx xs)
   (All [a]
     (-> Nat (List a) (Maybe a)))
   (case xs
@@ -3312,7 +3307,7 @@
     (#Item x xs')
     (if ("lux i64 =" 0 idx)
       (#Some x)
-      (nth ("lux i64 -" 1 idx) xs'))))
+      (item ("lux i64 -" 1 idx) xs'))))
 
 ## https://en.wikipedia.org/wiki/Lambda_calculus#%CE%B2-reduction
 (def: (reduced env type)
@@ -3347,7 +3342,7 @@
     (#Function (reduced env ?input) (reduced env ?output))
 
     (#Parameter idx)
-    (case (nth idx env)
+    (case (item idx env)
       (#Some parameter)
       parameter
 
@@ -3361,7 +3356,7 @@
     type
     ))
 
-(def: (apply_type type_fn param)
+(def: (applied_type param type_fn)
   (-> Type Type (Maybe Type))
   (case type_fn
     (#UnivQ env body)
@@ -3372,11 +3367,11 @@
 
     (#Apply A F)
     (do maybe_monad
-      [type_fn* (apply_type F A)]
-      (apply_type type_fn* param))
+      [type_fn* (applied_type A F)]
+      (applied_type param type_fn*))
 
     (#Named name type)
-    (apply_type type param)
+    (applied_type param type)
     
     _
     #None))
@@ -3396,17 +3391,17 @@
   [flat_lambda    #Function]
   )
 
-(def: (flat_app type)
+(def: (flat_application type)
   (-> Type [Type (List Type)])
   (case type
     (#Apply head func')
-    (let [[func tail] (flat_app func')]
+    (let [[func tail] (flat_application func')]
       [func (#Item head tail)])
 
     _
     [type (list)]))
 
-(def: (resolve_struct_type type)
+(def: (interface_methods type)
   (-> Type (Maybe (List Type)))
   (case type
     (#Product _)
@@ -3414,17 +3409,17 @@
 
     (#Apply arg func)
     (do maybe_monad
-      [output (apply_type func arg)]
-      (resolve_struct_type output))
+      [output (applied_type arg func)]
+      (interface_methods output))
 
     (#UnivQ _ body)
-    (resolve_struct_type body)
+    (interface_methods body)
 
     (#ExQ _ body)
-    (resolve_struct_type body)
+    (interface_methods body)
 
     (#Named name type)
-    (resolve_struct_type type)
+    (interface_methods type)
 
     (#Sum _)
     #None
@@ -3452,7 +3447,7 @@
     [module_name current_module_name]
     (module module_name)))
 
-(def: (resolve_tag [module name])
+(def: (type_tag [module name])
   (-> Name (Meta [Nat (List Name) Bit Type]))
   (do meta_monad
     [=module (..module module)
@@ -3464,17 +3459,17 @@
       _
       (failure (text\compose "Unknown tag: " (name\encode [module name]))))))
 
-(def: (resolve_type_tags type)
+(def: (record_slots type)
   (-> Type (Meta (Maybe [(List Name) (List Type)])))
   (case type
     (#Apply arg func)
-    (resolve_type_tags func)
+    (record_slots func)
 
     (#UnivQ env body)
-    (resolve_type_tags body)
+    (record_slots body)
 
     (#ExQ env body)
-    (resolve_type_tags body)
+    (record_slots body)
 
     (#Named [module name] unnamed)
     (do meta_monad
@@ -3482,7 +3477,7 @@
        #let [{#module_hash _ #module_aliases _ #definitions bindings #imports _ #tags tags #types types #module_annotations _ #module_state _} =module]]
       (case (get name types)
         (#Some [tags exported? (#Named _ _type)])
-        (case (resolve_struct_type _type)
+        (case (interface_methods _type)
           (#Some members)
           (return (#Some [tags members]))
 
@@ -3490,7 +3485,7 @@
           (return #None))
 
         _
-        (resolve_type_tags unnamed)))
+        (record_slots unnamed)))
     
     _
     (return #None)))
@@ -3514,7 +3509,7 @@
   (do meta_monad
     [tokens' (monad\map meta_monad expansion tokens)
      struct_type get_expected_type
-     tags+type (resolve_type_tags struct_type)
+     tags+type (record_slots struct_type)
      tags (: (Meta (List Name))
              (case tags+type
                (#Some [tags _])
@@ -3595,8 +3590,8 @@
                     _
                     (` ((~ name) (~+ args))))]
         (return (list (` (..def: (~+ (export exported?)) (~ usage)
-                           (~ (meta_code_merge (` {#.implementation? #1})
-                                               meta))
+                           (~ (merged_definition_annotations (` {#.implementation? #1})
+                                                             meta))
                            (~ type)
                            (implementation (~+ definitions)))))))
 
@@ -3643,7 +3638,7 @@
     (case parts
       (#Some name args meta type_codes)
       (do meta_monad
-        [type+tags?? (unfold_type_def type_codes)
+        [type+tags?? (..type_declaration type_codes)
          module_name current_module_name]
         (let [type_name (local_identifier$ name)
               [type tags??] type+tags??
@@ -3663,7 +3658,7 @@
 
                            _
                            (#Some (` (.All (~ type_name) [(~+ args)] (~ type)))))))
-              total_meta (let [meta (process_def_meta meta)
+              total_meta (let [meta (definition_annotations meta)
                                meta (if rec?
                                       (` (#.Item (~ (flag_meta "type_rec?")) (~ meta)))
                                       meta)]
@@ -3726,7 +3721,7 @@
    #import_alias (Maybe Text)
    #import_refer Refer})
 
-(def: (extract_defs defs)
+(def: (referral_references defs)
   (-> (List Code) (Meta (List Text)))
   (monad\map meta_monad
              (: (-> Code (Meta Text))
@@ -3745,13 +3740,13 @@
     (^or (^ (list& [_ (#Form (list& [_ (#Tag ["" "+"])] defs))] tokens'))
          (^ (list& [_ (#Form (list& [_ (#Tag ["" "only"])] defs))] tokens')))
     (do meta_monad
-      [defs' (extract_defs defs)]
+      [defs' (..referral_references defs)]
       (in [(#Only defs') tokens']))
 
     (^or (^ (list& [_ (#Form (list& [_ (#Tag ["" "-"])] defs))] tokens'))
          (^ (list& [_ (#Form (list& [_ (#Tag ["" "exclude"])] defs))] tokens')))
     (do meta_monad
-      [defs' (extract_defs defs)]
+      [defs' (..referral_references defs)]
       (in [(#Exclude defs') tokens']))
 
     (^or (^ (list& [_ (#Tag ["" "*"])] tokens'))
@@ -3818,7 +3813,7 @@
 (def: contextual_reference "#")
 (def: self_reference ".")
 
-(def: (de_alias context self aliased)
+(def: (module_alias context self aliased)
   (-> Text Text Text Text)
   (|> aliased
       (replace_all ..self_reference self)
@@ -3977,15 +3972,15 @@
                                    #let [[referral extra] referral+extra]
                                    openings+extra (openings_parser extra)
                                    #let [[openings extra] openings+extra
-                                         de_aliased (de_alias context_alias m_name alias)]
-                                   sub_imports (imports_parser #1 import_name de_aliased extra)]
+                                         module_alias (..module_alias context_alias m_name alias)]
+                                   sub_imports (imports_parser #1 import_name module_alias extra)]
                                   (in (case [referral openings]
                                         [#Ignore #End]
                                         sub_imports
                                         
                                         _
                                         (list& {#import_name import_name
-                                                #import_alias (#Some de_aliased)
+                                                #import_alias (#Some module_alias)
                                                 #import_refer {#refer_defs referral
                                                                #refer_open openings}}
                                                sub_imports))))
@@ -4109,8 +4104,8 @@
 
         (#Some definition)
         (case definition
-          (#Left de_aliased)
-          (definition_type de_aliased state)
+          (#Left real_name)
+          (definition_type real_name state)
           
           (#Right [exported? def_type def_meta def_value])
           (#Some def_type))))))
@@ -4133,8 +4128,8 @@
 
         (#Some definition)
         (case definition
-          (#Left de_aliased)
-          (definition_value de_aliased state)
+          (#Left real_name)
+          (definition_value real_name state)
           
           (#Right [exported? def_type def_meta def_value])
           (#Right [state [def_type def_value]]))))))
@@ -4242,7 +4237,7 @@
     ($_ text\compose "(Ex " (type\encode body) ")")
     
     (#Apply _)
-    (let [[func args] (flat_app type)]
+    (let [[func args] (flat_application type)]
       ($_ text\compose
           "(" (type\encode func) " "
           (|> args (list\map type\encode) (interpose " ") list\reverse (list\fold text\compose ""))
@@ -4268,7 +4263,7 @@
     (^ (list [_ (#Identifier name)] [_ (#Text alias)] body))
     (do meta_monad
       [init_type (type_definition name)
-       struct_evidence (resolve_type_tags init_type)]
+       struct_evidence (record_slots init_type)]
       (case struct_evidence
         #None
         (failure (text\compose "Can only 'open' structs: " (type\encode init_type)))
@@ -4278,14 +4273,14 @@
           [full_body ((: (-> Name [(List Name) (List Type)] Code (Meta Code))
                          (function (recur source [tags members] target)
                            (let [locals (list\map (function (_ [t_module t_name])
-                                                    ["" (de_alias "" t_name alias)])
+                                                    ["" (..module_alias "" t_name alias)])
                                                   tags)
                                  pattern (tuple$ (list\map identifier$ locals))]
                              (do meta_monad
                                [enhanced_target (monad\fold meta_monad
                                                             (function (_ [m_local m_type] enhanced_target)
                                                               (do meta_monad
-                                                                [m_implementation (resolve_type_tags m_type)]
+                                                                [m_implementation (record_slots m_type)]
                                                                 (case m_implementation
                                                                   (#Some m_tags&members)
                                                                   (recur m_local
@@ -4353,11 +4348,11 @@
     (^ (list [_ (#Tag slot')] record))
     (do meta_monad
       [slot (normal slot')
-       output (resolve_tag slot)
+       output (..type_tag slot)
        #let [[idx tags exported? type] output]
        g!_ (gensym "_")
        g!output (gensym "")]
-      (case (resolve_struct_type type)
+      (case (interface_methods type)
         (#Some members)
         (let [pattern (record$ (list\map (: (-> [Name [Nat Type]] [Code Code])
                                             (function (_ [[r_prefix r_name] [r_idx r_type]])
@@ -4387,10 +4382,10 @@
     _
     (failure "Wrong syntax for get@")))
 
-(def: (open_field alias tags my_tag_index [module short] source type)
+(def: (open_declaration alias tags my_tag_index [module short] source type)
   (-> Text (List Name) Nat Name Code Type (Meta (List Code)))
   (do meta_monad
-    [output (resolve_type_tags type)
+    [output (record_slots type)
      g!_ (gensym "g!_")
      #let [g!output (local_identifier$ short)
            pattern (|> tags
@@ -4407,12 +4402,12 @@
         [decls' (monad\map meta_monad
                            (: (-> [Nat Name Type] (Meta (List Code)))
                               (function (_ [sub_tag_index sname stype])
-                                (open_field alias tags' sub_tag_index sname source+ stype)))
+                                (open_declaration alias tags' sub_tag_index sname source+ stype)))
                            (enumeration (zipped/2 tags' members')))]
         (return (list\join decls')))
 
       _
-      (return (list (` ("lux def" (~ (local_identifier$ (de_alias "" short alias)))
+      (return (list (` ("lux def" (~ (local_identifier$ (..module_alias "" short alias)))
                         (~ source+)
                         [(~ location_code) (#.Record #End)]
                         #0)))))))
@@ -4435,14 +4430,14 @@
       [_ (#Identifier struct_name)]
       (do meta_monad
         [struct_type (type_definition struct_name)
-         output (resolve_type_tags struct_type)
+         output (record_slots struct_type)
          #let [source (identifier$ struct_name)]]
         (case output
           (#Some [tags members])
           (do meta_monad
             [decls' (monad\map meta_monad (: (-> [Nat Name Type] (Meta (List Code)))
                                              (function (_ [tag_index sname stype])
-                                               (open_field alias tags tag_index sname source stype)))
+                                               (open_declaration alias tags tag_index sname source stype)))
                                (enumeration (zipped/2 tags members)))]
             (return (list\join decls')))
 
@@ -4489,7 +4484,7 @@
      #let [{#module_hash _ #module_aliases _ #definitions _ #imports imports #tags _ #types _ #module_annotations _ #module_state _} module]]
     (in (is_member? imports import_name))))
 
-(def: (read_refer module_name options)
+(def: (referrals module_name options)
   (-> Text (List Code) (Meta Refer))
   (do meta_monad
     [referral+options (referrals_parser options)
@@ -4509,7 +4504,7 @@
                             (interpose " ")
                             (list\fold text\compose "")))))))
 
-(def: (write_refer module_name [r_defs r_opens])
+(def: (referral_definitions module_name [r_defs r_opens])
   (-> Text Refer (Meta (List Code)))
   (do meta_monad
     [current_module current_module_name
@@ -4554,22 +4549,21 @@
                                                    (` (open: (~ (text$ alias)) (~ (identifier$ [module_name name])))))
                                                  structs))))
                         list\join)]]
-    (in (list\compose defs openings))
-    ))
+    (in (list\compose defs openings))))
 
 (macro: #export (refer tokens)
   (case tokens
     (^ (list& [_ (#Text module_name)] options))
     (do meta_monad
-      [=refer (read_refer module_name options)]
-      (write_refer module_name =refer))
+      [=refer (referrals module_name options)]
+      (referral_definitions module_name =refer))
 
     _
     (failure "Wrong syntax for refer")))
 
 (def: (refer_code module_name module_alias' [r_defs r_opens])
   (-> Text (Maybe Text) Refer Code)
-  (let [module_alias (..default module_name module_alias')
+  (let [module_alias (..else module_name module_alias')
         localizations (: (List Code)
                          (case r_defs
                            #All
@@ -4625,14 +4619,14 @@
      #let [=imports (|> imports
                         (list\map (: (-> Importation Code)
                                      (function (_ [m_name m_alias =refer])
-                                       (` [(~ (text$ m_name)) (~ (text$ (default "" m_alias)))]))))
+                                       (` [(~ (text$ m_name)) (~ (text$ (..else "" m_alias)))]))))
                         tuple$)
            =refers (list\map (: (-> Importation Code)
                                 (function (_ [m_name m_alias =refer])
                                   (refer_code m_name m_alias =refer)))
                              imports)
            =module (` ("lux def module" [(~ location_code)
-                                         (#.Record (~ (process_def_meta _meta)))]
+                                         (#.Record (~ (definition_annotations _meta)))]
                        (~ =imports)))]]
     (in (#Item =module =refers))))
 
@@ -4668,9 +4662,9 @@
     (^ (list [_ (#Tag slot')] value record))
     (do meta_monad
       [slot (normal slot')
-       output (resolve_tag slot)
+       output (..type_tag slot)
        #let [[idx tags exported? type] output]]
-      (case (resolve_struct_type type)
+      (case (interface_methods type)
         (#Some members)
         (do meta_monad
           [pattern' (monad\map meta_monad
@@ -4757,9 +4751,9 @@
     (^ (list [_ (#Tag slot')] fun record))
     (do meta_monad
       [slot (normal slot')
-       output (resolve_tag slot)
+       output (..type_tag slot)
        #let [[idx tags exported? type] output]]
-      (case (resolve_struct_type type)
+      (case (interface_methods type)
         (#Some members)
         (do meta_monad
           [pattern' (monad\map meta_monad
@@ -4847,7 +4841,7 @@
                     "    ([#.UnivQ] [#.ExQ])"
                     __paragraph
                     "    (#.Parameter idx)" ..\n
-                    "    (default type (list.nth idx env))"
+                    "    (else type (list.item idx env))"
                     __paragraph
                     "    _" ..\n
                     "    type" ..\n
@@ -4860,7 +4854,7 @@
     (case (: (Maybe (List Code))
              (do maybe_monad
                [bindings' (monad\map maybe_monad get_short bindings)
-                data' (monad\map maybe_monad tuple_to_list data)]
+                data' (monad\map maybe_monad tuple_list data)]
                (let [num_bindings (list\size bindings')]
                  (if (every? (|>> ("lux i64 =" num_bindings))
                              (list\map list\size data'))
@@ -4962,7 +4956,12 @@
 
 (def: un_paired
   (-> (List [Code Code]) (List Code))
-  (|>> (list\map rejoin_pair) list\join))
+  (let [pair_list (: (-> [Code Code] (List Code))
+                     (function (_ pair)
+                       (let [[left right] pair]
+                         (list left right))))]
+    (|>> (list\map pair_list)
+         list\join)))
 
 (def: (doc_example_to_text prev_location baseline example)
   (-> Location Nat Code [Location Text])
@@ -5162,7 +5161,7 @@
        #let [[hslot tslots] slots]
        hslot (..normal hslot)
        tslots (monad\map meta_monad ..normal tslots)
-       output (resolve_tag hslot)
+       output (..type_tag hslot)
        g!_ (gensym "_")
        #let [[idx tags exported? type] output
              slot_pairings (list\map (: (-> Name [Text Code])
@@ -5181,7 +5180,7 @@
     _
     (failure "Wrong syntax for ^slots")))
 
-(def: (place_tokens label tokens target)
+(def: (with_expansions' label tokens target)
   (-> Text (List Code) Code (Maybe (List Code)))
   (case target
     (^or [_ (#Bit _)] [_ (#Nat _)] [_ (#Int _)] [_ (#Rev _)] [_ (#Frac _)] [_ (#Text _)] [_ (#Tag _)])
@@ -5196,7 +5195,7 @@
     (^template [<tag>]
       [[location (<tag> elems)]
        (do maybe_monad
-         [placements (monad\map maybe_monad (place_tokens label tokens) elems)]
+         [placements (monad\map maybe_monad (with_expansions' label tokens) elems)]
          (in (list [location (<tag> (list\join placements))])))])
     ([#Tuple]
      [#Form])
@@ -5207,8 +5206,8 @@
                          (: (-> [Code Code] (Maybe [Code Code]))
                             (function (_ [slot value])
                               (do maybe_monad
-                                [slot' (place_tokens label tokens slot)
-                                 value' (place_tokens label tokens value)]
+                                [slot' (with_expansions' label tokens slot)
+                                 value' (with_expansions' label tokens value)]
                                 (case [slot' value']
                                   (^ [(list =slot) (list =value)])
                                   (in [=slot =value])
@@ -5216,8 +5215,7 @@
                                   _
                                   #None))))
                          pairs)]
-      (in (list [location (#Record =pairs)])))
-    ))
+      (in (list [location (#Record =pairs)])))))
 
 (macro: #export (with_expansions tokens)
   {#.doc (doc "Controlled macro-expansion."
@@ -5245,9 +5243,10 @@
       (^ (list& [_ (#Identifier ["" var_name])] expr bindings'))
       (do meta_monad
         [expansion (single_expansion expr)]
-        (case (place_tokens var_name expansion (` (.with_expansions
-                                                    [(~+ bindings')]
-                                                    (~+ bodies))))
+        (case (with_expansions' var_name expansion
+                (` (.with_expansions
+                     [(~+ bindings')]
+                     (~+ bodies))))
           (#Some output)
           (in output)
 
@@ -5487,7 +5486,7 @@
     (^ (list [_ (#Nat idx)]))
     (do meta_monad
       [stvs get_scope_type_vars]
-      (case (..nth idx (list\reverse stvs))
+      (case (..item idx (list\reverse stvs))
         (#Some var_id)
         (in (list (` (#Ex (~ (nat$ var_id))))))
 
@@ -5720,7 +5719,7 @@
   (function (_ compiler)
     (#Right [compiler (get@ [#info #target] compiler)])))
 
-(def: (resolve_target choice)
+(def: (platform_name choice)
   (-> Code (Meta Text))
   (case choice
     [_ (#Text platform)]
@@ -5728,7 +5727,7 @@
 
     [_ (#Identifier identifier)]
     (do meta_monad
-      [identifier (..resolve_global_identifier identifier)
+      [identifier (..global_identifier identifier)
        type+value (..definition_value identifier)
        #let [[type value] type+value]]
       (case (..flat_alias type)
@@ -5759,7 +5758,7 @@
 
     (#Item [key pick] options')
     (do meta_monad
-      [platform (..resolve_target key)]
+      [platform (..platform_name key)]
       (if (text\= target platform)
         (return (list pick))
         (target_pick target options' default)))))
@@ -5786,7 +5785,7 @@
   [left  a x]
   [right b y])
 
-(def: (label_code code)
+(def: (embedded_expansions code)
   (-> Code (Meta [(List [Code Code]) Code]))
   (case code
     (^ [ann (#Form (list [_ (#Identifier ["" "~~"])] expansion))])
@@ -5797,7 +5796,7 @@
     (^template [<tag>]
       [[ann (<tag> parts)]
        (do meta_monad
-         [=parts (monad\map meta_monad label_code parts)]
+         [=parts (monad\map meta_monad embedded_expansions parts)]
          (in [(list\fold list\compose (list) (list\map left =parts))
               [ann (<tag> (list\map right =parts))]]))])
     ([#Form] [#Tuple])
@@ -5807,8 +5806,8 @@
       [=kvs (monad\map meta_monad
                        (function (_ [key val])
                          (do meta_monad
-                           [=key (label_code key)
-                            =val (label_code val)
+                           [=key (embedded_expansions key)
+                            =val (embedded_expansions val)
                             #let [[key_labels key_labelled] =key
                                   [val_labels val_labelled] =val]]
                            (in [(list\compose key_labels val_labels) [key_labelled val_labelled]])))
@@ -5823,7 +5822,7 @@
   (case tokens
     (^ (list raw))
     (do meta_monad
-      [=raw (label_code raw)
+      [=raw (..embedded_expansions raw)
        #let [[labels labelled] =raw]]
       (in (list (` (with_expansions [(~+ (|> labels
                                              (list\map (function (_ [label expansion]) (list label expansion)))
