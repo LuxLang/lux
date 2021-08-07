@@ -123,6 +123,7 @@
 
 # Exemplar
 
+1. [Debunking “Purpose-Built Data Systems”: Enter the Universal Database](https://tiledb.com/blog/debunking-purpose-built-data-systems-enter-the-universal-database-2021-08-04)
 1. [Irmin](https://irmin.org/)
 1. [Database of Databases](https://dbdb.io/)
 

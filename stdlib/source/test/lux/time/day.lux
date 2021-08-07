@@ -4,16 +4,24 @@
     ["_" test (#+ Test)]
     [abstract
      [monad (#+ do)]
+     ["." predicate]
      [\\specification
       ["$." equivalence]
+      ["$." hash]
       ["$." order]
       ["$." enum]
       ["$." codec]]]
     [control
-     ["." try]
+     ["." try ("#\." functor)]
      ["." exception]]
+    [data
+     [collection
+      ["." list]
+      ["." set]]]
     [math
-     ["." random (#+ Random) ("#\." monad)]]]]
+     ["." random (#+ Random) ("#\." monad)]
+     [number
+      ["n" nat]]]]]
   [\\library
    ["." /]])
 
@@ -31,23 +39,50 @@
   Test
   (<| (_.covering /._)
       (_.for [/.Day])
-      ($_ _.and
-          (_.for [/.equivalence]
-                 ($equivalence.spec /.equivalence ..random))
-          (_.for [/.order]
-                 ($order.spec /.order ..random))
-          (_.for [/.enum]
-                 ($enum.spec /.enum ..random))
-          (_.for [/.codec]
-                 ($codec.spec /.equivalence /.codec ..random))
+      (do random.monad
+        [expected ..random
+         invalid (random.only (predicate.or (n.< (/.number #/.Sunday))
+                                            (n.> (/.number #/.Saturday)))
+                              random.nat)]
+        ($_ _.and
+            (_.for [/.equivalence]
+                   ($equivalence.spec /.equivalence ..random))
+            (_.for [/.hash]
+                   ($hash.spec /.hash ..random))
+            (_.for [/.order]
+                   ($order.spec /.order ..random))
+            (_.for [/.enum]
+                   ($enum.spec /.enum ..random))
+            (_.for [/.codec]
+                   ($codec.spec /.equivalence /.codec ..random))
 
-          (do random.monad
-            [not_a_day (random.ascii/upper 1)]
-            (_.cover [/.not_a_day_of_the_week]
-                     (case (\ /.codec decode not_a_day)
+            (do random.monad
+              [not_a_day (random.ascii/upper 1)]
+              (_.cover [/.not_a_day_of_the_week]
+                       (case (\ /.codec decode not_a_day)
+                         (#try.Failure error)
+                         (exception.match? /.not_a_day_of_the_week error)
+                         
+                         (#try.Success _)
+                         false)))
+            (_.cover [/.number /.by_number]
+                     (|> expected
+                         /.number
+                         /.by_number
+                         (try\map (\ /.equivalence = expected))
+                         (try.else false)))
+            (_.cover [/.invalid_day]
+                     (case (/.by_number invalid)
                        (#try.Failure error)
-                       (exception.match? /.not_a_day_of_the_week error)
+                       (exception.match? /.invalid_day error)
                        
                        (#try.Success _)
-                       false)))
-          )))
+                       false))
+            (_.cover [/.week]
+                     (let [all (list.size /.week)
+                           uniques (set.size (set.of_list /.hash /.week))]
+                       (and (n.= (/.number #/.Saturday)
+                                 all)
+                            (n.= all
+                                 uniques))))
+            ))))

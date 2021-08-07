@@ -859,30 +859,30 @@
   [reflection_return Return luxT.return]
   )
 
-(def: (class_candidate_parents class_loader from_name fromT to_name to_class)
+(def: (class_candidate_parents class_loader source_name fromT target_name target_class)
   (-> java/lang/ClassLoader External .Type External (java/lang/Class java/lang/Object) (Operation (List [[Text .Type] Bit])))
   (do {! phase.monad}
-    [from_class (phase.lift (reflection!.load class_loader from_name))
-     mapping (phase.lift (reflection!.correspond from_class fromT))]
+    [source_class (phase.lift (reflection!.load class_loader source_name))
+     mapping (phase.lift (reflection!.correspond source_class fromT))]
     (monad.map !
                (function (_ superJT)
                  (do !
                    [superJT (phase.lift (reflection!.type superJT))
-                    #let [super_name (|> superJT ..reflection)]
+                    .let [super_name (|> superJT ..reflection)]
                     super_class (phase.lift (reflection!.load class_loader super_name))
                     superT (reflection_type mapping superJT)]
-                   (in [[super_name superT] (java/lang/Class::isAssignableFrom super_class to_class)])))
-               (case (java/lang/Class::getGenericSuperclass from_class)
+                   (in [[super_name superT] (java/lang/Class::isAssignableFrom super_class target_class)])))
+               (case (java/lang/Class::getGenericSuperclass source_class)
                  (#.Some super)
-                 (list& super (array.to_list (java/lang/Class::getGenericInterfaces from_class)))
+                 (list& super (array.list (java/lang/Class::getGenericInterfaces source_class)))
 
                  #.None
-                 (if (java/lang/reflect/Modifier::isInterface (java/lang/Class::getModifiers from_class))
+                 (if (java/lang/reflect/Modifier::isInterface (java/lang/Class::getModifiers source_class))
                    (#.Item (:as java/lang/reflect/Type (ffi.class_for java/lang/Object))
-                           (array.to_list (java/lang/Class::getGenericInterfaces from_class)))
-                   (array.to_list (java/lang/Class::getGenericInterfaces from_class)))))))
+                           (array.list (java/lang/Class::getGenericInterfaces source_class)))
+                   (array.list (java/lang/Class::getGenericInterfaces source_class)))))))
 
-(def: (inheritance_candidate_parents class_loader fromT to_class toT fromC)
+(def: (inheritance_candidate_parents class_loader fromT target_class toT fromC)
   (-> java/lang/ClassLoader .Type (java/lang/Class java/lang/Object) .Type Code (Operation (List [[Text .Type] Bit])))
   (case fromT
     (^ (#.Primitive _ (list& self_classT super_classT super_interfacesT+)))
@@ -892,7 +892,7 @@
                    [super_name (\ ! map ..reflection (check_jvm superT))
                     super_class (phase.lift (reflection!.load class_loader super_name))]
                    (in [[super_name superT]
-                        (java/lang/Class::isAssignableFrom super_class to_class)])))
+                        (java/lang/Class::isAssignableFrom super_class target_class)])))
                (list& super_classT super_interfacesT+))
 
     _
@@ -905,18 +905,18 @@
       (^ (list fromC))
       (do {! phase.monad}
         [toT (///.lift meta.expected_type)
-         to_name (\ ! map ..reflection (check_jvm toT))
+         target_name (\ ! map ..reflection (check_jvm toT))
          [fromT fromA] (typeA.with_inference
                          (analyse archive fromC))
-         from_name (\ ! map ..reflection (check_jvm fromT))
+         source_name (\ ! map ..reflection (check_jvm fromT))
          can_cast? (: (Operation Bit)
                       (`` (cond (~~ (template [<primitive> <object>]
                                       [(let [=primitive (reflection.reflection <primitive>)]
-                                         (or (and (text\= =primitive from_name)
-                                                  (or (text\= <object> to_name)
-                                                      (text\= =primitive to_name)))
-                                             (and (text\= <object> from_name)
-                                                  (text\= =primitive to_name))))
+                                         (or (and (text\= =primitive source_name)
+                                                  (or (text\= <object> target_name)
+                                                      (text\= =primitive target_name)))
+                                             (and (text\= <object> source_name)
+                                                  (text\= =primitive target_name))))
                                        (in true)]
 
                                       [reflection.boolean box.boolean]
@@ -930,25 +930,25 @@
 
                                 ## else
                                 (do !
-                                  [_ (phase.assertion ..primitives_are_not_objects [from_name]
-                                                      (not (dictionary.key? ..boxes from_name)))
-                                   _ (phase.assertion ..primitives_are_not_objects [to_name]
-                                                      (not (dictionary.key? ..boxes to_name)))
-                                   to_class (phase.lift (reflection!.load class_loader to_name))
-                                   _ (if (text\= ..inheritance_relationship_type_name from_name)
+                                  [_ (phase.assertion ..primitives_are_not_objects [source_name]
+                                                      (not (dictionary.key? ..boxes source_name)))
+                                   _ (phase.assertion ..primitives_are_not_objects [target_name]
+                                                      (not (dictionary.key? ..boxes target_name)))
+                                   target_class (phase.lift (reflection!.load class_loader target_name))
+                                   _ (if (text\= ..inheritance_relationship_type_name source_name)
                                        (in [])
                                        (do !
-                                         [from_class (phase.lift (reflection!.load class_loader from_name))]
+                                         [source_class (phase.lift (reflection!.load class_loader source_name))]
                                          (phase.assertion ..cannot_cast [fromT toT fromC]
-                                                          (java/lang/Class::isAssignableFrom from_class to_class))))]
-                                  (loop [[current_name currentT] [from_name fromT]]
-                                    (if (text\= to_name current_name)
+                                                          (java/lang/Class::isAssignableFrom source_class target_class))))]
+                                  (loop [[current_name currentT] [source_name fromT]]
+                                    (if (text\= target_name current_name)
                                       (in true)
                                       (do !
                                         [candidate_parents (: (Operation (List [[Text .Type] Bit]))
                                                               (if (text\= ..inheritance_relationship_type_name current_name)
-                                                                (inheritance_candidate_parents class_loader currentT to_class toT fromC)
-                                                                (class_candidate_parents class_loader current_name currentT to_name to_class)))]
+                                                                (inheritance_candidate_parents class_loader currentT target_class toT fromC)
+                                                                (class_candidate_parents class_loader current_name currentT target_name target_class)))]
                                         (case (|> candidate_parents
                                                   (list.only product.right)
                                                   (list\map product.left))
@@ -958,8 +958,8 @@
                                           #.End
                                           (in false)))))))))]
         (if can_cast?
-          (in (#/////analysis.Extension extension_name (list (/////analysis.text from_name)
-                                                             (/////analysis.text to_name)
+          (in (#/////analysis.Extension extension_name (list (/////analysis.text source_name)
+                                                             (/////analysis.text target_name)
                                                              fromA)))
           (/////analysis.except ..cannot_cast [fromT toT fromC])))
 
@@ -1089,10 +1089,10 @@
   (-> Aliasing (java/lang/Class java/lang/Object) Text Method_Style (List (Type Value)) java/lang/reflect/Method (Operation Bit))
   (do phase.monad
     [parameters (|> (java/lang/reflect/Method::getGenericParameterTypes method)
-                    array.to_list
+                    array.list
                     (monad.map try.monad reflection!.type)
                     phase.lift)
-     #let [modifiers (java/lang/reflect/Method::getModifiers method)
+     .let [modifiers (java/lang/reflect/Method::getModifiers method)
            correct_class? (java/lang/Object::equals class (java/lang/reflect/Method::getDeclaringClass method))
            correct_method? (text\= method_name (java/lang/reflect/Method::getName method))
            static_matches? (case method_style
@@ -1135,7 +1135,7 @@
   (-> Aliasing (java/lang/Class java/lang/Object) (List (Type Value)) (java/lang/reflect/Constructor java/lang/Object) (Operation Bit))
   (do phase.monad
     [parameters (|> (java/lang/reflect/Constructor::getGenericParameterTypes constructor)
-                    array.to_list
+                    array.list
                     (monad.map try.monad reflection!.type)
                     phase.lift)]
     (in (and (java/lang/Object::equals class (java/lang/reflect/Constructor::getDeclaringClass constructor))
@@ -1155,7 +1155,7 @@
                         true
                         (list.zipped/2 parameters inputsJT))))))
 
-(def: idx_to_parameter
+(def: index_parameter
   (-> Nat .Type)
   (|>> (n.* 2) inc #.Parameter))
 
@@ -1166,7 +1166,7 @@
                       list.reversed
                       list.enumeration
                       (list\map (function (_ [idx name])
-                                  [name (idx_to_parameter idx)]))
+                                  [name (index_parameter idx)]))
                       list.reversed)
         num_owner_tvars (list.size owner_tvars)
         owner_tvarsT (|> lux_tvars (list.take num_owner_tvars) (list\map product.right))
@@ -1182,15 +1182,15 @@
 
                       _
                       (|> (java/lang/Class::getTypeParameters owner)
-                          array.to_list
+                          array.list
                           (list\map (|>> java/lang/reflect/TypeVariable::getName))))
         method_tvars (|> (java/lang/reflect/Method::getTypeParameters method)
-                         array.to_list
+                         array.list
                          (list\map (|>> java/lang/reflect/TypeVariable::getName)))
         [owner_tvarsT mapping] (jvm_type_var_mapping owner_tvars method_tvars)]
     (do {! phase.monad}
       [inputsT (|> (java/lang/reflect/Method::getGenericParameterTypes method)
-                   array.to_list
+                   array.list
                    (monad.map ! (|>> reflection!.type phase.lift))
                    (phase\map (monad.map ! (..reflection_type mapping)))
                    phase\join)
@@ -1201,11 +1201,11 @@
                    (phase\map (..reflection_return mapping))
                    phase\join)
        exceptionsT (|> (java/lang/reflect/Method::getGenericExceptionTypes method)
-                       array.to_list
+                       array.list
                        (monad.map ! (|>> reflection!.type phase.lift))
                        (phase\map (monad.map ! (..reflection_type mapping)))
                        phase\join)
-       #let [methodT (<| (type.univ_q (dictionary.size mapping))
+       .let [methodT (<| (type.univ_q (dictionary.size mapping))
                          (type.function (case method_style
                                           #Static
                                           inputsT
@@ -1222,24 +1222,24 @@
   (-> (java/lang/reflect/Constructor java/lang/Object) (Operation Method_Signature))
   (let [owner (java/lang/reflect/Constructor::getDeclaringClass constructor)
         owner_tvars (|> (java/lang/Class::getTypeParameters owner)
-                        array.to_list
+                        array.list
                         (list\map (|>> java/lang/reflect/TypeVariable::getName)))
         method_tvars (|> (java/lang/reflect/Constructor::getTypeParameters constructor)
-                         array.to_list
+                         array.list
                          (list\map (|>> java/lang/reflect/TypeVariable::getName)))
         [owner_tvarsT mapping] (jvm_type_var_mapping owner_tvars method_tvars)]
     (do {! phase.monad}
       [inputsT (|> (java/lang/reflect/Constructor::getGenericParameterTypes constructor)
-                   array.to_list
+                   array.list
                    (monad.map ! (|>> reflection!.type phase.lift))
                    (phase\map (monad.map ! (reflection_type mapping)))
                    phase\join)
        exceptionsT (|> (java/lang/reflect/Constructor::getGenericExceptionTypes constructor)
-                       array.to_list
+                       array.list
                        (monad.map ! (|>> reflection!.type phase.lift))
                        (phase\map (monad.map ! (reflection_type mapping)))
                        phase\join)
-       #let [objectT (#.Primitive (java/lang/Class::getName owner) owner_tvarsT)
+       .let [objectT (#.Primitive (java/lang/Class::getName owner) owner_tvarsT)
              constructorT (<| (type.univ_q (dictionary.size mapping))
                               (type.function inputsT)
                               objectT)]]
@@ -1268,7 +1268,7 @@
   [(def: <name>
      (-> <type> (List (Type Var)))
      (|>> <method>
-          array.to_list
+          array.list
           (list\map (|>> java/lang/reflect/TypeVariable::getName jvm.var))))]
 
   [class_type_variables (java/lang/Class java/lang/Object) java/lang/Class::getTypeParameters]
@@ -1286,15 +1286,15 @@
   (-> java/lang/ClassLoader (List (Type Var)) External (List (Type Var)) Text Method_Style (List (Type Value)) (Operation Method_Signature))
   (do {! phase.monad}
     [class (phase.lift (reflection!.load class_loader class_name))
-     #let [expected_class_tvars (class_type_variables class)]
+     .let [expected_class_tvars (class_type_variables class)]
      candidates (|> class
                     java/lang/Class::getDeclaredMethods
-                    array.to_list
+                    array.list
                     (list.only (|>> java/lang/reflect/Method::getName (text\= method_name)))
                     (monad.map ! (: (-> java/lang/reflect/Method (Operation Evaluation))
                                     (function (_ method)
                                       (do !
-                                        [#let [expected_method_tvars (method_type_variables method)
+                                        [.let [expected_method_tvars (method_type_variables method)
                                                aliasing (dictionary.merged (..aliasing expected_class_tvars actual_class_tvars)
                                                                            (..aliasing expected_method_tvars actual_method_tvars))]
                                          passes? (check_method aliasing class method_name method_style inputsJT method)]
@@ -1319,13 +1319,13 @@
   (-> java/lang/ClassLoader (List (Type Var)) External (List (Type Var)) (List (Type Value)) (Operation Method_Signature))
   (do {! phase.monad}
     [class (phase.lift (reflection!.load class_loader class_name))
-     #let [expected_class_tvars (class_type_variables class)]
+     .let [expected_class_tvars (class_type_variables class)]
      candidates (|> class
                     java/lang/Class::getConstructors
-                    array.to_list
+                    array.list
                     (monad.map ! (function (_ constructor)
                                    (do !
-                                     [#let [expected_method_tvars (constructor_type_variables constructor)
+                                     [.let [expected_method_tvars (constructor_type_variables constructor)
                                             aliasing (dictionary.merged (..aliasing expected_class_tvars actual_class_tvars)
                                                                         (..aliasing expected_method_tvars actual_method_tvars))]
                                       passes? (check_constructor aliasing class inputsJT constructor)]
@@ -1374,7 +1374,7 @@
     (function (_ extension_name analyse archive [class_tvars [class method] method_tvars argsTC])
       (do phase.monad
         [_ (..ensure_fresh_class! class_loader class)
-         #let [argsT (list\map product.left argsTC)]
+         .let [argsT (list\map product.left argsTC)]
          [methodT deprecated? exceptionsT] (..method_candidate class_loader class_tvars class method_tvars method #Static argsT)
          _ (phase.assertion ..deprecated_method [class method methodT]
                             (not deprecated?))
@@ -1392,12 +1392,12 @@
     (function (_ extension_name analyse archive [class_tvars [class method] method_tvars objectC argsTC])
       (do phase.monad
         [_ (..ensure_fresh_class! class_loader class)
-         #let [argsT (list\map product.left argsTC)]
+         .let [argsT (list\map product.left argsTC)]
          [methodT deprecated? exceptionsT] (..method_candidate class_loader class_tvars class method_tvars method #Virtual argsT)
          _ (phase.assertion ..deprecated_method [class method methodT]
                             (not deprecated?))
          [outputT allA] (inferenceA.general archive analyse methodT (list& objectC (list\map product.right argsTC)))
-         #let [[objectA argsA] (case allA
+         .let [[objectA argsA] (case allA
                                  (#.Item objectA argsA)
                                  [objectA argsA]
 
@@ -1417,7 +1417,7 @@
     (function (_ extension_name analyse archive [class_tvars [class method] method_tvars objectC argsTC])
       (do phase.monad
         [_ (..ensure_fresh_class! class_loader class)
-         #let [argsT (list\map product.left argsTC)]
+         .let [argsT (list\map product.left argsTC)]
          [methodT deprecated? exceptionsT] (..method_candidate class_loader class_tvars class method_tvars method #Special argsT)
          _ (phase.assertion ..deprecated_method [class method methodT]
                             (not deprecated?))
@@ -1435,7 +1435,7 @@
     (function (_ extension_name analyse archive [class_tvars [class_name method] method_tvars objectC argsTC])
       (do phase.monad
         [_ (..ensure_fresh_class! class_loader class_name)
-         #let [argsT (list\map product.left argsTC)]
+         .let [argsT (list\map product.left argsTC)]
          class (phase.lift (reflection!.load class_loader class_name))
          _ (phase.assertion non_interface class_name
                             (java/lang/reflect/Modifier::isInterface (java/lang/Class::getModifiers class)))
@@ -1443,7 +1443,7 @@
          _ (phase.assertion ..deprecated_method [class_name method methodT]
                             (not deprecated?))
          [outputT allA] (inferenceA.general archive analyse methodT (list& objectC (list\map product.right argsTC)))
-         #let [[objectA argsA] (case allA
+         .let [[objectA argsA] (case allA
                                  (#.Item objectA argsA)
                                  [objectA argsA]
 
@@ -1464,7 +1464,7 @@
     (function (_ extension_name analyse archive [class_tvars class method_tvars argsTC])
       (do phase.monad
         [_ (..ensure_fresh_class! class_loader class)
-         #let [argsT (list\map product.left argsTC)]
+         .let [argsT (list\map product.left argsTC)]
          [methodT deprecated? exceptionsT] (..constructor_candidate class_loader class_tvars class method_tvars argsT)
          _ (phase.assertion ..deprecated_method [class ..constructor_method methodT]
                             (not deprecated?))
@@ -1547,23 +1547,23 @@
      (-> (java/lang/Class java/lang/Object)
          (Try (List [Text (Type Method)])))
      (|>> java/lang/Class::getDeclaredMethods
-          array.to_list
+          array.list
           <only>
           (monad.map try.monad
                      (function (_ method)
                        (do {! try.monad}
-                         [#let [type_variables (|> (java/lang/reflect/Method::getTypeParameters method)
-                                                   array.to_list
+                         [.let [type_variables (|> (java/lang/reflect/Method::getTypeParameters method)
+                                                   array.list
                                                    (list\map (|>> java/lang/reflect/TypeVariable::getName
                                                                   jvm.var)))]
                           inputs (|> (java/lang/reflect/Method::getGenericParameterTypes method)
-                                     array.to_list
+                                     array.list
                                      (monad.map ! reflection!.type))
                           return (|> method
                                      java/lang/reflect/Method::getGenericReturnType
                                      reflection!.return)
                           exceptions (|> (java/lang/reflect/Method::getGenericExceptionTypes method)
-                                         array.to_list
+                                         array.list
                                          (monad.map ! reflection!.class))]
                          (in [(java/lang/reflect/Method::getName method)
                               (jvm.method [type_variables inputs return exceptions])]))))))]
@@ -2059,10 +2059,10 @@
 (def: (super_aliasing class_loader class)
   (-> java/lang/ClassLoader (Type Class) (Operation Aliasing))
   (do phase.monad
-    [#let [[name actual_parameters] (jvm_parser.read_class class)]
+    [.let [[name actual_parameters] (jvm_parser.read_class class)]
      class (phase.lift (reflection!.load class_loader name))
-     #let [expected_parameters (|> (java/lang/Class::getTypeParameters class)
-                                   array.to_list
+     .let [expected_parameters (|> (java/lang/Class::getTypeParameters class)
+                                   array.list
                                    (list\map (|>> java/lang/reflect/TypeVariable::getName)))]
      _ (phase.assertion ..class_parameter_mismatch [expected_parameters actual_parameters]
                         (n.= (list.size expected_parameters)
@@ -2100,7 +2100,7 @@
                                                                           exceptions])
                                                              (jvm_alias.method aliasing))])))
                                   methods)
-     #let [missing_abstract_methods (mismatched_methods overriden_methods required_abstract_methods)
+     .let [missing_abstract_methods (mismatched_methods overriden_methods required_abstract_methods)
            invalid_overriden_methods (mismatched_methods available_methods overriden_methods)]
      _ (phase.assertion ..missing_abstract_methods missing_abstract_methods
                         (list.empty? missing_abstract_methods))
@@ -2127,7 +2127,7 @@
          _ (monad.map ! (|>> ..reflection (..ensure_fresh_class! class_loader)) super_interfaces)
          parameters (typeA.with_env
                       (..parameter_types parameters))
-         #let [mapping (list\fold (function (_ [parameterJ parameterT] mapping)
+         .let [mapping (list\fold (function (_ [parameterJ parameterT] mapping)
                                     (dictionary.put (jvm_parser.name parameterJ)
                                                     parameterT
                                                     mapping))
@@ -2153,7 +2153,7 @@
                                                       (analyse archive term))]
                                              (in [type termA])))
                                        constructor_args)
-         #let [supers (#.Item super_class super_interfaces)]
+         .let [supers (#.Item super_class super_interfaces)]
          _ (..require_complete_method_concretion class_loader supers methods)
          methodsA (monad.map ! (analyse_overriden_method analyse archive selfT mapping supers) methods)]
         (in (#/////analysis.Extension extension_name

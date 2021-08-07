@@ -63,6 +63,7 @@
 
 # Vulnerability
 
+1. [SAML is insecure by design](https://joonas.fi/2021/08/saml-is-insecure-by-design/)
 1. [Against Cipher Agility in Cryptography Protocols](https://paragonie.com/blog/2019/10/against-agility-in-cryptography-protocols)
 1. [Padding the struct: How a compiler optimization can disclose stack memory](https://www.nccgroup.trust/us/about-us/newsroom-and-events/blog/2019/october/padding-the-struct-how-a-compiler-optimization-can-disclose-stack-memory/)
 1. [PCG generators are easily “crackable”](https://news.ycombinator.com/item?id=21475210)

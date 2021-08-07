@@ -1,3 +1,7 @@
+# Half-precision
+
+1. [Supporting half-precision floats is really annoying](https://futhark-lang.org/blog/2021-08-05-half-precision-floats.html)
+
 # Debugging
 
 1. [Keynote: William Kahan - Debugging Tools for Floating-Point Code](https://www.youtube.com/watch?v=qHddEkfQBrA)

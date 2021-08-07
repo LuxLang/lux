@@ -1,3 +1,11 @@
+# Design
+
+1. [Good Design is Imperfect Design Part 1: Honest Names](https://www.domainlanguage.com/articles/good-design-is-imperfect-design-part-1-honest-names/)
+
+# Programming
+
+1. [Reflections on 10,000 Hours of Programming](https://matt-rickard.com/reflections-on-10-000-hours-of-programming/)
+
 # Feature
 
 1. [About Adding Features (part 1)](https://kele.codes/2021/07/about-adding-features-1/)

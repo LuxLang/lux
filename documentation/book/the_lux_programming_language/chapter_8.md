@@ -311,5 +311,5 @@ Hopefully, you'll be able to get a feel for them in the next chapters, because w
 
 So, buckle-up, cowboy. This ride is about to get bumpy.
 
-See you in the next chapter!
+See you in [the next chapter](chapter_9.md)!
 

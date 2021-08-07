@@ -3,7 +3,7 @@
 ## https://hypirion.com/musings/understanding-persistent-vector-pt-3
 (.module:
   [library
-   [lux #*
+   [lux (#- list)
     ["@" target]
     [abstract
      [functor (#+ Functor)]
@@ -72,9 +72,9 @@
   (-> Index Index)
   (i64.and branch_idx_mask))
 
-(def: (new_hierarchy _)
+(def: (empty_hierarchy _)
   (All [a] (-> Any (Hierarchy a)))
-  (array.empty full_node_size))
+  (array.empty ..full_node_size))
 
 (def: (tail_off row_size)
   (-> Nat Nat)
@@ -84,20 +84,20 @@
         (i64.right_shifted branching_exponent)
         (i64.left_shifted branching_exponent))))
 
-(def: (new_path level tail)
+(def: (path level tail)
   (All [a] (-> Level (Base a) (Node a)))
   (if (n.= 0 level)
     (#Base tail)
-    (|> (new_hierarchy [])
-        (array.write! 0 (new_path (level_down level) tail))
+    (|> (empty_hierarchy [])
+        (array.write! 0 (path (level_down level) tail))
         #Hierarchy)))
 
-(def: (new_tail singleton)
+(def: (tail singleton)
   (All [a] (-> a (Base a)))
   (|> (array.empty 1)
       (array.write! 0 singleton)))
 
-(def: (push_tail size level tail parent)
+(def: (with_tail size level tail parent)
   (All [a] (-> Nat Level (Base a) (Hierarchy a) (Hierarchy a)))
   (let [sub_idx (branch_idx (i64.right_shifted level (dec size)))
         ## If we're currently on a bottom node
@@ -108,10 +108,10 @@
                    (case (array.read sub_idx parent)
                      ## If so, set the path to the tail
                      #.None
-                     (new_path (level_down level) tail)
+                     (..path (level_down level) tail)
                      ## If not, push the tail onto the sub_node.
                      (#.Some (#Hierarchy sub_node))
-                     (#Hierarchy (push_tail size (level_down level) tail sub_node))
+                     (#Hierarchy (with_tail size (level_down level) tail sub_node))
 
                      _
                      (undefined))
@@ -119,7 +119,7 @@
     (|> (array.clone parent)
         (array.write! sub_idx sub_node))))
 
-(def: (expand_tail val tail)
+(def: (expanded_tail val tail)
   (All [a] (-> a (Base a) (Base a)))
   (let [tail_size (array.size tail)]
     (|> (array.empty (inc tail_size))
@@ -144,7 +144,7 @@
       _
       (undefined))))
 
-(def: (pop_tail size level hierarchy)
+(def: (without_tail size level hierarchy)
   (All [a] (-> Nat Level (Hierarchy a) (Maybe (Hierarchy a))))
   (let [sub_idx (branch_idx (i64.right_shifted level (n.- 2 size)))]
     (cond (n.= 0 sub_idx)
@@ -155,7 +155,7 @@
             [base|hierarchy (array.read sub_idx hierarchy)
              sub (case base|hierarchy
                    (#Hierarchy sub)
-                   (pop_tail size (level_down level) sub)
+                   (without_tail size (level_down level) sub)
 
                    (#Base _)
                    (undefined))]
@@ -169,17 +169,17 @@
               #.Some)
           )))
 
-(def: (to_list' node)
+(def: (list' node)
   (All [a] (-> (Node a) (List a)))
   (case node
     (#Base base)
-    (array.to_list base)
+    (array.list base)
     
     (#Hierarchy hierarchy)
     (|> hierarchy
-        array.to_list
+        array.list
         list.reversed
-        (list\fold (function (_ sub acc) (list\compose (to_list' sub) acc))
+        (list\fold (function (_ sub acc) (list\compose (list' sub) acc))
                    #.End))))
 
 (type: #export (Row a)
@@ -193,7 +193,7 @@
   Row
   {#level (level_up root_level)
    #size 0
-   #root (array.empty full_node_size)
+   #root (empty_hierarchy [])
    #tail (array.empty 0)})
 
 (def: #export (size row)
@@ -208,7 +208,7 @@
       ## If so, append to it.
       (|> row
           (update@ #size inc)
-          (update@ #tail (expand_tail val)))
+          (update@ #tail (..expanded_tail val)))
       ## Otherwise, push tail into the tree
       ## --------------------------------------------------------
       ## Will the root experience an overflow with this addition?
@@ -219,18 +219,18 @@
             (|> row
                 (set@ #root (|> (for {@.old
                                       (: (Hierarchy (:parameter 0))
-                                         (new_hierarchy []))}
-                                     (new_hierarchy []))
+                                         (empty_hierarchy []))}
+                                     (empty_hierarchy []))
                                 (array.write! 0 (#Hierarchy (get@ #root row)))
-                                (array.write! 1 (new_path (get@ #level row) (get@ #tail row)))))
+                                (array.write! 1 (..path (get@ #level row) (get@ #tail row)))))
                 (update@ #level level_up))
             ## Otherwise, just push the current tail onto the root.
             (|> row
-                (update@ #root (push_tail row_size (get@ #level row) (get@ #tail row)))))
+                (update@ #root (..with_tail row_size (get@ #level row) (get@ #tail row)))))
           ## Finally, update the size of the row and grow a new
           ## tail with the new element as it's sole member.
           (update@ #size inc)
-          (set@ #tail (new_tail val)))
+          (set@ #tail (..tail val)))
       )))
 
 (exception: incorrect_row_structure)
@@ -319,10 +319,10 @@
       (maybe.assume
        (do maybe.monad
          [new_tail (base_for (n.- 2 row_size) row)
-          #let [[level' root'] (let [init_level (get@ #level row)]
+          .let [[level' root'] (let [init_level (get@ #level row)]
                                  (loop [level init_level
-                                        root (maybe.else (new_hierarchy [])
-                                                         (pop_tail row_size init_level (get@ #root row)))]
+                                        root (maybe.else (empty_hierarchy [])
+                                                         (without_tail row_size init_level (get@ #root row)))]
                                    (if (n.> branching_exponent level)
                                      (case [(array.read 1 root) (array.read 0 root)]
                                        [#.None (#.Some (#Hierarchy sub_node))]
@@ -341,10 +341,10 @@
                  (set@ #tail new_tail))))))
     ))
 
-(def: #export (to_list row)
+(def: #export (list row)
   (All [a] (-> (Row a) (List a)))
-  (list\compose (to_list' (#Hierarchy (get@ #root row)))
-                (to_list' (#Base (get@ #tail row)))))
+  (list\compose (list' (#Hierarchy (get@ #root row)))
+                (list' (#Base (get@ #tail row)))))
 
 (def: #export of_list
   (All [a] (-> (List a) (Row a)))
@@ -352,7 +352,7 @@
 
 (def: #export (member? a/Equivalence row val)
   (All [a] (-> (Equivalence a) (Row a) a Bit))
-  (list.member? a/Equivalence (to_list row) val))
+  (list.member? a/Equivalence (list row) val))
 
 (def: #export empty?
   (All [a] (-> (Row a) Bit))
@@ -361,7 +361,7 @@
 (syntax: #export (row {elems (p.some s.any)})
   {#.doc (doc "Row literals."
               (row 12 34 56 78 90))}
-  (in (list (` (..of_list (list (~+ elems)))))))
+  (in (.list (` (..of_list (.list (~+ elems)))))))
 
 (implementation: (node_equivalence Equivalence<a>)
   (All [a] (-> (Equivalence a) (Equivalence (Node a))))
@@ -418,7 +418,7 @@
   (def: identity ..empty)
   
   (def: (compose xs ys)
-    (list\fold add xs (..to_list ys))))
+    (list\fold add xs (..list ys))))
 
 (implementation: node_functor
   (Functor Node)
@@ -467,7 +467,7 @@
 
 (def: #export reversed
   (All [a] (-> (Row a) (Row a)))
-  (|>> ..to_list
+  (|>> ..list
        list.reversed
        (list\fold add ..empty)))
 

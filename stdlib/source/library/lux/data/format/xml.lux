@@ -172,7 +172,7 @@
                [_ (<text>.this "<")
                 tag (..spaced^ tag^)
                 attrs (..spaced^ attrs^)
-                #let [no_children^ ($_ <>.either
+                .let [no_children^ ($_ <>.either
                                        (do <>.monad
                                          [_ (<text>.this "/>")]
                                          (in (#Node tag attrs (list))))
@@ -197,10 +197,6 @@
       (<>.before (<>.some ..null^))
       (<>.after (<>.maybe ..xml_header^))))
 
-(def: read
-  (-> Text (Try XML))
-  (<text>.run xml^))
-
 (def: (sanitize_value input)
   (-> Text Text)
   (|> input
@@ -222,14 +218,6 @@
   (-> Attribute Text)
   ..tag)
 
-(def: (write_attrs attrs)
-  (-> Attrs Text)
-  (|> attrs
-      dictionary.entries
-      (list\map (function (_ [key value])
-                  ($_ text\compose (..attribute key) "=" text.double_quote (sanitize_value value) text.double_quote)))
-      (text.join_with " ")))
-
 (def: xml_header
   Text
   (let [quote (: (-> Text Text)
@@ -241,45 +229,51 @@
         " encoding=" (quote "UTF-8")
         "?>")))
 
-(def: (write input)
-  (-> XML Text)
-  ($_ text\compose
-      ..xml_header text.new_line
-      (loop [prefix ""
-             input input]
-        (case input
-          (#Text value)
-          (sanitize_value value)
-
-          (^ (#Node xml_tag xml_attrs (list (#Text value))))
-          (let [tag (..tag xml_tag)
-                attrs (if (dictionary.empty? xml_attrs)
-                        ""
-                        ($_ text\compose " " (..write_attrs xml_attrs)))]
-            ($_ text\compose
-                prefix "<" tag attrs ">"
-                (sanitize_value value)
-                "</" tag ">"))
-          
-          (#Node xml_tag xml_attrs xml_children)
-          (let [tag (..tag xml_tag)
-                attrs (if (dictionary.empty? xml_attrs)
-                        ""
-                        ($_ text\compose " " (..write_attrs xml_attrs)))]
-            (if (list.empty? xml_children)
-              ($_ text\compose prefix "<" tag attrs "/>")
-              ($_ text\compose prefix "<" tag attrs ">"
-                  (|> xml_children
-                      (list\map (|>> (recur (text\compose prefix text.tab)) (text\compose text.new_line)))
-                      (text.join_with ""))
-                  text.new_line prefix "</" tag ">")))))
-      ))
-
 (implementation: #export codec
   (Codec Text XML)
   
-  (def: encode ..write)
-  (def: decode ..read))
+  (def: encode
+    (let [attributes (: (-> Attrs Text)
+                        (function (_ attrs)
+                          (|> attrs
+                              dictionary.entries
+                              (list\map (function (_ [key value])
+                                          ($_ text\compose (..attribute key) "=" text.double_quote (sanitize_value value) text.double_quote)))
+                              (text.join_with " "))))]
+      (function (_ input)
+        ($_ text\compose
+            ..xml_header text.new_line
+            (loop [prefix ""
+                   input input]
+              (case input
+                (#Text value)
+                (sanitize_value value)
+
+                (^ (#Node xml_tag xml_attrs (list (#Text value))))
+                (let [tag (..tag xml_tag)
+                      attrs (if (dictionary.empty? xml_attrs)
+                              ""
+                              ($_ text\compose " " (attributes xml_attrs)))]
+                  ($_ text\compose
+                      prefix "<" tag attrs ">"
+                      (sanitize_value value)
+                      "</" tag ">"))
+                
+                (#Node xml_tag xml_attrs xml_children)
+                (let [tag (..tag xml_tag)
+                      attrs (if (dictionary.empty? xml_attrs)
+                              ""
+                              ($_ text\compose " " (attributes xml_attrs)))]
+                  (if (list.empty? xml_children)
+                    ($_ text\compose prefix "<" tag attrs "/>")
+                    ($_ text\compose prefix "<" tag attrs ">"
+                        (|> xml_children
+                            (list\map (|>> (recur (text\compose prefix text.tab)) (text\compose text.new_line)))
+                            (text.join_with ""))
+                        text.new_line prefix "</" tag ">")))))
+            ))))
+  (def: decode
+    (<text>.run ..xml^)))
 
 (implementation: #export equivalence
   (Equivalence XML)
