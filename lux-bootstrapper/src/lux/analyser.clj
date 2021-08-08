@@ -131,7 +131,7 @@
           (|let [(&/$Cons [_ (&/$Identifier "" ?name)]
                           (&/$Cons ?value
                                    (&/$Cons ?meta
-                                            (&/$Cons [_ (&/$Bit exported?)]
+                                            (&/$Cons exported?
                                                      (&/$Nil)))
                                    )) parameters]
             (&/with-location location
@@ -150,7 +150,7 @@
                           (&/$Cons ?value
                                    (&/$Cons ?meta
                                             (&/$Cons [_ (&/$Tuple ?tags)]
-                                                     (&/$Cons [_ (&/$Bit exported?)]
+                                                     (&/$Cons exported?
                                                               (&/$Nil))))
                                    )) parameters]
             (&/with-location location

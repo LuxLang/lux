@@ -6,9 +6,9 @@
     [abstract
      ["." monad (#+ do)]]
     [control
-     ["<>" parser
+     ["<>" parser ("#\." monad)
       ["<.>" type (#+ Env)]
-      ["<.>" code]]]
+      ["<.>" code (#+ Parser)]]]
     [data
      ["." product]
      ["." maybe]
@@ -18,18 +18,23 @@
       ["." dictionary]]]
     [macro (#+ with_gensyms)
      ["." code]
-     [syntax (#+ syntax:)
-      ["|.|" export]]]
+     [syntax (#+ syntax:)]]
     [math
      [number
       ["n" nat]]]]])
 
-(syntax: #export (poly: {export |export|.parser}
-                   {name <code>.local_identifier}
-                   body)
+(def: polyP
+  (Parser [Code Text Code])
+  (let [private ($_ <>.and
+                    <code>.local_identifier
+                    <code>.any)]
+    (<>.either (<>.and <code>.any private)
+               (<>.and (<>\in (` .private)) private))))
+
+(syntax: .public (poly: {[export_policy name body] ..polyP})
   (with_gensyms [g!_ g!type g!output]
     (let [g!name (code.identifier ["" name])]
-      (in (.list (` ((~! syntax:) (~+ (|export|.format export)) ((~ g!name) {(~ g!type) (~! <code>.identifier)})
+      (in (.list (` ((~! syntax:) (~ export_policy) ((~ g!name) {(~ g!type) (~! <code>.identifier)})
                      ((~! do) (~! meta.monad)
                       [(~ g!type) ((~! meta.type_definition) (~ g!type))]
                       (case (: (.Either .Text .Code)
@@ -43,45 +48,30 @@
                         (#.Right (~ g!output))
                         ((~' in) (.list (~ g!output))))))))))))
 
-(def: (common_poly_name? poly_func)
-  (-> Text Bit)
-  (text.contains? "?" poly_func))
+(def: derivedP
+  (Parser [Code Text [Name (List Name)] (Maybe Code)])
+  (let [private ($_ <>.and
+                    <code>.local_identifier
+                    (<code>.form (<>.and <code>.identifier (<>.many <code>.identifier)))
+                    (<>.maybe <code>.any))]
+    (<>.either (<>.and <code>.any private)
+               (<>.and (<>\in (` .private)) private))))
 
-(def: (derivation_name poly args)
-  (-> Text (List Text) (Maybe Text))
-  (if (common_poly_name? poly)
-    (#.Some (list\fold (text.replace_once "?") poly args))
-    #.None))
-
-(syntax: #export (derived: {export |export|.parser}
-                   {?name (<>.maybe <code>.local_identifier)}
-                   {[poly_func poly_args] (<code>.form (<>.and <code>.identifier (<>.many <code>.identifier)))}
-                   {?custom_impl (<>.maybe <code>.any)})
+(syntax: .public (derived: {[export_policy name [poly_func poly_args] ?custom_impl]
+                            ..derivedP})
   (do {! meta.monad}
     [poly_args (monad.map ! meta.normal poly_args)
-     name (case ?name
-            (#.Some name)
-            (in name)
-
-            (^multi #.None
-                    {(derivation_name (product.right poly_func) (list\map product.right poly_args))
-                     (#.Some derived_name)})
-            (in derived_name)
-
-            _
-            (<>.failure "derived: was given no explicit name, and cannot generate one from given information."))
      .let [impl (case ?custom_impl
                   (#.Some custom_impl)
                   custom_impl
 
                   #.None
                   (` ((~ (code.identifier poly_func)) (~+ (list\map code.identifier poly_args)))))]]
-    (in (.list (` (def: (~+ (|export|.format export))
-                    (~ (code.identifier ["" name]))
+    (in (.list (` (def: (~ export_policy) (~ (code.identifier ["" name]))
                     {#.implementation? #1}
                     (~ impl)))))))
 
-(def: #export (code env type)
+(def: .public (code env type)
   (-> Env Type Code)
   (`` (case type
         (#.Primitive name params)

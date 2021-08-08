@@ -41,12 +41,12 @@
     #.End                   #.End
     (#.Item [[x y] pairs']) (list& x y (un_paired pairs'))))
 
-(macro: #export (syntax: tokens)
+(macro: .public (syntax: tokens)
   {#.doc (doc "A more advanced way to define macros than 'macro:'."
               "The inputs to the macro can be parsed in complex ways through the use of syntax parsers."
               "The macro body is also (implicitly) run in the Meta monad, to save some typing."
               "Also, the compiler state can be accessed through the *compiler* binding."
-              (syntax: #export (object {.let [imports (class_imports *compiler*)]}
+              (syntax: .public (object {.let [imports (class_imports *compiler*)]}
                                  {.let [class_vars (list)]}
                                  {super (opt (super_class_decl^ imports class_vars))}
                                  {interfaces (tuple (some (super_class_decl^ imports class_vars)))}
@@ -58,28 +58,32 @@
                                                  (with_brackets (spaced (list\map constructor_arg$ constructor_args)))
                                                  (with_brackets (spaced (list\map (method_def$ id) methods))))))]
                   (in (list (` ((~ (code.text def_code)))))))))}
-  (let [[exported? tokens] (: [Bit (List Code)]
-                              (case tokens
-                                (^ (list& [_ (#.Tag ["" "export"])] tokens'))
-                                [#1 tokens']
-
-                                _
-                                [#0 tokens]))
-        ?parts (: (Maybe [Text (List Code) Code Code])
+  (let [?parts (: (Maybe [Code Text (List Code) Code Code])
                   (case tokens
+                    (^ (list export_policy
+                             [_ (#.Form (list& [_ (#.Identifier ["" name])] args))]
+                             body))
+                    (#.Some [export_policy name args (` {}) body])
+
+                    (^ (list export_policy
+                             [_ (#.Form (list& [_ (#.Identifier ["" name])] args))]
+                             meta_data
+                             body))
+                    (#.Some [export_policy name args meta_data body])
+
                     (^ (list [_ (#.Form (list& [_ (#.Identifier ["" name])] args))]
                              body))
-                    (#.Some name args (` {}) body)
+                    (#.Some [(` .private) name args (` {}) body])
 
                     (^ (list [_ (#.Form (list& [_ (#.Identifier ["" name])] args))]
                              meta_data
                              body))
-                    (#.Some name args meta_data body)
+                    (#.Some [(` .private) name args meta_data body])
 
                     _
                     #.None))]
     (case ?parts
-      (#.Some [name args meta body])
+      (#.Some [export_policy name args meta body])
       (with_gensyms [g!tokens g!body g!error]
         (do {! meta.monad}
           [vars+parsers (monad.map !
@@ -110,12 +114,8 @@
                                    args)
            this_module meta.current_module_name
            .let [g!state (code.identifier ["" "*compiler*"])
-                 error_msg (code.text (macro.wrong_syntax_error [this_module name]))
-                 export_ast (: (List Code)
-                               (if exported?
-                                 (list (' #export))
-                                 (list)))]]
-          (in (list (` (macro: (~+ export_ast) ((~ (code.identifier ["" name])) (~ g!tokens) (~ g!state))
+                 error_msg (code.text (macro.wrong_syntax_error [this_module name]))]]
+          (in (list (` (macro: (~ export_policy) ((~ (code.identifier ["" name])) (~ g!tokens) (~ g!state))
                          (~ meta)
                          ({(#.Right (~ g!body))
                            ((~ g!body) (~ g!state))

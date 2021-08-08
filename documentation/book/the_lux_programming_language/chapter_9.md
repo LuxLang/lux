@@ -42,7 +42,7 @@ The `Lux` type enters the stage.
 
 The `Lux` type represents the state of the Lux compiler at any given point.
 
-It iss not a reflection of that state, or a subset of it. It is `the` state of the Lux compiler; and, as you can see, it contains quite a lot of information about compiled modules, the state of the type-checker, the lexical and global environments, and more.
+It is not a reflection of that state, or a subset of it. It is `the` state of the Lux compiler; and, as you can see, it contains quite a lot of information about compiled modules, the state of the type-checker, the lexical and global environments, and more.
 
 Heck, you can even access the yet-unprocessed source code of a module at any given time.
 

@@ -559,21 +559,23 @@
                     (&/with-expected-type ?expected-type
                       (&&/analyse-1 analyse ?expected-type ?value))
                     (&&/analyse-1+ analyse ?value))))
+        =exported? (&&/analyse-1 analyse &type/Bit exported?)
+        ==exported? (eval! (optimize =exported?))
         =meta (&&/analyse-1 analyse &type/Code ?meta)
         ==meta (eval! (optimize =meta))
-        def-value (compile-def ?name (optimize =value) ==meta exported?)
+        def-value (compile-def ?name (optimize =value) ==meta ==exported?)
         _ &type/reset-mappings
         :let [def-type (&&/expr-type* =value)
               _ (println 'DEF (str module-name &/+name-separator+ ?name
                                    " : " (&type/show-type def-type)))]]
-    (return (&/T [module-name def-type def-value]))))
+    (return (&/T [module-name def-type def-value ==exported?]))))
 
 (defn analyse-def [analyse optimize eval! compile-def ?name ?value ?meta exported?]
   (|do [_ (analyse-def* analyse optimize eval! compile-def ?name ?value ?meta exported?)]
     (return &/$Nil)))
 
 (defn analyse-def-type-tagged [analyse optimize eval! compile-def ?name ?value ?meta tags* exported?]
-  (|do [[module-name def-type def-value] (analyse-def* analyse optimize eval! compile-def ?name ?value ?meta exported? &type/Type)
+  (|do [[module-name def-type def-value =exported?] (analyse-def* analyse optimize eval! compile-def ?name ?value ?meta exported? &type/Type)
         _ (&/assert! (&type/type= &type/Type def-type)
                      "[Analyser Error] Cannot define tags for non-type.")
         tags (&/map% (fn [tag*]
@@ -584,7 +586,7 @@
                          _
                          (&/fail-with-loc "[Analyser Error] Incorrect format for tags.")))
                      tags*)
-        _ (&&module/declare-tags module-name tags exported? def-value)]
+        _ (&&module/declare-tags module-name tags =exported? def-value)]
     (return &/$Nil)))
 
 (defn analyse-def-alias [?alias ?original]
