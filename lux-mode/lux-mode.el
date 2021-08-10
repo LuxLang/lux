@@ -93,8 +93,8 @@ Otherwise check `define-lux-indent' and `put-lux-indent'."
     (modify-syntax-entry ?\[ "(]" table)
     (modify-syntax-entry ?\] ")[" table)
     (modify-syntax-entry ?\" "\"\"" table)
-    (modify-syntax-entry ?# "w 124b" table)
-    (modify-syntax-entry ?\n "> b" table)
+    (modify-syntax-entry ?# "w" table)
+    (modify-syntax-entry ?\n "> " table)
     (modify-syntax-entry '(?a . ?z) "w" table)
     (modify-syntax-entry '(?A . ?Z) "w" table)
     (modify-syntax-entry '(?0 . ?9) "w" table)
@@ -237,21 +237,53 @@ ENDP and DELIM."
 	(lux-enable-paredit-backslash)
 	))
 
+(defun indent_lux_line! (&optional indent)
+  (let ((pos (- (point-max) (point)))
+        (indent (or indent
+					(progn
+					  (beginning-of-line)
+					  (calculate-lisp-indent (lisp-ppss))))))
+	;; https://www.gnu.org/software/emacs/manual/html_node/elisp/Skipping-Characters.html
+	(skip-chars-forward " \t")
+    (if (null indent)
+		(goto-char (- (point-max) pos))
+      (progn
+		(indent-line-to (if (listp indent)
+							(car indent)
+						  indent))
+		(when (> (- (point-max) pos) (point))
+		  (goto-char (- (point-max) pos)))))))
+
 (defun lux-mode-variables ()
   "Set up initial buffer-local variables for Lux mode."
   (setq-local imenu-create-index-function
               (lambda ()
                 (imenu--generic-function '((nil lux-match-next-def 0)))))
-  (setq-local comment-start "## ")
+  (setq-local comment-start "... ")
   (setq-local comment-end "")
   (setq-local indent-tabs-mode nil)
   (setq-local multibyte-syntax-as-symbol t)
   (setq-local electric-pair-skip-whitespace 'chomp)
   (setq-local electric-pair-open-newline-between-pairs nil)
-  (setq-local indent-line-function #'lisp-indent-line)
+  (setq-local indent-line-function #'indent_lux_line!)
+  
   (setq-local lisp-indent-function #'lux-indent-function)
   (setq-local parse-sexp-ignore-comments t)
   (setq-local open-paren-in-column-0-is-defun-start nil))
+
+;; https://www.gnu.org/software/emacs/manual/html_node/elisp/Displaying-Messages.html
+(defun lux/log! (text)
+  (message "%S" text))
+
+(defun lux-comment-dwim (&optional argument)
+  (interactive "P")
+  (when (use-region-p)
+	;; http://doc.endlessparentheses.com/Fun/comment-only-p.html
+	(if (comment-only-p (region-beginning) (region-end))
+		(condition-case error
+			(uncomment-region (region-beginning) (region-end) 3)
+		  (error (uncomment-region (1- (region-beginning)) (region-end) 3)))
+	  (comment-dwim "... "))))
 
 ;;;###autoload
 (define-derived-mode lux-mode prog-mode "Lux"
@@ -261,7 +293,14 @@ ENDP and DELIM."
   (lux-mode-variables)
   (lux-font-lock-setup)
   (add-hook 'paredit-mode-hook #'lux-paredit-setup)
-  (define-key lux-mode-map [remap comment-dwim] 'lux-comment-dwim))
+  (define-key lux-mode-map [remap comment-dwim] 'lux-comment-dwim)
+  (define-key lux-mode-map [remap paredit-comment-dwim] 'lux-comment-dwim)
+  ;; https://stackoverflow.com/questions/25245469/how-to-define-whole-line-comment-syntax-in-emacs
+  (setq-local syntax-propertize-function
+			  ;; https://www.emacswiki.org/emacs/RegularExpression
+			  ;; http://doc.endlessparentheses.com/Fun/syntax-propertize-rules
+			  ;; https://www.emacswiki.org/emacs/EmacsSyntaxTable
+              (syntax-propertize-rules ("\\(\\.\\{3\\}\\).*\\($\\)" (1 "<") (2 ">")))))
 
 (defun lux-match-next-def ()
   "Scans the buffer backwards for the next \"top-level\" definition.
@@ -314,7 +353,8 @@ Called by `imenu--generic-function'."
 						  (in-local ""))
 					  (special (concat (altRE in-prelude
 											  in-current-module
-											  in-module in-local)
+											  in-module
+											  in-local)
 									   identifier)))))
 		   (specialRE (let (;; Control
 							(control//flow (altRE "case" "exec" "let" "if" "cond" "loop" "recur" "do" "be"))
@@ -330,7 +370,7 @@ Called by `imenu--generic-function'."
 							(type//abstract (altRE "abstract:" ":abstraction" ":representation" ":transmutation" "\\^:representation"))
 							(type//unit (altRE "unit:" "scale:"))
 							(type//poly (altRE "poly:" "derived:"))
-							(type//dynamic (altRE ":dynamic" ":check"))
+							(type//dynamic (altRE ":dynamic" "/.:static"))
 							(type//capability (altRE "capability:"))
 							;; Data
 							(data//record (altRE "get@" "set@" "update@"))

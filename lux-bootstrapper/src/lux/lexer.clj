@@ -42,7 +42,7 @@
     (return (&/T [meta ($White_Space white-space)]))))
 
 (def ^:private lex-comment
-  (|do [_ (&reader/read-text "##")
+  (|do [_ (&reader/read-text "...")
         [meta _ comment] (&reader/read-regex #"^(.*)$")]
     (return (&/T [meta ($Comment comment)]))))
 

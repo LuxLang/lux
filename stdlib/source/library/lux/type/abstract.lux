@@ -19,7 +19,8 @@
      [syntax (#+ syntax:)
       ["|.|" annotations]]]]])
 
-(type: Stack List)
+(type: Stack
+  List)
 
 (def: peek
   (All [a] (-> (Stack a) (Maybe a)))
@@ -34,6 +35,7 @@
   list.tail)
 
 (type: .public Frame
+  {#.doc (doc "Meta-data about an abstract/nominal type in a stack of them.")}
   {#name Text
    #type_vars (List Code)
    #abstraction Code
@@ -91,10 +93,12 @@
         (exception.except ..no_active_frames [])))))
 
 (def: .public current
+  {#.doc (doc "The currently-being-defined abstract/nominal type.")}
   (Meta Frame)
   (..peek! #.None))
 
 (def: .public (specific name)
+  {#.doc (doc "A specific abstract/nominal type still being defined somewhere in the scope.")}
   (-> Text (Meta Frame))
   (..peek! (#.Some name)))
 
@@ -175,6 +179,10 @@
 
 (template [<name> <from> <to>]
   [(syntax: .public (<name> {[frame value] ..cast})
+     {#.doc (doc "Type-casting macro for abstract/nominal types."
+                 (: <to>
+                    (<name> (: <from>
+                               value))))}
      (do meta.monad
        [[name type_vars abstraction representation] (peek! frame)]
        (in (list (` ((~! :cast) [(~+ type_vars)] (~ <from>) (~ <to>)
@@ -216,11 +224,89 @@
         (<>.and (<>\in (` .private)) private)
         )))
 
-## TODO: Make sure the generated code always gets optimized away.
-## (This applies to uses of ":abstraction" and ":representation")
+... TODO: Make sure the generated code always gets optimized away.
+... (This applies to uses of ":abstraction" and ":representation")
 (syntax: .public (abstract:
                    {[export_policy [name type_vars] annotations representation_type primitives]
                     ..abstract})
+  {#.doc (doc "Define abstract/nominal types which hide their representation details."
+              "You can convert between the abstraction and its representation selectively to access the value, while hiding it from others."
+              (abstract: String
+                {#.doc "An opaque text."}
+
+                Text
+
+                (def: (string value)
+                  (-> Text String)
+                  (:abstraction value))
+
+                (def: (text value)
+                  (-> String Text)
+                  (:representation value)))
+
+              "Type-parameters are optional."
+              (abstract: (Duplicate a)
+                {}
+
+                [a a]
+
+                (def: (duplicate value)
+                  (All [a] (-> a (Duplicate a)))
+                  (:abstraction [value value])))
+
+              "Definitions can be nested."
+              (abstract: (Single a)
+                {}
+
+                a
+
+                (def: (single value)
+                  (All [a] (-> a (Single a)))
+                  (:abstraction value))
+
+                (abstract: (Double a)
+                  {}
+
+                  [a a]
+
+                  (def: (double value)
+                    (All [a] (-> a (Double a)))
+                    (:abstraction [value value]))
+
+                  (def: (single' value)
+                    (All [a] (-> a (Single a)))
+                    (:abstraction Single [value value]))
+
+                  (let [value 0123]
+                    (is? value
+                         (|> value
+                             single'
+                             (:representation Single)
+                             double
+                             :representation)))))
+
+              "Type-parameters do not necessarily have to be used in the representation type."
+              "If they are not used, they become phantom types and can be used to customize types without changing the representation."
+              (abstract: (JavaScript a)
+                {}
+
+                Text
+
+                (abstract: Expression {} Any)
+                (abstract: Statement {} Any)
+
+                (def: (+ x y)
+                  (-> (JavaScript Expression) (JavaScript Expression) (JavaScript Expression))
+                  (:abstraction
+                   (format "(" (:representation x) "+" (:representation y) ")")))
+
+                (def: (while test body)
+                  (-> (JavaScript Expression) (JavaScript Statement) (JavaScript Statement))
+                  (:abstraction
+                   (format "while(" (:representation test) ") {"
+                           (:representation body)
+                           "}"))))
+              )}
   (do meta.monad
     [current_module meta.current_module_name
      .let [type_varsC (list\map code.local_identifier type_vars)
@@ -251,18 +337,39 @@
          parser))
 
 (syntax: .public (:transmutation {selection (..selection <code>.any)})
+  {#.doc (doc "Transmutes an abstract/nominal type's phantom types."
+              (abstract: (JavaScript a)
+                {}
+
+                Text
+
+                (abstract: Expression {} Any)
+                (abstract: Statement {} Any)
+
+                (def: (statement expression)
+                  (-> (JavaScript Expression) (JavaScript Statement))
+                  (:transmutation expression))
+
+                (def: (statement' expression)
+                  (-> (JavaScript Expression) (JavaScript Statement))
+                  (:transmutation JavaScript expression))))}
   (case selection
     (#Specific specific value)
-    (in (list (` (..:abstraction (~ specific)
-                                 (..:representation (~ specific)
-                                                    (~ value))))))
+    (in (list (` (.|> (~ value)
+                      (..:representation (~ specific))
+                      (..:abstraction (~ specific))))))
     
     (#Current value)
-    (in (list (` (..:abstraction (..:representation (~ value))))))))
+    (in (list (` (.|> (~ value) ..:representation ..:abstraction))))))
 
 (syntax: .public (^:representation {selection (<code>.form (..selection <code>.local_identifier))}
                                    body
                                    {branches (<>.some <code>.any)})
+  {#.doc (doc "Pattern-matching macro to easily extract a representation."
+              (def: (computation abstraction)
+                (All [a] (-> (Abstract a) ???))
+                (let [(^:representation value) abstraction]
+                  (foo (bar (baz value))))))}
   (case selection
     (#Specific specific name)
     (let [g!var (code.local_identifier name)]

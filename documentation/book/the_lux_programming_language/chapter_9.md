@@ -164,5 +164,5 @@ However, I wanted to give you a taste of what's possible in order to whet your a
 
 In the next chapter, I'll complete this puzzle, and you'll be given access to a power greater than you've ever known (_unless you've already been a lisper for a while_).
 
-See you in the next chapter!
+See you in [the next chapter](chapter_10.md)!
 

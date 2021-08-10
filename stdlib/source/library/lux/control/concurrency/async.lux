@@ -33,7 +33,7 @@
     (function (resolve value)
       (let [async (:representation async)]
         (do {! io.monad}
-          [(^@ old [_value _observers]) (atom.read async)]
+          [(^@ old [_value _observers]) (atom.read! async)]
           (case _value
             (#.Some _)
             (in #0)
@@ -41,7 +41,7 @@
             #.None
             (do !
               [.let [new [(#.Some value) #.None]]
-               succeeded? (atom.compare_and_swap old new async)]
+               succeeded? (atom.compare_and_swap! old new async)]
               (if succeeded?
                 (do !
                   [_ (monad.map ! (function (_ f) (f value))
@@ -64,15 +64,15 @@
     {#.doc "Polls an async for its value."}
     (All [a] (-> (Async a) (IO (Maybe a))))
     (|>> :representation
-         atom.read
+         atom.read!
          (\ io.functor map product.left)))
 
-  (def: .public (await f async)
+  (def: .public (upon! f async)
     {#.doc (doc "Executes the given function as soon as the async has been resolved.")}
     (All [a] (-> (-> a (IO Any)) (Async a) (IO Any)))
     (do {! io.monad}
       [.let [async (:representation async)]
-       (^@ old [_value _observers]) (atom.read async)]
+       (^@ old [_value _observers]) (atom.read! async)]
       (case _value
         (#.Some value)
         (f value)
@@ -80,10 +80,10 @@
         #.None
         (let [new [_value (#.Item f _observers)]]
           (do !
-            [swapped? (atom.compare_and_swap old new async)]
+            [swapped? (atom.compare_and_swap! old new async)]
             (if swapped?
               (in [])
-              (await f (:abstraction async))))))))
+              (upon! f (:abstraction async))))))))
   )
 
 (def: .public resolved?
@@ -102,7 +102,7 @@
   
   (def: (map f fa)
     (let [[fb resolve] (..async [])]
-      (exec (io.run (..await (|>> f resolve) fa))
+      (exec (io.run (..upon! (|>> f resolve) fa))
         fb))))
 
 (implementation: .public apply
@@ -112,8 +112,8 @@
 
   (def: (apply ff fa)
     (let [[fb resolve] (..async [])]
-      (exec (io.run (..await (function (_ f)
-                               (..await (|>> f resolve) fa))
+      (exec (io.run (..upon! (function (_ f)
+                               (..upon! (|>> f resolve) fa))
                              ff))
         fb))))
 
@@ -126,7 +126,7 @@
 
   (def: (join mma)
     (let [[ma resolve] (async [])]
-      (exec (io.run (..await (..await resolve) mma))
+      (exec (io.run (..upon! (..upon! resolve) mma))
         ma))))
 
 (def: .public (and left right)
@@ -139,8 +139,8 @@
                                  [(Async [a b])
                                   (Resolver [a b])]
                                  (..async []))
-        _ (io.run (..await (function (_ left)
-                             (..await (function (_ right)
+        _ (io.run (..upon! (function (_ left)
+                             (..upon! (function (_ right)
                                         (write! [left right]))
                                       right))
                            left))]
@@ -153,7 +153,7 @@
   (let [[a|b resolve] (..async [])]
     (with_expansions
       [<sides> (template [<async> <tag>]
-                 [(io.run (await (|>> <tag> resolve) <async>))]
+                 [(io.run (upon! (|>> <tag> resolve) <async>))]
 
                  [left  #.Left]
                  [right #.Right]
@@ -167,21 +167,21 @@
   (All [a] (-> (Async a) (Async a) (Async a)))
   (let [[left||right resolve] (..async [])]
     (`` (exec (~~ (template [<async>]
-                    [(io.run (await resolve <async>))]
+                    [(io.run (upon! resolve <async>))]
 
                     [left]
                     [right]))
           left||right))))
 
-(def: .public (schedule millis_delay computation)
+(def: .public (schedule! millis_delay computation)
   {#.doc (doc "Runs an I/O computation on its own thread (after a specified delay)."
-              "Returns a aromise that will eventually host its result.")}
+              "Returns an async that will eventually host its result.")}
   (All [a] (-> Nat (IO a) (Async a)))
   (let [[!out resolve] (..async [])]
     (exec (|> (do io.monad
                 [value computation]
                 (resolve value))
-              (thread.schedule millis_delay)
+              (thread.schedule! millis_delay)
               io.run)
       !out)))
 
@@ -189,19 +189,19 @@
   {#.doc (doc "Runs an I/O computation on its own thread."
               "Returns an async that will eventually host its result.")}
   (All [a] (-> (IO a) (Async a)))
-  (..schedule 0))
+  (..schedule! 0))
 
-(def: .public (delay time_millis value)
+(def: .public (delayed time_millis value)
   {#.doc "Delivers a value after a certain period has passed."}
   (All [a] (-> Nat a (Async a)))
-  (..schedule time_millis (io value)))
+  (..schedule! time_millis (io value)))
 
-(def: .public (wait time_millis)
-  {#.doc "Returns an async that will be resolved after the specified amount of milliseconds."}
+(def: .public (delay time_millis)
+  {#.doc "An async that will be resolved after the specified amount of milliseconds."}
   (-> Nat (Async Any))
-  (..delay time_millis []))
+  (..delayed time_millis []))
 
 (def: .public (time_out time_millis async)
   {#.doc "Wait for an async to be resolved within the specified amount of milliseconds."}
   (All [a] (-> Nat (Async a) (Async (Maybe a))))
-  (..or (wait time_millis) async))
+  (..or (..delay time_millis) async))
