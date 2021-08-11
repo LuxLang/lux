@@ -5,12 +5,12 @@
      ["." monad (#+ do)]
      ["." equivalence]]
     [control
+     ["." maybe]
      ["." try]
      ["<>" parser
       ["<.>" code (#+ Parser)]]]
     [data
      ["." product]
-     ["." maybe]
      ["." text ("#\." equivalence)
       ["%" format (#+ format)]]
      [collection
@@ -212,14 +212,14 @@
     [compiler meta.get_compiler]
     (case (|> alts
               (list\map (function (_ [alt_name alt_type])
-                          (case (check.run context
-                                           (do {! check.monad}
-                                             [[tvars alt_type] (concrete_type alt_type)
-                                              .let [[deps alt_type] (type.flat_function alt_type)]
-                                              _ (check.check dep alt_type)
-                                              context' check.context
-                                              =deps (monad.map ! (provision compiler context') deps)]
-                                             (in =deps)))
+                          (case (check.result context
+                                              (do {! check.monad}
+                                                [[tvars alt_type] (concrete_type alt_type)
+                                                 .let [[deps alt_type] (type.flat_function alt_type)]
+                                                 _ (check.check dep alt_type)
+                                                 context' check.context
+                                                 =deps (monad.map ! (provision compiler context') deps)]
+                                                (in =deps)))
                             (#.Left error)
                             (list)
 
@@ -234,11 +234,11 @@
 
 (def: (provision compiler context dep)
   (-> Lux Type_Context Type (Check Instance))
-  (case (meta.run compiler
-                  ($_ meta.either
-                      (do meta.monad [alts ..local_env] (..candidate_provision provision context dep alts))
-                      (do meta.monad [alts ..local_structs] (..candidate_provision provision context dep alts))
-                      (do meta.monad [alts ..imported_structs] (..candidate_provision provision context dep alts))))
+  (case (meta.result compiler
+                     ($_ meta.either
+                         (do meta.monad [alts ..local_env] (..candidate_provision provision context dep alts))
+                         (do meta.monad [alts ..local_structs] (..candidate_provision provision context dep alts))
+                         (do meta.monad [alts ..imported_structs] (..candidate_provision provision context dep alts))))
     (#.Left error)
     (check.failure error)
 
@@ -261,7 +261,7 @@
      context meta.type_context]
     (case (|> alts
               (list\map (function (_ [alt_name alt_type])
-                          (case (<| (check.run context)
+                          (case (<| (check.result context)
                                     (do {! check.monad}
                                       [[tvars alt_type] (concrete_type alt_type)
                                        .let [[deps alt_type] (type.flat_function alt_type)]
@@ -317,29 +317,29 @@
                   {member <code>.identifier}
                   {args (<>.or (<>.and (<>.some <code>.identifier) <code>.end!)
                                (<>.and (<>.some <code>.any) <code>.end!))})
-  {#.doc (doc "Automatic implementation selection (for type-class style polymorphism)."
-              "This feature layers type-class style polymorphism on top of Lux's signatures and implementations."
-              "When calling a polymorphic function, or using a polymorphic constant,"
-              "this macro will check the types of the arguments, and the expected type for the whole expression"
-              "and it will search in the local scope, the module's scope and the imports' scope"
-              "in order to find suitable implementations to satisfy those requirements."
-              "If a single alternative is found, that one will be used automatically."
-              "If no alternative is found, or if more than one alternative is found (ambiguity)"
-              "a compile-time error will be raised, to alert the user."
-              "Examples:"
-              "Nat equivalence"
-              (\ number.equivalence = x y)
-              (\\ = x y)
-              "Can optionally add the prefix of the module where the signature was defined."
-              (\\ equivalence.= x y)
-              "(List Nat) equivalence"
-              (\\ =
-                  (list.indices 10)
-                  (list.indices 10))
-              "(Functor List) map"
-              (\\ map inc (list.indices 10))
-              "Caveat emptor: You need to make sure to import the module of any implementation you want to use."
-              "Otherwise, this macro will not find it.")}
+  {#.doc (example "Automatic implementation selection (for type-class style polymorphism)."
+                  "This feature layers type-class style polymorphism on top of Lux's signatures and implementations."
+                  "When calling a polymorphic function, or using a polymorphic constant,"
+                  "this macro will check the types of the arguments, and the expected type for the whole expression"
+                  "and it will search in the local scope, the module's scope and the imports' scope"
+                  "in order to find suitable implementations to satisfy those requirements."
+                  "If a single alternative is found, that one will be used automatically."
+                  "If no alternative is found, or if more than one alternative is found (ambiguity)"
+                  "a compile-time error will be raised, to alert the user."
+                  "Examples:"
+                  "Nat equivalence"
+                  (\ number.equivalence = x y)
+                  (\\ = x y)
+                  "Can optionally add the prefix of the module where the signature was defined."
+                  (\\ equivalence.= x y)
+                  "(List Nat) equivalence"
+                  (\\ =
+                      (list.indices 10)
+                      (list.indices 10))
+                  "(Functor List) map"
+                  (\\ map inc (list.indices 10))
+                  "Caveat emptor: You need to make sure to import the module of any implementation you want to use."
+                  "Otherwise, this macro will not find it.")}
   (case args
     (#.Left [args _])
     (do {! meta.monad}
@@ -365,14 +365,14 @@
 
     (#.Right [args _])
     (do {! meta.monad}
-      [labels (|> (macro.gensym "") (list.repeated (list.size args)) (monad.seq !))]
+      [labels (|> (macro.identifier "") (list.repeated (list.size args)) (monad.seq !))]
       (in (list (` (let [(~+ (|> args (list.zipped/2 labels) (list\map ..pair_list) list\join))]
                      (..\\ (~ (code.identifier member)) (~+ labels)))))))
     ))
 
 (def: (implicit_bindings amount)
   (-> Nat (Meta (List Code)))
-  (|> (macro.gensym "g!implicit")
+  (|> (macro.identifier "g!implicit")
       (list.repeated amount)
       (monad.seq meta.monad)))
 
@@ -381,10 +381,10 @@
   (<code>.tuple (<>.many <code>.any)))
 
 (syntax: .public (with {implementations ..implicits} body)
-  {#.doc (doc "Establish lexical bindings for implementations that will be prioritized over non-lexically-bound implementations."
-              (with [n.addition]
-                (n.= (\ n.addition compose left right)
-                     (\\ compose left right))))}
+  {#.doc (example "Establish lexical bindings for implementations that will be prioritized over non-lexically-bound implementations."
+                  (with [n.addition]
+                    (n.= (\ n.addition compose left right)
+                         (\\ compose left right))))}
   (do meta.monad
     [g!implicit+ (implicit_bindings (list.size implementations))]
     (in (list (` (let [(~+ (|> (list.zipped/2 g!implicit+ implementations)
@@ -394,11 +394,11 @@
                    (~ body)))))))
 
 (syntax: .public (implicit: {implementations ..implicits})
-  {#.doc (doc "Establish local definitions for implementations that will be prioritized over foreign definitions."
-              (implicit: [n.multiplication])
-              
-              (n.= (\ n.multiplication compose left right)
-                   (\\ compose left right)))}
+  {#.doc (example "Establish local definitions for implementations that will be prioritized over foreign definitions."
+                  (implicit: [n.multiplication])
+                  
+                  (n.= (\ n.multiplication compose left right)
+                       (\\ compose left right)))}
   (do meta.monad
     [g!implicit+ (implicit_bindings (list.size implementations))]
     (in (|> (list.zipped/2 g!implicit+ implementations)

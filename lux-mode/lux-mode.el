@@ -1,6 +1,6 @@
 ;;; lux-mode.el --- Major mode for Lux code -*- lexical-binding: t; -*-
 
-;; Copyright © 2014-2019 Eduardo Julian
+;; Copyright © 2014-2021 Eduardo Julian
 ;;
 ;; Authors: Eduardo Julian <eduardoejp@gmail.com>
 ;; URL: https://github.com/LuxLang/lux/tree/master/lux-mode
@@ -84,20 +84,30 @@ Otherwise check `define-lux-indent' and `put-lux-indent'."
   (make-sparse-keymap)
   "Keymap for Lux mode.  Inherits from `lisp-mode-shared-map'.")
 
+;; https://www.emacswiki.org/emacs/EmacsSyntaxTable
+;; https://www.gnu.org/software/emacs/manual/html_node/elisp/Syntax-Class-Table.html
+;; https://www.gnu.org/software/emacs/manual/html_node/elisp/Syntax-Flags.html
 (defvar lux-mode-syntax-table
   (let ((table (make-syntax-table)))
-    (modify-syntax-entry ?\( "()2n" table)
-    (modify-syntax-entry ?\) ")(3n" table)
-    (modify-syntax-entry ?\{ "(}" table)
-    (modify-syntax-entry ?\} "){" table)
+    (modify-syntax-entry ?\( "()" table)
+    (modify-syntax-entry ?\) ")(" table)
     (modify-syntax-entry ?\[ "(]" table)
     (modify-syntax-entry ?\] ")[" table)
+    (modify-syntax-entry ?\{ "(}" table)
+    (modify-syntax-entry ?\} "){" table)
     (modify-syntax-entry ?\" "\"\"" table)
-    (modify-syntax-entry ?# "w" table)
+    (modify-syntax-entry ?\s "-" table)
+    (modify-syntax-entry ?\t "-" table)
+    (modify-syntax-entry ?\r "-" table)
     (modify-syntax-entry ?\n "> " table)
+    (modify-syntax-entry ?. "w" table)
+    (modify-syntax-entry ?+ "w" table)
+    (modify-syntax-entry ?- "w" table)
+    (modify-syntax-entry ?, "w" table)
     (modify-syntax-entry '(?a . ?z) "w" table)
     (modify-syntax-entry '(?A . ?Z) "w" table)
     (modify-syntax-entry '(?0 . ?9) "w" table)
+    (modify-syntax-entry ?# "w" table)
     (modify-syntax-entry ?~ "w" table)
     (modify-syntax-entry ?' "w" table)
     (modify-syntax-entry ?` "w" table)
@@ -108,23 +118,16 @@ Otherwise check `define-lux-indent' and `put-lux-indent'."
     (modify-syntax-entry ?^ "w" table)
     (modify-syntax-entry ?& "w" table)
     (modify-syntax-entry ?* "w" table)
-    (modify-syntax-entry ?- "w" table)
     (modify-syntax-entry ?_ "w" table)
-    (modify-syntax-entry ?+ "w" table)
     (modify-syntax-entry ?= "w" table)
     (modify-syntax-entry ?| "w" table)
     (modify-syntax-entry ?: "w" table)
-    (modify-syntax-entry ?. "w" table)
-    (modify-syntax-entry ?, "w" table)
     (modify-syntax-entry ?/ "w" table)
     (modify-syntax-entry ?? "w" table)
     (modify-syntax-entry ?< "w" table)
     (modify-syntax-entry ?> "w" table)
     (modify-syntax-entry ?\; "w" table)
     (modify-syntax-entry ?\\ "w" table)
-    (modify-syntax-entry ?\s "-" table)
-    (modify-syntax-entry ?\t "-" table)
-    (modify-syntax-entry ?\r "-" table)
     table))
 
 (defun lux-mode-display-version ()
@@ -385,7 +388,7 @@ Called by `imenu--generic-function'."
 							(actor (altRE "actor:" "message:" "actor"))
 							(jvm-host (altRE "class:" "interface:" "import:" "object" "do_to" "synchronized" "class_for"))
 							(alternative-format (altRE "char" "bin" "oct" "hex"))
-							(documentation (altRE "doc" "comment"))
+							(documentation (altRE "example" "comment"))
 							(function-application (altRE "|>" "<|" "_\\$" "\\$_"))
 							(function-definition (altRE "function" "|>>" "<<|" "||>"))
 							(remember (altRE "remember" "to_do" "fix_me"))

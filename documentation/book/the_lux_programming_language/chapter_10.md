@@ -260,5 +260,5 @@ Clearly, analyzing the input code is far more difficult than generating it with 
 Don't worry about it.
 Because in the next chapter, you will learn a more sophisticated method of macro definition that will make writing complex macros a breeze.
 
-See you in the next chapter!
+See you in [the next chapter](chapter_11.md)!
 

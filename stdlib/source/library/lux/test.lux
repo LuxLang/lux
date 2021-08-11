@@ -8,6 +8,7 @@
      ["." monad (#+ do)]]
     [control
      [pipe (#+ case>)]
+     ["." maybe]
      ["." try]
      ["." exception (#+ exception:)]
      ["." io]
@@ -17,7 +18,6 @@
      ["<>" parser
       ["<.>" code]]]
     [data
-     ["." maybe]
      ["." product]
      ["." name]
      ["." text
@@ -93,7 +93,7 @@
                                             (write! [(..total l_tally r_tally)
                                                      (format l_documentation ..separator r_documentation)]))
                                           right)))
-              io.run)]
+              io.run!)]
     read!))
 
 (def: .public (and left right)
@@ -153,8 +153,8 @@
 (def: .public (seed value test)
   (-> Seed Test Test)
   (function (_ prng)
-    (let [[_ result] (random.run (random.pcg_32 [..pcg_32_magic_inc value])
-                                 test)]
+    (let [[_ result] (random.result (random.pcg_32 [..pcg_32_magic_inc value])
+                                    test)]
       [prng result])))
 
 (def: failed?
@@ -175,7 +175,7 @@
     _ (do random.monad
         [seed random.nat]
         (function (recur prng)
-          (let [[prng' instance] (random.run (random.pcg_32 [..pcg_32_magic_inc seed]) test)]
+          (let [[prng' instance] (random.result (random.pcg_32 [..pcg_32_magic_inc seed]) test)]
             [prng' (do {! async.monad}
                      [[tally documentation] instance]
                      (if (..failed? tally)
@@ -184,7 +184,7 @@
                          1 instance
                          _ (|> test
                                (times (dec amount))
-                               (random.run prng')
+                               (random.result prng')
                                product.right))))])))))
 
 (def: (description duration tally)
@@ -197,7 +197,7 @@
                                    (get@ #actual_coverage tally))
         report (: (-> (Set Name) Text)
                   (|>> set.list
-                       (list.sort (\ name.order <))
+                       (list.sorted (\ name.order <))
                        (exception.listing %.name)))
         expected_definitions_to_cover (set.size (get@ #expected_coverage tally))
         unexpected_definitions_covered (set.size unexpected)
@@ -246,7 +246,7 @@
     [pre (async.future instant.now)
      .let [seed (instant.millis pre)
            prng (random.pcg_32 [..pcg_32_magic_inc seed])]
-     [tally documentation] (|> test (random.run prng) product.right)
+     [tally documentation] (|> test (random.result prng) product.right)
      post (async.future instant.now)
      .let [duration (instant.span pre post)
            _ (debug.log! (format documentation text.new_line text.new_line
@@ -382,7 +382,7 @@
       [seed random.nat
        .let [prng (random.pcg_32 [..pcg_32_magic_inc seed])
              run! (: (-> Test Assertion)
-                     (|>> (random.run prng)
+                     (|>> (random.result prng)
                           product.right
                           (function (_ _))
                           "lux try"
@@ -399,22 +399,22 @@
              [read! write!] (: [Assertion
                                 (async.Resolver [Tally Text])]
                                (async.async []))
-             _ (io.run (monad.map io.monad
-                                  (function (_ [index test])
-                                    (async.upon! (function (_ assertion)
-                                                   (do io.monad
-                                                     [[_ results] (atom.update! (dictionary.put index assertion) state)]
-                                                     (if (n.= expected_tests (dictionary.size results))
-                                                       (let [assertions (|> results
-                                                                            dictionary.entries
-                                                                            (list\map product.right))]
-                                                         (write! [(|> assertions
-                                                                      (list\map product.left)
-                                                                      (list\fold ..total ..start))
-                                                                  (|> assertions
-                                                                      (list\map product.right)
-                                                                      (text.join_with ..separator))]))
-                                                       (in []))))
-                                                 (run! test)))
-                                  (list.enumeration tests)))]]
+             _ (io.run! (monad.map io.monad
+                                   (function (_ [index test])
+                                     (async.upon! (function (_ assertion)
+                                                    (do io.monad
+                                                      [[_ results] (atom.update! (dictionary.put index assertion) state)]
+                                                      (if (n.= expected_tests (dictionary.size results))
+                                                        (let [assertions (|> results
+                                                                             dictionary.entries
+                                                                             (list\map product.right))]
+                                                          (write! [(|> assertions
+                                                                       (list\map product.left)
+                                                                       (list\fold ..total ..start))
+                                                                   (|> assertions
+                                                                       (list\map product.right)
+                                                                       (text.join_with ..separator))]))
+                                                        (in []))))
+                                                  (run! test)))
+                                   (list.enumeration tests)))]]
       (in read!))))

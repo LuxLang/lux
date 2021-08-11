@@ -20,7 +20,7 @@
       ["%" format (#+ format)]]
      [collection
       ["." list ("#\." monoid monad fold)]]]
-    ["." macro (#+ with_gensyms)
+    ["." macro (#+ with_identifiers)
      ["." code]
      [syntax (#+ syntax:)
       ["|.|" input]
@@ -64,27 +64,27 @@
         (in #.End))))
   
   (abstract: .public (Actor s)
-    {#.doc (doc "An entity that can react to messages (mail) sent to it concurrently.")}
+    {#.doc (example "An entity that can react to messages (mail) sent to it concurrently.")}
 
     {#obituary [(Async <Obituary>)
                 (Resolver <Obituary>)]
      #mailbox (Atom <Mailbox>)}
 
     (type: .public (Mail s)
-      {#.doc (doc "A one-way message sent to an actor, without expecting a reply.")}
+      {#.doc (example "A one-way message sent to an actor, without expecting a reply.")}
       <Mail>)
 
     (type: .public (Obituary s)
-      {#.doc (doc "Details on the death of an actor.")}
+      {#.doc (example "Details on the death of an actor.")}
       <Obituary>)
 
     (type: .public (Behavior o s)
-      {#.doc (doc "An actor's behavior when mail is received and when a fatal error occurs.")}
+      {#.doc (example "An actor's behavior when mail is received and when a fatal error occurs.")}
       {#on_init (-> o s)
        #on_mail (-> (Mail s) s (Actor s) (Async (Try s)))})
 
     (def: .public (spawn! behavior init)
-      {#.doc (doc "Given a behavior and initial state, spawns an actor and returns it.")}
+      {#.doc (example "Given a behavior and initial state, spawns an actor and returns it.")}
       (All [o s] (-> (Behavior o s) o (IO (Actor s))))
       (io (let [[on_init on_mail] behavior
                 self (:sharing [o s]
@@ -95,14 +95,14 @@
                                (:abstraction {#obituary (async.async [])
                                               #mailbox (atom (async.async []))}))
                 process (loop [state (on_init init)
-                               [|mailbox| _] (io.run (atom.read! (get@ #mailbox (:representation self))))]
+                               [|mailbox| _] (io.run! (atom.read! (get@ #mailbox (:representation self))))]
                           (do {! async.monad}
                             [[head tail] |mailbox|
                              ?state' (on_mail head state self)]
                             (case ?state'
                               (#try.Failure error)
                               (let [[_ resolve] (get@ #obituary (:representation self))]
-                                (exec (io.run
+                                (exec (io.run!
                                        (do io.monad
                                          [pending (..pending tail)]
                                          (resolve [error state (#.Item head pending)])))
@@ -130,14 +130,14 @@
         (async.poll obituary)))
 
     (def: .public obituary
-      {#.doc (doc "Await for an actor to stop working.")}
+      {#.doc (example "Await for an actor to stop working.")}
       (All [s] (-> (Actor s) (Async (Obituary s))))
       (|>> :representation
            (get@ #obituary)
            product.left))
 
     (def: .public (mail! mail actor)
-      {#.doc (doc "Send mail to an actor.")}
+      {#.doc (example "Send mail to an actor.")}
       (All [s] (-> (Mail s) (Actor s) (IO (Try Any))))
       (do {! io.monad}
         [alive? (..alive? actor)]
@@ -163,7 +163,7 @@
           (in (exception.except ..dead [])))))
 
     (type: .public (Message s o)
-      {#.doc (doc "A two-way message sent to an actor, expecting a reply.")}
+      {#.doc (example "A two-way message sent to an actor, expecting a reply.")}
       (-> s (Actor s) (Async (Try [s o]))))
 
     (def: (mail message)
@@ -181,15 +181,17 @@
              [outcome (message state self)]
              (case outcome
                (#try.Success [state' return])
-               (exec (io.run (resolve (#try.Success return)))
+               (exec
+                 (io.run! (resolve (#try.Success return)))
                  (async.resolved (#try.Success state')))
                
                (#try.Failure error)
-               (exec (io.run (resolve (#try.Failure error)))
+               (exec
+                 (io.run! (resolve (#try.Failure error)))
                  (async.resolved (#try.Failure error))))))]))
 
     (def: .public (tell! message actor)
-      {#.doc (doc "Communicate with an actor through message-passing.")}
+      {#.doc (example "Communicate with an actor through message-passing.")}
       (All [s o] (-> (Message s o) (Actor s) (Async (Try o))))
       (let [[async mail] (..mail message)]
         (do async.monad
@@ -208,14 +210,14 @@
   (mail state self))
 
 (def: .public default
-  {#.doc (doc "Default actor behavior.")}
+  {#.doc (example "Default actor behavior.")}
   (All [s] (Behavior s s))
   {#on_init function.identity
    #on_mail ..default_on_mail})
 
 (def: .public (poison! actor)
-  {#.doc (doc "Kills the actor by sending mail that will kill it upon processing,"
-              "but allows the actor to handle previous mail.")}
+  {#.doc (example "Kills the actor by sending mail that will kill it upon processing,"
+                  "but allows the actor to handle previous mail.")}
   (All [s] (-> (Actor s) (IO (Try Any))))
   (..mail! (function (_ state self)
              (async.resolved (exception.except ..poisoned [])))
@@ -300,12 +302,12 @@
                                         (async.resolved (#try.Success [state state])))))]
   (syntax: .public (actor:
                      {[export_policy [name vars] annotations state_type [?on_mail messages]] ..actorP})
-    {#.doc (doc "Defines a named actor, with its behavior and internal state."
-                "Messages for the actor must be defined after the on_mail handler."
-                <examples>)}
-    (with_gensyms [g!_]
+    {#.doc (example "Defines a named actor, with its behavior and internal state."
+                    "Messages for the actor must be defined after the on_mail handler."
+                    <examples>)}
+    (with_identifiers [g!_]
       (do meta.monad
-        [g!type (macro.gensym (format name "_abstract_type"))
+        [g!type (macro.identifier (format name "_abstract_type"))
          .let [g!actor (code.local_identifier name)
                g!vars (list\map code.local_identifier vars)]]
         (in (list (` ((~! abstract:) (~ export_policy) ((~ g!type) (~+ g!vars))
@@ -323,13 +325,13 @@
 
   (syntax: .public (actor {[state_type init] (<code>.record (<>.and <code>.any <code>.any))}
                           {[?on_mail messages] behavior^})
-    {#.doc (doc "Defines an anonymous actor, with its behavior and internal state."
-                "Messages for the actor must be defined after the on_mail handler."
-                (actor {Nat
-                        123}
-                       ((on_mail message state self)
-                        (message (inc state) self))))}
-    (with_gensyms [g!_]
+    {#.doc (example "Defines an anonymous actor, with its behavior and internal state."
+                    "Messages for the actor must be defined after the on_mail handler."
+                    (actor {Nat
+                            123}
+                           ((on_mail message state self)
+                            (message (inc state) self))))}
+    (with_identifiers [g!_]
       (in (list (` (: ((~! io.IO) (..Actor (~ state_type)))
                       (..spawn! (: (..Behavior (~ state_type) (~ state_type))
                                    {#..on_init (|>>)
@@ -371,13 +373,13 @@
 
   (syntax: .public (message:
                      {[export_policy signature annotations output_type body] ..messageP})
-    {#.doc (doc "A message can access the actor's state through the state parameter."
-                "A message can also access the actor itself through the self parameter."
-                "A message's output must be an async containing a 2-tuple with the updated state and a return value."
-                "A message may succeed or fail (in case of failure, the actor dies)."
+    {#.doc (example "A message can access the actor's state through the state parameter."
+                    "A message can also access the actor itself through the self parameter."
+                    "A message's output must be an async containing a 2-tuple with the updated state and a return value."
+                    "A message may succeed or fail (in case of failure, the actor dies)."
 
-                <examples>)}
-    (with_gensyms [g!_ g!return]
+                    <examples>)}
+    (with_identifiers [g!_ g!return]
       (do meta.monad
         [actor_scope abstract.current
          .let [g!type (code.local_identifier (get@ #abstract.name actor_scope))
@@ -405,16 +407,16 @@
                   ))))))
 
 (type: .public Stop
-  {#.doc (doc "A signal to stop an actor from observing a channel.")}
+  {#.doc (example "A signal to stop an actor from observing a channel.")}
   (IO Any))
 
 (def: continue! true)
 (def: stop! false)
 
 (def: .public (observe! action channel actor)
-  {#.doc (doc "Use an actor to observe a channel by transforming each datum"
-              "flowing through the channel into mail the actor can process."
-              "Can stop observing the channel by executing the Stop value.")}
+  {#.doc (example "Use an actor to observe a channel by transforming each datum"
+                  "flowing through the channel into mail the actor can process."
+                  "Can stop observing the channel by executing the Stop value.")}
   (All [e s] (-> (-> e Stop (Mail s)) (Channel e) (Actor s) (IO Any)))
   (let [signal (: (Atom Bit)
                   (atom.atom ..continue!))
