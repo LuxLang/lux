@@ -112,7 +112,7 @@
         [(#.Item [var value value] tx)
          value]))))
 
-(def: (update_tx_value var value tx)
+(def: (with_updated_var var value tx)
   (All [a] (-> (Var a) a Tx Tx))
   (case tx
     #.End
@@ -128,14 +128,14 @@
       (#.Item {#var _var
                #original _original
                #current _current}
-              (update_tx_value var value tx')))))
+              (with_updated_var var value tx')))))
 
 (def: .public (write value var)
   (All [a] (-> a (Var a) (STM Any)))
   (function (_ tx)
     (case (var_value var tx)
       (#.Some _)
-      [(update_tx_value var value tx)
+      [(with_updated_var var value tx)
        []]
 
       #.None
@@ -213,14 +213,14 @@
   (Atom Bit)
   (atom #0))
 
-(def: (issue_commit commit)
+(def: (issue_commit! commit)
   (All [a] (-> (Commit a) (IO Any)))
   (let [entry [commit (async.async [])]]
     (do {! io.monad}
       [|commits|&resolve (atom.read! pending_commits)]
       (loop [[|commits| resolve] |commits|&resolve]
         (do !
-          [|commits| (async.poll |commits|)]
+          [|commits| (async.value |commits|)]
           (case |commits|
             #.None
             (do io.monad
@@ -232,17 +232,17 @@
             (#.Some [head tail])
             (recur tail)))))))
 
-(def: (process_commit commit)
+(def: (process_commit! commit)
   (All [a] (-> (Commit a) (IO Any)))
   (let [[stm_proc output resolve] commit
         [finished_tx value] (stm_proc fresh_tx)]
     (if (can_commit? finished_tx)
       (do {! io.monad}
-        [_ (monad.map ! commit_var! finished_tx)]
+        [_ (monad.map ! ..commit_var! finished_tx)]
         (resolve value))
-      (issue_commit commit))))
+      (..issue_commit! commit))))
 
-(def: init_processor!
+(def: start_commit_processor!
   (IO Any)
   (do {! io.monad}
     [flag (atom.read! commit_processor_flag)]
@@ -255,7 +255,7 @@
             [[async resolve] (atom.read! pending_commits)]
             (async.upon! (function (recur [head [tail _resolve]])
                            (do !
-                             [_ (process_commit head)]
+                             [_ (..process_commit! head)]
                              (async.upon! recur tail)))
                          async))
           (in [])))
@@ -267,7 +267,8 @@
                   "For this reason, it's important to note that transactions must be free from side-effects, such as I/O.")}
   (All [a] (-> (STM a) (Async a)))
   (let [[output resolver] (async.async [])]
-    (exec (io.run! (do io.monad
-                     [_ init_processor!]
-                     (issue_commit [stm_proc output resolver])))
+    (exec
+      (io.run! (do io.monad
+                 [_ ..start_commit_processor!]
+                 (..issue_commit! [stm_proc output resolver])))
       output)))

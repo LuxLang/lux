@@ -2,6 +2,7 @@
   [library
    [lux (#- type)
     ["_" test (#+ Test)]
+    ["." type ("#\." equivalence)]
     [abstract
      ["." monad (#+ do)]
      [\\specification
@@ -24,8 +25,7 @@
     [math
      ["." random (#+ Random) ("#\." monad)]
      [number
-      ["n" nat]]]
-    ["." type ("#\." equivalence)]]]
+      ["n" nat]]]]]
   [\\library
    ["." /]])
 
@@ -699,6 +699,146 @@
                       (try.else false))
                   ))))
 
+(def: (primitive_type parameters)
+  (-> Nat (Random Type))
+  (do random.monad
+    [primitive (random.ascii/upper 3)
+     parameters (random.list parameters (primitive_type (dec parameters)))]
+    (in (#.Primitive primitive parameters))))
+
+(def: clean_type
+  (Random Type)
+  (primitive_type 2))
+
+(def: for_subsumption|ultimate
+  (Random Bit)
+  (do random.monad
+    [example ..clean_type]
+    (in (and (/.subsumes? .Any example)
+             (not (/.subsumes? example .Any))
+             
+             (/.subsumes? example .Nothing)
+             (not (/.subsumes? .Nothing example))
+             ))))
+
+(def: for_subsumption|nominal
+  (Random Bit)
+  (do random.monad
+    [primitive (random.ascii/upper 10)
+     example ..clean_type]
+    (in (and (/.subsumes? (#.Primitive primitive (list))
+                          (#.Primitive primitive (list)))
+             (/.subsumes? (#.Primitive primitive (list .Any))
+                          (#.Primitive primitive (list example)))
+             (not (/.subsumes? (#.Primitive primitive (list example))
+                               (#.Primitive primitive (list .Any))))
+             (/.subsumes? (#.Primitive primitive (list example))
+                          (#.Primitive primitive (list .Nothing)))
+             (not (/.subsumes? (#.Primitive primitive (list .Nothing))
+                               (#.Primitive primitive (list example))))
+             ))))
+
+(def: for_subsumption|sum
+  (Random Bit)
+  (do random.monad
+    [left ..clean_type
+     right ..clean_type]
+    (in (and (/.subsumes? (#.Sum .Any .Any)
+                          (#.Sum left right))
+             (not (/.subsumes? (#.Sum left right)
+                               (#.Sum .Any .Any)))
+             (/.subsumes? (#.Sum left right)
+                          (#.Sum .Nothing .Nothing))
+             (not (/.subsumes? (#.Sum .Nothing .Nothing)
+                               (#.Sum left right)))
+             ))))
+
+(def: for_subsumption|product
+  (Random Bit)
+  (do random.monad
+    [left ..clean_type
+     right ..clean_type]
+    (in (and (/.subsumes? (#.Product .Any .Any)
+                          (#.Product left right))
+             (not (/.subsumes? (#.Product left right)
+                               (#.Product .Any .Any)))
+             (/.subsumes? (#.Product left right)
+                          (#.Product .Nothing .Nothing))
+             (not (/.subsumes? (#.Product .Nothing .Nothing)
+                               (#.Product left right)))
+             ))))
+
+(def: for_subsumption|function
+  (Random Bit)
+  (do random.monad
+    [left ..clean_type
+     right ..clean_type]
+    (in (and (/.subsumes? (#.Function .Nothing .Any)
+                          (#.Function left right))
+             (not (/.subsumes? (#.Function left right)
+                               (#.Function .Nothing .Any)))
+             (not (/.subsumes? (#.Function .Any .Nothing)
+                               (#.Function left right)))
+             ))))
+
+(template [<tag> <name>]
+  [(def: <name>
+     (Random Bit)
+     (do random.monad
+       [id random.nat
+        example ..clean_type]
+       (in (not (or (/.subsumes? (<tag> id) example)
+                    (/.subsumes? example (<tag> id)))))))]
+
+  [#.Var for_subsumption|variable]
+  [#.Ex for_subsumption|existential]
+  )
+
+(def: for_subsumption|quantification+application
+  (Random Bit)
+  (do random.monad
+    [example ..clean_type]
+    (in (and (and (/.subsumes? (.type (List example)) (.type (All [a] (List a))))
+                  (not (/.subsumes? (.type (All [a] (List a))) (.type (List example)))))
+             (and (/.subsumes? (.type (Ex [a] (List a))) (.type (List example)))
+                  (not (/.subsumes? (.type (List example)) (.type (Ex [a] (List a))))))))))
+
+(def: for_subsumption|named
+  (Random Bit)
+  (do random.monad
+    [module (random.ascii/upper 10)
+     short (random.ascii/upper 10)
+     example ..clean_type]
+    (in (and (/.subsumes? (#.Named [module short] example)
+                          example)
+             (/.subsumes? example
+                          (#.Named [module short] example))
+             ))))
+
+(def: for_subsumption
+  Test
+  (do random.monad
+    [for_subsumption|ultimate ..for_subsumption|ultimate
+     for_subsumption|nominal ..for_subsumption|nominal
+     for_subsumption|sum ..for_subsumption|sum
+     for_subsumption|product ..for_subsumption|product
+     for_subsumption|function ..for_subsumption|function
+     for_subsumption|variable ..for_subsumption|variable
+     for_subsumption|existential ..for_subsumption|existential
+     for_subsumption|quantification+application ..for_subsumption|quantification+application
+     for_subsumption|named ..for_subsumption|named]
+    (_.cover [/.subsumes?]
+             (and for_subsumption|ultimate
+                  for_subsumption|nominal
+                  for_subsumption|sum
+                  for_subsumption|product
+                  for_subsumption|function
+                  for_subsumption|variable
+                  for_subsumption|existential
+                  for_subsumption|quantification+application
+                  for_subsumption|named
+                  ))))
+
 (def: .public test
   Test
   (<| (_.covering /._)
@@ -717,4 +857,5 @@
           ..context
           ..check
           ..clean
+          ..for_subsumption
           )))

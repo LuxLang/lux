@@ -237,5 +237,5 @@ But, now that we've spent 3 chapters about metaprogramming in Lux, I think it's 
 
 You're going to learn how to go beyond Lux and interact with everything and everyone.
 
-See you in the next chapter!
+See you in [the next chapter](chapter_12.md)!
 

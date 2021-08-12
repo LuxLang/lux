@@ -116,7 +116,7 @@
     (case (dictionary.get path @tracker)
       (#.Some [old_concern last_modified])
       (do !
-        [_ (stm.update (dictionary.put path [new_concern last_modified]) tracker)]
+        [_ (stm.update (dictionary.has path [new_concern last_modified]) tracker)]
         (in true))
       
       #.None
@@ -130,12 +130,12 @@
                 (function (_ file tracker)
                   (do !
                     [last_modified (\ fs last_modified file)]
-                    (in (dictionary.put file last_modified tracker))))
+                    (in (dictionary.has file last_modified tracker))))
                 (: File_Tracker
                    (dictionary.empty text.hash))
                 files)))
 
-(def: (poll_files fs directory)
+(def: (available_files fs directory)
   (-> (//.System Async) //.Path (Async (Try (List [//.Path Instant]))))
   (do {! (try.with async.monad)}
     [files (\ fs directory_files directory)]
@@ -145,14 +145,14 @@
                        (\ ! map (|>> [file]))))
                files)))
 
-(def: (poll_directory_changes fs [directory [concern file_tracker]])
+(def: (available_directory_changes fs [directory [concern file_tracker]])
   (-> (//.System Async) [//.Path [Concern File_Tracker]]
       (Async (Try [[//.Path [Concern File_Tracker]]
                    [(List [//.Path Instant])
                     (List [//.Path Instant Instant])
                     (List //.Path)]])))
   (do {! (try.with async.monad)}
-    [current_files (..poll_files fs directory)
+    [current_files (..available_files fs directory)
      .let [creations (if (..creation? concern)
                        (list.only (|>> product.left (dictionary.key? file_tracker) not)
                                   current_files)
@@ -172,13 +172,13 @@
                                    current_files)]]
     (in [[directory
           [concern
-           (let [with_deletions (list\fold dictionary.remove file_tracker deletions)
+           (let [with_deletions (list\fold dictionary.lacks file_tracker deletions)
                  with_creations (list\fold (function (_ [path last_modified] tracker)
-                                             (dictionary.put path last_modified tracker))
+                                             (dictionary.has path last_modified tracker))
                                            with_deletions
                                            creations)
                  with_modifications (list\fold (function (_ [path previous_modification current_modification] tracker)
-                                                 (dictionary.put path current_modification tracker))
+                                                 (dictionary.has path current_modification tracker))
                                                with_creations
                                                modifications)]
              with_modifications)]]
@@ -204,7 +204,7 @@
                (do (try.with !)
                  [file_tracker (..file_tracker fs path)]
                  (do !
-                   [_ (stm.commit (stm.update (dictionary.put path [new_concern file_tracker]) tracker))]
+                   [_ (stm.commit (stm.update (dictionary.has path [new_concern file_tracker]) tracker))]
                    (in (#try.Success []))))))
            (in (exception.except ..cannot_poll_a_non_existent_directory [path])))))
      (def: (concern path)
@@ -224,7 +224,7 @@
           (case (dictionary.get path @tracker)
             (#.Some [concern file_tracker])
             (do !
-              [_ (stm.update (dictionary.remove path) tracker)]
+              [_ (stm.update (dictionary.lacks path) tracker)]
               (in (#try.Success concern)))
 
             #.None
@@ -235,7 +235,7 @@
          (do {! (try.with async.monad)}
            [changes (|> @tracker
                         dictionary.entries
-                        (monad.map ! (..poll_directory_changes fs)))
+                        (monad.map ! (..available_directory_changes fs)))
             _ (do async.monad
                 [_ (stm.commit (stm.write (|> changes
                                               (list\map product.left)
@@ -431,7 +431,7 @@
                                                         (do !
                                                           [_ (async.future
                                                               (java/nio/file/WatchKey::cancel key))
-                                                           _ (stm.commit (stm.update (dictionary.remove path) tracker))]
+                                                           _ (stm.commit (stm.update (dictionary.lacks path) tracker))]
                                                           (in (#try.Success concern)))
 
                                                         #.None
@@ -447,7 +447,7 @@
                                                                        watcher
                                                                        path)]
                                                  (do async.monad
-                                                   [_ (stm.commit (stm.update (dictionary.put path [concern key]) tracker))]
+                                                   [_ (stm.commit (stm.update (dictionary.has path [concern key]) tracker))]
                                                    (in (#try.Success []))))))
                                            (def: (concern path)
                                              (do async.monad
