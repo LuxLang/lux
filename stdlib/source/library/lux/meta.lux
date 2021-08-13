@@ -33,13 +33,13 @@
   (Functor Meta)
   
   (def: (map f fa)
-    (function (_ compiler)
-      (case (fa compiler)
+    (function (_ lux)
+      (case (fa lux)
         (#try.Failure msg)
         (#try.Failure msg)
 
-        (#try.Success [compiler' a])
-        (#try.Success [compiler' (f a)])))))
+        (#try.Success [lux' a])
+        (#try.Success [lux' (f a)])))))
 
 (implementation: .public apply
   (Apply Meta)
@@ -47,12 +47,12 @@
   (def: &functor ..functor)
 
   (def: (apply ff fa)
-    (function (_ compiler)
-      (case (ff compiler)
-        (#try.Success [compiler' f])
-        (case (fa compiler')
-          (#try.Success [compiler'' a])
-          (#try.Success [compiler'' (f a)])
+    (function (_ lux)
+      (case (ff lux)
+        (#try.Success [lux' f])
+        (case (fa lux')
+          (#try.Success [lux'' a])
+          (#try.Success [lux'' (f a)])
 
           (#try.Failure msg)
           (#try.Failure msg))
@@ -66,25 +66,28 @@
   (def: &functor ..functor)
 
   (def: (in x)
-    (function (_ compiler)
-      (#try.Success [compiler x])))
+    (function (_ lux)
+      (#try.Success [lux x])))
   
   (def: (join mma)
-    (function (_ compiler)
-      (case (mma compiler)
+    (function (_ lux)
+      (case (mma lux)
         (#try.Failure msg)
         (#try.Failure msg)
 
-        (#try.Success [compiler' ma])
-        (ma compiler')))))
+        (#try.Success [lux' ma])
+        (ma lux')))))
 
-(def: .public (result' compiler action)
+(def: .public (result' lux action)
+  {#.doc (example "Evaluates a computation that depends on Lux's compiler state."
+                  "Also returns a (potentially modified) compiler state.")}
   (All [a] (-> Lux (Meta a) (Try [Lux a])))
-  (action compiler))
+  (action lux))
 
-(def: .public (result compiler action)
+(def: .public (result lux action)
+  {#.doc (example "Evaluates a computation that depends on Lux's compiler state.")}
   (All [a] (-> Lux (Meta a) (Try a)))
-  (case (action compiler)
+  (case (action lux)
     (#try.Failure error)
     (#try.Failure error)
 
@@ -94,20 +97,20 @@
 (def: .public (either left right)
   {#.doc "Pick whichever computation succeeds."}
   (All [a] (-> (Meta a) (Meta a) (Meta a)))
-  (function (_ compiler)
-    (case (left compiler)
+  (function (_ lux)
+    (case (left lux)
       (#try.Failure error)
-      (right compiler)
+      (right lux)
 
-      (#try.Success [compiler' output])
-      (#try.Success [compiler' output]))))
+      (#try.Success [lux' output])
+      (#try.Success [lux' output]))))
 
 (def: .public (assertion message test)
   {#.doc "Fails with the given message if the test is #0."}
   (-> Text Bit (Meta Any))
-  (function (_ compiler)
+  (function (_ lux)
     (if test
-      (#try.Success [compiler []])
+      (#try.Success [lux []])
       (#try.Failure message))))
 
 (def: .public (failure error)
@@ -118,26 +121,29 @@
     (#try.Failure (location.with (get@ #.location state) error))))
 
 (def: .public (module name)
+  {#.doc (example "Looks-up a module with the given name.")}
   (-> Text (Meta Module))
-  (function (_ compiler)
-    (case (plist.get name (get@ #.modules compiler))
+  (function (_ lux)
+    (case (plist.value name (get@ #.modules lux))
       (#.Some module)
-      (#try.Success [compiler module])
+      (#try.Success [lux module])
 
       _
       (#try.Failure ($_ text\compose "Unknown module: " name)))))
 
 (def: .public current_module_name
+  {#.doc (example "The name of the module currently being compiled, if any.")}
   (Meta Text)
-  (function (_ compiler)
-    (case (get@ #.current_module compiler)
+  (function (_ lux)
+    (case (get@ #.current_module lux)
       (#.Some current_module)
-      (#try.Success [compiler current_module])
+      (#try.Success [lux current_module])
 
       _
       (#try.Failure "No current module."))))
 
 (def: .public current_module
+  {#.doc (example "The module currently being compiled, if any.")}
   (Meta Module)
   (let [(^open "\.") ..monad]
     (|> ..current_module_name
@@ -170,11 +176,11 @@
   (-> (List [Text Module]) Text Text Text
       (Maybe Macro))
   (do maybe.monad
-    [$module (plist.get module modules)
+    [$module (plist.value module modules)
      definition (: (Maybe Global)
                    (|> (: Module $module)
                        (get@ #.definitions)
-                       (plist.get name)))]
+                       (plist.value name)))]
     (case definition
       (#.Alias [r_module r_name])
       (macro' modules this_module r_module r_name)
@@ -185,34 +191,38 @@
         #.None))))
 
 (def: .public (macro full_name)
+  {#.doc (example "Looks-up a macro known by the given name.")}
   (-> Name (Meta (Maybe Macro)))
   (do ..monad
     [[module name] (..normal full_name)]
     (: (Meta (Maybe Macro))
-       (function (_ compiler)
-         (let [macro (case (..current_module_name compiler)
+       (function (_ lux)
+         (let [macro (case (..current_module_name lux)
                        (#try.Failure error)
                        #.None
 
                        (#try.Success [_ this_module])
-                       (macro' (get@ #.modules compiler) this_module module name))]
-           (#try.Success [compiler macro]))))))
+                       (macro' (get@ #.modules lux) this_module module name))]
+           (#try.Success [lux macro]))))))
 
 (def: .public seed
+  {#.doc (example "The current value of a number tracked by the compiler."
+                  "Also increases the value, so it's different next time it is seen."
+                  "This number can be used for generating data 'randomly' during compilation.")}
   (Meta Nat)
-  (function (_ compiler)
-    (#try.Success [(update@ #.seed inc compiler)
-                   (get@ #.seed compiler)])))
+  (function (_ lux)
+    (#try.Success [(update@ #.seed inc lux)
+                   (get@ #.seed lux)])))
 
 (def: .public (module_exists? module)
   (-> Text (Meta Bit))
-  (function (_ compiler)
-    (#try.Success [compiler (case (plist.get module (get@ #.modules compiler))
-                              (#.Some _)
-                              #1
-                              
-                              #.None
-                              #0)])))
+  (function (_ lux)
+    (#try.Success [lux (case (plist.value module (get@ #.modules lux))
+                         (#.Some _)
+                         #1
+                         
+                         #.None
+                         #0)])))
 
 (def: (on_either f x1 x2)
   (All [a b]
@@ -236,15 +246,15 @@
   (-> Type (Meta Type))
   (case type
     (#.Var var)
-    (function (_ compiler)
-      (case (|> compiler
+    (function (_ lux)
+      (case (|> lux
                 (get@ [#.type_context #.var_bindings])
                 (type_variable var))
         (^or #.None (#.Some (#.Var _)))
-        (#try.Success [compiler type])
+        (#try.Success [lux type])
 
         (#.Some type')
-        (#try.Success [compiler type'])))
+        (#try.Success [lux type'])))
 
     _
     (\ ..monad in type)))
@@ -252,24 +262,24 @@
 (def: .public (var_type name)
   {#.doc "Looks-up the type of a local variable somewhere in the environment."}
   (-> Text (Meta Type))
-  (function (_ compiler)
+  (function (_ lux)
     (let [test (: (-> [Text [Type Any]] Bit)
                   (|>> product.left (text\= name)))]
       (case (do maybe.monad
-              [scope (list.find (function (_ env)
-                                  (or (list.any? test (: (List [Text [Type Any]])
-                                                         (get@ [#.locals #.mappings] env)))
-                                      (list.any? test (: (List [Text [Type Any]])
-                                                         (get@ [#.captured #.mappings] env)))))
-                                (get@ #.scopes compiler))
-               [_ [type _]] (on_either (list.find test)
+              [scope (list.example (function (_ env)
+                                     (or (list.any? test (: (List [Text [Type Any]])
+                                                            (get@ [#.locals #.mappings] env)))
+                                         (list.any? test (: (List [Text [Type Any]])
+                                                            (get@ [#.captured #.mappings] env)))))
+                                   (get@ #.scopes lux))
+               [_ [type _]] (on_either (list.example test)
                                        (: (List [Text [Type Any]])
                                           (get@ [#.locals #.mappings] scope))
                                        (: (List [Text [Type Any]])
                                           (get@ [#.captured #.mappings] scope)))]
               (in type))
         (#.Some var_type)
-        ((clean_type var_type) compiler)
+        ((clean_type var_type) lux)
 
         #.None
         (#try.Failure ($_ text\compose "Unknown variable: " name))))))
@@ -280,20 +290,20 @@
   (do ..monad
     [name (..normal name)
      .let [[normal_module normal_short] name]]
-    (function (_ compiler)
+    (function (_ lux)
       (case (: (Maybe Global)
                (do maybe.monad
-                 [(^slots [#.definitions]) (|> compiler
+                 [(^slots [#.definitions]) (|> lux
                                                (get@ #.modules)
-                                               (plist.get normal_module))]
-                 (plist.get normal_short definitions)))
+                                               (plist.value normal_module))]
+                 (plist.value normal_short definitions)))
         (#.Some definition)
-        (#try.Success [compiler definition])
+        (#try.Success [lux definition])
 
         _
-        (let [current_module (|> compiler (get@ #.current_module) (maybe.else "???"))
+        (let [current_module (|> lux (get@ #.current_module) (maybe.else "???"))
               separator ($_ text\compose text.new_line "                    ")
-              all_known_modules (|> compiler
+              all_known_modules (|> lux
                                     (get@ #.modules)
                                     (list\map product.left)
                                     (list.sorted text\<)
@@ -301,9 +311,9 @@
           (#try.Failure ($_ text\compose
                             "Unknown definition: " (name\encode name) text.new_line
                             "    Current module: " current_module text.new_line
-                            (case (plist.get current_module (get@ #.modules compiler))
+                            (case (plist.value current_module (get@ #.modules lux))
                               (#.Some this_module)
-                              (let [candidates (|> compiler
+                              (let [candidates (|> lux
                                                    (get@ #.modules)
                                                    (list\map (function (_ [module_name module])
                                                                (|> module
@@ -340,7 +350,8 @@
                             " All known modules: " all_known_modules text.new_line)))))))
 
 (def: .public (export name)
-  {#.doc "Looks-up a definition's type in the available modules (including the current one)."}
+  {#.doc (example "Looks-up a definition in the available modules (including the current one)."
+                  "The look-up only succeeds if the definition has been exported.")}
   (-> Name (Meta Definition))
   (do ..monad
     [definition (..definition name)]
@@ -371,15 +382,13 @@
 (def: .public (type name)
   {#.doc "Looks-up the type of either a local variable or a definition."}
   (-> Name (Meta Type))
-  (do ..monad
-    [.let [[_ _name] name]]
-    (case name
-      ["" _name]
-      (either (var_type _name)
-              (definition_type name))
+  (case name
+    ["" _name]
+    (either (var_type _name)
+            (definition_type name))
 
-      _
-      (definition_type name))))
+    _
+    (definition_type name)))
 
 (def: .public (type_definition name)
   {#.doc "Finds the value of a type definition (such as Int, Any or Lux)."}
@@ -392,7 +401,7 @@
       
       (#.Right [exported? def_type def_data def_value])
       (let [type_code (`` ("lux in-module" (~~ (static .prelude_module)) .type_code))]
-        (if (or (is? .Type def_type)
+        (if (or (same? .Type def_type)
                 (\ code.equivalence =
                    (type_code .Type)
                    (type_code def_type)))
@@ -402,13 +411,13 @@
 (def: .public (globals module)
   {#.doc "The entire list of globals in a module (including the non-exported/private ones)."}
   (-> Text (Meta (List [Text Global])))
-  (function (_ compiler)
-    (case (plist.get module (get@ #.modules compiler))
+  (function (_ lux)
+    (case (plist.value module (get@ #.modules lux))
       #.None
       (#try.Failure ($_ text\compose "Unknown module: " module))
       
       (#.Some module)
-      (#try.Success [compiler (get@ #.definitions module)]))))
+      (#try.Success [lux (get@ #.definitions module)]))))
 
 (def: .public (definitions module)
   {#.doc "The entire list of definitions in a module (including the non-exported/private ones)."}
@@ -437,10 +446,10 @@
 (def: .public modules
   {#.doc "All the available modules (including the current one)."}
   (Meta (List [Text Module]))
-  (function (_ compiler)
-    (|> compiler
+  (function (_ lux)
+    (|> lux
         (get@ #.modules)
-        [compiler]
+        [lux]
         #try.Success)))
 
 (def: .public (tags_of type_name)
@@ -449,7 +458,7 @@
   (do ..monad
     [.let [[module name] type_name]
      module (..module module)]
-    (case (plist.get name (get@ #.types module))
+    (case (plist.value name (get@ #.types module))
       (#.Some [tags _])
       (in (#.Some tags))
 
@@ -459,16 +468,16 @@
 (def: .public location
   {#.doc "The location of the current expression being analyzed."}
   (Meta Location)
-  (function (_ compiler)
-    (#try.Success [compiler (get@ #.location compiler)])))
+  (function (_ lux)
+    (#try.Success [lux (get@ #.location lux)])))
 
 (def: .public expected_type
   {#.doc "The expected type of the current expression being analyzed."}
   (Meta Type)
-  (function (_ compiler)
-    (case (get@ #.expected compiler)
+  (function (_ lux)
+    (case (get@ #.expected lux)
       (#.Some type)
-      (#try.Success [compiler type])
+      (#try.Success [lux type])
 
       #.None
       (#try.Failure "Not expecting any type."))))
@@ -487,6 +496,7 @@
     (in (list.any? (text\= import) imports))))
 
 (def: .public (imported? import)
+  {#.doc (example "Checks if the given module has been imported by the current module.")}
   (-> Text (Meta Bit))
   (\ ..functor map
      (|>> (get@ #.imports) (list.any? (text\= import)))
@@ -500,7 +510,7 @@
      =module (..module module)
      this_module_name ..current_module_name
      imported! (..imported? module)]
-    (case (plist.get name (get@ #.tags =module))
+    (case (plist.value name (get@ #.tags =module))
       (#.Some [idx tag_list exported? type])
       (if (or (text\= this_module_name module)
               (and imported! exported?))
@@ -532,13 +542,13 @@
 (def: .public locals
   {#.doc "All the local variables currently in scope, separated in different scopes."}
   (Meta (List (List [Text Type])))
-  (function (_ compiler)
-    (case (list.inits (get@ #.scopes compiler))
+  (function (_ lux)
+    (case (list.inits (get@ #.scopes lux))
       #.None
       (#try.Failure "No local environment")
 
       (#.Some scopes)
-      (#try.Success [compiler
+      (#try.Success [lux
                      (list\map (|>> (get@ [#.locals #.mappings])
                                     (list\map (function (_ [name [type _]])
                                                 [name type])))
@@ -556,16 +566,17 @@
           (#.Right _)
           def_name))))
 
-(def: .public get_compiler
+(def: .public compiler_state
   {#.doc "Obtains the current state of the compiler."}
   (Meta Lux)
-  (function (_ compiler)
-    (#try.Success [compiler compiler])))
+  (function (_ lux)
+    (#try.Success [lux lux])))
 
 (def: .public type_context
+  {#.doc (example "The current type-checking context.")}
   (Meta Type_Context)
-  (function (_ compiler)
-    (#try.Success [compiler (get@ #.type_context compiler)])))
+  (function (_ lux)
+    (#try.Success [lux (get@ #.type_context lux)])))
 
 (def: .public (lift result)
   (All [a] (-> (Try a) (Meta a)))

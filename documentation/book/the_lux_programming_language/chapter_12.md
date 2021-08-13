@@ -109,5 +109,5 @@ Here, you have learned how to walk outside and yell.
 
 Next, I shall teach you how to walk inside and whisper... to the host platform.
 
-See you in the next chapter!
+See you in [the next chapter](chapter_13.md)!
 

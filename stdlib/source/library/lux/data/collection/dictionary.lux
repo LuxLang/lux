@@ -226,9 +226,9 @@
 (def: (collision_index key_hash key colls)
   (All [k v] (-> (Hash k) k (Collisions k v) (Maybe Index)))
   (\ maybe.monad map product.left
-     (array.find+ (function (_ idx [key' val'])
-                    (\ key_hash = key key'))
-                  colls)))
+     (array.example+ (function (_ idx [key' val'])
+                       (\ key_hash = key key'))
+                     colls)))
 
 ... When #Hierarchy nodes grow too small, they're demoted to #Base
 ... nodes to save space.
@@ -405,7 +405,7 @@
         (#.Some sub_node)
         (let [sub_node' (lacks' (level_up level) hash key key_hash sub_node)]
           ... Then check if a removal was actually done.
-          (if (is? sub_node sub_node')
+          (if (same? sub_node sub_node')
             ... If not, then there's nothing to change here either.
             node
             ... But if the sub_removal yielded an empty sub_node...
@@ -431,7 +431,7 @@
             (#.Some (#.Left sub_node))
             (let [sub_node' (lacks' (level_up level) hash key key_hash sub_node)]
               ... Verify that it was removed.
-              (if (is? sub_node sub_node')
+              (if (same? sub_node sub_node')
                 ... If not, there's also nothing to change here.
                 node
                 ... But if it came out empty...
@@ -481,14 +481,14 @@
         (#Collisions _hash (lacks! idx _colls))))
     ))
 
-(def: (get' level hash key key_hash node)
+(def: (value' level hash key key_hash node)
   (All [k v] (-> Level Hash_Code k (Hash k) (Node k v) (Maybe v)))
   (case node
     ... For #Hierarchy nodes, just look-up the key on its children.
     (#Hierarchy _size hierarchy)
     (case (array.read (level_index level hash) hierarchy)
       #.None            #.None
-      (#.Some sub_node) (get' (level_up level) hash key key_hash sub_node))
+      (#.Some sub_node) (value' (level_up level) hash key key_hash sub_node))
 
     ... For #Base nodes, check the leaves, and recursively check the branches.
     (#Base bitmap base)
@@ -496,7 +496,7 @@
       (if (with_bit_position? bit bitmap)
         (case (array.read (base_index bit bitmap) base)
           (#.Some (#.Left sub_node))
-          (get' (level_up level) hash key key_hash sub_node)
+          (value' (level_up level) hash key key_hash sub_node)
 
           (#.Some (#.Right [key' val']))
           (if (\ key_hash = key key')
@@ -510,8 +510,8 @@
     ... For #Collisions nodes, do a linear scan of all the known KV-pairs.
     (#Collisions _hash _colls)
     (\ maybe.monad map product.right
-       (array.find (|>> product.left (\ key_hash = key))
-                   _colls))
+       (array.example (|>> product.left (\ key_hash = key))
+                      _colls))
     ))
 
 (def: (size' node)
@@ -580,14 +580,14 @@
   (let [[key_hash node] dict]
     [key_hash (lacks' root_level (\ key_hash hash key) key key_hash node)]))
 
-(def: .public (get key dict)
+(def: .public (value key dict)
   (All [k v] (-> k (Dictionary k v) (Maybe v)))
   (let [[key_hash node] dict]
-    (get' root_level (\ key_hash hash key) key key_hash node)))
+    (value' root_level (\ key_hash hash key) key key_hash node)))
 
 (def: .public (key? dict key)
   (All [k v] (-> (Dictionary k v) k Bit))
-  (case (get key dict)
+  (case (value key dict)
     #.None     #0
     (#.Some _) #1))
 
@@ -596,14 +596,14 @@
 (def: .public (try_put key val dict)
   {#.doc "Only puts the KV-pair if the key is not already present."}
   (All [k v] (-> k v (Dictionary k v) (Try (Dictionary k v))))
-  (case (get key dict)
+  (case (value key dict)
     #.None     (#try.Success (has key val dict))
     (#.Some _) (exception.except ..key_already_exists [])))
 
 (def: .public (revised key f dict)
   {#.doc "Transforms the value located at key (if available), using the given function."}
   (All [k v] (-> k (-> v v) (Dictionary k v) (Dictionary k v)))
-  (case (get key dict)
+  (case (value key dict)
     #.None
     dict
 
@@ -616,7 +616,7 @@
   (All [k v] (-> k v (-> v v) (Dictionary k v) (Dictionary k v)))
   (..has key
          (f (maybe.else default
-                        (..get key dict)))
+                        (..value key dict)))
          dict))
 
 (def: .public size
@@ -663,7 +663,7 @@
                   "If any collisions with keys occur, a new value will be computed by applying 'f' to the values of dict2 and dict1.")}
   (All [k v] (-> (-> v v v) (Dictionary k v) (Dictionary k v) (Dictionary k v)))
   (list\fold (function (_ [key val2] dict)
-               (case (get key dict)
+               (case (value key dict)
                  #.None
                  (has key val2 dict)
 
@@ -675,7 +675,7 @@
 (def: .public (re_bind from_key to_key dict)
   {#.doc (example "If there is a value under 'from_key', remove 'from_key' and store the value under 'to_key'.")}
   (All [k v] (-> k k (Dictionary k v) (Dictionary k v)))
-  (case (get from_key dict)
+  (case (value from_key dict)
     #.None
     dict
 
@@ -689,7 +689,7 @@
   (All [k v] (-> (List k) (Dictionary k v) (Dictionary k v)))
   (let [[key_hash _] dict]
     (list\fold (function (_ key new_dict)
-                 (case (get key dict)
+                 (case (value key dict)
                    #.None       new_dict
                    (#.Some val) (has key val new_dict)))
                (empty key_hash)
@@ -702,7 +702,7 @@
     (and (n.= (..size reference)
               (..size subject))
          (list.every? (function (_ [k rv])
-                        (case (..get k subject)
+                        (case (..value k subject)
                           (#.Some sv)
                           (,\= rv sv)
 
