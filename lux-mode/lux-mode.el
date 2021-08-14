@@ -388,7 +388,7 @@ Called by `imenu--generic-function'."
 							(actor (altRE "actor:" "message:" "actor"))
 							(jvm-host (altRE "class:" "interface:" "import:" "object" "do_to" "synchronized" "class_for"))
 							(alternative-format (altRE "char" "bin" "oct" "hex"))
-							(documentation (altRE "example" "comment"))
+							(documentation (altRE "comment" "documentation:"))
 							(function-application (altRE "|>" "<|" "_\\$" "\\$_"))
 							(function-definition (altRE "function" "|>>" "<<|" "||>"))
 							(remember (altRE "remember" "to_do" "fix_me"))

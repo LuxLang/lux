@@ -34,6 +34,15 @@ cd ~/lux/stdlib/ && mvn deploy:deploy-file \
 cd ~/lux/stdlib/ \
 && lein clean \
 && lein with-profile scriptum lux auto build
+
+cd ~/lux/stdlib/ \
+&& lux clean \
+&& lux with documentation auto test
+
+cd ~/lux/stdlib/ \
+&& lux clean \
+&& lux with documentation build \
+&& java -jar target/program.jar > documentation.md
 ```
 
 ---

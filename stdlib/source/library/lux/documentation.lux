@@ -1,0 +1,366 @@
+(.module:
+  [library
+   [lux (#- Definition Module example type)
+    ["." meta]
+    [abstract
+     [monad (#+ do)]]
+    [control
+     ["." maybe ("#\." functor)]
+     ["." exception (#+ exception:)]
+     ["<>" parser
+      ["<.>" code (#+ Parser)]]]
+    [data
+     ["." product]
+     ["." text (#+ \n) ("#\." order)
+      ["%" format (#+ format)]]
+     [collection
+      ["." list ("#\." monad fold monoid)]
+      ["." set (#+ Set)]]
+     [format
+      ["md" markdown (#+ Markdown Block)]]]
+    [macro
+     [syntax (#+ syntax:)]
+     ["." code]
+     ["." template]]
+    [math
+     [number
+      ["n" nat]]]
+    [tool
+     [compiler
+      [language
+       [lux
+        ["." syntax]]]]]]])
+
+(type: Fragment
+  (#Comment Text)
+  (#Code Code))
+
+(def: fragment
+  (Parser Fragment)
+  (<>.or <code>.text
+         <code>.any))
+
+(def: (reference_column code)
+  (-> Code Nat)
+  (case code
+    (^template [<tag>]
+      [[[_ _ column] (<tag> _)]
+       column])
+    ([#.Bit]
+     [#.Nat]
+     [#.Int]
+     [#.Rev]
+     [#.Frac]
+     [#.Text]
+     [#.Identifier]
+     [#.Tag])
+
+    (^template [<tag>]
+      [[[_ _ column] (<tag> members)]
+       (|> members
+           (list\map reference_column)
+           (list\fold n.min column))])
+    ([#.Form]
+     [#.Tuple])
+
+    [[_ _ column] (#.Record pairs)]
+    (|> (list\compose (list\map (|>> product.left reference_column) pairs)
+                      (list\map (|>> product.right reference_column) pairs))
+        (list\fold n.min column))
+    ))
+
+(def: (padding reference_column [_ old_line old_column] [_ new_line new_column])
+  (-> Nat Location Location Text)
+  (if (n.= old_line new_line)
+    (text.joined (list.repeated (n.- old_column new_column) " "))
+    (format (if (n.< new_line old_line)
+              (text.joined (list.repeated (n.- old_line new_line) \n))
+              "")
+            (if (n.< new_column reference_column)
+              (text.joined (list.repeated (n.- reference_column new_column) " "))
+              ""))))
+
+(def: un_paired
+  (All [a] (-> (List [a a]) (List a)))
+  (let [melded (: (All [a] (-> [a a] (List a) (List a)))
+                  (function (_ [left right] tail)
+                    (list& left right tail)))]
+    (|>> list.reversed
+         (list\fold melded #.End))))
+
+(def: (code_documentation old_location reference_column example)
+  (-> Location Nat Code [Location Text])
+  (case example
+    (^template [<tag> <format>]
+      [[new_location (<tag> value)]
+       (let [documentation (`` (|> value (~~ (template.spliced <format>))))]
+         [(update@ #.column (n.+ (text.size documentation)) new_location)
+          (format (padding reference_column old_location new_location)
+                  documentation)])])
+    ([#.Bit [%.bit]]
+     [#.Nat [%.nat]]
+     [#.Int [%.int]]
+     [#.Rev [%.rev]]
+     [#.Frac [%.frac]]
+     [#.Text [%.text]]
+     [#.Identifier [%.name]]
+     [#.Tag [%.name (text.prefix syntax.sigil)]])
+
+    (^template [|<| |>| <tag> <prep>]
+      [[group_location (<tag> members)]
+       (let [[group_location' members_documentation] (list\fold (function (_ part [last_location text_accum])
+                                                                  (let [[member_location member_documentation] (code_documentation last_location reference_column part)]
+                                                                    [member_location (format text_accum member_documentation)]))
+                                                                [(update@ #.column inc group_location) ""]
+                                                                (<prep> members))]
+         [(update@ #.column inc group_location')
+          (format (padding reference_column old_location group_location)
+                  |<| members_documentation |>|)])])
+    ([syntax.open_form   syntax.close_form   #.Form   |>]
+     [syntax.open_tuple  syntax.close_tuple  #.Tuple  |>]
+     [syntax.open_record syntax.close_record #.Record ..un_paired])
+    ))
+
+(def: blank_line
+  Text
+  (format \n \n))
+
+(def: single_line_comment
+  (-> Text Text)
+  (text.prefix "... "))
+
+(def: (fragment_documentation fragment)
+  (-> Fragment Text)
+  (case fragment
+    (#Comment comment)
+    (..single_line_comment comment)
+
+    (#Code example)
+    (let [reference_column (..reference_column example)
+          [location _] example]
+      (|> example
+          (..code_documentation (set@ #.column reference_column location) reference_column)
+          product.right))))
+
+(def: type
+  (-> Type Text)
+  %.type)
+
+(def: description
+  (Parser (Maybe Code))
+  (<>.or (<code>.text! "")
+         <code>.any))
+
+(exception: .public (unqualified_identifier {name Name})
+  (exception.report
+   ["Name" (%.name name)]))
+
+(def: qualified_identifier
+  (Parser Name)
+  (do <>.monad
+    [name <code>.identifier]
+    (case name
+      ["" _]
+      (<>.failure (exception.error ..unqualified_identifier [name]))
+      
+      _
+      (in name))))
+
+(def: example_separator
+  Code
+  (let [c/01 "...."
+        c/04 (format c/01 c/01 c/01 c/01)
+        c/16 (format c/04 c/04 c/04 c/04)]
+    (code.text (format blank_line
+                       c/16 \n c/16
+                       blank_line))))
+
+(type: Example
+  (List Fragment))
+
+(def: example
+  (Parser Example)
+  (<code>.tuple (<>.many ..fragment)))
+
+(def: example_documentation
+  (-> Example Code)
+  (|>> (list\map ..fragment_documentation)
+       (list.interposed ..blank_line)
+       (text.join_with "")
+       code.text))
+
+(syntax: (minimal_definition_documentation
+          [name ..qualified_identifier])
+  (with_expansions [<\n> (~! text.\n)]
+    (in (list (` ($_ ((~! md.then))
+                     ... Name
+                     (<| ((~! md.heading/3))
+                         (~ (code.text (|> name product.right [""] %.name))))
+                     ... Type
+                     (<| ((~! md.code))
+                         ((~! ..type) ("lux in-module"
+                                       (~ (code.text (product.left name)))
+                                       (.:of (~ (code.identifier name)))))))
+                 )))))
+
+(syntax: (definition_documentation
+          [name ..qualified_identifier
+           description ..description
+           examples (<>.some ..example)])
+  (with_expansions [<\n> (~! text.\n)]
+    (in (list (` ($_ ((~! md.then))
+                     ((~! ..minimal_definition_documentation)
+                      (~ (code.identifier name)))
+                     ... Description
+                     (~+ (case description
+                           (#.Some description)
+                           (list (` (<| ((~! md.paragraph))
+                                        ((~! md.text))
+                                        (~ description))))
+                           
+                           #.None
+                           (list)))
+                     ... Examples
+                     (~+ (case examples
+                           #.End
+                           (list)
+                           
+                           _
+                           (list (` (<| ((~! md.code))
+                                        ((~! %.format)
+                                         (~+ (|> examples
+                                                 (list\map ..example_documentation)
+                                                 (list.interposed ..example_separator))))))))))
+                 )))))
+
+(type: .public Definition
+  {#definition Text
+   #documentation (Markdown Block)})
+
+(type: .public #rec Module
+  {#module Text
+   #expected (Set Text)
+   #definitions (List Definition)})
+
+(syntax: .public (default [name ..qualified_identifier])
+  (let [[_ short] name]
+    (in (list (` (: ..Definition
+                    {#..definition (~ (code.text short))
+                     #..documentation ((~! ..minimal_definition_documentation)
+                                       (~ (code.identifier name)))}))))))
+
+(syntax: .public (documentation: [name ..qualified_identifier
+                                  extra (<>.some <code>.any)])
+  (let [[_ short] name]
+    (in (list (` (.def: .public (~ (code.local_identifier short))
+                   ..Definition
+                   {#..definition (~ (code.text short))
+                    #..documentation ((~! ..definition_documentation)
+                                      (~ (code.identifier name))
+                                      (~+ extra))}))))))
+
+(def: definitions_documentation
+  (-> (List Definition) (Markdown Block))
+  (|>> (list.sorted (function (_ left right)
+                      (text\< (get@ #definition right)
+                              (get@ #definition left))))
+       (list\map (get@ #documentation))
+       (list\fold md.then md.empty)))
+
+(def: expected_separator
+  Text
+  (text.of_char 31))
+
+(def: expected_format
+  (-> (List Text) Text)
+  (list\fold (function (_ short aggregate)
+               (case aggregate
+                 "" short
+                 _ (format aggregate ..expected_separator short)))
+             ""))
+
+(def: expected
+  (-> Text (Set Text))
+  (|>> (text.all_split_by ..expected_separator)
+       (set.of_list text.hash)))
+
+(def: (module' name expected definitions)
+  (-> Text Text (List Definition) Module)
+  {#module name
+   #expected (..expected expected)
+   #definitions definitions})
+
+(syntax: .public (module [[name _] ..qualified_identifier
+                          definitions (<code>.tuple (<>.some <code>.any))
+                          subs (<code>.tuple (<>.some <code>.any))])
+  (do meta.monad
+    [expected (meta.exports name)]
+    (in (list (` (: (List Module)
+                    (list& ((~! module')
+                            (~ (code.text name))
+                            (~ (code.text (|> expected
+                                              (list\map product.left)
+                                              ..expected_format)))
+                            (list (~+ definitions)))
+                           ($_ (\ (~! list.monoid) (~' compose))
+                               (: (List Module)
+                                  (\ (~! list.monoid) (~' identity)))
+                               (~+ subs)))))))))
+
+(def: listing
+  (-> (List Text) (Markdown Block))
+  (|>> (list.sorted text\<)
+       (list\map (function (_ definition)
+                   [(md.snippet definition)
+                    #.None]))
+       md.numbered_list))
+
+(def: (module_documentation module)
+  (-> Module (Markdown Block))
+  (let [(^slots [#expected]) module]
+    ($_ md.then
+        ... Name
+        (md.heading/1 (get@ #module module))
+        ... Definitions
+        (md.heading/2 "Definitions")
+        (|> module
+            (get@ #definitions)
+            (list.only (|>> (get@ #definition)
+                            (set.member? expected)))
+            ..definitions_documentation)
+        ... Missing documentation
+        (case (|> module
+                  (get@ #definitions)
+                  (list\fold (function (_ definition missing)
+                               (set.lacks (get@ #definition definition) missing))
+                             expected)
+                  set.list)
+          #.End
+          md.empty
+
+          missing
+          ($_ md.then
+              (md.heading/2 "Missing documentation")
+              (..listing missing)))
+        ... Un-expected documentation
+        (case (|> module
+                  (get@ #definitions)
+                  (list.only (|>> (get@ #definition) (set.member? expected) not))
+                  (list\map (get@ #definition)))
+          #.End
+          md.empty
+          
+          un_expected
+          ($_ md.then
+              (md.heading/2 "Un-expected documentation")
+              (..listing un_expected)))
+        )))
+
+(def: .public documentation
+  (-> (List Module) Text)
+  (|>> (list.sorted (function (_ left right)
+                      (text\< (get@ #module right) (get@ #module left))))
+       (list\map ..module_documentation)
+       (list.interposed md.horizontal_rule)
+       (list\fold md.then (: (Markdown Block) md.empty))
+       md.markdown))

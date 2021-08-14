@@ -195,5 +195,5 @@ Host platform inter-operation is a feature whose value can never be understated,
 
 We're actually going to explore one such feature in the next chapter, when we abandon our old notions of sequential program execution and explore the curious world of concurrency.
 
-See you in the next chapter!
+See you in [the next chapter](chapter_14.md)!
 
