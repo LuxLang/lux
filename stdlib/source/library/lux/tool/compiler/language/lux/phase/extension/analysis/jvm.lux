@@ -137,7 +137,7 @@
 (def: (ensure_fresh_class! class_loader name)
   (-> java/lang/ClassLoader External (Operation Any))
   (do phase.monad
-    [class (phase.lift (reflection!.load class_loader name))]
+    [class (phase.lifted (reflection!.load class_loader name))]
     (phase.assertion ..deprecated_class [name]
                      (|> class
                          java/lang/Class::getDeclaredAnnotations
@@ -401,7 +401,7 @@
     (|> objectJ
         ..signature
         (<text>.result jvm_parser.array)
-        phase.lift)))
+        phase.lifted)))
 
 (def: (primitive_array_length_handler primitive_type)
   (-> (Type Primitive) Handler)
@@ -460,7 +460,7 @@
       (do phase.monad
         [lengthA (typeA.with_type ..int
                    (analyse archive lengthC))
-         expectedT (///.lift meta.expected_type)
+         expectedT (///.lifted meta.expected_type)
          expectedJT (jvm_array_type expectedT)
          elementJT (case (jvm_parser.array? expectedJT)
                      (#.Some elementJT)
@@ -556,7 +556,7 @@
                     [jvm.char]))
 
               (text.starts_with? descriptor.array_prefix name)
-              (let [[_ unprefixed] (maybe.assume (text.split_by descriptor.array_prefix name))]
+              (let [[_ unprefixed] (maybe.trusted (text.split_by descriptor.array_prefix name))]
                 (\ phase.monad map jvm.array
                    (check_jvm (#.Primitive unprefixed (list)))))
 
@@ -750,7 +750,7 @@
     (case args
       (^ (list))
       (do phase.monad
-        [expectedT (///.lift meta.expected_type)
+        [expectedT (///.lifted meta.expected_type)
          _ (check_object expectedT)]
         (in (#/////analysis.Extension extension_name (list))))
 
@@ -797,7 +797,7 @@
          [exceptionT exceptionA] (typeA.with_inference
                                    (analyse archive exceptionC))
          exception_class (check_object exceptionT)
-         ? (phase.lift (reflection!.sub? class_loader "java.lang.Throwable" exception_class))
+         ? (phase.lifted (reflection!.sub? class_loader "java.lang.Throwable" exception_class))
          _ (: (Operation Any)
               (if ?
                 (in [])
@@ -817,7 +817,7 @@
         (do phase.monad
           [_ (..ensure_fresh_class! class_loader class)
            _ (typeA.infer (#.Primitive "java.lang.Class" (list (#.Primitive class (list)))))
-           _ (phase.lift (reflection!.load class_loader class))]
+           _ (phase.lifted (reflection!.load class_loader class))]
           (in (#/////analysis.Extension extension_name (list (/////analysis.text class)))))
 
         _
@@ -837,7 +837,7 @@
          [objectT objectA] (typeA.with_inference
                              (analyse archive objectC))
          object_class (check_object objectT)
-         ? (phase.lift (reflection!.sub? class_loader object_class sub_class))]
+         ? (phase.lifted (reflection!.sub? class_loader object_class sub_class))]
         (if ?
           (in (#/////analysis.Extension extension_name (list (/////analysis.text sub_class) objectA)))
           (/////analysis.except cannot_possibly_be_an_instance (format sub_class " !<= "  object_class)))))]))
@@ -862,14 +862,14 @@
 (def: (class_candidate_parents class_loader source_name fromT target_name target_class)
   (-> java/lang/ClassLoader External .Type External (java/lang/Class java/lang/Object) (Operation (List [[Text .Type] Bit])))
   (do {! phase.monad}
-    [source_class (phase.lift (reflection!.load class_loader source_name))
-     mapping (phase.lift (reflection!.correspond source_class fromT))]
+    [source_class (phase.lifted (reflection!.load class_loader source_name))
+     mapping (phase.lifted (reflection!.correspond source_class fromT))]
     (monad.map !
                (function (_ superJT)
                  (do !
-                   [superJT (phase.lift (reflection!.type superJT))
+                   [superJT (phase.lifted (reflection!.type superJT))
                     .let [super_name (|> superJT ..reflection)]
-                    super_class (phase.lift (reflection!.load class_loader super_name))
+                    super_class (phase.lifted (reflection!.load class_loader super_name))
                     superT (reflection_type mapping superJT)]
                    (in [[super_name superT] (java/lang/Class::isAssignableFrom super_class target_class)])))
                (case (java/lang/Class::getGenericSuperclass source_class)
@@ -890,7 +890,7 @@
                (function (_ superT)
                  (do {! phase.monad}
                    [super_name (\ ! map ..reflection (check_jvm superT))
-                    super_class (phase.lift (reflection!.load class_loader super_name))]
+                    super_class (phase.lifted (reflection!.load class_loader super_name))]
                    (in [[super_name superT]
                         (java/lang/Class::isAssignableFrom super_class target_class)])))
                (list& super_classT super_interfacesT+))
@@ -904,7 +904,7 @@
     (case args
       (^ (list fromC))
       (do {! phase.monad}
-        [toT (///.lift meta.expected_type)
+        [toT (///.lifted meta.expected_type)
          target_name (\ ! map ..reflection (check_jvm toT))
          [fromT fromA] (typeA.with_inference
                          (analyse archive fromC))
@@ -934,11 +934,11 @@
                                                       (not (dictionary.key? ..boxes source_name)))
                                    _ (phase.assertion ..primitives_are_not_objects [target_name]
                                                       (not (dictionary.key? ..boxes target_name)))
-                                   target_class (phase.lift (reflection!.load class_loader target_name))
+                                   target_class (phase.lifted (reflection!.load class_loader target_name))
                                    _ (if (text\= ..inheritance_relationship_type_name source_name)
                                        (in [])
                                        (do !
-                                         [source_class (phase.lift (reflection!.load class_loader source_name))]
+                                         [source_class (phase.lifted (reflection!.load class_loader source_name))]
                                          (phase.assertion ..cannot_cast [fromT toT fromC]
                                                           (java/lang/Class::isAssignableFrom source_class target_class))))]
                                   (loop [[current_name currentT] [source_name fromT]]
@@ -986,7 +986,7 @@
     (function (_ extension_name analyse archive [class field])
       (do phase.monad
         [_ (..ensure_fresh_class! class_loader class)
-         [final? deprecated? fieldJT] (phase.lift
+         [final? deprecated? fieldJT] (phase.lifted
                                        (do try.monad
                                          [class (reflection!.load class_loader class)]
                                          (reflection!.static_field field class)))
@@ -1007,7 +1007,7 @@
       (do phase.monad
         [_ (..ensure_fresh_class! class_loader class)
          _ (typeA.infer Any)
-         [final? deprecated? fieldJT] (phase.lift
+         [final? deprecated? fieldJT] (phase.lifted
                                        (do try.monad
                                          [class (reflection!.load class_loader class)]
                                          (reflection!.static_field field class)))
@@ -1032,7 +1032,7 @@
         [_ (..ensure_fresh_class! class_loader class)
          [objectT objectA] (typeA.with_inference
                              (analyse archive objectC))
-         [deprecated? mapping fieldJT] (phase.lift
+         [deprecated? mapping fieldJT] (phase.lifted
                                         (do try.monad
                                           [class (reflection!.load class_loader class)
                                            [final? deprecated? fieldJT] (reflection!.virtual_field field class)
@@ -1058,7 +1058,7 @@
          [objectT objectA] (typeA.with_inference
                              (analyse archive objectC))
          _ (typeA.infer objectT)
-         [final? deprecated? mapping fieldJT] (phase.lift
+         [final? deprecated? mapping fieldJT] (phase.lifted
                                                (do try.monad
                                                  [class (reflection!.load class_loader class)
                                                   [final? deprecated? fieldJT] (reflection!.virtual_field field class)
@@ -1091,7 +1091,7 @@
     [parameters (|> (java/lang/reflect/Method::getGenericParameterTypes method)
                     array.list
                     (monad.map try.monad reflection!.type)
-                    phase.lift)
+                    phase.lifted)
      .let [modifiers (java/lang/reflect/Method::getModifiers method)
            correct_class? (java/lang/Object::equals class (java/lang/reflect/Method::getDeclaringClass method))
            correct_method? (text\= method_name (java/lang/reflect/Method::getName method))
@@ -1137,7 +1137,7 @@
     [parameters (|> (java/lang/reflect/Constructor::getGenericParameterTypes constructor)
                     array.list
                     (monad.map try.monad reflection!.type)
-                    phase.lift)]
+                    phase.lifted)]
     (in (and (java/lang/Object::equals class (java/lang/reflect/Constructor::getDeclaringClass constructor))
              (n.= (list.size inputsJT) (list.size parameters))
              (list\fold (function (_ [expectedJC actualJC] prev)
@@ -1191,18 +1191,18 @@
     (do {! phase.monad}
       [inputsT (|> (java/lang/reflect/Method::getGenericParameterTypes method)
                    array.list
-                   (monad.map ! (|>> reflection!.type phase.lift))
+                   (monad.map ! (|>> reflection!.type phase.lifted))
                    (phase\map (monad.map ! (..reflection_type mapping)))
                    phase\join)
        outputT (|> method
                    java/lang/reflect/Method::getGenericReturnType
                    reflection!.return
-                   phase.lift
+                   phase.lifted
                    (phase\map (..reflection_return mapping))
                    phase\join)
        exceptionsT (|> (java/lang/reflect/Method::getGenericExceptionTypes method)
                        array.list
-                       (monad.map ! (|>> reflection!.type phase.lift))
+                       (monad.map ! (|>> reflection!.type phase.lifted))
                        (phase\map (monad.map ! (..reflection_type mapping)))
                        phase\join)
        .let [methodT (<| (type.univ_q (dictionary.size mapping))
@@ -1231,12 +1231,12 @@
     (do {! phase.monad}
       [inputsT (|> (java/lang/reflect/Constructor::getGenericParameterTypes constructor)
                    array.list
-                   (monad.map ! (|>> reflection!.type phase.lift))
+                   (monad.map ! (|>> reflection!.type phase.lifted))
                    (phase\map (monad.map ! (reflection_type mapping)))
                    phase\join)
        exceptionsT (|> (java/lang/reflect/Constructor::getGenericExceptionTypes constructor)
                        array.list
-                       (monad.map ! (|>> reflection!.type phase.lift))
+                       (monad.map ! (|>> reflection!.type phase.lifted))
                        (phase\map (monad.map ! (reflection_type mapping)))
                        phase\join)
        .let [objectT (#.Primitive (java/lang/Class::getName owner) owner_tvarsT)
@@ -1285,7 +1285,7 @@
 (def: (method_candidate class_loader actual_class_tvars class_name actual_method_tvars method_name method_style inputsJT)
   (-> java/lang/ClassLoader (List (Type Var)) External (List (Type Var)) Text Method_Style (List (Type Value)) (Operation Method_Signature))
   (do {! phase.monad}
-    [class (phase.lift (reflection!.load class_loader class_name))
+    [class (phase.lifted (reflection!.load class_loader class_name))
      .let [expected_class_tvars (class_type_variables class)]
      candidates (|> class
                     java/lang/Class::getDeclaredMethods
@@ -1318,7 +1318,7 @@
 (def: (constructor_candidate class_loader actual_class_tvars class_name actual_method_tvars inputsJT)
   (-> java/lang/ClassLoader (List (Type Var)) External (List (Type Var)) (List (Type Value)) (Operation Method_Signature))
   (do {! phase.monad}
-    [class (phase.lift (reflection!.load class_loader class_name))
+    [class (phase.lifted (reflection!.load class_loader class_name))
      .let [expected_class_tvars (class_type_variables class)]
      candidates (|> class
                     java/lang/Class::getConstructors
@@ -1436,7 +1436,7 @@
       (do phase.monad
         [_ (..ensure_fresh_class! class_loader class_name)
          .let [argsT (list\map product.left argsTC)]
-         class (phase.lift (reflection!.load class_loader class_name))
+         class (phase.lifted (reflection!.load class_loader class_name))
          _ (phase.assertion non_interface class_name
                             (java/lang/reflect/Modifier::isInterface (java/lang/Class::getModifiers class)))
          [methodT deprecated? exceptionsT] (..method_candidate class_loader class_tvars class_name method_tvars method #Interface argsT)
@@ -1914,14 +1914,14 @@
             [parent_parameters (|> parent_parameters
                                    (monad.map maybe.monad jvm_parser.var?)
                                    try.of_maybe
-                                   phase.lift)]
+                                   phase.lifted)]
             (|> super_parameters
                 (monad.map ! (..reflection_type mapping))
                 (\ ! map (|>> (list.zipped/2 parent_parameters)))))
-          (phase.lift (exception.except ..mismatched_super_parameters [parent_name expected_count actual_count]))))
+          (phase.lifted (exception.except ..mismatched_super_parameters [parent_name expected_count actual_count]))))
       
       #.None
-      (phase.lift (exception.except ..unknown_super [parent_name supers])))))
+      (phase.lifted (exception.except ..unknown_super [parent_name supers])))))
 
 (def: .public (with_fresh_type_vars vars mapping)
   (-> (List (Type Var)) Mapping (Operation Mapping))
@@ -2060,7 +2060,7 @@
   (-> java/lang/ClassLoader (Type Class) (Operation Aliasing))
   (do phase.monad
     [.let [[name actual_parameters] (jvm_parser.read_class class)]
-     class (phase.lift (reflection!.load class_loader name))
+     class (phase.lifted (reflection!.load class_loader name))
      .let [expected_parameters (|> (java/lang/Class::getTypeParameters class)
                                    array.list
                                    (list\map (|>> java/lang/reflect/TypeVariable::getName)))]
@@ -2086,8 +2086,8 @@
 (def: .public (require_complete_method_concretion class_loader supers methods)
   (-> java/lang/ClassLoader (List (Type Class)) (List (Overriden_Method Code)) (Operation Any))
   (do {! phase.monad}
-    [required_abstract_methods (phase.lift (all_abstract_methods class_loader supers))
-     available_methods (phase.lift (all_methods class_loader supers))
+    [required_abstract_methods (phase.lifted (all_abstract_methods class_loader supers))
+     available_methods (phase.lifted (all_methods class_loader supers))
      overriden_methods (monad.map ! (function (_ [parent_type method_name
                                                   strict_fp? annotations type_vars
                                                   self_name arguments return exceptions
@@ -2139,12 +2139,12 @@
                              (monad.map check.monad
                                         (|>> ..signature (luxT.check (luxT.class mapping)))
                                         super_interfaces))
-         selfT (///.lift (do meta.monad
-                           [where meta.current_module_name
-                            id meta.seed]
-                           (in (inheritance_relationship_type (#.Primitive (..anonymous_class_name where id) (list))
-                                                              super_classT
-                                                              super_interfaceT+))))
+         selfT (///.lifted (do meta.monad
+                             [where meta.current_module_name
+                              id meta.seed]
+                             (in (inheritance_relationship_type (#.Primitive (..anonymous_class_name where id) (list))
+                                                                super_classT
+                                                                super_interfaceT+))))
          _ (typeA.infer selfT)
          constructor_argsA+ (monad.map ! (function (_ [type term])
                                            (do !
