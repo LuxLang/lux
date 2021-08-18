@@ -22,13 +22,10 @@
   :source-paths ["source"]
   :dependencies [[com.github.luxlang/lux-bootstrapper ~version]]
   :profiles {:bibliotheca {:description "Standard library for the Lux programming language."
-                           :dependencies []
                            :lux {:test "test/lux"}}
              :aedifex {:description "A build system/tool made exclusively for Lux."
-                       :dependencies []
                        :lux {:program "program/aedifex"
                              :test "test/aedifex"}}
              :scriptum {:description "A documentation generator for Lux code."
-                        :dependencies []
                         :lux {:program "program/scriptum"}}}
   )

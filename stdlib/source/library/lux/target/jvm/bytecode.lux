@@ -105,9 +105,9 @@
   (function (_ [pool environment tracker])
     (#try.Success [[pool
                     environment
-                    (update@ #next inc tracker)]
+                    (revised@ #next ++ tracker)]
                    [..relative_identity
-                    (get@ #next tracker)]])))
+                    (value@ #next tracker)]])))
 
 (exception: .public (label_has_already_been_set {label Label})
   (exception.report
@@ -127,16 +127,16 @@
 
 (with_expansions [<success> (as_is (in [[pool
                                          environment
-                                         (update@ #known
-                                                  (dictionary.has label [actual (#.Some @here)])
-                                                  tracker)]
+                                         (revised@ #known
+                                                   (dictionary.has label [actual (#.Some @here)])
+                                                   tracker)]
                                         [..relative_identity
                                          []]]))]
   (def: .public (set_label label)
     (-> Label (Bytecode Any))
     (function (_ [pool environment tracker])
-      (let [@here (get@ #program_counter tracker)]
-        (case (dictionary.value label (get@ #known tracker))
+      (let [@here (value@ #program_counter tracker)]
+        (case (dictionary.value label (value@ #known tracker))
           (#.Some [expected (#.Some address)])
           (exception.except ..label_has_already_been_set [label])
           
@@ -148,7 +148,7 @@
           #.None
           (do try.monad
             [[actual environment] (/environment.continue (|> environment
-                                                             (get@ #/environment.stack)
+                                                             (value@ #/environment.stack)
                                                              (maybe.else /stack.empty))
                                                          environment)]
             <success>))))))
@@ -175,7 +175,7 @@
   (function (_ pool)
     (do try.monad
       [[[pool environment tracker] [relative output]] (bytecode [pool environment ..fresh])
-       [exceptions instruction] (relative (get@ #known tracker))]
+       [exceptions instruction] (relative (value@ #known tracker))]
       (in [pool [environment exceptions instruction output]]))))
 
 (def: (step estimator counter)
@@ -188,12 +188,12 @@
     (do {! try.monad}
       [environment' (|> environment
                         (/environment.consumes consumption)
-                        (monad.bind ! (/environment.produces production))
-                        (monad.bind ! (/environment.has registry)))
-       program_counter' (step estimator (get@ #program_counter tracker))]
+                        (monad.then ! (/environment.produces production))
+                        (monad.then ! (/environment.has registry)))
+       program_counter' (step estimator (value@ #program_counter tracker))]
       (in [[pool
             environment'
-            (set@ #program_counter program_counter' tracker)]
+            (with@ #program_counter program_counter' tracker)]
            [(function.constant (in [..no_exceptions (bytecode input)]))
             []]]))))
 
@@ -721,19 +721,19 @@
 
 (def: (acknowledge_label stack label tracker)
   (-> Stack Label Tracker Tracker)
-  (case (dictionary.value label (get@ #known tracker))
+  (case (dictionary.value label (value@ #known tracker))
     (#.Some _)
     tracker
 
     #.None
-    (update@ #known (dictionary.has label [stack #.None]) tracker)))
+    (revised@ #known (dictionary.has label [stack #.None]) tracker)))
 
 (template [<consumption> <name> <instruction>]
   [(def: .public (<name> label)
      (-> Label (Bytecode Any))
      (let [[estimator bytecode] <instruction>]
        (function (_ [pool environment tracker])
-         (let [@here (get@ #program_counter tracker)]
+         (let [@here (value@ #program_counter tracker)]
            (do try.monad
              [environment' (|> environment
                                (/environment.consumes <consumption>))
@@ -744,7 +744,7 @@
                      environment'
                      (|> tracker
                          (..acknowledge_label actual label)
-                         (set@ #program_counter program_counter'))]
+                         (with@ #program_counter program_counter'))]
                     [(function (_ resolver)
                        (do try.monad
                          [[expected @to] (..resolve_label label resolver)
@@ -787,14 +787,14 @@
        (function (_ [pool environment tracker])
          (do try.monad
            [actual (/environment.stack environment)
-            .let [@here (get@ #program_counter tracker)]
+            .let [@here (value@ #program_counter tracker)]
             program_counter' (step estimator @here)]
            (in (let [@from @here]
                  [[pool
                    (/environment.discontinue environment)
                    (|> tracker
                        (..acknowledge_label actual label)
-                       (set@ #program_counter program_counter'))]
+                       (with@ #program_counter program_counter'))]
                   [(function (_ resolver)
                      (case (dictionary.value label resolver)
                        (#.Some [expected (#.Some @to)])
@@ -843,22 +843,22 @@
         [environment' (|> environment
                           (/environment.consumes $1))
          actual (/environment.stack environment')
-         program_counter' (step (estimator (list.size afterwards)) (get@ #program_counter tracker))]
-        (in (let [@from (get@ #program_counter tracker)]
+         program_counter' (step (estimator (list.size afterwards)) (value@ #program_counter tracker))]
+        (in (let [@from (value@ #program_counter tracker)]
               [[pool
                 environment'
                 (|> (list\fold (..acknowledge_label actual) tracker (list& default at_minimum afterwards))
-                    (set@ #program_counter program_counter'))]
+                    (with@ #program_counter program_counter'))]
                [(function (_ resolver)
                   (let [get (: (-> Label (Maybe [Stack (Maybe Address)]))
                                (function (_ label)
                                  (dictionary.value label resolver)))]
                     (case (do {! maybe.monad}
-                            [@default (|> default get (monad.bind ! product.right))
-                             @at_minimum (|> at_minimum get (monad.bind ! product.right))
+                            [@default (|> default get (monad.then ! product.right))
+                             @at_minimum (|> at_minimum get (monad.then ! product.right))
                              @afterwards (|> afterwards
                                              (monad.map ! get)
-                                             (monad.bind ! (monad.map ! product.right)))]
+                                             (monad.then ! (monad.map ! product.right)))]
                             (in [@default @at_minimum @afterwards]))
                       (#.Some [@default @at_minimum @afterwards])
                       (do {! try.monad}
@@ -886,21 +886,21 @@
         [environment' (|> environment
                           (/environment.consumes $1))
          actual (/environment.stack environment')
-         program_counter' (step (estimator (list.size cases)) (get@ #program_counter tracker))]
-        (in (let [@from (get@ #program_counter tracker)]
+         program_counter' (step (estimator (list.size cases)) (value@ #program_counter tracker))]
+        (in (let [@from (value@ #program_counter tracker)]
               [[pool
                 environment'
                 (|> (list\fold (..acknowledge_label actual) tracker (list& default (list\map product.right cases)))
-                    (set@ #program_counter program_counter'))]
+                    (with@ #program_counter program_counter'))]
                [(function (_ resolver)
                   (let [get (: (-> Label (Maybe [Stack (Maybe Address)]))
                                (function (_ label)
                                  (dictionary.value label resolver)))]
                     (case (do {! maybe.monad}
-                            [@default (|> default get (monad.bind ! product.right))
+                            [@default (|> default get (monad.then ! product.right))
                              @cases (|> cases
                                         (monad.map ! (|>> product.right get))
-                                        (monad.bind ! (monad.map ! product.right)))]
+                                        (monad.then ! (monad.map ! product.right)))]
                             (in [@default @cases]))
                       (#.Some [@default @cases])
                       (do {! try.monad}

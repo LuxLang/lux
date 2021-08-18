@@ -111,9 +111,9 @@
      (All [anchor expression directive output] <with_type>)
      (function (_ body)
        (function (_ [bundle state])
-         (case (body [bundle (set@ <tag> (#.Some <with_value>) state)])
+         (case (body [bundle (with@ <tag> (#.Some <with_value>) state)])
            (#try.Success [[bundle' state'] output])
-           (#try.Success [[bundle' (set@ <tag> (get@ <tag> state) state')]
+           (#try.Success [[bundle' (with@ <tag> (value@ <tag> state) state')]
                           output])
 
            (#try.Failure error)
@@ -123,7 +123,7 @@
      (All [anchor expression directive]
        (Operation anchor expression directive <get_type>))
      (function (_ (^@ stateE [bundle state]))
-       (case (get@ <tag> state)
+       (case (value@ <tag> state)
          (#.Some output)
          (#try.Success [stateE output])
 
@@ -134,7 +134,7 @@
      (All [anchor expression directive]
        (-> <get_type> (Operation anchor expression directive Any)))
      (function (_ [bundle state])
-       (#try.Success [[bundle (set@ <tag> (#.Some value) state)]
+       (#try.Success [[bundle (with@ <tag> (#.Some value) state)]
                       []])))]
 
   [#anchor
@@ -156,21 +156,21 @@
   (All [anchor expression directive]
     (Operation anchor expression directive artifact.Registry))
   (function (_ (^@ stateE [bundle state]))
-    (#try.Success [stateE (get@ #registry state)])))
+    (#try.Success [stateE (value@ #registry state)])))
 
 (def: .public (set_registry value)
   (All [anchor expression directive]
     (-> artifact.Registry (Operation anchor expression directive Any)))
   (function (_ [bundle state])
-    (#try.Success [[bundle (set@ #registry value state)]
+    (#try.Success [[bundle (with@ #registry value state)]
                    []])))
 
 (def: .public next
   (All [anchor expression directive]
     (Operation anchor expression directive Nat))
   (do phase.monad
-    [count (extension.read (get@ #counter))
-     _ (extension.update (update@ #counter inc))]
+    [count (extension.read (value@ #counter))
+     _ (extension.update (revised@ #counter ++))]
     (in count)))
 
 (def: .public (identifier prefix)
@@ -181,18 +181,18 @@
 (def: .public (enter_module module)
   (All [anchor expression directive]
     (-> Module (Operation anchor expression directive Any)))
-  (extension.update (set@ #module module)))
+  (extension.update (with@ #module module)))
 
 (def: .public module
   (All [anchor expression directive]
     (Operation anchor expression directive Module))
-  (extension.read (get@ #module)))
+  (extension.read (value@ #module)))
 
 (def: .public (evaluate! label code)
   (All [anchor expression directive]
     (-> Context expression (Operation anchor expression directive Any)))
   (function (_ (^@ state+ [bundle state]))
-    (case (\ (get@ #host state) evaluate! label code)
+    (case (\ (value@ #host state) evaluate! label code)
       (#try.Success output)
       (#try.Success [state+ output])
 
@@ -203,7 +203,7 @@
   (All [anchor expression directive]
     (-> directive (Operation anchor expression directive Any)))
   (function (_ (^@ state+ [bundle state]))
-    (case (\ (get@ #host state) execute! code)
+    (case (\ (value@ #host state) execute! code)
       (#try.Success output)
       (#try.Success [state+ output])
 
@@ -214,7 +214,7 @@
   (All [anchor expression directive]
     (-> Context (Maybe Text) expression (Operation anchor expression directive [Text Any directive])))
   (function (_ (^@ stateE [bundle state]))
-    (case (\ (get@ #host state) define! context custom code)
+    (case (\ (value@ #host state) define! context custom code)
       (#try.Success output)
       (#try.Success [stateE output])
 
@@ -225,13 +225,13 @@
   (All [anchor expression directive]
     (-> artifact.ID (Maybe Text) directive (Operation anchor expression directive Any)))
   (do {! phase.monad}
-    [?buffer (extension.read (get@ #buffer))]
+    [?buffer (extension.read (value@ #buffer))]
     (case ?buffer
       (#.Some buffer)
       ... TODO: Optimize by no longer checking for overwrites...
       (if (row.any? (|>> product.left (n.= artifact_id)) buffer)
         (phase.except ..cannot_overwrite_output [artifact_id])
-        (extension.update (set@ #buffer (#.Some (row.add [artifact_id custom code] buffer)))))
+        (extension.update (with@ #buffer (#.Some (row.suffix [artifact_id custom code] buffer)))))
       
       #.None
       (phase.except ..no_buffer_for_saving_code [artifact_id]))))
@@ -241,8 +241,8 @@
      (All [anchor expression directive]
        (-> Text (Operation anchor expression directive artifact.ID)))
      (function (_ (^@ stateE [bundle state]))
-       (let [[id registry'] (<artifact> name (get@ #registry state))]
-         (#try.Success [[bundle (set@ #registry registry' state)]
+       (let [[id registry'] (<artifact> name (value@ #registry state))]
+         (#try.Success [[bundle (with@ #registry registry' state)]
                         id]))))]
 
   [learn artifact.definition]
@@ -267,11 +267,11 @@
     (let [[_module _name] name]
       (do try.monad
         [module_id (archive.id _module archive)
-         registry (if (text\= (get@ #module state) _module)
-                    (#try.Success (get@ #registry state))
+         registry (if (text\= (value@ #module state) _module)
+                    (#try.Success (value@ #registry state))
                     (do try.monad
                       [[descriptor document] (archive.find _module archive)]
-                      (#try.Success (get@ #descriptor.registry descriptor))))]
+                      (#try.Success (value@ #descriptor.registry descriptor))))]
         (case (artifact.remember _name registry)
           #.None
           (exception.except ..unknown_definition [name (artifact.definitions registry)])
@@ -293,13 +293,13 @@
   (All [anchor expression directive]
     (-> Archive (Operation anchor expression directive Context)))
   (function (_ (^@ stateE [bundle state]))
-    (case (get@ #context state)
+    (case (value@ #context state)
       #.None
       (exception.except ..no_context [])
       
       (#.Some id)
       (do try.monad
-        [module_id (archive.id (get@ #module state) archive)]
+        [module_id (archive.id (value@ #module state) archive)]
         (in [stateE [module_id id]])))))
 
 (def: .public (with_context id body)
@@ -309,8 +309,8 @@
         (Operation anchor expression directive a)))
   (function (_ [bundle state])
     (do try.monad
-      [[[bundle' state'] output] (body [bundle (set@ #context (#.Some id) state)])]
-      (in [[bundle' (set@ #context (get@ #context state) state')]
+      [[[bundle' state'] output] (body [bundle (with@ #context (#.Some id) state)])]
+      (in [[bundle' (with@ #context (value@ #context state) state')]
            output]))))
 
 (def: .public (with_new_context archive body)
@@ -318,13 +318,13 @@
     (-> Archive (Operation anchor expression directive a)
         (Operation anchor expression directive [Context a])))
   (function (_ (^@ stateE [bundle state]))
-    (let [[id registry'] (artifact.resource (get@ #registry state))]
+    (let [[id registry'] (artifact.resource (value@ #registry state))]
       (do try.monad
         [[[bundle' state'] output] (body [bundle (|> state
-                                                     (set@ #registry registry')
-                                                     (set@ #context (#.Some id)))])
-         module_id (archive.id (get@ #module state) archive)]
-        (in [[bundle' (set@ #context (get@ #context state) state')]
+                                                     (with@ #registry registry')
+                                                     (with@ #context (#.Some id)))])
+         module_id (archive.id (value@ #module state) archive)]
+        (in [[bundle' (with@ #context (value@ #context state) state')]
              [[module_id id]
               output]])))))
 
@@ -333,5 +333,5 @@
     (-> Text (Operation anchor expression directive Any)))
   (function (_ [bundle state])
     (#try.Success [[bundle
-                    (update@ #log (row.add message) state)]
+                    (revised@ #log (row.suffix message) state)]
                    []])))

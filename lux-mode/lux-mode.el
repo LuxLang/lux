@@ -376,7 +376,7 @@ Called by `imenu--generic-function'."
 							(type//dynamic (altRE ":dynamic" "/.:static"))
 							(type//capability (altRE "capability:"))
 							;; Data
-							(data//record (altRE "get@" "set@" "update@"))
+							(data//record (altRE "value@" "with@" "revised@"))
 							(data//interface (altRE "open:" "implementation" "\\\\"))
 							(data//implicit (altRE "implicit:" "\\\\\\\\"))
 							(data//collection (altRE "list" "list&" "row" "tree"))

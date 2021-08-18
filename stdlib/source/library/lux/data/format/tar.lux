@@ -44,7 +44,7 @@
                           max_size)
         padding (|> "0"
                     (list.repeated padding_size)
-                    text.joined)]
+                    text.together)]
     (format padding number)))
 
 (def: blank " ")
@@ -61,12 +61,12 @@
      (|> ..octal_size
          (list.repeated <size>)
          (list\fold n.* 1)
-         inc))
+         ++))
 
    (exception: .public (<exception> {value Nat})
      (exception.report
       ["Value" (%.nat value)]
-      ["Maximum" (%.nat (dec <limit>))]))
+      ["Maximum" (%.nat (-- <limit>))]))
 
    (abstract: .public <type>
      {}
@@ -171,7 +171,7 @@
 
   (def: checksum
     (-> Binary Nat)
-    (binary.fold n.+ 0))
+    (binary.aggregate n.+ 0))
 
   (def: checksum_checksum
     (|> ..dummy_checksum
@@ -216,10 +216,10 @@
 (def: ascii?
   (-> Text Bit)
   (|>> (\ utf8.codec encode)
-       (binary.fold (function (_ char verdict)
-                      (.and verdict
-                            (n.<= ..last_ascii char)))
-                    true)))
+       (binary.aggregate (function (_ char verdict)
+                           (.and verdict
+                                 (n.<= ..last_ascii char)))
+                         true)))
 
 (exception: .public (not_ascii {text Text})
   (exception.report
@@ -232,17 +232,17 @@
   (-> Binary (Try Binary))
   (case (binary.size string)
     0 (#try.Success string)
-    size (loop [end (dec size)]
+    size (loop [end (-- size)]
            (case end
              0 (#try.Success (\ utf8.codec encode ""))
              _ (do try.monad
                  [last_char (binary.read/8! end string)]
                  (`` (case (.nat last_char)
                        (^ (char (~~ (static ..null))))
-                       (recur (dec end))
+                       (recur (-- end))
 
                        _
-                       (binary.slice 0 (inc end) string))))))))
+                       (binary.slice 0 (++ end) string))))))))
 
 (template [<type> <representation> <size> <exception> <in> <out> <writer> <parser> <none>]
   [(abstract: .public <type>
@@ -640,11 +640,11 @@
 (def: (header_writer header)
   (Writer Header)
   (let [checksum (|> header
-                     (set@ #checksum ..dummy_checksum)
+                     (with@ #checksum ..dummy_checksum)
                      (format.result ..header_writer')
                      ..checksum_code)]
     (|> header
-        (set@ #checksum checksum)
+        (with@ #checksum checksum)
         (format.result ..header_writer')
         (format.segment ..block_size))))
 
@@ -664,16 +664,16 @@
                      (format.segment (..rounded_content_size size)))]
       (writer [{#path path
                 #mode mode
-                #user_id (get@ [#user #id] ownership)
-                #group_id (get@ [#group #id] ownership)
+                #user_id (value@ [#user #id] ownership)
+                #group_id (value@ [#group #id] ownership)
                 #size size
                 #modification_time (..modification_time modification_time)
                 #checksum ..dummy_checksum
                 #link_flag link_flag
                 #link_name ..no_path
                 #magic ..ustar
-                #user_name (get@ [#user #name] ownership)
-                #group_name (get@ [#group #name] ownership)
+                #user_name (value@ [#user #name] ownership)
+                #group_name (value@ [#group #name] ownership)
                 #major_device ..no_device
                 #minor_device ..no_device}
                content]))))
@@ -812,26 +812,26 @@
   (-> Link_Flag (Parser File))
   (do <>.monad
     [header ..header_parser
-     _ (<>.assertion (exception.error ..wrong_link_flag [expected (get@ #link_flag header)])
-                     (same? expected (get@ #link_flag header)))
-     .let [size (get@ #size header)
+     _ (<>.assertion (exception.error ..wrong_link_flag [expected (value@ #link_flag header)])
+                     (same? expected (value@ #link_flag header)))
+     .let [size (value@ #size header)
            rounded_size (..rounded_content_size size)]
      content (<binary>.segment (..from_big size))
      content (<>.lifted (..content content))
      _ (<binary>.segment (n.- (..from_big size) rounded_size))]
-    (in [(get@ #path header)
+    (in [(value@ #path header)
          (|> header
-             (get@ #modification_time)
+             (value@ #modification_time)
              ..from_big
              .int
              duration.of_millis
              (duration.up (|> duration.second duration.millis .nat))
              instant.absolute)
-         (get@ #mode header)
-         {#user {#name (get@ #user_name header)
-                 #id (get@ #user_id header)}
-          #group {#name (get@ #group_name header)
-                  #id (get@ #group_id header)}}
+         (value@ #mode header)
+         {#user {#name (value@ #user_name header)
+                 #id (value@ #user_id header)}
+          #group {#name (value@ #group_name header)
+                  #id (value@ #group_id header)}}
          content])))
 
 (def: (file_name_parser expected extractor)
@@ -839,9 +839,9 @@
   (do <>.monad
     [header ..header_parser
      _ (<>.lifted
-        (exception.assertion ..wrong_link_flag [expected (get@ #link_flag header)]
+        (exception.assertion ..wrong_link_flag [expected (value@ #link_flag header)]
                              (n.= (..link_flag expected)
-                                  (..link_flag (get@ #link_flag header)))))]
+                                  (..link_flag (value@ #link_flag header)))))]
     (in (extractor header))))
 
 (def: entry_parser
@@ -851,9 +851,9 @@
          (<>.either (..file_parser ..normal)
                     (..file_parser ..old_normal)))
       (\ <>.monad map (|>> #..Symbolic_Link)
-         (..file_name_parser ..symbolic_link (get@ #link_name)))
+         (..file_name_parser ..symbolic_link (value@ #link_name)))
       (\ <>.monad map (|>> #..Directory)
-         (..file_name_parser ..directory (get@ #path)))
+         (..file_name_parser ..directory (value@ #path)))
       (\ <>.monad map (|>> #..Contiguous)
          (..file_parser ..contiguous))))
 

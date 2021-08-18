@@ -2,6 +2,7 @@
   [library
    [lux (#- Definition Module example type)
     ["." meta]
+    ["." type ("#\." equivalence)]
     [abstract
      [monad (#+ do)]]
     [control
@@ -18,7 +19,7 @@
       ["." set (#+ Set)]]
      [format
       ["md" markdown (#+ Markdown Block)]]]
-    [macro
+    ["." macro
      [syntax (#+ syntax:)]
      ["." code]
      ["." template]]
@@ -74,13 +75,13 @@
   (if (n.= old_line new_line)
     (if (n.< old_column new_column)
       ""
-      (text.joined (list.repeated (n.- old_column new_column) " ")))
+      (text.together (list.repeated (n.- old_column new_column) " ")))
     (format (if (n.< old_line new_line)
               ""
-              (text.joined (list.repeated (n.- old_line new_line) \n)))
+              (text.together (list.repeated (n.- old_line new_line) \n)))
             (if (n.< reference_column new_column)
               ""
-              (text.joined (list.repeated (n.- reference_column new_column) " "))))))
+              (text.together (list.repeated (n.- reference_column new_column) " "))))))
 
 (def: un_paired
   (All [a] (-> (List [a a]) (List a)))
@@ -96,7 +97,7 @@
     (^template [<tag> <format>]
       [[new_location (<tag> value)]
        (let [documentation (`` (|> value (~~ (template.spliced <format>))))]
-         [(update@ #.column (n.+ (text.size documentation)) new_location)
+         [(revised@ #.column (n.+ (text.size documentation)) new_location)
           (format (padding reference_column old_location new_location)
                   documentation)])])
     ([#.Bit [%.bit]]
@@ -113,9 +114,9 @@
        (let [[group_location' members_documentation] (list\fold (function (_ part [last_location text_accum])
                                                                   (let [[member_location member_documentation] (code_documentation last_location reference_column part)]
                                                                     [member_location (format text_accum member_documentation)]))
-                                                                [(update@ #.column inc group_location) ""]
+                                                                [(revised@ #.column ++ group_location) ""]
                                                                 (<prep> members))]
-         [(update@ #.column inc group_location')
+         [(revised@ #.column ++ group_location')
           (format (padding reference_column old_location group_location)
                   |<| members_documentation |>|)])])
     ([syntax.open_form   syntax.close_form   #.Form   |>]
@@ -141,7 +142,7 @@
     (let [reference_column (..reference_column example)
           [location _] example]
       (|> example
-          (..code_documentation (set@ #.column reference_column location) reference_column)
+          (..code_documentation (with@ #.column reference_column location) reference_column)
           product.right))))
 
 (def: type
@@ -194,16 +195,26 @@
 (syntax: (minimal_definition_documentation
           [name ..qualified_identifier])
   (with_expansions [<\n> (~! text.\n)]
-    (in (list (` ($_ ((~! md.then))
-                     ... Name
-                     (<| ((~! md.heading/3))
-                         (~ (code.text (|> name product.right [""] %.name))))
-                     ... Type
-                     (<| ((~! md.code))
-                         ((~! ..type) ("lux in-module"
-                                       (~ (code.text (product.left name)))
-                                       (.:of (~ (code.identifier name)))))))
-                 )))))
+    (macro.with_identifiers [g!type]
+      (in (list (` ($_ ((~! md.then))
+                       ... Name
+                       (<| ((~! md.heading/3))
+                           (~ (code.text (|> name product.right [""] %.name))))
+                       ... Type
+                       (let [(~ g!type) ("lux in-module"
+                                         (~ (code.text (product.left name)))
+                                         (.:of (~ (code.identifier name))))]
+                         ((~! md.code)
+                          (if ((~! type\=) .Type (~ g!type))
+                            (|> (~ (code.identifier name))
+                                (:as .Type)
+                                ((~! type.anonymous))
+                                ((~! ..type))
+                                ((~! %.format)
+                                 ((~! ..single_line_comment) ((~! ..type) (~ g!type)))
+                                 <\n>))
+                            ((~! ..type) (~ g!type))))))
+                   ))))))
 
 (syntax: (definition_documentation
           [name ..qualified_identifier
@@ -265,9 +276,9 @@
 (def: definitions_documentation
   (-> (List Definition) (Markdown Block))
   (|>> (list.sorted (function (_ left right)
-                      (text\< (get@ #definition right)
-                              (get@ #definition left))))
-       (list\map (get@ #documentation))
+                      (text\< (value@ #definition right)
+                              (value@ #definition left))))
+       (list\map (value@ #documentation))
        (list\fold md.then md.empty)))
 
 (def: expected_separator
@@ -326,23 +337,25 @@
   (let [(^slots [#expected]) module]
     ($_ md.then
         ... Name
-        (md.heading/1 (get@ #module module))
+        (md.heading/1 (value@ #module module))
         ... Description
-        (<| md.paragraph
-            md.text
-            (get@ #description module))
+        (case (value@ #description module)
+          "" md.empty
+          description (<| md.paragraph
+                          md.text
+                          description))
         ... Definitions
         (md.heading/2 "Definitions")
         (|> module
-            (get@ #definitions)
-            (list.only (|>> (get@ #definition)
+            (value@ #definitions)
+            (list.only (|>> (value@ #definition)
                             (set.member? expected)))
             ..definitions_documentation)
         ... Missing documentation
         (case (|> module
-                  (get@ #definitions)
+                  (value@ #definitions)
                   (list\fold (function (_ definition missing)
-                               (set.lacks (get@ #definition definition) missing))
+                               (set.lacks (value@ #definition definition) missing))
                              expected)
                   set.list)
           #.End
@@ -354,9 +367,9 @@
               (..listing missing)))
         ... Un-expected documentation
         (case (|> module
-                  (get@ #definitions)
-                  (list.only (|>> (get@ #definition) (set.member? expected) not))
-                  (list\map (get@ #definition)))
+                  (value@ #definitions)
+                  (list.only (|>> (value@ #definition) (set.member? expected) not))
+                  (list\map (value@ #definition)))
           #.End
           md.empty
           
@@ -369,7 +382,7 @@
 (def: .public documentation
   (-> (List Module) Text)
   (|>> (list.sorted (function (_ left right)
-                      (text\< (get@ #module right) (get@ #module left))))
+                      (text\< (value@ #module right) (value@ #module left))))
        (list\map ..module_documentation)
        (list.interposed md.horizontal_rule)
        (list\fold md.then (: (Markdown Block) md.empty))

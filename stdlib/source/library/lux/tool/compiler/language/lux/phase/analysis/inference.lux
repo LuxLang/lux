@@ -10,7 +10,7 @@
      ["." text
       ["%" format (#+ format)]]
      [collection
-      ["." list ("#\." functor)]]]
+      ["." list ("#\." functor monoid)]]]
     [math
      [number
       ["n" nat]]]
@@ -204,16 +204,16 @@
       base)))
 
 ... Turns a record type into the kind of function type suitable for inference.
-(def: (record' target originalT inferT)
-  (-> Nat Type Type (Operation Type))
+(def: (record' record_size target originalT inferT)
+  (-> Nat Nat Type Type (Operation Type))
   (case inferT
     (#.Named name unnamedT)
-    (record' target originalT unnamedT)
+    (record' record_size target originalT unnamedT)
 
     (^template [<tag>]
       [(<tag> env bodyT)
        (do ///.monad
-         [bodyT+ (record' (n.+ 2 target) originalT bodyT)]
+         [bodyT+ (record' record_size (n.+ 2 target) originalT bodyT)]
          (in (<tag> env bodyT+)))])
     ([#.UnivQ]
      [#.ExQ])
@@ -221,22 +221,23 @@
     (#.Apply inputT funcT)
     (case (type.applied (list inputT) funcT)
       (#.Some outputT)
-      (record' target originalT outputT)
+      (record' record_size target originalT outputT)
 
       #.None
       (/.except ..invalid_type_application inferT))
 
     (#.Product _)
-    (///\in (|> inferT
-                (type.function (type.flat_tuple inferT))
-                (substitute_bound target originalT)))
+    (let [[lefts right] (list.split_at (-- record_size) (type.flat_tuple inferT))]
+      (///\in (|> inferT
+                  (type.function (list\compose lefts (list (type.tuple right))))
+                  (substitute_bound target originalT))))
 
     _
     (/.except ..not_a_record_type inferT)))
 
-(def: .public (record inferT)
-  (-> Type (Operation Type))
-  (record' (n.- 2 0) inferT inferT))
+(def: .public (record record_size inferT)
+  (-> Nat Type (Operation Type))
+  (record' record_size (n.- 2 0) inferT inferT))
 
 ... Turns a variant type into the kind of function type suitable for inference.
 (def: .public (variant tag expected_size inferT)
@@ -252,7 +253,7 @@
       (^template [<tag>]
         [(<tag> env bodyT)
          (do ///.monad
-           [bodyT+ (recur (inc depth) bodyT)]
+           [bodyT+ (recur (++ depth) bodyT)]
            (in (<tag> env bodyT+)))])
       ([#.UnivQ]
        [#.ExQ])
@@ -260,7 +261,7 @@
       (#.Sum _)
       (let [cases (type.flat_variant currentT)
             actual_size (list.size cases)
-            boundary (dec expected_size)]
+            boundary (-- expected_size)]
         (cond (or (n.= expected_size actual_size)
                   (and (n.> expected_size actual_size)
                        (n.< boundary tag)))
@@ -268,7 +269,7 @@
                 (#.Some caseT)
                 (///\in (if (n.= 0 depth)
                           (type.function (list caseT) currentT)
-                          (let [replace' (replace (|> depth dec (n.* 2)) inferT)]
+                          (let [replace' (replace (|> depth -- (n.* 2)) inferT)]
                             (type.function (list (replace' caseT))
                               (replace' currentT)))))
 
@@ -282,7 +283,7 @@
               (let [caseT (type.variant (list.after boundary cases))]
                 (///\in (if (n.= 0 depth)
                           (type.function (list caseT) currentT)
-                          (let [replace' (replace (|> depth dec (n.* 2)) inferT)]
+                          (let [replace' (replace (|> depth -- (n.* 2)) inferT)]
                             (type.function (list (replace' caseT))
                               (replace' currentT))))))
               

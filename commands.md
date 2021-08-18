@@ -9,6 +9,14 @@ cd ~/lux/ && find . -name '*.lux' | xargs wc -l | sort -rn
 
 ---
 
+# Find & replace
+
+```
+cd ~/lux && grep -r "" --include *.lux | sort
+```
+
+---
+
 # Clean everything
 
 ```

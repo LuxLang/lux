@@ -6,6 +6,7 @@
      [predicate (#+ Predicate)]
      ["." monad (#+ Monad do)]]
     [control
+     ["." maybe]
      ["." try (#+ Try)]
      ["." exception (#+ exception:)]
      [concurrency
@@ -17,7 +18,8 @@
       [encoding
        ["." utf8]]]
      [collection
-      ["." dictionary (#+ Dictionary)]]]
+      ["." dictionary (#+ Dictionary)]
+      ["." list]]]
     [world
      ["." file]]]]
   [program
@@ -138,8 +140,8 @@
 (type: .public Enumeration
   (Dictionary file.Path Binary))
 
-(def: (context_listing fs directory enumeration)
-  (-> (file.System Async) Context Enumeration (Async (Try Enumeration)))
+(def: (context_listing fs context directory enumeration)
+  (-> (file.System Async) Context file.Path Enumeration (Async (Try Enumeration)))
   (do {! (try.with async.monad)}
     [enumeration (|> directory
                      (\ fs directory_files)
@@ -147,23 +149,40 @@
                                               (if (text.ends_with? ..lux_extension file)
                                                 (do !
                                                   [source_code (\ fs read file)]
-                                                  (async\in (dictionary.has' (file.name fs file) source_code enumeration)))
+                                                  (async\in (dictionary.has' (text.replaced context "" file) source_code enumeration)))
                                                 (in enumeration)))
                                           enumeration))
                      (\ ! join))]
     (|> directory
         (\ fs sub_directories)
-        (\ ! map (monad.fold ! (context_listing fs) enumeration))
+        (\ ! map (monad.fold ! (context_listing fs context) enumeration))
         (\ ! join))))
 
 (def: Action
   (type (All [a] (Async (Try a)))))
 
+(def: (canonical fs context)
+  (-> (file.System Async) Context (Action Context))
+  (do (try.with async.monad)
+    [subs (\ fs sub_directories context)]
+    (in (|> subs
+            list.head
+            (maybe.else context)
+            (file.parent fs)
+            (maybe.else context)))))
+
 (def: .public (listing fs contexts)
   (-> (file.System Async) (List Context) (Action Enumeration))
-  (monad.fold (: (Monad Action)
-                 (try.with async.monad))
-              (..context_listing fs)
-              (: Enumeration
-                 (dictionary.empty text.hash))
-              contexts))
+  (let [! (: (Monad Action)
+             (try.with async.monad))]
+    (monad.fold !
+                (function (_ context enumeration)
+                  (do !
+                    [context (..canonical fs context)]
+                    (..context_listing fs
+                                       (format context (\ fs separator))
+                                       context
+                                       enumeration)))
+                (: Enumeration
+                   (dictionary.empty text.hash))
+                contexts)))

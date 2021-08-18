@@ -189,5 +189,5 @@ But if you think about it, being able to hold onto values or pass them around co
 
 Well, read the next chapter if you want to learn how to take your data to the next level with the help of persistent data structures.
 
-See you in the next chapter!
+See you in [the next chapter](chapter_15.md)!
 

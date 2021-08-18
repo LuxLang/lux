@@ -9,7 +9,7 @@ cd ~/lux/stdlib/ \
 
 cd ~/lux/stdlib/ \
 && lux clean \
-&& lux auto test
+&& lux with bibliotheca auto test
 ```
 
 ## Deploy
@@ -26,6 +26,9 @@ cd ~/lux/stdlib/ && mvn deploy:deploy-file \
 -DartifactId=stdlib \
 -Dversion=0.6.0-SNAPSHOT \
 -Dpackaging=tar
+
+cd ~/lux/stdlib/ \
+&& lux install
 ```
 
 ## Generate documentation
@@ -60,6 +63,15 @@ cd ~/lux/stdlib/ \
 && lein clean \
 && lein with-profile aedifex lux build \
 && mv target/program.jar aedifex.jar
+
+cd ~/lux/stdlib/ \
+&& lux clean \
+&& lux with aedifex auto build
+
+cd ~/lux/stdlib/ \
+&& lux clean \
+&& lux with aedifex build \
+&& mv target/program.jar aedifex.jar
 ```
 
 ## Test
@@ -68,5 +80,9 @@ cd ~/lux/stdlib/ \
 cd ~/lux/stdlib/ \
 && lein clean \
 && lein with-profile aedifex lux auto test
+
+cd ~/lux/stdlib/ \
+&& lux clean \
+&& lux with aedifex auto test
 ```
 

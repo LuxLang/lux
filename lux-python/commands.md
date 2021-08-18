@@ -13,10 +13,19 @@ cd ~/lux/lux-python/ \
 && lein clean \
 && lein lux auto build
 
+cd ~/lux/lux-python/ \
+&& lux clean \
+&& lux auto build
+
 ## Build JVM-based compiler
 cd ~/lux/lux-python/ \
 && lein clean \
 && lein lux build \
+&& mv target/program.jar jvm_based_compiler.jar
+
+cd ~/lux/lux-python/ \
+&& lux clean \
+&& lux build \
 && mv target/program.jar jvm_based_compiler.jar
 ```
 

@@ -49,8 +49,8 @@
   (-> Group Name Finder)
   (|>> dictionary.entries
        (list.one (function (_ [dependency package])
-                   (if (and (text\= group (get@ [#///dependency.artifact #///artifact.group] dependency))
-                            (text\= name (get@ [#///dependency.artifact #///artifact.name] dependency)))
+                   (if (and (text\= group (value@ [#///dependency.artifact #///artifact.group] dependency))
+                            (text\= name (value@ [#///dependency.artifact #///artifact.name] dependency)))
                      (#.Some dependency)
                      #.None)))))
 
@@ -111,17 +111,17 @@
 (def: (path fs home dependency)
   (All [!] (-> (file.System !) Path Dependency Path))
   (let [/ (\ fs separator)
-        artifact (get@ #///dependency.artifact dependency)]
+        artifact (value@ #///dependency.artifact dependency)]
     (|> artifact
-        (///local.uri (get@ #///artifact.version artifact))
+        (///local.uri (value@ #///artifact.version artifact))
         (text.replaced uri.separator /)
         (format home /)
-        (text.suffix (format "." (get@ #///dependency.type dependency))))))
+        (text.suffix (format "." (value@ #///dependency.type dependency))))))
 
 (def: (libraries fs home)
   (All [!] (-> (file.System !) Path Resolution (List Path)))
   (|>> dictionary.keys
-       (list.only (|>> (get@ #///dependency.type)
+       (list.only (|>> (value@ #///dependency.type)
                        (text\= ///artifact/type.lux_library)))
        (list\map (..path fs home))))
 
@@ -156,14 +156,14 @@
 (def: .public (host_dependencies fs home)
   (All [!] (-> (file.System !) Path Resolution (List Path)))
   (|>> dictionary.keys
-       (list.only (|>> (get@ #///dependency.type)
+       (list.only (|>> (value@ #///dependency.type)
                        (text\= ///artifact/type.lux_library)
                        not))
        (list\fold (function (_ dependency uniques)
-                    (let [artifact (get@ #///dependency.artifact dependency)
-                          identity [(get@ #///artifact.group artifact)
-                                    (get@ #///artifact.name artifact)]
-                          version (get@ #///artifact.version artifact)]
+                    (let [artifact (value@ #///dependency.artifact dependency)
+                          identity [(value@ #///artifact.group artifact)
+                                    (value@ #///artifact.name artifact)]
+                          version (value@ #///artifact.version artifact)]
                       (case (dictionary.value identity uniques)
                         (#.Some [current_version current_path])
                         (if (\ version_order < version current_version)
@@ -183,7 +183,7 @@
 
 (def: (plural name)
   (-> Text (List Text) (List Text))
-  (|>> (list\map (|>> (list name))) list.joined))
+  (|>> (list\map (|>> (list name))) list.together))
 
 (def: .public start "[BUILD STARTED]")
 (def: .public success "[BUILD ENDED]")
@@ -245,8 +245,7 @@
   (-> (List Path) Text)
   (|> host_dependencies
       (#.Item ".")
-      (text.interposed ..jvm_class_path_separator)
-      %.text))
+      (text.interposed ..jvm_class_path_separator)))
 
 (def: .public (with_jvm_class_path host_dependencies runtime)
   (-> (List Path) ///runtime.Runtime ///runtime.Runtime)
@@ -255,15 +254,15 @@
     runtime
 
     _
-    (update@ #///runtime.parameters
-             (|>> (list& "-classpath" (..jvm_class_path host_dependencies)))
-             runtime)))
+    (revised@ #///runtime.parameters
+              (|>> (list& "-cp" (..jvm_class_path host_dependencies)))
+              runtime)))
 
 (def: .public (do! console program fs shell resolution)
   (-> (Console Async) (Program Async) (file.System Async) (Shell Async) Resolution (Command [Exit Compiler Path]))
   (function (_ profile)
-    (let [target (get@ #///.target profile)]
-      (case (get@ #///.program profile)
+    (let [target (value@ #///.target profile)]
+      (case (value@ #///.program profile)
         #.None
         (async\in (exception.except ..no_specified_program []))
 
@@ -273,19 +272,20 @@
            .let [home (\ program home)
                  working_directory (\ program directory)]]
           (do ///action.monad
-            [[resolution compiler] (async\in (..compiler resolution (get@ #///.compiler profile)))
+            [[resolution compiler] (async\in (..compiler resolution (value@ #///.compiler profile)))
              .let [host_dependencies (..host_dependencies fs home resolution)
                    [[command compiler_params] output] (case compiler
                                                         (#JVM dependency)
-                                                        [(|> (..path fs home dependency)
-                                                             (///runtime.for (get@ #///.java profile))
-                                                             (with_jvm_class_path host_dependencies))
+                                                        [(|> (value@ #///.java profile)
+                                                             (with@ #///runtime.parameters (list "program._"))
+                                                             (with_jvm_class_path (#.Item (..path fs home dependency) host_dependencies)))
                                                          "program.jar"]
                                                         
                                                         (^template [<tag> <runtime> <program>]
                                                           [(<tag> dependency)
-                                                           [(///runtime.for (get@ <runtime> profile)
-                                                                            (..path fs home dependency))
+                                                           [(|> dependency
+                                                                (..path fs home)
+                                                                (///runtime.for (value@ <runtime> profile)))
                                                             <program>]])
                                                         ([#JS #///.js "program.js"]
                                                          [#Python #///.java "program.py"]
@@ -294,13 +294,13 @@
                    / (\ fs separator)
                    cache_directory (format working_directory / target)]
              _ (console.write_line ..start console)
-             .let [full_parameters (list.joined (list compiler_params
-                                                      (list "build")
-                                                      (..plural "--library" (..libraries fs home resolution))
-                                                      (..plural "--host_dependency" host_dependencies)
-                                                      (..plural "--source" (set.list (get@ #///.sources profile)))
-                                                      (..singular "--target" cache_directory)
-                                                      (..singular "--module" program_module)))]
+             .let [full_parameters (list.together (list compiler_params
+                                                        (list "build")
+                                                        (..plural "--library" (..libraries fs home resolution))
+                                                        (..plural "--host_dependency" host_dependencies)
+                                                        (..plural "--source" (set.list (value@ #///.sources profile)))
+                                                        (..singular "--target" cache_directory)
+                                                        (..singular "--module" program_module)))]
              process (\ shell execute [environment
                                        working_directory
                                        command

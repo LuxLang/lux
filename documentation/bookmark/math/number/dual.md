@@ -1,5 +1,7 @@
 # Reference
 
+1. [Sensitivity of y w.r.t. to x in y=f(x) where f is a routine](https://scicomp.stackexchange.com/questions/38899/sensitivity-of-y-w-r-t-to-x-in-y-fx-where-f-is-a-routine/38900#38900)
+1. [Differentiable programming](https://en.wikipedia.org/wiki/Differentiable_programming)
 1. [Ditching Backpropagation: Automatic Differentiation and Dual Numbers](https://matiasmorant.wordpress.com/2017/12/29/dual-numbers/)
 1. [The Dual Numbers](https://www.youtube.com/watch?v=4nU-09e3iP8)
 1. [Dual number](https://en.wikipedia.org/wiki/Dual_number)

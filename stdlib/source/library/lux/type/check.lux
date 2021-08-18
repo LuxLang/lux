@@ -188,15 +188,15 @@
   {#.doc "A brand-new existential type."}
   (Check [Nat Type])
   (function (_ context)
-    (let [id (get@ #.ex_counter context)]
-      (#try.Success [(update@ #.ex_counter inc context)
+    (let [id (value@ #.ex_counter context)]
+      (#try.Success [(revised@ #.ex_counter ++ context)
                      [id (#.Ex id)]]))))
 
 (template [<name> <outputT> <fail> <succeed>]
   [(def: .public (<name> id)
      (-> Var (Check <outputT>))
      (function (_ context)
-       (case (|> context (get@ #.var_bindings) (var::get id))
+       (case (|> context (value@ #.var_bindings) (var::get id))
          (^or (#.Some (#.Some (#.Var _)))
               (#.Some #.None))
          (#try.Success [context <fail>])
@@ -208,13 +208,13 @@
          (exception.except ..unknown_type_var id))))]
 
   [bound? Bit          false  true]
-  [read   (Maybe Type) #.None (#.Some bound)]
+  [read'  (Maybe Type) #.None (#.Some bound)]
   )
 
-(def: .public (read! id)
+(def: .public (read id)
   (-> Var (Check Type))
   (do ..monad
-    [?type (read id)]
+    [?type (read' id)]
     (case ?type
       (#.Some type)
       (in type)
@@ -225,7 +225,7 @@
 (def: (bound id)
   (-> Var (Check Type))
   (function (_ context)
-    (case (|> context (get@ #.var_bindings) (var::get id))
+    (case (|> context (value@ #.var_bindings) (var::get id))
       (#.Some (#.Some bound))
       (#try.Success [context bound])
 
@@ -240,9 +240,9 @@
                   "Fails if the variable has been bound already.")}
   (-> Type Var (Check Any))
   (function (_ context)
-    (case (|> context (get@ #.var_bindings) (var::get id))
+    (case (|> context (value@ #.var_bindings) (var::get id))
       (#.Some #.None)
-      (#try.Success [(update@ #.var_bindings (var::put id (#.Some type)) context)
+      (#try.Success [(revised@ #.var_bindings (var::put id (#.Some type)) context)
                      []])
 
       (#.Some (#.Some bound))
@@ -251,12 +251,12 @@
       _
       (exception.except ..unknown_type_var id))))
 
-(def: (update type id)
+(def: (re_bind type id)
   (-> Type Var (Check Any))
   (function (_ context)
-    (case (|> context (get@ #.var_bindings) (var::get id))
+    (case (|> context (value@ #.var_bindings) (var::get id))
       (#.Some _)
-      (#try.Success [(update@ #.var_bindings (var::put id (#.Some type)) context)
+      (#try.Success [(revised@ #.var_bindings (var::put id (#.Some type)) context)
                      []])
       
       _
@@ -266,29 +266,29 @@
   {#.doc (example "A brand-new (unbound) type-variable.")}
   (Check [Var Type])
   (function (_ context)
-    (let [id (get@ #.var_counter context)]
+    (let [id (value@ #.var_counter context)]
       (#try.Success [(|> context
-                         (update@ #.var_counter inc)
-                         (update@ #.var_bindings (var::new id)))
+                         (revised@ #.var_counter ++)
+                         (revised@ #.var_bindings (var::new id)))
                      [id (#.Var id)]]))))
 
-(def: (apply_type! funcT argT)
+(def: (on argT funcT)
   (-> Type Type (Check Type))
   (case funcT
     (#.Var func_id)
     (do ..monad
-      [?funcT' (read func_id)]
+      [?funcT' (read' func_id)]
       (case ?funcT'
         (#.Some funcT')
-        (apply_type! funcT' argT)
+        (on argT funcT')
 
         _
         (except ..invalid_type_application [funcT argT])))
 
     (#.Apply argT' funcT')
     (do ..monad
-      [funcT'' (apply_type! funcT' argT')]
-      (apply_type! funcT'' argT))
+      [funcT'' (on argT' funcT')]
+      (on argT funcT''))
 
     _
     (case (//.applied (list argT) funcT)
@@ -311,7 +311,7 @@
   (function (_ context)
     (loop [current start
            output (set.has start empty_ring)]
-      (case (|> context (get@ #.var_bindings) (var::get current))
+      (case (|> context (value@ #.var_bindings) (var::get current))
         (#.Some (#.Some type))
         (case type
           (#.Var post)
@@ -362,12 +362,8 @@
                     (//\= a a')))
              assumptions))
 
-(def: (assume! assumption assumptions)
-  (-> Assumption (List Assumption) (List Assumption))
-  (#.Item assumption assumptions))
-
-... TODO: "if_bind" can be optimized...
-(def: (if_bind id type then else)
+... TODO: "if_can_bind" can be optimized...
+(def: (if_can_bind id type then else)
   (All [a]
     (-> Var Type (Check a) (-> Type (Check a))
         (Check a)))
@@ -378,10 +374,10 @@
       (do {! ..monad}
         [ring (..ring id)
          _ (..assertion "" (n.> 1 (set.size ring)))
-         _ (monad.map ! (update type) (set.list ring))]
+         _ (monad.map ! (re_bind type) (set.list ring))]
         then)
       (do ..monad
-        [?bound (read id)]
+        [?bound (read' id)]
         (else (maybe.else (#.Var id) ?bound)))))
 
 ... TODO: "link/2" can be optimized...
@@ -395,8 +391,8 @@
 (def: (link/3 interpose to from)
   (-> Var Var Var (Check Any))
   (do ..monad
-    [_ (update (#.Var interpose) from)]
-    (update (#.Var to) interpose)))
+    [_ (re_bind (#.Var interpose) from)]
+    (re_bind (#.Var to) interpose)))
 
 ... TODO: "check_vars" can be optimized...
 (def: (check_vars check' assumptions idE idA)
@@ -457,7 +453,7 @@
             [<pattern>
              (do !
                [ring (..ring <id>)
-                _ (monad.map ! (update <type>) (set.list ring))]
+                _ (monad.map ! (re_bind <type>) (set.list ring))]
                (in assumptions))])
           ([[(#.Var _) _] idE atype]
            [[_ (#.Var _)] idA etype])
@@ -482,22 +478,22 @@
 
       [(#.UnivQ _ _) (#.Ex _)]
       (do ..monad
-        [expected' (apply_type! expected_function expected_input)]
+        [expected' (..on expected_input expected_function)]
         (check' assumptions expected' (#.Apply actual)))
 
       [(#.Ex _) (#.UnivQ _ _)]
       (do ..monad
-        [actual' (apply_type! actual_function actual_input)]
+        [actual' (..on actual_input actual_function)]
         (check' assumptions (#.Apply expected) actual'))
 
       [(#.Apply [expected_input' expected_function']) (#.Ex _)]
       (do ..monad
-        [expected_function'' (apply_type! expected_function' expected_input')]
+        [expected_function'' (..on expected_input' expected_function')]
         (check' assumptions (#.Apply [expected_input expected_function'']) (#.Apply actual)))
 
       [(#.Ex _) (#.Apply [actual_input' actual_function'])]
       (do ..monad
-        [actual_function'' (apply_type! actual_function' actual_input')]
+        [actual_function'' (..on actual_input' actual_function')]
         (check' assumptions (#.Apply expected) (#.Apply [actual_input actual_function''])))
 
       (^or [(#.Ex _) _] [_ (#.Ex _)])
@@ -508,7 +504,7 @@
       [(#.Var id) _]
       (function (_ context)
         (case ((do ..monad
-                 [expected_function' (..read! id)]
+                 [expected_function' (..read id)]
                  (check' assumptions (#.Apply expected_input expected_function') (#.Apply actual)))
                context)
           (#try.Success output)
@@ -518,7 +514,7 @@
           (case actual_function
             (#.UnivQ _ _)
             ((do ..monad
-               [actual' (apply_type! actual_function actual_input)]
+               [actual' (..on actual_input actual_function)]
                (check' assumptions (#.Apply expected) actual'))
              context)
             
@@ -531,15 +527,15 @@
             _
             ((do ..monad
                [assumptions (check' assumptions expected_function actual_function)
-                expected' (apply_type! actual_function expected_input)
-                actual' (apply_type! actual_function actual_input)]
+                expected' (..on expected_input actual_function)
+                actual' (..on actual_input actual_function)]
                (check' assumptions expected' actual'))
              context))))
 
       [_ (#.Var id)]
       (function (_ context)
         (case ((do ..monad
-                 [actual_function' (read! id)]
+                 [actual_function' (read id)]
                  (check' assumptions (#.Apply expected) (#.Apply actual_input actual_function')))
                context)
           (#try.Success output)
@@ -548,8 +544,8 @@
           _
           ((do ..monad
              [assumptions (check' assumptions expected_function actual_function)
-              expected' (apply_type! expected_function expected_input)
-              actual' (apply_type! expected_function actual_input)]
+              expected' (..on expected_input expected_function)
+              actual' (..on actual_input expected_function)]
              (check' assumptions expected' actual'))
            context)))
 
@@ -573,16 +569,16 @@
         (check_vars check' assumptions idE idA)
         
         [(#.Var id) _]
-        (if_bind id actual
-                 (check\in assumptions)
-                 (function (_ bound)
-                   (check' assumptions bound actual)))
+        (if_can_bind id actual
+                     (check\in assumptions)
+                     (function (_ bound)
+                       (check' assumptions bound actual)))
         
         [_ (#.Var id)]
-        (if_bind id expected
-                 (check\in assumptions)
-                 (function (_ bound)
-                   (check' assumptions expected bound)))
+        (if_can_bind id expected
+                     (check\in assumptions)
+                     (function (_ bound)
+                       (check' assumptions expected bound)))
 
         (^template [<fE> <fA>]
           [[(#.Apply aE <fE>) (#.Apply aA <fA>)]
@@ -597,12 +593,12 @@
           (if (assumed? new_assumption assumptions)
             (check\in assumptions)
             (do ..monad
-              [expected' (apply_type! F A)]
-              (check' (assume! new_assumption assumptions) expected' actual))))
+              [expected' (..on A F)]
+              (check' (#.Item new_assumption assumptions) expected' actual))))
 
         [_ (#.Apply A F)]
         (do ..monad
-          [actual' (apply_type! F A)]
+          [actual' (..on A F)]
           (check' assumptions expected actual'))
 
         ... TODO: Refactor-away as cold-code
@@ -610,7 +606,7 @@
           [[(<tag> _) _]
            (do ..monad
              [[_ paramT] <instancer>
-              expected' (apply_type! expected paramT)]
+              expected' (..on paramT expected)]
              (check' assumptions expected' actual))])
         ([#.UnivQ ..existential]
          [#.ExQ ..var])
@@ -620,7 +616,7 @@
           [[_ (<tag> _)]
            (do ..monad
              [[_ paramT] <instancer>
-              actual' (apply_type! actual paramT)]
+              actual' (..on paramT actual)]
              (check' assumptions expected actual'))])
         ([#.UnivQ ..var]
          [#.ExQ ..existential])
@@ -713,7 +709,7 @@
 
     (#.Var id)
     (do ..monad
-      [?actualT (read id)]
+      [?actualT (read' id)]
       (case ?actualT
         (#.Some actualT)
         (clean actualT)
