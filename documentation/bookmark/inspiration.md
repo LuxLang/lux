@@ -16,6 +16,7 @@
 
 # Tool
 
+1. [Building Developer Tools](https://explog.in/notes/devtools/index.html)
 1. [Toward the next generation of programming tools: Programmers have built great tools for others. It’s time they built some for themselves.](https://www.oreilly.com/radar/toward-the-next-generation-of-programming-tools/)
 
 # Software engineering

@@ -89,5 +89,5 @@ These data-structures are very easy to use and offer decent performance, so you'
 
 The next chapter is going to be slightly different, in that we're going to be learning not how to write programs, but how to test them.
 
-See you in the next chapter!
+See you in [the next chapter](chapter_16.md)!
 

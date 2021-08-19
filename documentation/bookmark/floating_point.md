@@ -30,5 +30,6 @@
 
 # Algorithm
 
+1. [Speeding up atan2f by 50x](https://mazzo.li/posts/vectorized-atan2.html)
 1. [Kahan summation algorithm](https://en.wikipedia.org/wiki/Kahan_summation_algorithm)
 

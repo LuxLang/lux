@@ -14,10 +14,10 @@
 (defn- with-line [body]
   (fn [state]
     (|case (&/get$ &/$source state)
-      (&/$Nil)
+      (&/$End)
       ((&/fail-with-loc "[Reader Error] EOF") state)
       
-      (&/$Cons [[file-name line-num column-num] line]
+      (&/$Item [[file-name line-num column-num] line]
                more)
       (|case (body file-name line-num column-num line)
         ($No msg)
@@ -28,7 +28,7 @@
                  output)
 
         ($Yes output line*)
-        (return* (&/set$ &/$source (&/$Cons line* more) state)
+        (return* (&/set$ &/$source (&/$Item line* more) state)
                  output))
       )))
 
@@ -84,10 +84,10 @@
       (loop [prefix ""
              reader* reader]
         (|case reader*
-          (&/$Nil)
+          (&/$End)
           (&/$Left "[Reader Error] EOF")
 
-          (&/$Cons [[file-name line-num column-num] ^String line]
+          (&/$Item [[file-name line-num column-num] ^String line]
                    reader**)
           (if-let [^String match (re-find! regex column-num line)]
             (let [match-length (.length match)
@@ -97,7 +97,7 @@
                             (str prefix match))]
               (if (= column-num* (.length line))
                 (recur prefix* reader**)
-                (&/$Right (&/T [(&/$Cons (&/T [(&/T [file-name line-num column-num*]) line])
+                (&/$Right (&/T [(&/$Item (&/T [(&/T [file-name line-num column-num*]) line])
                                          reader**)
                                 (&/T [(&/T [file-name line-num column-num]) prefix*])]))))
             (&/$Left (str "[Reader Error] Pattern failed: " regex))))))))
@@ -138,8 +138,8 @@
                                    line]))
                            lines
                            (range (count lines)))]
-    (reduce (fn [tail head] (&/$Cons head tail))
-            &/$Nil
+    (reduce (fn [tail head] (&/$Item head tail))
+            &/$End
             (reverse indexed-lines))))
 
 (defn with-source [name content body]

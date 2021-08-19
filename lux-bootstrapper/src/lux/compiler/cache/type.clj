@@ -64,12 +64,12 @@
 
 (defn ^:private deserialize-list [^String input]
   (cond (.startsWith input nil-signal)
-        [&/$Nil (.substring input 1)]
+        [&/$End (.substring input 1)]
 
         (.startsWith input cons-signal)
         (when-let [[head ^String input*] (deserialize-type (.substring input 1))]
           (when-let [[tail ^String input*] (deserialize-list input*)]
-            [(&/$Cons head tail) input*]))
+            [(&/$Item head tail) input*]))
         ))
 
 (defn ^:private deserialize-type* [^String input]

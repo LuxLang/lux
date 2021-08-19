@@ -25,7 +25,7 @@
 ;; [Resources]
 (do-template [<name> <op>]
   (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?input (&/$Cons ?mask (&/$Nil))) ?values]
+    (|do [:let [(&/$Item ?input (&/$Item ?mask (&/$End))) ?values]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?input)
           :let [_ (&&/unwrap-long *writer*)]
@@ -43,7 +43,7 @@
 
 (do-template [<op> <name>]
   (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?input (&/$Cons ?shift (&/$Nil))) ?values]
+    (|do [:let [(&/$Item ?input (&/$Item ?shift (&/$End))) ?values]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?input)
           :let [_ (&&/unwrap-long *writer*)]
@@ -61,7 +61,7 @@
   )
 
 (defn ^:private compile-lux-is [compile ?values special-args]
-  (|do [:let [(&/$Cons ?left (&/$Cons ?right (&/$Nil))) ?values]
+  (|do [:let [(&/$Item ?left (&/$Item ?right (&/$End))) ?values]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?left)
         _ (compile ?right)
@@ -78,7 +78,7 @@
     (return nil)))
 
 (defn ^:private compile-lux-try [compile ?values special-args]
-  (|do [:let [(&/$Cons ?op (&/$Nil)) ?values]
+  (|do [:let [(&/$Item ?op (&/$End)) ?values]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?op)
         :let [_ (doto *writer*
@@ -88,7 +88,7 @@
 
 (do-template [<name> <opcode> <unwrap> <wrap>]
   (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
+    (|do [:let [(&/$Item ?x (&/$Item ?y (&/$End))) ?values]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?x)
           :let [_ (doto *writer*
@@ -117,7 +117,7 @@
 
 (do-template [<name> <cmpcode> <cmp-output> <unwrap>]
   (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
+    (|do [:let [(&/$Item ?x (&/$Item ?y (&/$End))) ?values]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?x)
           :let [_ (doto *writer*
@@ -147,7 +147,7 @@
   )
 
 (defn ^:private compile-frac-encode [compile ?values special-args]
-  (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
+  (|do [:let [(&/$Item ?input (&/$End)) ?values]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?input)
         :let [_ (doto *writer*
@@ -156,7 +156,7 @@
     (return nil)))
 
 (defn ^:private compile-frac-decode [compile ?values special-args]
-  (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
+  (|do [:let [(&/$Item ?input (&/$End)) ?values]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?input)
         :let [_ (doto *writer*
@@ -165,7 +165,7 @@
     (return nil)))
 
 (defn ^:private compile-int-char [compile ?values special-args]
-  (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
+  (|do [:let [(&/$Item ?x (&/$End)) ?values]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?x)
         :let [_ (doto *writer*
@@ -177,7 +177,7 @@
 
 (do-template [<name> <unwrap> <op> <wrap>]
   (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
+    (|do [:let [(&/$Item ?input (&/$End)) ?values]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?input)
           :let [_ (doto *writer*
@@ -191,7 +191,7 @@
   )
 
 (defn ^:private compile-text-eq [compile ?values special-args]
-  (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
+  (|do [:let [(&/$Item ?x (&/$Item ?y (&/$End))) ?values]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?x)
         _ (compile ?y)
@@ -201,7 +201,7 @@
     (return nil)))
 
 (defn ^:private compile-text-lt [compile ?values special-args]
-  (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
+  (|do [:let [(&/$Item ?x (&/$Item ?y (&/$End))) ?values]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?x)
         :let [_ (doto *writer*
@@ -222,7 +222,7 @@
     (return nil)))
 
 (defn compile-text-concat [compile ?values special-args]
-  (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
+  (|do [:let [(&/$Item ?x (&/$Item ?y (&/$End))) ?values]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?x)
         :let [_ (doto *writer*
@@ -235,7 +235,7 @@
     (return nil)))
 
 (defn compile-text-clip [compile ?values special-args]
-  (|do [:let [(&/$Cons ?text (&/$Cons ?offset (&/$Cons ?length (&/$Nil)))) ?values]
+  (|do [:let [(&/$Item ?text (&/$Item ?offset (&/$Item ?length (&/$End)))) ?values]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?text)
         :let [_ (doto *writer*
@@ -255,7 +255,7 @@
     (return nil)))
 
 (defn ^:private compile-text-index [compile ?values special-args]
-  (|do [:let [(&/$Cons ?text (&/$Cons ?part (&/$Cons ?start (&/$Nil)))) ?values]
+  (|do [:let [(&/$Item ?text (&/$Item ?part (&/$Item ?start (&/$End)))) ?values]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?text)
         :let [_ (doto *writer*
@@ -287,7 +287,7 @@
 
 (do-template [<name> <class> <method>]
   (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?text (&/$Nil)) ?values]
+    (|do [:let [(&/$Item ?text (&/$End)) ?values]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?text)
           :let [_ (doto *writer*
@@ -301,7 +301,7 @@
   )
 
 (defn ^:private compile-text-char [compile ?values special-args]
-  (|do [:let [(&/$Cons ?text (&/$Cons ?idx (&/$Nil))) ?values]
+  (|do [:let [(&/$Item ?text (&/$Item ?idx (&/$End))) ?values]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?text)
         :let [_ (doto *writer*
@@ -316,7 +316,7 @@
     (return nil)))
 
 (defn ^:private compile-io-log [compile ?values special-args]
-  (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
+  (|do [:let [(&/$Item ?x (&/$End)) ?values]
         ^MethodVisitor *writer* &/get-writer
         :let [_ (doto *writer*
                   (.visitFieldInsn Opcodes/GETSTATIC "java/lang/System" "out" "Ljava/io/PrintStream;"))]
@@ -327,7 +327,7 @@
     (return nil)))
 
 (defn ^:private compile-io-error [compile ?values special-args]
-  (|do [:let [(&/$Cons ?message (&/$Nil)) ?values]
+  (|do [:let [(&/$Item ?message (&/$End)) ?values]
         ^MethodVisitor *writer* &/get-writer
         :let [_ (doto *writer*
                   (.visitTypeInsn Opcodes/NEW "java/lang/Error")
@@ -340,7 +340,7 @@
     (return nil)))
 
 (defn ^:private compile-io-current-time [compile ?values special-args]
-  (|do [:let [(&/$Nil) ?values]
+  (|do [:let [(&/$End) ?values]
         ^MethodVisitor *writer* &/get-writer
         :let [_ (doto *writer*
                   (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/System" "currentTimeMillis" "()J")
@@ -348,7 +348,7 @@
     (return nil)))
 
 (defn ^:private compile-syntax-char-case! [compile ?values ?patterns]
-  (|do [:let [(&/$Cons ?input (&/$Cons ?else ?matches)) ?values]
+  (|do [:let [(&/$Item ?input (&/$Item ?else ?matches)) ?values]
         ^MethodVisitor *writer* &/get-writer
         :let [pattern-labels (&/|map (fn [_] (new Label)) ?patterns)
               matched-patterns (&/fold (fn [matches chars+label]

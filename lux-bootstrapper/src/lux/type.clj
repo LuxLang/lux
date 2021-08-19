@@ -12,10 +12,10 @@
 ;; [Utils]
 (defn |list? [xs]
   (|case xs
-    (&/$Nil)
+    (&/$End)
     true
 
-    (&/$Cons x xs*)
+    (&/$Item x xs*)
     (|list? xs*)
 
     _
@@ -23,21 +23,21 @@
 
 (def max-stack-size 256)
 
-(def empty-env &/$Nil)
+(def empty-env &/$End)
 
 (def I64 (&/$Named (&/T [&/prelude "I64"])
                    (&/$UnivQ empty-env
                              (&/$Primitive "#I64" (&/|list (&/$Parameter 1))))))
-(def Nat* (&/$Primitive &&host/nat-data-tag &/$Nil))
-(def Rev* (&/$Primitive &&host/rev-data-tag &/$Nil))
-(def Int* (&/$Primitive &&host/int-data-tag &/$Nil))
+(def Nat* (&/$Primitive &&host/nat-data-tag &/$End))
+(def Rev* (&/$Primitive &&host/rev-data-tag &/$End))
+(def Int* (&/$Primitive &&host/int-data-tag &/$End))
 
-(def Bit (&/$Named (&/T [&/prelude "Bit"]) (&/$Primitive "#Bit" &/$Nil)))
+(def Bit (&/$Named (&/T [&/prelude "Bit"]) (&/$Primitive "#Bit" &/$End)))
 (def Nat (&/$Named (&/T [&/prelude "Nat"]) (&/$Apply Nat* I64)))
 (def Rev (&/$Named (&/T [&/prelude "Rev"]) (&/$Apply Rev* I64)))
 (def Int (&/$Named (&/T [&/prelude "Int"]) (&/$Apply Int* I64)))
-(def Frac (&/$Named (&/T [&/prelude "Frac"]) (&/$Primitive "#Frac" &/$Nil)))
-(def Text (&/$Named (&/T [&/prelude "Text"]) (&/$Primitive "#Text" &/$Nil)))
+(def Frac (&/$Named (&/T [&/prelude "Frac"]) (&/$Primitive "#Frac" &/$End)))
+(def Text (&/$Named (&/T [&/prelude "Text"]) (&/$Primitive "#Text" &/$End)))
 (def Ident (&/$Named (&/T [&/prelude "Ident"]) (&/$Product Text Text)))
 
 (defn Array [elemT]
@@ -64,9 +64,9 @@
   (&/$Named (&/T [&/prelude "List"])
             (&/$UnivQ empty-env
                       (&/$Sum
-                       ;; lux;Nil
+                       ;; lux;End
                        Any
-                       ;; lux;Cons
+                       ;; lux;Item
                        (&/$Product (&/$Parameter 1)
                                    (&/$Apply (&/$Parameter 1)
                                              (&/$Parameter 0)))))))
@@ -172,7 +172,7 @@
 
 (def Macro
   (&/$Named (&/T [&/prelude "Macro"])
-            (&/$Primitive "#Macro" &/$Nil)))
+            (&/$Primitive "#Macro" &/$End)))
 
 (defn bound? [id]
   (fn [state]
@@ -357,21 +357,21 @@
   (|case type
     (&/$Function ?in ?out)
     (|let [[??out ?args] (unravel-fun ?out)]
-      (&/T [??out (&/$Cons ?in ?args)]))
+      (&/T [??out (&/$Item ?in ?args)]))
 
     _
-    (&/T [type &/$Nil])))
+    (&/T [type &/$End])))
 
 (defn ^:private unravel-app
   ([fun-type tail]
    (|case fun-type
      (&/$Apply ?arg ?func)
-     (unravel-app ?func (&/$Cons ?arg tail))
+     (unravel-app ?func (&/$Item ?arg tail))
 
      _
      (&/T [fun-type tail])))
   ([fun-type]
-   (unravel-app fun-type &/$Nil)))
+   (unravel-app fun-type &/$End)))
 
 (do-template [<tag> <flatten> <at> <desc>]
   (do (defn <flatten>
@@ -379,7 +379,7 @@
         [type]
         (|case type
           (<tag> left right)
-          (&/$Cons left (<flatten> right))
+          (&/$Item left (<flatten> right))
 
           _
           (&/|list type)))
@@ -411,10 +411,10 @@
     "(-> (List Type) Type)"
     [types]
     (|case (&/|reverse types)
-      (&/$Cons last prevs)
+      (&/$Item last prevs)
       (&/fold (fn [right left] (<ctor> left right)) last prevs)
 
-      (&/$Nil)
+      (&/$End)
       <unit>))
 
   Variant$ &/$Sum  Nothing
@@ -425,7 +425,7 @@
   (|case type
     (&/$Primitive name params)
     (|case params
-      (&/$Nil)
+      (&/$End)
       (str "(primitive " (pr-str name) ")")
 
       _
@@ -521,10 +521,10 @@
 (defn ^:private fp-get [k fixpoints]
   (|let [[e a] k]
     (|case fixpoints
-      (&/$Nil)
+      (&/$End)
       &/$None
 
-      (&/$Cons [[e* a*] v*] fixpoints*)
+      (&/$Item [[e* a*] v*] fixpoints*)
       (if (and (type= e e*)
                (type= a a*))
         (&/$Some v*)
@@ -532,7 +532,7 @@
       )))
 
 (defn ^:private fp-put [k v fixpoints]
-  (&/$Cons (&/T [k v]) fixpoints))
+  (&/$Item (&/T [k v]) fixpoints))
 
 (defn show-type+ [type]
   (|case type
@@ -573,7 +573,7 @@
     
     (&/$UnivQ ?local-env ?local-def)
     (|case ?local-env
-      (&/$Nil)
+      (&/$End)
       (&/$UnivQ env ?local-def)
 
       _
@@ -581,7 +581,7 @@
 
     (&/$ExQ ?local-env ?local-def)
     (|case ?local-env
-      (&/$Nil)
+      (&/$End)
       (&/$ExQ env ?local-def)
 
       _
@@ -606,14 +606,14 @@
   (|case type-fn
     (&/$UnivQ local-env local-def)
     (return (beta-reduce (->> local-env
-                              (&/$Cons param)
-                              (&/$Cons type-fn))
+                              (&/$Item param)
+                              (&/$Item type-fn))
                          local-def))
 
     (&/$ExQ local-env local-def)
     (return (beta-reduce (->> local-env
-                              (&/$Cons param)
-                              (&/$Cons type-fn))
+                              (&/$Item param)
+                              (&/$Item type-fn))
                          local-def))
 
     (&/$Apply A F)
@@ -635,7 +635,7 @@
     (&/fail-with-loc (str "[Type System] Not a type function:\n" (show-type type-fn) "\n"
                           "for arg: " (show-type param)))))
 
-(def ^:private init-fixpoints &/$Nil)
+(def ^:private init-fixpoints &/$End)
 
 (defn ^:private check* [fixpoints invariant?? expected actual]
   (if (clojure.lang.Util/identical expected actual)
@@ -710,7 +710,7 @@
 
             (&/$Left _)
             (|case F2
-              (&/$UnivQ (&/$Cons _) _)
+              (&/$UnivQ (&/$Item _) _)
               ((|do [actual* (apply-type F2 A2)]
                  (check* fixpoints invariant?? expected actual*))
                state)
@@ -910,7 +910,7 @@
     (if (>= size-types size-members)
       (&/T [size-members (&/|++ (&/|take (dec size-members) ?member-types)
                                 (&/|list (|case (->> ?member-types (&/|drop (dec size-members)) (&/|reverse))
-                                           (&/$Cons last prevs)
+                                           (&/$Item last prevs)
                                            (&/fold (fn [right left] (&/$Product left right))
                                                    last prevs))))])
       (&/T [size-types ?member-types])
@@ -919,13 +919,13 @@
 (do-template [<name> <zero> <plus>]
   (defn <name> [types]
     (|case (&/|reverse types)
-      (&/$Nil)
+      (&/$End)
       <zero>
 
-      (&/$Cons type (&/$Nil))
+      (&/$Item type (&/$End))
       type
 
-      (&/$Cons last prevs)
+      (&/$Item last prevs)
       (&/fold (fn [r l] (<plus> l r)) last prevs)))
 
   fold-prod Any &/$Product

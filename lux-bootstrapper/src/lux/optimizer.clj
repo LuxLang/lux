@@ -209,12 +209,12 @@
     (|case _sub-tests
       ;; An empty tuple corresponds to unit, which cannot be tested in
       ;; any meaningful way, so it's just popped.
-      (&/$Nil)
+      (&/$End)
       (&/|list $PopPM)
 
       ;; A tuple of a single element is equivalent to the element
       ;; itself, to the element's PM is generated.
-      (&/$Cons _only-test (&/$Nil))
+      (&/$Item _only-test (&/$End))
       (transform-pm* _only-test)
 
       ;; Single tuple PM features the tests of each tuple member
@@ -227,7 +227,7 @@
       (|let [tuple-size (&/|length _sub-tests)]
         (&/|++ (&/flat-map (fn [idx+test*]
                              (|let [[idx test*] idx+test*]
-                               (&/$Cons ($TuplePM (if (< idx (dec tuple-size))
+                               (&/$Item ($TuplePM (if (< idx (dec tuple-size))
                                                     (&/$Left idx)
                                                     (&/$Right idx)))
                                         (transform-pm* test*))))
@@ -246,7 +246,7 @@
 ;; This function cleans them all up, to avoid wasteful computation later.
 (defn ^:private clean-unnecessary-pops [steps]
   (|case steps
-    (&/$Cons ($PopPM) _steps)
+    (&/$Item ($PopPM) _steps)
     (clean-unnecessary-pops _steps)
 
     _
@@ -442,14 +442,14 @@
 ;; For example: (2 3 4 5 6 7 8), instead of (8 7 6 5 4 3 2)
 (defn ^:private adjust-register-indexes* [offset var-table]
   (|case var-table
-    (&/$Nil)
+    (&/$End)
     (&/|list)
 
-    (&/$Cons [_idx _used?] _tail)
+    (&/$Item [_idx _used?] _tail)
     (if _used?
-      (&/$Cons (&/T [_idx (- _idx offset)])
+      (&/$Item (&/T [_idx (- _idx offset)])
                (adjust-register-indexes* offset _tail))
-      (&/$Cons (&/T [_idx -1])
+      (&/$Item (&/T [_idx -1])
                (adjust-register-indexes* (inc offset) _tail))
       )))
 
@@ -576,10 +576,10 @@
          pms (&/|map &/|first pms+bodies)
          bodies (&/|map &/|second pms+bodies)]
     (|case (&/|reverse pms)
-      (&/$Nil)
+      (&/$End)
       (assert false)
 
-      (&/$Cons _head-pm _tail-pms)
+      (&/$Item _head-pm _tail-pms)
       (&/T [(&/fold fuse-pms _head-pm _tail-pms)
             bodies])
       )))
@@ -679,7 +679,7 @@
       ($apply [meta-0 ($var (&/$Local 0))] args)
       (if own-body?
         (&/T [meta ($apply (&/T [meta-0 ($var (&/$Local 0))])
-                           (&/$Cons (&/T [meta-0 ($var (&/$Local 1))])
+                           (&/$Item (&/T [meta-0 ($var (&/$Local 1))])
                                     (&/|map (partial shift-function-body old-scope new-scope own-body?) args)))])
         (&/T [meta ($apply (&/T [meta-0 ($var (&/$Local 0))])
                            (&/|map (partial shift-function-body old-scope new-scope own-body?) args))]))
@@ -692,7 +692,7 @@
       (if own-body?
         source
         (|case scope
-          (&/$Cons _ (&/$Cons _ (&/$Nil)))
+          (&/$Item _ (&/$Item _ (&/$End)))
           source
 
           _
@@ -750,10 +750,10 @@
   (loop [current-idx 0
          pms pms]
     (|case pms
-      (&/$Nil)
+      (&/$End)
       &/$None
       
-      (&/$Cons _pm _pms)
+      (&/$Item _pm _pms)
       (|case _pm
         (&a-case/$NoTestAC)
         (recur (inc current-idx)
@@ -768,7 +768,7 @@
         (&a-case/$TupleTestAC _sub-tests)
         (let [sub-path (record-read-path _sub-tests member-idx)]
           (if (not (&/|empty? sub-path))
-            (&/$Cons (&/T [current-idx (&/|empty? _pms)]) sub-path)
+            (&/$Item (&/T [current-idx (&/|empty? _pms)]) sub-path)
             (recur (inc current-idx)
                    _pms)
             ))
@@ -813,10 +813,10 @@
       ($ann _value-expr _type-expr)
       (&/T [meta ($ann (optimize-iter arity _value-expr) _type-expr)])
 
-      ($proc ["lux" "syntax char case!"] (&/$Cons ?input (&/$Cons ?else ?matches)) ?special-args)
+      ($proc ["lux" "syntax char case!"] (&/$Item ?input (&/$Item ?else ?matches)) ?special-args)
       (&/T [meta ($proc (&/T ["lux" "syntax char case!"])
-                        (&/$Cons ?input
-                                 (&/$Cons (optimize-iter arity ?else)
+                        (&/$Item ?input
+                                 (&/$Item (optimize-iter arity ?else)
                                           (&/|map (partial optimize-iter arity)
                                                   ?matches)))
                         ?special-args)])
@@ -858,7 +858,7 @@
       (or (contains-self-reference? func)
           (&/fold stepwise-test false args))
       
-      ($proc ["lux" "syntax char case!"] (&/$Cons ?input (&/$Cons ?else ?matches)) ?special-args)
+      ($proc ["lux" "syntax char case!"] (&/$Item ?input (&/$Item ?else ?matches)) ?special-args)
       (or (contains-self-reference? ?input)
           (contains-self-reference? ?else)
           (&/fold stepwise-test false ?matches))
@@ -1064,33 +1064,33 @@
           (|case branches
             ;; The pattern for a let-expression is a single branch,
             ;; tying the value to a register.
-            (&/$Cons [(&a-case/$StoreTestAC _register) _body] (&/$Nil))
+            (&/$Item [(&a-case/$StoreTestAC _register) _body] (&/$End))
             (&/T [meta ($let (pass-0 top-level-func? value) _register (pass-0 top-level-func? _body))])
 
-            (&/$Cons [(&a-case/$BitTestAC true) _then]
-                     (&/$Cons [(&a-case/$BitTestAC false) _else]
-                              (&/$Nil)))
+            (&/$Item [(&a-case/$BitTestAC true) _then]
+                     (&/$Item [(&a-case/$BitTestAC false) _else]
+                              (&/$End)))
             (&/T [meta ($if (pass-0 top-level-func? value) (pass-0 top-level-func? _then) (pass-0 top-level-func? _else))])
 
-            (&/$Cons [(&a-case/$BitTestAC true) _then]
-                     (&/$Cons [(&a-case/$NoTestAC false) _else]
-                              (&/$Nil)))
+            (&/$Item [(&a-case/$BitTestAC true) _then]
+                     (&/$Item [(&a-case/$NoTestAC false) _else]
+                              (&/$End)))
             (&/T [meta ($if (pass-0 top-level-func? value) (pass-0 top-level-func? _then) (pass-0 top-level-func? _else))])
 
-            (&/$Cons [(&a-case/$BitTestAC false) _else]
-                     (&/$Cons [(&a-case/$BitTestAC true) _then]
-                              (&/$Nil)))
+            (&/$Item [(&a-case/$BitTestAC false) _else]
+                     (&/$Item [(&a-case/$BitTestAC true) _then]
+                              (&/$End)))
             (&/T [meta ($if (pass-0 top-level-func? value) (pass-0 top-level-func? _then) (pass-0 top-level-func? _else))])
 
-            (&/$Cons [(&a-case/$BitTestAC false) _else]
-                     (&/$Cons [(&a-case/$NoTestAC) _then]
-                              (&/$Nil)))
+            (&/$Item [(&a-case/$BitTestAC false) _else]
+                     (&/$Item [(&a-case/$NoTestAC) _then]
+                              (&/$End)))
             (&/T [meta ($if (pass-0 top-level-func? value) (pass-0 top-level-func? _then) (pass-0 top-level-func? _else))])
 
             ;; The pattern for a record-get is a single branch, with a
             ;; tuple pattern and a body corresponding to a
             ;; local-variable extracted from the tuple.
-            (&/$Cons [(&a-case/$TupleTestAC _sub-tests) [_ (&a/$var (&/$Local _member-idx))]] (&/$Nil))
+            (&/$Item [(&a-case/$TupleTestAC _sub-tests) [_ (&a/$var (&/$Local _member-idx))]] (&/$End))
             (|let [_path (record-read-path _sub-tests _member-idx)]
               (if (&/|empty? _path)
                 ;; If the path is empty, that means it was a

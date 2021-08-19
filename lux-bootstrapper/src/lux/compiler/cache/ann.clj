@@ -96,12 +96,12 @@
 
 (defn ^:private deserialize-seq [deserializer ^String input]
   (cond (.startsWith input nil-signal)
-        [&/$Nil (.substring input 1)]
+        [&/$End (.substring input 1)]
 
         (.startsWith input cons-signal)
         (when-let [[head ^String input*] (deserializer (.substring input 1))]
           (when-let [[tail ^String input*] (deserialize-seq deserializer input*)]
-            [(&/$Cons head tail) input*]))
+            [(&/$Item head tail) input*]))
         ))
 
 (defn ^:private deserialize-kv [input]

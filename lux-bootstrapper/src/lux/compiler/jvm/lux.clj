@@ -337,7 +337,7 @@
                   $end (new Label)
                   _ (doto main-writer
                       ;; Tail: Begin
-                      (.visitLdcInsn (->> #'&/$Nil meta ::&/idx int)) ;; I
+                      (.visitLdcInsn (->> #'&/$End meta ::&/idx int)) ;; I
                       (.visitInsn Opcodes/ACONST_NULL) ;; I?
                       (.visitLdcInsn &/unit-tag) ;; I?U
                       (.visitMethodInsn Opcodes/INVOKESTATIC &rt/rt-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;") ;; V
@@ -375,13 +375,13 @@
                       (.visitInsn Opcodes/SWAP) ;; I22IV
                       (.visitInsn Opcodes/AASTORE) ;; I2
                       ;; Tuple: End
-                      ;; Cons: Begin
-                      (.visitLdcInsn (->> #'&/$Cons meta ::&/idx int)) ;; I2I
+                      ;; Item: Begin
+                      (.visitLdcInsn (->> #'&/$Item meta ::&/idx int)) ;; I2I
                       (.visitLdcInsn "") ;; I2I?
                       (.visitInsn Opcodes/DUP2_X1) ;; II?2I?
                       (.visitInsn Opcodes/POP2) ;; II?2
                       (.visitMethodInsn Opcodes/INVOKESTATIC &rt/rt-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;") ;; IV
-                      ;; Cons: End
+                      ;; Item: End
                       (.visitInsn Opcodes/SWAP) ;; VI
                       (.visitJumpInsn Opcodes/GOTO $loop)
                       ;; Loop: End

@@ -5,6 +5,7 @@
 
 # Reference
 
+1. [A Language Agnostic Introduction to Dependent Types](https://www.shuangrimu.com/posts/language-agnostic-intro-to-dependent-types.html)
 1. [The Gentle Art of Levitation](http://lambda-the-ultimate.org/node/5526)
 1. [Programming up to Congruence](http://www.cs.yale.edu/homes/vilhelm/papers/popl15congruence.pdf)
 1. [From Scheme to Dependent Types in 100 lines by Gershom Bazerman (Part 1)](https://vimeo.com/134561872)

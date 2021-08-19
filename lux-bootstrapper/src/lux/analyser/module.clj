@@ -35,7 +35,7 @@
         ;; "lux;defs"
         (&/|table)
         ;; "lux;imports"
-        &/$Nil
+        &/$End
         ;; "lux;tags"
         (&/|table)
         ;; "lux;types"
@@ -87,7 +87,7 @@
         (return* (&/update$ &/$modules
                             (fn [ms]
                               (&/|update current-module
-                                         (fn [m] (&/update$ $imports (partial &/$Cons module) m))
+                                         (fn [m] (&/update$ $imports (partial &/$Item module) m))
                                          ms))
                             state)
                  nil)))))
@@ -108,7 +108,7 @@
 (defn define-alias [module name de-aliased]
   (fn [state]
     (|case (&/get$ &/$scopes state)
-      (&/$Cons ?env (&/$Nil))
+      (&/$Item ?env (&/$End))
       (return* (->> state
                     (&/update$ &/$modules
                                (fn [ms]
@@ -127,7 +127,7 @@
 (defn define [module name exported? def-type def-meta def-value]
   (fn [state]
     (|case (&/get$ &/$scopes state)
-      (&/$Cons ?env (&/$Nil))
+      (&/$Item ?env (&/$End))
       (return* (->> state
                     (&/update$ &/$modules
                                (fn [ms]
@@ -287,7 +287,7 @@
   (fn [state]
     (return* (->> state
                   (&/update$ &/$modules #(&/|put name (new-module hash) %))
-                  (&/set$ &/$scopes (&/|list (&/env name &/$Nil)))
+                  (&/set$ &/$scopes (&/|list (&/env name &/$End)))
                   (&/set$ &/$current-module (&/$Some name)))
              nil)))
 
@@ -406,9 +406,9 @@
     [_ (&/$Tuple _parts)]
     (&/map% (fn [_part]
               (|case _part
-                [_ (&/$Tuple (&/$Cons [[_ (&/$Text _module)]
-                                       (&/$Cons [[_ (&/$Text _alias)]
-                                                 (&/$Nil)])]))]
+                [_ (&/$Tuple (&/$Item [[_ (&/$Text _module)]
+                                       (&/$Item [[_ (&/$Text _alias)]
+                                                 (&/$End)])]))]
                 (return (&/T [_module _alias]))
 
                 _

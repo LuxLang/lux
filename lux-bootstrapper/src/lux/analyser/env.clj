@@ -15,7 +15,7 @@
           =return (body (&/update$ &/$scopes
                                    (fn [stack]
                                      (let [var-analysis (&&/|meta type &/empty-location (&&/$var (&/$Local (->> (&/|head stack) (&/get$ &/$locals) (&/get$ &/$counter)))))]
-                                       (&/$Cons (&/update$ &/$locals #(->> %
+                                       (&/$Item (&/update$ &/$locals #(->> %
                                                                            (&/update$ &/$counter inc)
                                                                            (&/update$ &/$mappings (fn [m] (&/|put name (&/T [type var-analysis]) m))))
                                                            (&/|head stack))
@@ -24,7 +24,7 @@
       (|case =return
         (&/$Right ?state ?value)
         (return* (&/update$ &/$scopes (fn [stack*]
-                                        (&/$Cons (&/update$ &/$locals #(->> %
+                                        (&/$Item (&/update$ &/$locals #(->> %
                                                                             (&/update$ &/$counter dec)
                                                                             (&/set$ &/$mappings old-mappings))
                                                             (&/|head stack*))
@@ -40,7 +40,7 @@
     (let [old-mappings (->> state (&/get$ &/$scopes) &/|head (&/get$ &/$locals) (&/get$ &/$mappings))
           =return (body (&/update$ &/$scopes
                                    (fn [stack]
-                                     (&/$Cons (&/update$ &/$locals #(->> %
+                                     (&/$Item (&/update$ &/$locals #(->> %
                                                                          (&/update$ &/$mappings (fn [m] (&/|put name
                                                                                                                 (&/T [(&&/expr-type* var-analysis)
                                                                                                                       var-analysis])
@@ -51,7 +51,7 @@
       (|case =return
         (&/$Right ?state ?value)
         (return* (&/update$ &/$scopes (fn [stack*]
-                                        (&/$Cons (&/update$ &/$locals #(->> %
+                                        (&/$Item (&/update$ &/$locals #(->> %
                                                                             (&/set$ &/$mappings old-mappings))
                                                             (&/|head stack*))
                                                  (&/|tail stack*)))
@@ -64,11 +64,11 @@
 (def captured-vars
   (fn [state]
     (|case (&/get$ &/$scopes state)
-      (&/$Nil)
+      (&/$End)
       ((&/fail-with-loc "[Analyser Error] Cannot obtain captured vars without environments.")
        state)
 
-      (&/$Cons env _)
+      (&/$Item env _)
       (return* state (->> env
                           (&/get$ &/$captured)
                           (&/get$ &/$mappings)

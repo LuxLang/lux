@@ -86,17 +86,17 @@
              stack (&/|list)]
         (if-let [super-interface (some valid-sub? (.getInterfaces sub-class))]
           (if (= super-class super-interface)
-            (&/$Cons super-interface stack)
-            (recur super-interface (&/$Cons super-interface stack)))
+            (&/$Item super-interface stack)
+            (recur super-interface (&/$Item super-interface stack)))
           (if-let [super* (.getSuperclass sub-class)]
-            (recur super* (&/$Cons super* stack))
+            (recur super* (&/$Item super* stack))
             stack)))
       (loop [sub-class sub-class
              stack (&/|list)]
         (let [super* (.getSuperclass sub-class)]
           (if (= super* super-class)
-            (&/$Cons super* stack)
-            (recur super* (&/$Cons super* stack))))))))
+            (&/$Item super* stack)
+            (recur super* (&/$Item super* stack))))))))
 
 (defn ^:private trace-lineage
   "(-> Class Class (List Class))"
@@ -105,7 +105,7 @@
     (&/|list)
     (&/|reverse (trace-lineage* super-class sub-class))))
 
-(let [matcher (fn [m ^TypeVariable jt lt] (&/$Cons (&/T [(.getName jt) lt]) m))]
+(let [matcher (fn [m ^TypeVariable jt lt] (&/$Item (&/T [(.getName jt) lt]) m))]
   (defn ^:private match-params [sub-type-params params]
     (assert (and (= (&/|length sub-type-params) (&/|length params))
                  (&/|every? (partial instance? TypeVariable) sub-type-params)))
@@ -137,7 +137,7 @@
               Any
               (reduce (fn [inner _] (&/$Primitive array-data-tag (&/|list inner)))
                       (&/$Primitive base (try (-> (Class/forName base) .getTypeParameters
-                                                  seq count (repeat (&/$Primitive "java.lang.Object" &/$Nil))
+                                                  seq count (repeat (&/$Primitive "java.lang.Object" &/$End))
                                                   &/->list)
                                            (catch Exception e
                                              (&/|list))))
@@ -183,7 +183,7 @@
           (if (type= Any class-type)
             "V"
             (|case class-type
-              (&/$Primitive "#Array" (&/$Cons (&/$Primitive class-name _) (&/$Nil)))
+              (&/$Primitive "#Array" (&/$Item (&/$Primitive class-name _) (&/$End)))
               (str "[" (&host-generics/->type-signature class-name))
 
               (&/$Primitive class-name _)
@@ -357,7 +357,7 @@
   "(-> GenericType GenericClass)"
   [gtype]
   (cond (instance? Class gtype)
-        (&/$GenericClass (.getName ^Class gtype) &/$Nil)
+        (&/$GenericClass (.getName ^Class gtype) &/$End)
 
         (instance? GenericArrayType gtype)
         (&/$GenericArray (gtype->gclass (.getGenericComponentType ^GenericArrayType gtype)))
@@ -385,7 +385,7 @@
     "(-> GenericClass Text)"
     [gclass]
     (|case gclass
-      (&/$GenericClass gclass-name (&/$Nil))
+      (&/$GenericClass gclass-name (&/$End))
       (case gclass-name
         "void"    "V"
         "boolean" "Z"

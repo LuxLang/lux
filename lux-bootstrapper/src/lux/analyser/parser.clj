@@ -20,23 +20,23 @@
   (fn [state]
     (|case (action state)
       (&/$Left ^String error)
-      (&/$Right (&/T [state &/$Nil]))
+      (&/$Right (&/T [state &/$End]))
 
       (&/$Right state* head)
       ((|do [tail (repeat% action)]
-         (return (&/$Cons head tail)))
+         (return (&/$Item head tail)))
        state*))))
 
 (defn ^:private spaced [action]
   (fn [state]
     (|case (action state)
       (&/$Left ^String error)
-      (&/$Right (&/T [state &/$Nil]))
+      (&/$Right (&/T [state &/$End]))
 
       (&/$Right state* head)
       ((&/try-all% (&/|list (|do [_ _space_
                                   tail (spaced action)]
-                              (return (&/$Cons head tail)))
+                              (return (&/$Item head tail)))
                             (return (&/|list head))))
        state*))))
 
@@ -129,7 +129,7 @@
 (def ^:private parse-ctor-arg
   (with-brackets
     (|do [=class parse-gclass
-          (&/$Cons =term (&/$Nil)) (with-pre-space
+          (&/$Item =term (&/$End)) (with-pre-space
                                      &parser/parse)]
       (return (&/T [=class =term])))))
 
@@ -181,7 +181,7 @@
       (|do [[_ _ ?] (&reader/read-text? " ")]
         (if ?
           (|do [=tail parse-gvars]
-            (return (&/$Cons =head =tail)))
+            (return (&/$Item =head =tail)))
           (return (&/|list =head))))
 
       (&/$None)
@@ -264,7 +264,7 @@
         =ctor-args (with-pre-space
                      (with-brackets
                        (spaced parse-ctor-arg)))
-        (&/$Cons =body (&/$Nil)) (with-pre-space
+        (&/$Item =body (&/$End)) (with-pre-space
                                    &parser/parse)]
     (return (&/$ConstructorMethodSyntax (&/T [=privacy-modifier =strict =anns =gvars =exceptions =inputs =ctor-args =body])))))
 
@@ -294,7 +294,7 @@
                     (spaced parse-arg-decl)))
         =output (with-pre-space
                   parse-gclass)
-        (&/$Cons =body (&/$Nil)) (with-pre-space
+        (&/$Item =body (&/$End)) (with-pre-space
                                    &parser/parse)]
     (return (&/$VirtualMethodSyntax (&/T [=name =privacy-modifier =final? =strict =anns =gvars =exceptions =inputs =output =body])))))
 
@@ -321,7 +321,7 @@
                     (spaced parse-arg-decl)))
         =output (with-pre-space
                   parse-gclass)
-        (&/$Cons =body (&/$Nil)) (with-pre-space
+        (&/$Item =body (&/$End)) (with-pre-space
                                    &parser/parse)]
     (return (&/$OverridenMethodSyntax (&/T [=class-decl =name =strict =anns =gvars =exceptions =inputs =output =body])))))
 
@@ -348,7 +348,7 @@
                     (spaced parse-arg-decl)))
         =output (with-pre-space
                   parse-gclass)
-        (&/$Cons =body (&/$Nil)) (with-pre-space
+        (&/$Item =body (&/$End)) (with-pre-space
                                    &parser/parse)]
     (return (&/$StaticMethodSyntax (&/T [=name =privacy-modifier =strict =anns =gvars =exceptions =inputs =output =body])))))
 
@@ -416,7 +416,7 @@
                                          (spaced parse-ann)))
                                =type (with-pre-space
                                        parse-gclass)
-                               (&/$Cons =value (&/$Nil)) (with-pre-space
+                               (&/$Item =value (&/$End)) (with-pre-space
                                                            &parser/parse)]
                            (return (&/$ConstantFieldSyntax =name =anns =type =value)))
 

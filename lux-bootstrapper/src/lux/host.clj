@@ -42,7 +42,7 @@
   "(-> Type (, Int Type))"
   [type]
   (|case type
-    (&/$Primitive "#Array" (&/$Cons param (&/$Nil)))
+    (&/$Primitive "#Array" (&/$Item param (&/$End)))
     (|let [[count inner] (unfold-array param)]
       (&/T [(inc count) inner]))
 
@@ -170,7 +170,7 @@
   (str (&/normalize-name name) "_" (Long/toUnsignedString (hash name))))
 
 (defn location [scope]
-  (let [scope (&/$Cons (def-name (&/|head scope))
+  (let [scope (&/$Item (def-name (&/|head scope))
                        (&/|map &/normalize-name (&/|tail scope)))]
     (->> scope
          (&/|interpose "$")
@@ -185,35 +185,35 @@
 
 (defn dummy-value [^MethodVisitor writer class]
   (|case class
-    (&/$GenericClass "boolean" (&/$Nil))
+    (&/$GenericClass "boolean" (&/$End))
     (doto writer
       (.visitLdcInsn false))
     
-    (&/$GenericClass "byte" (&/$Nil))
+    (&/$GenericClass "byte" (&/$End))
     (doto writer
       (.visitLdcInsn (byte 0)))
     
-    (&/$GenericClass "short" (&/$Nil))
+    (&/$GenericClass "short" (&/$End))
     (doto writer
       (.visitLdcInsn (short 0)))
     
-    (&/$GenericClass "int" (&/$Nil))
+    (&/$GenericClass "int" (&/$End))
     (doto writer
       (.visitLdcInsn (int 0)))
     
-    (&/$GenericClass "long" (&/$Nil))
+    (&/$GenericClass "long" (&/$End))
     (doto writer
       (.visitLdcInsn (long 0)))
     
-    (&/$GenericClass "float" (&/$Nil))
+    (&/$GenericClass "float" (&/$End))
     (doto writer
       (.visitLdcInsn (float 0.0)))
     
-    (&/$GenericClass "double" (&/$Nil))
+    (&/$GenericClass "double" (&/$End))
     (doto writer
       (.visitLdcInsn (double 0.0)))
     
-    (&/$GenericClass "char" (&/$Nil))
+    (&/$GenericClass "char" (&/$End))
     (doto writer
       (.visitLdcInsn (char 0)))
 
@@ -223,45 +223,45 @@
 
 (defn ^:private dummy-return [^MethodVisitor writer output]
   (|case output
-    (&/$GenericClass "void" (&/$Nil))
+    (&/$GenericClass "void" (&/$End))
     (.visitInsn writer Opcodes/RETURN)
 
-    (&/$GenericClass "boolean" (&/$Nil))
+    (&/$GenericClass "boolean" (&/$End))
     (doto writer
       (dummy-value output)
       (.visitInsn Opcodes/IRETURN))
     
-    (&/$GenericClass "byte" (&/$Nil))
+    (&/$GenericClass "byte" (&/$End))
     (doto writer
       (dummy-value output)
       (.visitInsn Opcodes/IRETURN))
     
-    (&/$GenericClass "short" (&/$Nil))
+    (&/$GenericClass "short" (&/$End))
     (doto writer
       (dummy-value output)
       (.visitInsn Opcodes/IRETURN))
     
-    (&/$GenericClass "int" (&/$Nil))
+    (&/$GenericClass "int" (&/$End))
     (doto writer
       (dummy-value output)
       (.visitInsn Opcodes/IRETURN))
     
-    (&/$GenericClass "long" (&/$Nil))
+    (&/$GenericClass "long" (&/$End))
     (doto writer
       (dummy-value output)
       (.visitInsn Opcodes/LRETURN))
     
-    (&/$GenericClass "float" (&/$Nil))
+    (&/$GenericClass "float" (&/$End))
     (doto writer
       (dummy-value output)
       (.visitInsn Opcodes/FRETURN))
     
-    (&/$GenericClass "double" (&/$Nil))
+    (&/$GenericClass "double" (&/$End))
     (doto writer
       (dummy-value output)
       (.visitInsn Opcodes/DRETURN))
     
-    (&/$GenericClass "char" (&/$Nil))
+    (&/$GenericClass "char" (&/$End))
     (doto writer
       (dummy-value output)
       (.visitInsn Opcodes/IRETURN))
@@ -443,7 +443,7 @@
               dummy-full-name (str module "/" dummy-name)
               real-name (str (&host-generics/->class-name module) "." ?name)
               store-name (str (&host-generics/->class-name module) "." dummy-name)
-              class-signature (&host-generics/gclass-decl->signature class-decl (&/$Cons super-class interfaces))
+              class-signature (&host-generics/gclass-decl->signature class-decl (&/$Item super-class interfaces))
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                        (.visit bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                dummy-full-name

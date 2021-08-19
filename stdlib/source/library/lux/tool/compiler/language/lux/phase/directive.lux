@@ -1,16 +1,17 @@
 (.module:
   [library
    [lux #*
+    ["." meta]
     [abstract
      ["." monad (#+ do)]]
     [control
+     ["." try]
      ["." exception (#+ exception:)]]
     [data
      [text
       ["%" format (#+ format)]]
      [collection
-      ["." list ("#\." fold monoid)]]]
-    ["." meta]]]
+      ["." list ("#\." fold monoid)]]]]]
   ["." // #_
    ["#." extension]
    ["#." analysis
@@ -18,11 +19,14 @@
    ["/#" // #_
     ["/" directive (#+ Phase)]
     ["#." analysis
+     ["." evaluation]
      ["#/." macro (#+ Expander)]]
     [///
      ["//" phase]
      [reference (#+)
-      [variable (#+)]]]]])
+      [variable (#+)]]
+     [meta
+      [archive (#+ Archive)]]]]])
 
 (exception: .public (not_a_directive {code Code})
   (exception.report
@@ -36,44 +40,68 @@
   (exception.report
    ["Name" (%.name name)]))
 
+(type: Eval
+  (-> Type Code (Meta Any)))
+
+(def: (meta_eval archive bundle compiler_eval)
+  (-> Archive ///analysis.Bundle evaluation.Eval
+      Eval)
+  (function (_ type code lux)
+    (case (compiler_eval archive type code [bundle lux])
+      (#try.Success [[_bundle lux'] value])
+      (#try.Success [lux' value])
+      
+      (#try.Failure error)
+      (#try.Failure error))))
+
 (with_expansions [<lux_def_module> (as_is [|form_location| (#.Form (list& [|text_location| (#.Text "lux def module")] annotations))])]
-  (def: .public (phase expander)
-    (-> Expander Phase)
-    (let [analyze (//analysis.phase expander)]
+  (def: .public (phase wrapper expander)
+    (-> //.Wrapper Expander Phase)
+    (let [analysis (//analysis.phase expander)]
       (function (recur archive code)
-        (case code
-          (^ [_ (#.Form (list& [_ (#.Text name)] inputs))])
-          (//extension.apply archive recur [name inputs])
+        (do {! //.monad}
+          [state //.get_state
+           .let [compiler_eval (meta_eval archive
+                                          (value@ [#//extension.state #/.analysis #/.state #//extension.bundle] state)
+                                          (evaluation.evaluator expander
+                                                                (value@ [#//extension.state #/.synthesis #/.state] state)
+                                                                (value@ [#//extension.state #/.generation #/.state] state)
+                                                                (value@ [#//extension.state #/.generation #/.phase] state)))
+                 extension_eval (:as Eval (wrapper (:expected compiler_eval)))]
+           _ (//.set_state (with@ [#//extension.state #/.analysis #/.state #//extension.state #.eval] extension_eval state))]
+          (case code
+            (^ [_ (#.Form (list& [_ (#.Text name)] inputs))])
+            (//extension.apply archive recur [name inputs])
 
-          (^ [_ (#.Form (list& macro inputs))])
-          (do {! //.monad}
-            [expansion (/.lifted_analysis
-                        (do !
-                          [macroA (//analysis/type.with_type Macro
-                                    (analyze archive macro))]
-                          (case macroA
-                            (^ (///analysis.constant macro_name))
-                            (do !
-                              [?macro (//extension.lifted (meta.macro macro_name))
-                               macro (case ?macro
-                                       (#.Some macro)
-                                       (in macro)
-                                       
-                                       #.None
-                                       (//.except ..macro_was_not_found macro_name))]
-                              (//extension.lifted (///analysis/macro.expand expander macro_name macro inputs)))
-                            
-                            _
-                            (//.except ..invalid_macro_call code))))]
-            (case expansion
-              (^ (list& <lux_def_module> referrals))
-              (|> (recur archive <lux_def_module>)
-                  (\ ! map (revised@ #/.referrals (list\compose referrals))))
+            (^ [_ (#.Form (list& macro inputs))])
+            (do !
+              [expansion (/.lifted_analysis
+                          (do !
+                            [macroA (//analysis/type.with_type Macro
+                                      (analysis archive macro))]
+                            (case macroA
+                              (^ (///analysis.constant macro_name))
+                              (do !
+                                [?macro (//extension.lifted (meta.macro macro_name))
+                                 macro (case ?macro
+                                         (#.Some macro)
+                                         (in macro)
+                                         
+                                         #.None
+                                         (//.except ..macro_was_not_found macro_name))]
+                                (//extension.lifted (///analysis/macro.expand expander macro_name macro inputs)))
+                              
+                              _
+                              (//.except ..invalid_macro_call code))))]
+              (case expansion
+                (^ (list& <lux_def_module> referrals))
+                (|> (recur archive <lux_def_module>)
+                    (\ ! map (revised@ #/.referrals (list\compose referrals))))
 
-              _
-              (|> expansion
-                  (monad.map ! (recur archive))
-                  (\ ! map (list\fold /.merge_requirements /.no_requirements)))))
+                _
+                (|> expansion
+                    (monad.map ! (recur archive))
+                    (\ ! map (list\fold /.merge_requirements /.no_requirements)))))
 
-          _
-          (//.except ..not_a_directive code))))))
+            _
+            (//.except ..not_a_directive code)))))))

@@ -7,7 +7,8 @@
             :reload-all)
   (:import (java.io File)))
 
-(def unit-separator (str (char 31)))
+(def unit-separator
+  (str (char 31)))
 
 (defn- separate-paths
   "(-> Text (List Text))"
@@ -20,13 +21,13 @@
 
 (defn -main [& args]
   (|case (&/->list args)
-    (&/$Cons "release" (&/$Cons program-module (&/$Cons dependencies (&/$Cons source-dirs (&/$Cons target-dir (&/$Nil))))))
+    (&/$Item "release" (&/$Item program-module (&/$Item dependencies (&/$Item source-dirs (&/$Item target-dir (&/$End))))))
     (&compiler/compile-program &/$Build program-module
                                (separate-paths dependencies)
                                (separate-paths source-dirs)
                                target-dir)
 
-    (&/$Cons "repl" (&/$Cons dependencies (&/$Cons source-dirs (&/$Cons target-dir (&/$Nil)))))
+    (&/$Item "repl" (&/$Item dependencies (&/$Item source-dirs (&/$Item target-dir (&/$End)))))
     (&repl/repl (separate-paths dependencies)
                 (separate-paths source-dirs)
                 target-dir)

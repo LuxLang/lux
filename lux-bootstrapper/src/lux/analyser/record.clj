@@ -7,13 +7,14 @@
                           [module :as &&module])))
 
 ;; [Exports]
-(defn order-record [pairs]
+(defn order-record
   "(-> (List (, Syntax Syntax)) (Lux (List Syntax)))"
+  [pairs]
   (|do [[tag-group tag-type] (|case pairs
-                               (&/$Nil)
-                               (return (&/T [&/$Nil &type/Any]))
+                               (&/$End)
+                               (return (&/T [&/$End &type/Any]))
                                
-                               (&/$Cons [[_ (&/$Tag tag1)] _] _)
+                               (&/$Item [[_ (&/$Tag tag1)] _] _)
                                (|do [[module name] (&&/resolved-ident tag1)
                                      tags (&&module/tag-group module name)
                                      type (&&module/tag-type module name)]

@@ -52,7 +52,7 @@
 (defn cap-1 [action]
   (|do [result action]
     (|case result
-      (&/$Cons x (&/$Nil))
+      (&/$Item x (&/$End))
       (return x)
 
       _

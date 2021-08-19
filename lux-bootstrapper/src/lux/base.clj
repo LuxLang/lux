@@ -60,8 +60,8 @@
 
 ;; List
 (defvariant
-  ("Nil" 0)
-  ("Cons" 2))
+  ("End" 0)
+  ("Item" 2))
 
 ;; Maybe
 (defvariant
@@ -160,6 +160,7 @@
    "seed"
    "scope-type-vars"
    "extensions"
+   "eval"
    "host"])
 
 (defvariant
@@ -285,71 +286,71 @@
 
 (defmacro |list [& elems]
   (reduce (fn [tail head]
-            `($Cons ~head ~tail))
-          `$Nil
+            `($Item ~head ~tail))
+          `$End
           (reverse elems)))
 
 (defmacro |table [& elems]
   (reduce (fn [table [k v]]
             `(|put ~k ~v ~table))
-          `$Nil
+          `$End
           (reverse (partition 2 elems))))
 
 (defn |get [slot table]
   (|case table
-    ($Nil)
+    ($End)
     nil
     
-    ($Cons [k v] table*)
+    ($Item [k v] table*)
     (if (= k slot)
       v
       (recur slot table*))))
 
 (defn |put [slot value table]
   (|case table
-    ($Nil)
-    ($Cons (T [slot value]) $Nil)
+    ($End)
+    ($Item (T [slot value]) $End)
     
-    ($Cons [k v] table*)
+    ($Item [k v] table*)
     (if (= k slot)
-      ($Cons (T [slot value]) table*)
-      ($Cons (T [k v]) (|put slot value table*)))
+      ($Item (T [slot value]) table*)
+      ($Item (T [k v]) (|put slot value table*)))
     ))
 
 (defn |remove [slot table]
   (|case table
-    ($Nil)
+    ($End)
     table
     
-    ($Cons [k v] table*)
+    ($Item [k v] table*)
     (if (= k slot)
       table*
-      ($Cons (T [k v]) (|remove slot table*)))))
+      ($Item (T [k v]) (|remove slot table*)))))
 
 (defn |update [k f table]
   (|case table
-    ($Nil)
+    ($End)
     table
 
-    ($Cons [k* v] table*)
+    ($Item [k* v] table*)
     (if (= k k*)
-      ($Cons (T [k* (f v)]) table*)
-      ($Cons (T [k* v]) (|update k f table*)))))
+      ($Item (T [k* (f v)]) table*)
+      ($Item (T [k* v]) (|update k f table*)))))
 
 (defn |head [xs]
   (|case xs
-    ($Nil)
+    ($End)
     (assert false (prn-str '|head))
 
-    ($Cons x _)
+    ($Item x _)
     x))
 
 (defn |tail [xs]
   (|case xs
-    ($Nil)
+    ($End)
     (assert false (prn-str '|tail))
 
-    ($Cons _ xs*)
+    ($Item _ xs*)
     xs*))
 
 ;; [Resources/Monads]
@@ -395,19 +396,19 @@
 
 (defn |++ [xs ys]
   (|case xs
-    ($Nil)
+    ($End)
     ys
 
-    ($Cons x xs*)
-    ($Cons x (|++ xs* ys))))
+    ($Item x xs*)
+    ($Item x (|++ xs* ys))))
 
 (defn |map [f xs]
   (|case xs
-    ($Nil)
+    ($End)
     xs
 
-    ($Cons x xs*)
-    ($Cons (f x) (|map f xs*))
+    ($Item x xs*)
+    ($Item (f x) (|map f xs*))
 
     _
     (assert false (prn-str '|map f (adt->text xs)))))
@@ -416,99 +417,99 @@
   "(All [a] (-> (List a) Bit))"
   [xs]
   (|case xs
-    ($Nil)
+    ($End)
     true
 
-    ($Cons _ _)
+    ($Item _ _)
     false))
 
 (defn |filter
   "(All [a] (-> (-> a Bit) (List a) (List a)))"
   [p xs]
   (|case xs
-    ($Nil)
+    ($End)
     xs
 
-    ($Cons x xs*)
+    ($Item x xs*)
     (if (p x)
-      ($Cons x (|filter p xs*))
+      ($Item x (|filter p xs*))
       (|filter p xs*))))
 
 (defn flat-map
   "(All [a b] (-> (-> a (List b)) (List a) (List b)))"
   [f xs]
   (|case xs
-    ($Nil)
+    ($End)
     xs
 
-    ($Cons x xs*)
+    ($Item x xs*)
     (|++ (f x) (flat-map f xs*))))
 
 (defn |split-with [p xs]
   (|case xs
-    ($Nil)
+    ($End)
     (T [xs xs])
 
-    ($Cons x xs*)
+    ($Item x xs*)
     (if (p x)
       (|let [[pre post] (|split-with p xs*)]
-        (T [($Cons x pre) post]))
-      (T [$Nil xs]))))
+        (T [($Item x pre) post]))
+      (T [$End xs]))))
 
 (defn |contains? [k table]
   (|case table
-    ($Nil)
+    ($End)
     false
 
-    ($Cons [k* _] table*)
+    ($Item [k* _] table*)
     (or (= k k*)
         (|contains? k table*))))
 
 (defn |member? [x xs]
   (|case xs
-    ($Nil)
+    ($End)
     false
 
-    ($Cons x* xs*)
+    ($Item x* xs*)
     (or (= x x*) (|member? x xs*))))
 
 (defn fold [f init xs]
   (|case xs
-    ($Nil)
+    ($End)
     init
 
-    ($Cons x xs*)
+    ($Item x xs*)
     (recur f (f init x) xs*)))
 
 (defn fold% [f init xs]
   (|case xs
-    ($Nil)
+    ($End)
     (return init)
 
-    ($Cons x xs*)
+    ($Item x xs*)
     (|do [init* (f init x)]
       (fold% f init* xs*))))
 
 (defn folds [f init xs]
   (|case xs
-    ($Nil)
+    ($End)
     (|list init)
 
-    ($Cons x xs*)
-    ($Cons init (folds f (f init x) xs*))))
+    ($Item x xs*)
+    ($Item init (folds f (f init x) xs*))))
 
 (defn |length [xs]
   (fold (fn [acc _] (inc acc)) 0 xs))
 
 (defn |range* [from to]
   (if (<= from to)
-    ($Cons from (|range* (inc from) to))
-    $Nil))
+    ($Item from (|range* (inc from) to))
+    $End))
 
 (let [|range* (fn |range* [from to]
                 (if (< from to)
-                  ($Cons from (|range* (inc from) to))
-                  $Nil))]
+                  ($Item from (|range* (inc from) to))
+                  $End))]
   (defn |range [n]
     (|range* 0 n)))
 
@@ -522,68 +523,68 @@
 
 (defn zip2 [xs ys]
   (|case [xs ys]
-    [($Cons x xs*) ($Cons y ys*)]
-    ($Cons (T [x y]) (zip2 xs* ys*))
+    [($Item x xs*) ($Item y ys*)]
+    ($Item (T [x y]) (zip2 xs* ys*))
 
     [_ _]
-    $Nil))
+    $End))
 
 (defn |keys [plist]
   (|case plist
-    ($Nil)
-    $Nil
+    ($End)
+    $End
     
-    ($Cons [k v] plist*)
-    ($Cons k (|keys plist*))))
+    ($Item [k v] plist*)
+    ($Item k (|keys plist*))))
 
 (defn |vals [plist]
   (|case plist
-    ($Nil)
-    $Nil
+    ($End)
+    $End
     
-    ($Cons [k v] plist*)
-    ($Cons v (|vals plist*))))
+    ($Item [k v] plist*)
+    ($Item v (|vals plist*))))
 
 (defn |interpose [sep xs]
   (|case xs
-    ($Nil)
+    ($End)
     xs
 
-    ($Cons _ ($Nil))
+    ($Item _ ($End))
     xs
     
-    ($Cons x xs*)
-    ($Cons x ($Cons sep (|interpose sep xs*)))))
+    ($Item x xs*)
+    ($Item x ($Item sep (|interpose sep xs*)))))
 
 (do-template [<name> <joiner>]
   (defn <name> [f xs]
     (|case xs
-      ($Nil)
+      ($End)
       (return xs)
 
-      ($Cons x xs*)
+      ($Item x xs*)
       (|do [y (f x)
             ys (<name> f xs*)]
         (return (<joiner> y ys)))))
 
-  map%      $Cons
+  map%      $Item
   flat-map% |++)
 
 (defn list-join [xss]
-  (fold |++ $Nil xss))
+  (fold |++ $End xss))
 
 (defn |as-pairs [xs]
   (|case xs
-    ($Cons x ($Cons y xs*))
-    ($Cons (T [x y]) (|as-pairs xs*))
+    ($Item x ($Item y xs*))
+    ($Item (T [x y]) (|as-pairs xs*))
 
     _
-    $Nil))
+    $End))
 
 (defn |reverse [xs]
   (fold (fn [tail head]
-          ($Cons head tail))
-        $Nil
+          ($Item head tail))
+        $End
         xs))
 
 (defn add-loc [meta ^String msg]
@@ -607,17 +608,17 @@
 
 (defn try-all% [monads]
   (|case monads
-    ($Nil)
+    ($End)
     (fail "[Error] There are no alternatives to try!")
 
-    ($Cons m monads*)
+    ($Item m monads*)
     (fn [state]
       (let [output (m state)]
         (|case [output monads*]
           [($Right _) _]
           output
 
-          [_ ($Nil)]
+          [_ ($End)]
           output
           
           [_ _]
@@ -627,17 +628,17 @@
 
 (defn try-all-% [prefix monads]
   (|case monads
-    ($Nil)
+    ($End)
     (fail "[Error] There are no alternatives to try!")
 
-    ($Cons m monads*)
+    ($Item m monads*)
     (fn [state]
       (let [output (m state)]
         (|case [output monads*]
           [($Right _) _]
           output
 
-          [_ ($Nil)]
+          [_ ($End)]
           output
 
           [($Left ^String error) _]
@@ -662,10 +663,10 @@
   "(All [a b] (-> (-> a (Maybe b)) (List a) (Maybe b)))"
   [f xs]
   (|case xs
-    ($Nil)
+    ($End)
     $None
 
-    ($Cons x xs*)
+    ($Item x xs*)
     (|case (f x)
       ($None) (|some f xs*)
       output  output)
@@ -719,7 +720,7 @@
 
 (defn env [name old-name]
   (T [;; name
-      ($Cons name old-name)
+      ($Item name old-name)
       ;; inner
       0
       ;; locals
@@ -792,7 +793,7 @@
   (with-jvm-host-slot $type-env (partial |++ type-env) body))
 
 (defn push-dummy-name [real-name store-name]
-  (change-jvm-host-slot $dummy-mappings (partial $Cons (T [real-name store-name]))))
+  (change-jvm-host-slot $dummy-mappings (partial $Item (T [real-name store-name]))))
 
 (def pop-dummy-name
   (change-jvm-host-slot $dummy-mappings |tail))
@@ -823,7 +824,7 @@
   (T [;; "lux;info"
       (default-info name mode)
       ;; "lux;source"
-      $Nil
+      $End
       ;; "lux;location"
       (T ["" -1 -1])
       ;; "current-module"
@@ -831,7 +832,7 @@
       ;; "lux;modules"
       (|table)
       ;; "lux;scopes"
-      $Nil
+      $End
       ;; "lux;type-context"
       +init-type-context+
       ;; "lux;expected"
@@ -839,9 +840,11 @@
       ;; "lux;seed"
       0
       ;; scope-type-vars
-      $Nil
+      $End
       ;; extensions
-      nil
+      "" ;; This is an invalid value. But I don't expect extensions to be used with the bootstrapping compiler.
+      ;; eval
+      "" ;; This is an invalid value. But I don't expect eval to be used with the bootstrapping compiler.
       ;; "lux;host"
       host-data]
      ))
@@ -903,21 +906,21 @@
 
 (defn ->seq [xs]
   (|case xs
-    ($Nil)
+    ($End)
     (list)
 
-    ($Cons x xs*)
+    ($Item x xs*)
     (cons x (->seq xs*))))
 
 (defn ->list [seq]
   (if (empty? seq)
-    $Nil
-    ($Cons (first seq) (->list (rest seq)))))
+    $End
+    ($Item (first seq) (->list (rest seq)))))
 
 (defn |repeat [n x]
   (if (> n 0)
-    ($Cons x (|repeat (dec n) x))
-    $Nil))
+    ($Item x (|repeat (dec n) x))
+    $End))
 
 (def get-module-name
   (fn [state]
@@ -946,7 +949,7 @@
 (defn with-scope [name body]
   (fn [state]
     (let [old-name (->> state (get$ $scopes) |head (get$ $name))
-          output (body (update$ $scopes #($Cons (env name old-name) %) state))]
+          output (body (update$ $scopes #($Item (env name old-name) %) state))]
       (|case output
         ($Right state* datum)
         (return* (update$ $scopes |tail state*) datum)
@@ -962,7 +965,7 @@
                        (return (->> top (get$ $inner) str)))]
     (fn [state]
       (let [body* (with-scope closure-name body)]
-        (run-state body* (update$ $scopes #($Cons (update$ $inner inc (|head %))
+        (run-state body* (update$ $scopes #($Item (update$ $inner inc (|head %))
                                                   (|tail %))
                                   state))))))
 
@@ -974,10 +977,10 @@
 
 (defn |last [xs]
   (|case xs
-    ($Cons x ($Nil))
+    ($Item x ($End))
     x
 
-    ($Cons x xs*)
+    ($Item x xs*)
     (|last xs*)
 
     _
@@ -1263,11 +1266,11 @@
 
 (defn fold2% [f init xs ys]
   (|case [xs ys]
-    [($Cons x xs*) ($Cons y ys*)]
+    [($Item x xs*) ($Item y ys*)]
     (|do [init* (f init x y)]
       (fold2% f init* xs* ys*))
 
-    [($Nil) ($Nil)]
+    [($End) ($End)]
     (return init)
 
     [_ _]
@@ -1275,32 +1278,32 @@
 
 (defn map2% [f xs ys]
   (|case [xs ys]
-    [($Cons x xs*) ($Cons y ys*)]
+    [($Item x xs*) ($Item y ys*)]
     (|do [z (f x y)
           zs (map2% f xs* ys*)]
-      (return ($Cons z zs)))
+      (return ($Item z zs)))
 
-    [($Nil) ($Nil)]
-    (return $Nil)
+    [($End) ($End)]
+    (return $End)
 
     [_ _]
     (assert false "Lists do not match in size.")))
 
 (defn map2 [f xs ys]
   (|case [xs ys]
-    [($Cons x xs*) ($Cons y ys*)]
-    ($Cons (f x y) (map2 f xs* ys*))
+    [($Item x xs*) ($Item y ys*)]
+    ($Item (f x y) (map2 f xs* ys*))
 
     [_ _]
-    $Nil))
+    $End))
 
 (defn fold2 [f init xs ys]
   (|case [xs ys]
-    [($Cons x xs*) ($Cons y ys*)]
+    [($Item x xs*) ($Item y ys*)]
     (and init
          (fold2 f (f init x y) xs* ys*))
 
-    [($Nil) ($Nil)]
+    [($End) ($End)]
     init
 
     [_ _]
@@ -1312,11 +1315,11 @@
   "(All [a] (-> Int (List a) (List (, Int a))))"
   [idx xs]
   (|case xs
-    ($Cons x xs*)
-    ($Cons (T [idx x])
+    ($Item x xs*)
+    ($Item (T [idx x])
            (enumerate* (inc idx) xs*))
 
-    ($Nil)
+    ($End)
     xs
     ))
 
@@ -1341,7 +1344,7 @@
   "(All [a] (-> Int (List a) (Maybe a)))"
   [idx xs]
   (|case xs
-    ($Cons x xs*)
+    ($Item x xs*)
     (cond (< idx 0)
           $None
 
@@ -1351,7 +1354,7 @@
           :else ;; > 1
           (|at (dec idx) xs*))
 
-    ($Nil)
+    ($End)
     $None))
 
 (defn normalize
@@ -1370,15 +1373,15 @@
 
 (defn |list-put [idx val xs]
   (|case xs
-    ($Nil)
+    ($End)
     $None
     
-    ($Cons x xs*)
+    ($Item x xs*)
     (if (= idx 0)
-      ($Some ($Cons val xs*))
+      ($Some ($Item val xs*))
       (|case (|list-put (dec idx) val xs*)
         ($None)      $None
-        ($Some xs**) ($Some ($Cons x xs**)))
+        ($Some xs**) ($Some ($Item x xs**)))
       )))
 
 (do-template [<name> <default> <op>]
@@ -1386,10 +1389,10 @@
     "(All [a] (-> (-> a Bit) (List a) Bit))"
     [p xs]
     (|case xs
-      ($Nil)
+      ($End)
       <default>
 
-      ($Cons x xs*)
+      ($Item x xs*)
       (<op> (p x) (<name> p xs*))))
 
   |every? true  and
@@ -1415,28 +1418,28 @@
 
 (defn |take [n xs]
   (|case (T [n xs])
-    [0 _]             $Nil
-    [_ ($Nil)]        $Nil
-    [_ ($Cons x xs*)] ($Cons x (|take (dec n) xs*))
+    [0 _]             $End
+    [_ ($End)]        $End
+    [_ ($Item x xs*)] ($Item x (|take (dec n) xs*))
     ))
 
 (defn |drop [n xs]
   (|case (T [n xs])
     [0 _]             xs
-    [_ ($Nil)]        $Nil
-    [_ ($Cons x xs*)] (|drop (dec n) xs*)
+    [_ ($End)]        $End
+    [_ ($Item x xs*)] (|drop (dec n) xs*)
     ))
 
 (defn |but-last [xs]
   (|case xs
-    ($Nil)
-    $Nil
+    ($End)
+    $End
     
-    ($Cons x ($Nil))
-    $Nil
+    ($Item x ($End))
+    $End
 
-    ($Cons x xs*)
-    ($Cons x (|but-last xs*))
+    ($Item x xs*)
+    ($Item x (|but-last xs*))
 
     _
     (assert false (adt->text xs))))
@@ -1447,7 +1450,7 @@
 (defn with-scope-type-var [id body]
   (fn [state]
     (|case (body (set$ $scope-type-vars
-                       ($Cons id (get$ $scope-type-vars state))
+                       ($Item id (get$ $scope-type-vars state))
                        state))
       ($Right [state* output])
       ($Right (T [(set$ $scope-type-vars

@@ -46,7 +46,7 @@
 (defn formal-type-parameter->signature [param]
   (|let [[pname pbounds] param]
     (|case pbounds
-      (&/$Nil)
+      (&/$End)
       pname
 
       _

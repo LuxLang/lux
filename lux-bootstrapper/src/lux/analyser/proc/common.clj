@@ -10,7 +10,7 @@
 (defn- analyse-lux-is [analyse exo-type ?values]
   (&type/with-var
     (fn [$var]
-      (|do [:let [(&/$Cons reference (&/$Cons sample (&/$Nil))) ?values]
+      (|do [:let [(&/$Item reference (&/$Item sample (&/$End))) ?values]
             =reference (&&/analyse-1 analyse $var reference)
             =sample (&&/analyse-1 analyse $var sample)
             _ (&type/check exo-type &type/Bit)
@@ -21,7 +21,7 @@
 (defn- analyse-lux-try [analyse exo-type ?values]
   (&type/with-var
     (fn [$var]
-      (|do [:let [(&/$Cons op (&/$Nil)) ?values]
+      (|do [:let [(&/$Item op (&/$End)) ?values]
             =op (&&/analyse-1 analyse (&/$Function &type/Any $var) op)
             _ (&type/check exo-type (&/$Sum &type/Text ;; lux.Left
                                             $var ;; lux.Right
@@ -31,7 +31,7 @@
                                    (&&/$proc (&/T ["lux" "try"]) (&/|list =op) (&/|list)))))))))
 
 (defn- analyse-lux-macro [analyse exo-type ?values]
-  (|do [:let [(&/$Cons macro (&/$Nil)) ?values]
+  (|do [:let [(&/$Item macro (&/$End)) ?values]
         [_real-name [_exported? _def-type _meta macro-type]] (&&module/find-def! &/prelude "Macro'")
         [[=macro*-type =location] =macro] (&&/analyse-1 analyse macro-type macro)
         _ (&type/check exo-type &type/Macro)]
@@ -40,7 +40,7 @@
 
 (do-template [<name> <proc> <input-type> <output-type>]
   (defn- <name> [analyse exo-type ?values]
-    (|do [:let [(&/$Cons reference (&/$Cons sample (&/$Nil))) ?values]
+    (|do [:let [(&/$Item reference (&/$Item sample (&/$End))) ?values]
           =reference (&&/analyse-1 analyse <input-type> reference)
           =sample (&&/analyse-1 analyse <input-type> sample)
           _ (&type/check exo-type <output-type>)
@@ -53,7 +53,7 @@
   )
 
 (defn- analyse-text-concat [analyse exo-type ?values]
-  (|do [:let [(&/$Cons parameter (&/$Cons subject (&/$Nil))) ?values]
+  (|do [:let [(&/$Item parameter (&/$Item subject (&/$End))) ?values]
         =parameter (&&/analyse-1 analyse &type/Text parameter)
         =subject (&&/analyse-1 analyse &type/Text subject)
         _ (&type/check exo-type &type/Text)
@@ -62,7 +62,7 @@
                                (&&/$proc (&/T ["text" "concat"]) (&/|list =parameter =subject) (&/|list)))))))
 
 (defn- analyse-text-index [analyse exo-type ?values]
-  (|do [:let [(&/$Cons start (&/$Cons part (&/$Cons text (&/$Nil)))) ?values]
+  (|do [:let [(&/$Item start (&/$Item part (&/$Item text (&/$End)))) ?values]
         =start (&&/analyse-1 analyse &type/Nat start)
         =part (&&/analyse-1 analyse &type/Text part)
         =text (&&/analyse-1 analyse &type/Text text)
@@ -74,7 +74,7 @@
                                          (&/|list)))))))
 
 (defn- analyse-text-clip [analyse exo-type ?values]
-  (|do [:let [(&/$Cons from (&/$Cons to (&/$Cons text (&/$Nil)))) ?values]
+  (|do [:let [(&/$Item from (&/$Item to (&/$Item text (&/$End)))) ?values]
         =from (&&/analyse-1 analyse &type/Nat from)
         =to (&&/analyse-1 analyse &type/Nat to)
         =text (&&/analyse-1 analyse &type/Text text)
@@ -87,7 +87,7 @@
 
 (do-template [<name> <proc>]
   (defn- <name> [analyse exo-type ?values]
-    (|do [:let [(&/$Cons text (&/$Nil)) ?values]
+    (|do [:let [(&/$Item text (&/$End)) ?values]
           =text (&&/analyse-1 analyse &type/Text text)
           _ (&type/check exo-type &type/Nat)
           _location &/location]
@@ -100,7 +100,7 @@
   )
 
 (defn- analyse-text-char [analyse exo-type ?values]
-  (|do [:let [(&/$Cons idx (&/$Cons text (&/$Nil))) ?values]
+  (|do [:let [(&/$Item idx (&/$Item text (&/$End))) ?values]
         =idx (&&/analyse-1 analyse &type/Nat idx)
         =text (&&/analyse-1 analyse &type/Text text)
         _ (&type/check exo-type &type/Nat)
@@ -114,7 +114,7 @@
   (let [inputT (&/$Apply &type/Any &type/I64)
         outputT &type/I64]
     (defn- <name> [analyse exo-type ?values]
-      (|do [:let [(&/$Cons mask (&/$Cons input (&/$Nil))) ?values]
+      (|do [:let [(&/$Item mask (&/$Item input (&/$End))) ?values]
             =mask (&&/analyse-1 analyse inputT mask)
             =input (&&/analyse-1 analyse inputT input)
             _ (&type/check exo-type outputT)
@@ -131,7 +131,7 @@
   (let [inputT (&/$Apply &type/Any &type/I64)
         outputT &type/I64]
     (defn- <name> [analyse exo-type ?values]
-      (|do [:let [(&/$Cons shift (&/$Cons input (&/$Nil))) ?values]
+      (|do [:let [(&/$Item shift (&/$Item input (&/$End))) ?values]
             =shift (&&/analyse-1 analyse &type/Nat shift)
             =input (&&/analyse-1 analyse inputT input)
             _ (&type/check exo-type outputT)
@@ -147,7 +147,7 @@
   (let [inputT <input-type>
         outputT <output-type>]
     (defn- <name> [analyse exo-type ?values]
-      (|do [:let [(&/$Cons parameterC (&/$Cons subjectC (&/$Nil))) ?values]
+      (|do [:let [(&/$Item parameterC (&/$Item subjectC (&/$End))) ?values]
             parameterA (&&/analyse-1 analyse <input-type> parameterC)
             subjectA (&&/analyse-1 analyse <input-type> subjectC)
             _ (&type/check exo-type <output-type>)
@@ -175,7 +175,7 @@
 
 (do-template [<encode> <encode-op> <decode> <decode-op> <type>]
   (do (defn- <encode> [analyse exo-type ?values]
-        (|do [:let [(&/$Cons x (&/$Nil)) ?values]
+        (|do [:let [(&/$Item x (&/$End)) ?values]
               =x (&&/analyse-1 analyse <type> x)
               _ (&type/check exo-type &type/Text)
               _location &/location]
@@ -184,7 +184,7 @@
 
     (let [decode-type (&/$Apply <type> &type/Maybe)]
       (defn- <decode> [analyse exo-type ?values]
-        (|do [:let [(&/$Cons x (&/$Nil)) ?values]
+        (|do [:let [(&/$Item x (&/$End)) ?values]
               =x (&&/analyse-1 analyse &type/Text x)
               _ (&type/check exo-type decode-type)
               _location &/location]
@@ -196,7 +196,7 @@
 
 (do-template [<name> <from-type> <to-type> <op>]
   (defn- <name> [analyse exo-type ?values]
-    (|do [:let [(&/$Cons x (&/$Nil)) ?values]
+    (|do [:let [(&/$Item x (&/$End)) ?values]
           =x (&&/analyse-1 analyse <from-type> x)
           _ (&type/check exo-type <to-type>)
           _location &/location]
@@ -212,14 +212,14 @@
   )
 
 (defn- analyse-io-current-time [analyse exo-type ?values]
-  (|do [:let [(&/$Nil) ?values]
+  (|do [:let [(&/$End) ?values]
         _ (&type/check exo-type &type/Int)
         _location &/location]
     (return (&/|list (&&/|meta exo-type _location
                                (&&/$proc (&/T ["io" "current-time"]) (&/|list) (&/|list)))))))
 
 (defn- analyse-syntax-char-case! [analyse exo-type ?values]
-  (|do [:let [(&/$Cons ?input (&/$Cons [_ (&/$Tuple ?pairs)] (&/$Cons ?else (&/$Nil)))) ?values]
+  (|do [:let [(&/$Item ?input (&/$Item [_ (&/$Tuple ?pairs)] (&/$Item ?else (&/$End)))) ?values]
         _location &/location
         =input (&&/analyse-1 analyse &type/Nat ?input)
         _ (assert! (even? (&/|length ?pairs)) "The number of matches must be even!")
@@ -235,7 +235,7 @@
         =else (&&/analyse-1 analyse exo-type ?else)]
     (return (&/|list (&&/|meta exo-type _location
                                (&&/$proc (&/T ["lux" "syntax char case!"])
-                                         (&/$Cons =input (&/$Cons =else (&/|map &/|second =pairs)))
+                                         (&/$Item =input (&/$Item =else (&/|map &/|second =pairs)))
                                          (&/|map &/|first =pairs)))))))
 
 (defn analyse-proc [analyse exo-type proc ?values]

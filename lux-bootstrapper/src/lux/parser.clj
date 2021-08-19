@@ -16,11 +16,11 @@
       (if (or (.contains error base-uneven-record-error)
               (not (.contains error "[Parser Error]")))
         (&/$Left error)
-        (&/$Right (&/T [state &/$Nil])))
+        (&/$Right (&/T [state &/$End])))
 
       (&/$Right state* head)
       ((|do [tail (repeat% action)]
-         (return (&/$Cons head tail)))
+         (return (&/$Item head tail)))
        state*))))
 
 (do-template [<name> <close-tag> <description> <tag>]
@@ -29,7 +29,7 @@
           token &lexer/lex]
       (|case token
         [meta (<close-tag> _)]
-        (return (<tag> (&/fold &/|++ &/$Nil elems)))
+        (return (<tag> (&/fold &/|++ &/$End elems)))
         
         _
         (&/fail-with-loc (str "[Parser Error] Unbalanced " <description> "."))
@@ -42,7 +42,7 @@
 (defn ^:private parse-record [parse]
   (|do [elems* (repeat% parse)
         token &lexer/lex
-        :let [elems (&/fold &/|++ &/$Nil elems*)]]
+        :let [elems (&/fold &/|++ &/$End elems*)]]
     (|case token
       [meta (&lexer/$Close_Brace _)]
       (|do [_ (&/assert! (even? (&/|length elems))
@@ -59,10 +59,10 @@
         :let [[meta token*] token]]
     (|case token*
       (&lexer/$White_Space _)
-      (return &/$Nil)
+      (return &/$End)
 
       (&lexer/$Comment _)
-      (return &/$Nil)
+      (return &/$End)
       
       (&lexer/$Bit ?value)
       (return (&/|list (&/T [meta (&/$Bit (.equals ^String ?value "#1"))])))

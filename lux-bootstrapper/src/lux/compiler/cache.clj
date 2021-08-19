@@ -71,7 +71,7 @@
 
 (defn ^:private parse-tag-groups [^String tags-section]
   (if (= "" tags-section)
-    &/$Nil
+    &/$End
     (-> tags-section
         (.split &&core/entry-separator)
         seq
@@ -131,7 +131,7 @@
   (|do [^String descriptor (&&core/read-module-descriptor! module-name)
         :let [imports (let [imports (vec (.split ^String _imports-section &&core/entry-separator))
                             imports (if (= [""] imports)
-                                      &/$Nil
+                                      &/$End
                                       (&/->list imports))]
                         (&/|map #(first (vec (.split ^String % &&core/datum-separator 2))) imports))]
         cache-table* (&/fold% (fn [cache-table* _module]
@@ -150,7 +150,7 @@
                                  [(&/$Some module-anns) _]))
             def-entries (let [def-entries (vec (.split ^String _defs-section &&core/entry-separator))]
                           (if (= [""] def-entries)
-                            &/$Nil
+                            &/$End
                             (&/->list def-entries)))]
         (|do [_ (install-all-defs-in-module module-name)
               _ (install-module load-def-value module-name module-hash

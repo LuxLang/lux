@@ -50,28 +50,28 @@
     (if (&type/type= &type/Any *type*)
       (.visitLdcInsn *writer* &/unit-tag)
       (|case *type*
-        (&/$Primitive "boolean" (&/$Nil))
+        (&/$Primitive "boolean" (&/$End))
         (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name boolean-class) "valueOf" (str "(Z)" (&host-generics/->type-signature boolean-class)))
         
-        (&/$Primitive "byte" (&/$Nil))
+        (&/$Primitive "byte" (&/$End))
         (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name byte-class) "valueOf" (str "(B)" (&host-generics/->type-signature byte-class)))
 
-        (&/$Primitive "short" (&/$Nil))
+        (&/$Primitive "short" (&/$End))
         (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name short-class) "valueOf" (str "(S)" (&host-generics/->type-signature short-class)))
 
-        (&/$Primitive "int" (&/$Nil))
+        (&/$Primitive "int" (&/$End))
         (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name int-class) "valueOf" (str "(I)" (&host-generics/->type-signature int-class)))
 
-        (&/$Primitive "long" (&/$Nil))
+        (&/$Primitive "long" (&/$End))
         (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name long-class) "valueOf" (str "(J)" (&host-generics/->type-signature long-class)))
 
-        (&/$Primitive "float" (&/$Nil))
+        (&/$Primitive "float" (&/$End))
         (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name float-class) "valueOf" (str "(F)" (&host-generics/->type-signature float-class)))
 
-        (&/$Primitive "double" (&/$Nil))
+        (&/$Primitive "double" (&/$End))
         (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name double-class) "valueOf" (str "(D)" (&host-generics/->type-signature double-class)))
 
-        (&/$Primitive "char" (&/$Nil))
+        (&/$Primitive "char" (&/$End))
         (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name char-class) "valueOf" (str "(C)" (&host-generics/->type-signature char-class)))
         
         (&/$Primitive _ _)
@@ -122,45 +122,45 @@
 
 (defn ^:private compile-method-return [^MethodVisitor writer output]
   (|case output
-    (&/$GenericClass "void" (&/$Nil))
+    (&/$GenericClass "void" (&/$End))
     (.visitInsn writer Opcodes/RETURN)
     
-    (&/$GenericClass "boolean" (&/$Nil))
+    (&/$GenericClass "boolean" (&/$End))
     (doto writer
       &&/unwrap-boolean
       (.visitInsn Opcodes/IRETURN))
     
-    (&/$GenericClass "byte" (&/$Nil))
+    (&/$GenericClass "byte" (&/$End))
     (doto writer
       &&/unwrap-byte
       (.visitInsn Opcodes/IRETURN))
     
-    (&/$GenericClass "short" (&/$Nil))
+    (&/$GenericClass "short" (&/$End))
     (doto writer
       &&/unwrap-short
       (.visitInsn Opcodes/IRETURN))
     
-    (&/$GenericClass "int" (&/$Nil))
+    (&/$GenericClass "int" (&/$End))
     (doto writer
       &&/unwrap-int
       (.visitInsn Opcodes/IRETURN))
     
-    (&/$GenericClass "long" (&/$Nil))
+    (&/$GenericClass "long" (&/$End))
     (doto writer
       &&/unwrap-long
       (.visitInsn Opcodes/LRETURN))
     
-    (&/$GenericClass "float" (&/$Nil))
+    (&/$GenericClass "float" (&/$End))
     (doto writer
       &&/unwrap-float
       (.visitInsn Opcodes/FRETURN))
     
-    (&/$GenericClass "double" (&/$Nil))
+    (&/$GenericClass "double" (&/$End))
     (doto writer
       &&/unwrap-double
       (.visitInsn Opcodes/DRETURN))
     
-    (&/$GenericClass "char" (&/$Nil))
+    (&/$GenericClass "char" (&/$End))
     (doto writer
       &&/unwrap-char
       (.visitInsn Opcodes/IRETURN))
@@ -230,15 +230,15 @@
   "(-> Int (List GenericClass) MethodVisitor (Lux (List FrameTag)))"
   [idx inputs method-visitor]
   (|case inputs
-    (&/$Nil)
-    (return &/$Nil)
+    (&/$End)
+    (return &/$End)
     
-    (&/$Cons input inputs*)
+    (&/$Item input inputs*)
     (|do [[_ outputs*] (&/fold% (fn [idx+outputs input]
                                   (|do [:let [[_idx _outputs] idx+outputs]
                                         [idx* output] (prepare-method-input _idx input method-visitor)]
-                                    (return (&/T [idx* (&/$Cons output _outputs)]))))
-                                (&/T [idx &/$Nil])
+                                    (return (&/T [idx* (&/$Item output _outputs)]))))
+                                (&/T [idx &/$End])
                                 inputs)]
       (return (&/list-join (&/|reverse outputs*))))
     ))
@@ -445,7 +445,7 @@
   "(-> (List FieldAnalysis) (List [Text GenericClass Analysis]))"
   [fields]
   (&/fold &/|++
-          &/$Nil
+          &/$End
           (&/|map (fn [field]
                     (|case field
                       (&/$ConstantFieldSyntax ?name ?anns ?gclass ?value)
@@ -461,7 +461,7 @@
   (|do [module &/get-module-name
         [file-name line column] &/location
         :let [[?name ?params] class-decl
-              class-signature (&host-generics/gclass-decl->signature class-decl (&/$Cons ?super-class ?interfaces))
+              class-signature (&host-generics/gclass-decl->signature class-decl (&/$Item ?super-class ?interfaces))
               full-name (str module "/" ?name)
               super-class* (&host-generics/->bytecode-class-name (&host-generics/super-class-name ?super-class))
               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
@@ -513,7 +513,7 @@
 
 (do-template [<name> <op> <unwrap> <wrap>]
   (defn <name> [compile _?value special-args]
-    (|do [:let [(&/$Cons ?value (&/$Nil)) _?value]
+    (|do [:let [(&/$Item ?value (&/$End)) _?value]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?value)
           :let [_ (doto *writer*
@@ -553,7 +553,7 @@
 
 (do-template [<name> <op> <wrap>]
   (defn <name> [compile _?value special-args]
-    (|do [:let [(&/$Cons ?value (&/$Nil)) _?value]
+    (|do [:let [(&/$Item ?value (&/$End)) _?value]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?value)
           :let [_ (doto *writer*
@@ -569,7 +569,7 @@
 
 (do-template [<name> <op> <unwrap-left> <unwrap-right> <wrap>]
   (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
+    (|do [:let [(&/$Item ?x (&/$Item ?y (&/$End))) ?values]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?x)
           :let [_ (doto *writer*
@@ -599,7 +599,7 @@
 
 (do-template [<name> <opcode> <unwrap> <wrap>]
   (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
+    (|do [:let [(&/$Item ?x (&/$Item ?y (&/$End))) ?values]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?x)
           :let [_ (doto *writer*
@@ -639,7 +639,7 @@
 
 (do-template [<name> <opcode> <unwrap>]
   (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
+    (|do [:let [(&/$Item ?x (&/$Item ?y (&/$End))) ?values]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?x)
           :let [_ (doto *writer*
@@ -669,7 +669,7 @@
 
 (do-template [<name> <cmpcode> <cmp-output> <unwrap>]
   (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
+    (|do [:let [(&/$Item ?x (&/$Item ?y (&/$End))) ?values]
           ^MethodVisitor *writer* &/get-writer
           _ (compile ?x)
           :let [_ (doto *writer*
@@ -705,8 +705,8 @@
 
 (do-template [<prim-type> <array-type> <new-name> <load-name> <load-op> <store-name> <store-op> <wrapper> <unwrapper>]
   (do (defn <new-name> [compile ?values special-args]
-        (|do [:let [(&/$Cons ?length (&/$Nil)) ?values
-                    ;; (&/$Nil) special-args
+        (|do [:let [(&/$Item ?length (&/$End)) ?values
+                    ;; (&/$End) special-args
                     ]
               ^MethodVisitor *writer* &/get-writer
               _ (compile ?length)
@@ -717,8 +717,8 @@
           (return nil)))
 
     (defn <load-name> [compile ?values special-args]
-      (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Nil))) ?values
-                  ;; (&/$Nil) special-args
+      (|do [:let [(&/$Item ?array (&/$Item ?idx (&/$End))) ?values
+                  ;; (&/$End) special-args
                   ]
             ^MethodVisitor *writer* &/get-writer
             _ (compile ?array)
@@ -733,8 +733,8 @@
         (return nil)))
 
     (defn <store-name> [compile ?values special-args]
-      (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil)))) ?values
-                  ;; (&/$Nil) special-args
+      (|do [:let [(&/$Item ?array (&/$Item ?idx (&/$Item ?elem (&/$End)))) ?values
+                  ;; (&/$End) special-args
                   ]
             ^MethodVisitor *writer* &/get-writer
             _ (compile ?array)
@@ -762,8 +762,8 @@
   )
 
 (defn ^:private compile-jvm-anewarray [compile ?values special-args]
-  (|do [:let [(&/$Cons ?length (&/$Nil)) ?values
-              (&/$Cons ?gclass (&/$Cons type-env (&/$Nil))) special-args]
+  (|do [:let [(&/$Item ?length (&/$End)) ?values
+              (&/$Item ?gclass (&/$Item type-env (&/$End))) special-args]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?length)
         :let [_ (doto *writer*
@@ -773,8 +773,8 @@
     (return nil)))
 
 (defn ^:private compile-jvm-aaload [compile ?values special-args]
-  (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Nil))) ?values
-              ;; (&/$Nil) special-args
+  (|do [:let [(&/$Item ?array (&/$Item ?idx (&/$End))) ?values
+              ;; (&/$End) special-args
               ]
         ^MethodVisitor *writer* &/get-writer
         array-type (&host/->java-sig (&a/expr-type* ?array))
@@ -788,8 +788,8 @@
     (return nil)))
 
 (defn ^:private compile-jvm-aastore [compile ?values special-args]
-  (|do [:let [(&/$Cons ?array (&/$Cons ?idx (&/$Cons ?elem (&/$Nil)))) ?values
-              ;; (&/$Nil) special-args
+  (|do [:let [(&/$Item ?array (&/$Item ?idx (&/$Item ?elem (&/$End)))) ?values
+              ;; (&/$End) special-args
               ]
         ^MethodVisitor *writer* &/get-writer
         array-type (&host/->java-sig (&a/expr-type* ?array))
@@ -805,8 +805,8 @@
     (return nil)))
 
 (defn ^:private compile-jvm-arraylength [compile ?values special-args]
-  (|do [:let [(&/$Cons ?array (&/$Nil)) ?values
-              ;; (&/$Nil) special-args
+  (|do [:let [(&/$Item ?array (&/$End)) ?values
+              ;; (&/$End) special-args
               ]
         ^MethodVisitor *writer* &/get-writer
         array-type (&host/->java-sig (&a/expr-type* ?array))
@@ -819,15 +819,15 @@
     (return nil)))
 
 (defn ^:private compile-jvm-object-null [compile ?values special-args]
-  (|do [:let [;; (&/$Nil) ?values
-              (&/$Nil) special-args]
+  (|do [:let [;; (&/$End) ?values
+              (&/$End) special-args]
         ^MethodVisitor *writer* &/get-writer
         :let [_ (.visitInsn *writer* Opcodes/ACONST_NULL)]]
     (return nil)))
 
 (defn ^:private compile-jvm-object-null? [compile ?values special-args]
-  (|do [:let [(&/$Cons ?object (&/$Nil)) ?values
-              ;; (&/$Nil) special-args
+  (|do [:let [(&/$Item ?object (&/$End)) ?values
+              ;; (&/$End) special-args
               ]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?object)
@@ -843,8 +843,8 @@
     (return nil)))
 
 (defn compile-jvm-object-synchronized [compile ?values special-args]
-  (|do [:let [(&/$Cons ?monitor (&/$Cons ?expr (&/$Nil))) ?values
-              ;; (&/$Nil) special-args
+  (|do [:let [(&/$Item ?monitor (&/$Item ?expr (&/$End))) ?values
+              ;; (&/$End) special-args
               ]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?monitor)
@@ -858,8 +858,8 @@
     (return nil)))
 
 (defn ^:private compile-jvm-throw [compile ?values special-args]
-  (|do [:let [(&/$Cons ?ex (&/$Nil)) ?values
-              ;; (&/$Nil) special-args
+  (|do [:let [(&/$Item ?ex (&/$End)) ?values
+              ;; (&/$End) special-args
               ]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?ex)
@@ -867,8 +867,8 @@
     (return nil)))
 
 (defn ^:private compile-jvm-getstatic [compile ?values special-args]
-  (|do [:let [;; (&/$Nil) ?values
-              (&/$Cons ?class (&/$Cons ?field (&/$Cons ?output-type (&/$Nil)))) special-args]
+  (|do [:let [;; (&/$End) ?values
+              (&/$Item ?class (&/$Item ?field (&/$Item ?output-type (&/$End)))) special-args]
         ^MethodVisitor *writer* &/get-writer
         =output-type (&host/->java-sig ?output-type)
         :let [_ (doto *writer*
@@ -877,8 +877,8 @@
     (return nil)))
 
 (defn ^:private compile-jvm-getfield [compile ?values special-args]
-  (|do [:let [(&/$Cons ?object (&/$Nil)) ?values
-              (&/$Cons ?class (&/$Cons ?field (&/$Cons ?output-type (&/$Nil)))) special-args]
+  (|do [:let [(&/$Item ?object (&/$End)) ?values
+              (&/$Item ?class (&/$Item ?field (&/$Item ?output-type (&/$End)))) special-args]
         :let [class* (&host-generics/->bytecode-class-name (&host-type/as-obj ?class))]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?object)
@@ -890,8 +890,8 @@
     (return nil)))
 
 (defn ^:private compile-jvm-putstatic [compile ?values special-args]
-  (|do [:let [(&/$Cons ?value (&/$Nil)) ?values
-              (&/$Cons ?class (&/$Cons ?field (&/$Cons input-gclass (&/$Nil)))) special-args]
+  (|do [:let [(&/$Item ?value (&/$End)) ?values
+              (&/$Item ?class (&/$Item ?field (&/$Item input-gclass (&/$End)))) special-args]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?value)
         :let [=input-sig (&host-type/gclass->sig input-gclass)
@@ -902,8 +902,8 @@
     (return nil)))
 
 (defn ^:private compile-jvm-putfield [compile ?values special-args]
-  (|do [:let [(&/$Cons ?object (&/$Cons ?value (&/$Nil))) ?values
-              (&/$Cons ?class (&/$Cons ?field (&/$Cons input-gclass (&/$Cons ?input-type (&/$Nil))))) special-args]
+  (|do [:let [(&/$Item ?object (&/$Item ?value (&/$End))) ?values
+              (&/$Item ?class (&/$Item ?field (&/$Item input-gclass (&/$Item ?input-type (&/$End))))) special-args]
         :let [class* (&host-generics/->bytecode-class-name (&host-type/as-obj ?class))]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?object)
@@ -918,7 +918,7 @@
 
 (defn ^:private compile-jvm-invokestatic [compile ?values special-args]
   (|do [:let [?args ?values
-              (&/$Cons ?class (&/$Cons ?method (&/$Cons ?classes (&/$Cons ?output-type (&/$Cons ?gret (&/$Nil)))))) special-args]
+              (&/$Item ?class (&/$Item ?method (&/$Item ?classes (&/$Item ?output-type (&/$Item ?gret (&/$End)))))) special-args]
         ^MethodVisitor *writer* &/get-writer
         :let [method-sig (str "(" (&/fold str "" (&/|map &host-generics/->type-signature ?classes)) ")" (&host-type/principal-class ?gret))]
         _ (&/map2% (fn [class-name arg]
@@ -933,8 +933,8 @@
 
 (do-template [<name> <op>]
   (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?object ?args) ?values
-                (&/$Cons ?class (&/$Cons ?method (&/$Cons ?classes (&/$Cons ?output-type (&/$Cons ?gret (&/$Nil)))))) special-args]
+    (|do [:let [(&/$Item ?object ?args) ?values
+                (&/$Item ?class (&/$Item ?method (&/$Item ?classes (&/$Item ?output-type (&/$Item ?gret (&/$End)))))) special-args]
           :let [?class* (&host-generics/->bytecode-class-name (&host-type/as-obj ?class))]
           ^MethodVisitor *writer* &/get-writer
           :let [method-sig (str "(" (&/fold str "" (&/|map &host-generics/->type-signature ?classes)) ")" (&host-type/principal-class ?gret))]
@@ -958,7 +958,7 @@
 
 (defn ^:private compile-jvm-new [compile ?values special-args]
   (|do [:let [?args ?values
-              (&/$Cons ?class (&/$Cons ?classes (&/$Nil))) special-args]
+              (&/$Item ?class (&/$Item ?classes (&/$End))) special-args]
         ^MethodVisitor *writer* &/get-writer
         :let [init-sig (str "(" (&/fold str "" (&/|map &host-generics/->type-signature ?classes)) ")V")
               class* (&host-generics/->bytecode-class-name ?class)
@@ -976,7 +976,7 @@
     (return nil)))
 
 (defn ^:private compile-jvm-object-class [compile ?values special-args]
-  (|do [:let [(&/$Cons _class-name (&/$Cons ?output-type (&/$Nil))) special-args]
+  (|do [:let [(&/$Item _class-name (&/$Item ?output-type (&/$End))) special-args]
         ^MethodVisitor *writer* &/get-writer
         :let [_ (doto *writer*
                   (.visitLdcInsn _class-name)
@@ -985,8 +985,8 @@
     (return nil)))
 
 (defn ^:private compile-jvm-instanceof [compile ?values special-args]
-  (|do [:let [(&/$Cons object (&/$Nil)) ?values
-              (&/$Cons class (&/$Nil)) special-args]
+  (|do [:let [(&/$Item object (&/$End)) ?values
+              (&/$Item class (&/$End)) special-args]
         :let [class* (&host-generics/->bytecode-class-name class)]
         ^MethodVisitor *writer* &/get-writer
         _ (compile object)

@@ -64,15 +64,12 @@
 
 (with_expansions [<type_vars> (as_is anchor expression directive)
                   <Operation> (as_is ///generation.Operation <type_vars>)]
-  (type: .public Phase_Wrapper
-    (All [s i o] (-> (Phase s i o) Any)))
-  
   (type: .public (Platform <type_vars>)
     {#&file_system (file.System Async)
      #host (///generation.Host expression directive)
      #phase (///generation.Phase <type_vars>)
      #runtime (<Operation> [Registry Output])
-     #phase_wrapper (-> Archive (<Operation> Phase_Wrapper))
+     #phase_wrapper (-> Archive (<Operation> ///phase.Wrapper))
      #write (-> directive Binary)})
 
   ... TODO: Get rid of this
@@ -197,7 +194,7 @@
 
     (def: (phase_wrapper archive platform state)
       (All [<type_vars>]
-        (-> Archive <Platform> <State+> (Try [<State+> Phase_Wrapper])))
+        (-> Archive <Platform> <State+> (Try [<State+> ///phase.Wrapper])))
       (let [phase_wrapper (value@ #phase_wrapper platform)]
         (|> archive
             phase_wrapper
@@ -206,8 +203,8 @@
 
     (def: (complete_extensions host_directive_bundle phase_wrapper [analysers synthesizers generators directives])
       (All [<type_vars>]
-        (-> (-> Phase_Wrapper (///directive.Bundle <type_vars>))
-            Phase_Wrapper
+        (-> (-> ///phase.Wrapper (///directive.Bundle <type_vars>))
+            ///phase.Wrapper
             [(Dictionary Text ///analysis.Handler)
              (Dictionary Text ///synthesis.Handler)
              (Dictionary Text (///generation.Handler <type_vars>))
@@ -230,11 +227,11 @@
             ///analysis.Bundle
             <Platform>
             <Bundle>
-            (-> Phase_Wrapper (///directive.Bundle <type_vars>))
+            (-> ///phase.Wrapper (///directive.Bundle <type_vars>))
             (Program expression directive)
-            [Type Type Type] (-> Phase_Wrapper Extender)
+            [Type Type Type] (-> ///phase.Wrapper Extender)
             Import (List Context)
-            (Async (Try [<State+> Archive]))))
+            (Async (Try [<State+> Archive ///phase.Wrapper]))))
       (do {! (try.with async.monad)}
         [.let [state (//init.state (value@ #static.host static)
                                    module
@@ -247,7 +244,8 @@
          [archive analysis_state bundles] (ioW.thaw (value@ #host platform) (value@ #&file_system platform) static import compilation_sources)
          .let [with_missing_extensions
                (: (All [<type_vars>]
-                    (-> <Platform> (Program expression directive) <State+> (Async (Try <State+>))))
+                    (-> <Platform> (Program expression directive) <State+>
+                        (Async (Try [///phase.Wrapper <State+>]))))
                   (function (_ platform program state)
                     (async\in
                      (do try.monad
@@ -256,19 +254,20 @@
                            (initialize_state (extender phase_wrapper)
                                              (:expected (..complete_extensions host_directive_bundle phase_wrapper (:expected bundles)))
                                              analysis_state)
-                           (try\map (//init.with_default_directives expander host_analysis program anchorT,expressionT,directiveT (extender phase_wrapper))))))))]]
+                           (try\map (|>> (//init.with_default_directives expander host_analysis program anchorT,expressionT,directiveT (extender phase_wrapper))
+                                         [phase_wrapper])))))))]]
         (if (archive.archived? archive archive.runtime_module)
           (do !
-            [state (with_missing_extensions platform program state)]
-            (in [state archive]))
+            [[phase_wrapper state] (with_missing_extensions platform program state)]
+            (in [state archive phase_wrapper]))
           (do !
             [[state [archive payload]] (|> (..process_runtime archive platform)
                                            (///phase.result' state)
                                            async\in)
              _ (..cache_module static platform 0 payload)
              
-             state (with_missing_extensions platform program state)]
-            (in [state archive])))))
+             [phase_wrapper state] (with_missing_extensions platform program state)]
+            (in [state archive phase_wrapper])))))
 
     (def: compilation_log_separator
       (format text.new_line text.tab))
@@ -523,9 +522,9 @@
             try.trusted
             product.left))
 
-      (def: .public (compile import static expander platform compilation context)
+      (def: .public (compile phase_wrapper import static expander platform compilation context)
         (All [<type_vars>]
-          (-> Import Static Expander <Platform> Compilation <Context> <Return>))
+          (-> ///phase.Wrapper Import Static Expander <Platform> Compilation <Context> <Return>))
         (let [[compilation_sources compilation_host_dependencies compilation_libraries compilation_target compilation_module] compilation
               base_compiler (:sharing [<type_vars>]
                                       <Context>
@@ -533,7 +532,7 @@
                                       
                                       (///.Compiler <State+> .Module Any)
                                       (:expected
-                                       ((//init.compiler expander syntax.prelude (value@ #write platform)) $.key (list))))
+                                       ((//init.compiler phase_wrapper expander syntax.prelude (value@ #write platform)) $.key (list))))
               compiler (..parallel
                         context
                         (function (_ importer import! module_id [archive state] module)

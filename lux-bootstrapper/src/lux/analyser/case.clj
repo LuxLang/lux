@@ -35,7 +35,7 @@
 
 ;; [Utils]
 (def ^:private unit-tuple
-  (&/T [(&/T ["" -1 -1]) (&/$Tuple &/$Nil)]))
+  (&/T [(&/T ["" -1 -1]) (&/$Tuple &/$End)]))
 
 (defn ^:private resolve-type [type]
   (if (&type/type= &type/Any type)
@@ -121,7 +121,7 @@
     
     (&/$UnivQ ?local-env ?local-def)
     (|case ?local-env
-      (&/$Nil)
+      (&/$End)
       (&/$UnivQ ?local-env (beta-reduce! (inc level) env ?local-def))
 
       _
@@ -129,7 +129,7 @@
 
     (&/$ExQ ?local-env ?local-def)
     (|case ?local-env
-      (&/$Nil)
+      (&/$End)
       (&/$ExQ ?local-env (beta-reduce! (inc level) env ?local-def))
 
       _
@@ -155,14 +155,14 @@
   (|case type-fn
     (&/$UnivQ local-env local-def)
     (return (beta-reduce! 0 (->> local-env
-                                 (&/$Cons param)
-                                 (&/$Cons type-fn))
+                                 (&/$Item param)
+                                 (&/$Item type-fn))
                           local-def))
 
     (&/$ExQ local-env local-def)
     (return (beta-reduce! 0 (->> local-env
-                                 (&/$Cons param)
-                                 (&/$Cons type-fn))
+                                 (&/$Item param)
+                                 (&/$Item type-fn))
                           local-def))
 
     (&/$Apply A F)
@@ -189,7 +189,7 @@
     (&type/with-var
       (fn [$var]
         (|do [=type (apply-type! type $var)
-              ==type (adjust-type* (&/$Cons (&/T [_aenv 1 $var])
+              ==type (adjust-type* (&/$Item (&/T [_aenv 1 $var])
                                             (&/|map update-up-frame up))
                                    =type)]
           (&type/clean $var ==type))))
@@ -247,7 +247,7 @@
 
 (defn adjust-type [type]
   "(-> Type (Lux Type))"
-  (adjust-type* &/$Nil type))
+  (adjust-type* &/$End type))
 
 (defn ^:private analyse-pattern [var?? value-type pattern kont]
   (|let [[meta pattern*] pattern]
@@ -300,12 +300,12 @@
 
       (&/$Tuple ?members)
       (|case ?members
-        (&/$Nil)
+        (&/$End)
         (|do [_ (&type/check value-type &type/Any)
               =kont kont]
           (return (&/T [($TupleTestAC (&/|list)) =kont])))
 
-        (&/$Cons ?member (&/$Nil))
+        (&/$Item ?member (&/$End))
         (analyse-pattern var?? value-type ?member kont)
 
         _
@@ -322,9 +322,9 @@
                 (|do [[=tests =kont] (&/fold (fn [kont* vm]
                                                (|let [[v m] vm]
                                                  (|do [[=test [=tests =kont]] (analyse-pattern &/$None v m kont*)]
-                                                   (return (&/T [(&/$Cons =test =tests) =kont])))))
+                                                   (return (&/T [(&/$Item =test =tests) =kont])))))
                                              (|do [=kont kont]
-                                               (return (&/T [&/$Nil =kont])))
+                                               (return (&/T [&/$End =kont])))
                                              (&/|reverse (&/zip2 _tuple-types ?members)))]
                   (return (&/T [($TupleTestAC =tests) =kont])))
                 (&/fail-with-loc (str "[Pattern-matching Error] Pattern-matching mismatch. Requires tuple[" (&/|length (&type/flatten-prod value-type*)) "]. Given tuple [" (&/|length ?members) "].\n"
@@ -360,7 +360,7 @@
             [=test =kont] (analyse-pattern &/$None case-type unit-tuple kont)]
         (return (&/T [($VariantTestAC (&/T [idx (&/|length group) =test])) =kont])))
 
-      (&/$Form (&/$Cons [_ (&/$Nat idx)] (&/$Cons [_ (&/$Bit right?)] ?values)))
+      (&/$Form (&/$Item [_ (&/$Nat idx)] (&/$Item [_ (&/$Bit right?)] ?values)))
       (let [idx (if right? (inc idx) idx)]
         (|do [value-type* (adjust-type value-type)
               case-type (&type/sum-at idx value-type*)
@@ -371,7 +371,7 @@
                               (analyse-pattern &/$None case-type (&/T [(&/T ["" -1 -1]) (&/$Tuple ?values)]) kont))]
           (return (&/T [($VariantTestAC (&/T [idx (&/|length (&type/flatten-sum value-type*)) =test])) =kont]))))
 
-      (&/$Form (&/$Cons [_ (&/$Tag ?ident)] ?values))
+      (&/$Form (&/$Item [_ (&/$Tag ?ident)] ?values))
       (|do [[=module =name] (&&/resolved-ident ?ident)
             must-infer? (&type/unknown? value-type)
             variant-type (if must-infer?
@@ -398,7 +398,7 @@
 (defn ^:private analyse-branch [analyse exo-type var?? value-type pattern body patterns]
   (|do [pattern+body (analyse-pattern var?? value-type pattern
                                       (&&/analyse-1 analyse exo-type body))]
-    (return (&/$Cons pattern+body patterns))))
+    (return (&/$Item pattern+body patterns))))
 
 (defn ^:private merge-total [struct test+body]
   (|let [[test ?body] test+body]
@@ -461,37 +461,37 @@
       (return ($BitTotal total? (&/|list ?value)))
 
       [($BitTotal total? ?values) ($BitTestAC ?value)]
-      (return ($BitTotal total? (&/$Cons ?value ?values)))
+      (return ($BitTotal total? (&/$Item ?value ?values)))
 
       [($DefaultTotal total?) ($NatTestAC ?value)]
       (return ($NatTotal total? (&/|list ?value)))
 
       [($NatTotal total? ?values) ($NatTestAC ?value)]
-      (return ($NatTotal total? (&/$Cons ?value ?values)))
+      (return ($NatTotal total? (&/$Item ?value ?values)))
 
       [($DefaultTotal total?) ($IntTestAC ?value)]
       (return ($IntTotal total? (&/|list ?value)))
 
       [($IntTotal total? ?values) ($IntTestAC ?value)]
-      (return ($IntTotal total? (&/$Cons ?value ?values)))
+      (return ($IntTotal total? (&/$Item ?value ?values)))
 
       [($DefaultTotal total?) ($RevTestAC ?value)]
       (return ($RevTotal total? (&/|list ?value)))
 
       [($RevTotal total? ?values) ($RevTestAC ?value)]
-      (return ($RevTotal total? (&/$Cons ?value ?values)))
+      (return ($RevTotal total? (&/$Item ?value ?values)))
 
       [($DefaultTotal total?) ($FracTestAC ?value)]
       (return ($FracTotal total? (&/|list ?value)))
 
       [($FracTotal total? ?values) ($FracTestAC ?value)]
-      (return ($FracTotal total? (&/$Cons ?value ?values)))
+      (return ($FracTotal total? (&/$Item ?value ?values)))
 
       [($DefaultTotal total?) ($TextTestAC ?value)]
       (return ($TextTotal total? (&/|list ?value)))
 
       [($TextTotal total? ?values) ($TextTestAC ?value)]
-      (return ($TextTotal total? (&/$Cons ?value ?values)))
+      (return ($TextTotal total? (&/$Item ?value ?values)))
 
       [($DefaultTotal total?) ($TupleTestAC ?tests)]
       (|do [structs (&/map% (fn [t]
@@ -578,7 +578,7 @@
 
     ($TupleTotal ?total ?structs)
     (|case ?structs
-      (&/$Nil)
+      (&/$End)
       (|do [value-type* (resolve-type value-type)]
         (if (&type/type= &type/Any value-type*)
           (return true)
@@ -589,7 +589,7 @@
         (if unknown?
           (|do [=structs (&/map% (check-totality+ check-totality) ?structs)
                 _ (&type/check value-type (|case (->> (&/|map &/|second =structs) (&/|reverse))
-                                            (&/$Cons last prevs)
+                                            (&/$Item last prevs)
                                             (&/fold (fn [right left] (&/$Product left right))
                                                     last prevs)))]
             (return (or ?total
@@ -629,7 +629,7 @@
   (|do [patterns (&/fold% (fn [patterns branch]
                             (|let [[pattern body] branch]
                               (analyse-branch analyse exo-type var?? value-type pattern body patterns)))
-                          &/$Nil
+                          &/$End
                           branches)
         struct (&/fold% merge-total ($DefaultTotal false) patterns)
         ? (check-totality value-type struct)

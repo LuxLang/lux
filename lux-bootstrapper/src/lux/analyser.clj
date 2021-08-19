@@ -99,75 +99,75 @@
 
       (&/$Tag ?ident)
       (&/with-analysis-meta location exo-type
-        (analyse-variant+ analyse exo-type ?ident &/$Nil))
+        (analyse-variant+ analyse exo-type ?ident &/$End))
 
       (&/$Identifier ?ident)
       (&/with-analysis-meta location exo-type
         (&&lux/analyse-identifier analyse exo-type ?ident))
 
-      (&/$Form (&/$Cons [command-meta command] parameters))
+      (&/$Form (&/$Item [command-meta command] parameters))
       (|case command
         (&/$Text ?procedure)
         (case ?procedure
           "lux type check"
-          (|let [(&/$Cons ?type
-                          (&/$Cons ?value
-                                   (&/$Nil))) parameters]
+          (|let [(&/$Item ?type
+                          (&/$Item ?value
+                                   (&/$End))) parameters]
             (&/with-analysis-meta location exo-type
               (&&lux/analyse-type-check analyse eval! exo-type ?type ?value)))
 
           "lux type check type"
-          (|let [(&/$Cons ?value (&/$Nil)) parameters]
+          (|let [(&/$Item ?value (&/$End)) parameters]
             (analyse-ast optimize eval! compile-module compilers &type/Type ?value))
 
           "lux type as"
-          (|let [(&/$Cons ?type
-                          (&/$Cons ?value
-                                   (&/$Nil))) parameters]
+          (|let [(&/$Item ?type
+                          (&/$Item ?value
+                                   (&/$End))) parameters]
             (&/with-analysis-meta location exo-type
               (&&lux/analyse-type-as analyse eval! exo-type ?type ?value)))
 
           "lux def"
-          (|let [(&/$Cons [_ (&/$Identifier "" ?name)]
-                          (&/$Cons ?value
-                                   (&/$Cons ?meta
-                                            (&/$Cons exported?
-                                                     (&/$Nil)))
+          (|let [(&/$Item [_ (&/$Identifier "" ?name)]
+                          (&/$Item ?value
+                                   (&/$Item ?meta
+                                            (&/$Item exported?
+                                                     (&/$End)))
                                    )) parameters]
             (&/with-location location
               (&&lux/analyse-def analyse optimize eval! compile-def ?name ?value ?meta exported?)))
 
           "lux def alias"
-          (|let [(&/$Cons [_ (&/$Identifier "" ?alias)]
-                          (&/$Cons [_ (&/$Identifier ?original)]
-                                   (&/$Nil)
+          (|let [(&/$Item [_ (&/$Identifier "" ?alias)]
+                          (&/$Item [_ (&/$Identifier ?original)]
+                                   (&/$End)
                                    )) parameters]
             (&/with-location location
               (&&lux/analyse-def-alias ?alias ?original)))
 
           "lux def type tagged"
-          (|let [(&/$Cons [_ (&/$Identifier "" ?name)]
-                          (&/$Cons ?value
-                                   (&/$Cons ?meta
-                                            (&/$Cons [_ (&/$Tuple ?tags)]
-                                                     (&/$Cons exported?
-                                                              (&/$Nil))))
+          (|let [(&/$Item [_ (&/$Identifier "" ?name)]
+                          (&/$Item ?value
+                                   (&/$Item ?meta
+                                            (&/$Item [_ (&/$Tuple ?tags)]
+                                                     (&/$Item exported?
+                                                              (&/$End))))
                                    )) parameters]
             (&/with-location location
               (&&lux/analyse-def-type-tagged analyse optimize eval! compile-def ?name ?value ?meta ?tags exported?)))
 
           "lux def program"
-          (|let [(&/$Cons ?program (&/$Nil)) parameters]
+          (|let [(&/$Item ?program (&/$End)) parameters]
             (&/with-location location
               (&&lux/analyse-program analyse optimize compile-program ?program)))
 
           "lux def module"
-          (|let [(&/$Cons ?meta (&/$Cons ?imports (&/$Nil))) parameters]
+          (|let [(&/$Item ?meta (&/$Item ?imports (&/$End))) parameters]
             (&/with-location location
               (&&lux/analyse-module analyse optimize eval! compile-module ?meta ?imports)))
 
           "lux in-module"
-          (|let [(&/$Cons [_ (&/$Text ?module)] (&/$Cons ?expr (&/$Nil))) parameters]
+          (|let [(&/$Item [_ (&/$Text ?module)] (&/$Item ?expr (&/$End))) parameters]
             (&/with-location location
               (&/with-module ?module
                 (analyse exo-type ?expr))))
@@ -182,7 +182,7 @@
                   (&&common/analyse-proc analyse exo-type ?procedure parameters))))
         
         (&/$Nat idx)
-        (|let [(&/$Cons [_ (&/$Bit ?right)] parameters*) parameters]
+        (|let [(&/$Item [_ (&/$Bit ?right)] parameters*) parameters]
           (&/with-analysis-meta location exo-type
             (&&lux/analyse-variant analyse (&/$Right exo-type) (if ?right (inc idx) idx) ?right parameters*)))
 
@@ -192,14 +192,14 @@
 
         ;; Pattern-matching syntax.
         (&/$Record ?pattern-matching)
-        (|let [(&/$Cons ?input (&/$Nil)) parameters]
+        (|let [(&/$Item ?input (&/$End)) parameters]
           (&/with-analysis-meta location exo-type
             (&&lux/analyse-case analyse exo-type ?input ?pattern-matching)))
 
         ;; Function syntax.
-        (&/$Tuple (&/$Cons [_ (&/$Identifier "" ?self)]
-                           (&/$Cons [_ (&/$Identifier "" ?arg)] (&/$Nil))))
-        (|let [(&/$Cons ?body (&/$Nil)) parameters]
+        (&/$Tuple (&/$Item [_ (&/$Identifier "" ?self)]
+                           (&/$Item [_ (&/$Identifier "" ?arg)] (&/$End))))
+        (|let [(&/$Item ?body (&/$End)) parameters]
           (&/with-analysis-meta location exo-type
             (&&lux/analyse-function analyse exo-type ?self ?arg ?body)))
 

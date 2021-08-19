@@ -200,7 +200,8 @@
                                   (&/set$ &/$source (&reader/from name file-content) state))
                             (&/$Right ?state _)
                             (&/run-state (|do [:let [_ (.visitEnd =class)]
-                                               _ (save-module! name file-hash (.toByteArray =class))]
+                                               _ (save-module! name file-hash (.toByteArray =class))
+                                               :let [_ (println 'MODULE name)]]
                                            (return file-hash))
                                          ?state)
                             

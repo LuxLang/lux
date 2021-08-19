@@ -90,6 +90,8 @@
 
 # Storage
 
+1. [Database Internals: A deep-dive into how distributed data systems work](https://www.oreilly.com/library/view/database-internals/9781492040330/)
+1. [B-Trees: More Than I Thought I'd Want to Know](https://benjamincongdon.me/blog/2021/08/17/B-Trees-More-Than-I-Thought-Id-Want-to-Know/)
 1. [Understanding LSM Trees: What Powers Write-Heavy Databases](https://yetanotherdevblog.com/lsm/)
 1. http://www.benstopford.com/2015/02/14/log-structured-merge-trees/
 1. A Comparison of Adaptive Radix Trees and Hash Tables

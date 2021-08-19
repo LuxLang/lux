@@ -53,12 +53,12 @@
 
 (defn analyse-tuple [analyse ?exo-type ?elems]
   (|case ?elems
-    (&/$Nil)
+    (&/$End)
     (analyse-unit analyse (|case ?exo-type
                             (&/$Left exo-type) exo-type
                             (&/$Right exo-type) exo-type))
 
-    (&/$Cons ?elem (&/$Nil))
+    (&/$Item ?elem (&/$End))
     (analyse (|case ?exo-type
                (&/$Left exo-type) exo-type
                (&/$Right exo-type) exo-type)
@@ -80,7 +80,7 @@
                                     (|do [:let [=var* (next-parameter-type tuple-type)]
                                           _ (&type/set-var iid =var*)
                                           tuple-type* (&type/clean $var tuple-type)]
-                                      (return (&/$UnivQ &/$Nil tuple-type*)))
+                                      (return (&/$UnivQ &/$End tuple-type*)))
 
                                     _
                                     (&type/clean $var tuple-type))]
@@ -97,7 +97,7 @@
                                   (return =analysis))
                                ?elems)
                 _ (&type/check exo-type (|case (->> (&/|map &&/expr-type* =elems) (&/|reverse))
-                                          (&/$Cons last prevs)
+                                          (&/$Item last prevs)
                                           (&/fold (fn [right left] (&/$Product left right))
                                                   last prevs)))
                 _location &/location]
@@ -158,16 +158,16 @@
 (defn ^:private analyse-variant-body [analyse exo-type ?values]
   (|do [_location &/location
         output (|case ?values
-                 (&/$Nil)
+                 (&/$End)
                  (analyse-unit analyse exo-type)
 
-                 (&/$Cons ?value (&/$Nil))
+                 (&/$Item ?value (&/$End))
                  (analyse exo-type ?value)
 
                  _
                  (analyse-tuple analyse (&/$Right exo-type) ?values))]
     (|case output
-      (&/$Cons x (&/$Nil))
+      (&/$Item x (&/$End))
       (return x)
 
       _
@@ -189,7 +189,7 @@
                                   (|do [:let [=var* (next-parameter-type variant-type)]
                                         _ (&type/set-var iid =var*)
                                         variant-type* (&type/clean $var variant-type)]
-                                    (return (&/$UnivQ &/$Nil variant-type*)))
+                                    (return (&/$UnivQ &/$End variant-type*)))
 
                                   _
                                   (&type/clean $var variant-type))]
@@ -278,20 +278,20 @@
                              (->> % (&/get$ &/$captured) (&/get$ &/$mappings) (&/|contains? name) not))
            [inner outer] (&/|split-with no-binding? stack)]
       (|case outer
-        (&/$Nil)
+        (&/$End)
         (&/run-state (|do [module-name &/get-module-name]
                        (analyse-global analyse exo-type module-name name))
                      state)
 
-        (&/$Cons bottom-outer _)
+        (&/$Item bottom-outer _)
         (|let [scopes (&/|map #(&/get$ &/$name %) (&/|reverse inner))
                [=local inner*] (&/fold2 (fn [register+new-inner frame in-scope]
                                           (|let [[register new-inner] register+new-inner
                                                  [register* frame*] (&&function/close-over in-scope name register frame)]
-                                            (&/T [register* (&/$Cons frame* new-inner)])))
+                                            (&/T [register* (&/$Item frame* new-inner)])))
                                         (&/T [(&/|second (or (->> bottom-outer (&/get$ &/$locals)  (&/get$ &/$mappings) (&/|get name))
                                                              (->> bottom-outer (&/get$ &/$captured) (&/get$ &/$mappings) (&/|get name))))
-                                              &/$Nil])
+                                              &/$End])
                                         (&/|reverse inner) scopes)]
           ((|do [_ (&type/check exo-type (&&/expr-type* =local))]
              (return (&/|list =local)))
@@ -307,11 +307,11 @@
 
 (defn ^:private analyse-apply* [analyse exo-type fun-type ?args]
   (|case ?args
-    (&/$Nil)
+    (&/$End)
     (|do [_ (&type/check exo-type fun-type)]
-      (return (&/T [fun-type &/$Nil])))
+      (return (&/T [fun-type &/$End])))
     
-    (&/$Cons ?arg ?args*)
+    (&/$Item ?arg ?args*)
     (|do [?fun-type* (&type/actual-type fun-type)]
       (&/with-attempt
         (|case ?fun-type*
@@ -328,7 +328,7 @@
                                    (&type/clean $var =output-t)
                                  (|do [_ (&type/set-var ?id (next-parameter-type =output-t))
                                        cleaned-output* (&type/clean $var =output-t)
-                                       :let [cleaned-output (&/$UnivQ &/$Nil cleaned-output*)]]
+                                       :let [cleaned-output (&/$UnivQ &/$End cleaned-output*)]]
                                    (return cleaned-output)))
                         _ (&type/clean $var exo-type)]
                     (return (&/T [type** ==args])))
@@ -358,7 +358,7 @@
                        (&&/analyse-1 analyse ?input-t ?arg)
                        (fn [err]
                          (&/fail-with-loc (str err "\n" "[Analyser Error] Argument expected: " (&type/show-type ?input-t)))))]
-            (return (&/T [=output-t (&/$Cons =arg =args)])))
+            (return (&/T [=output-t (&/$Item =arg =args)])))
 
           _
           (&/fail-with-loc (str "[Analyser Error] Cannot apply a non-function: " (&type/show-type ?fun-type*))))
@@ -418,7 +418,7 @@
 (defn ^:private unravel-inf-appt [type]
   (|case type
     (&/$Apply (&/$Var _inf-var) =input+)
-    (&/$Cons _inf-var (unravel-inf-appt =input+))
+    (&/$Item _inf-var (unravel-inf-appt =input+))
 
     _
     (&/|list)))
@@ -430,7 +430,7 @@
           _ (&type/set-var iid =input*)
           =func* (&type/clean $input =func)
           =func** (&type/clean $output =func*)]
-      (return (&/$UnivQ &/$Nil =func**)))
+      (return (&/$UnivQ &/$End =func**)))
     
     (&/$Apply (&/$Var _inf-var) =input+)
     (&/fold% (fn [_func _inf-var]
@@ -547,7 +547,7 @@
                               (if (= wanted-name source-name)
                                 ""
                                 (str "\nThis is an alias for " source-name)))))
-      (return &/$Nil))))
+      (return &/$End))))
 
 (defn analyse-def* [analyse optimize eval! compile-def ?name ?value ?meta exported? & [?expected-type]]
   (|do [_ &/ensure-directive
@@ -572,7 +572,7 @@
 
 (defn analyse-def [analyse optimize eval! compile-def ?name ?value ?meta exported?]
   (|do [_ (analyse-def* analyse optimize eval! compile-def ?name ?value ?meta exported?)]
-    (return &/$Nil)))
+    (return &/$End)))
 
 (defn analyse-def-type-tagged [analyse optimize eval! compile-def ?name ?value ?meta tags* exported?]
   (|do [[module-name def-type def-value =exported?] (analyse-def* analyse optimize eval! compile-def ?name ?value ?meta exported? &type/Type)
@@ -587,7 +587,7 @@
                          (&/fail-with-loc "[Analyser Error] Incorrect format for tags.")))
                      tags*)
         _ (&&module/declare-tags module-name tags =exported? def-value)]
-    (return &/$Nil)))
+    (return &/$End)))
 
 (defn analyse-def-alias [?alias ?original]
   (|let [[r-module r-name] ?original]
@@ -596,7 +596,7 @@
           _ (&&module/find-def r-module r-name)
           _ (&/without-repl-closure
              (&&module/define-alias module-name ?alias ?original))]
-      (return &/$Nil))))
+      (return &/$End))))
 
 (defn ^:private merge-module-states
   "(-> Host Host Host)"
@@ -696,7 +696,7 @@
                        (&/fail ?error)))
                    _compiler
                    =asyncs)]
-    (return &/$Nil)))
+    (return &/$End)))
 
 (defn ^:private coerce
   "(-> Type Analysis Analysis)"
@@ -728,4 +728,4 @@
     (|do [_ &/ensure-directive
           =program (&&/analyse-1 analyse program-type ?program)
           _ (compile-program (optimize =program))]
-      (return &/$Nil))))
+      (return &/$End))))
