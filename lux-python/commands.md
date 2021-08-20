@@ -32,6 +32,11 @@ cd ~/lux/lux-python/ \
 # Try
 
 ```
+cd ~/lux/stdlib/ \
+&& lein clean \
+&& java -jar ~/lux/lux-python/target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux \
+&& python3 ~/lux/stdlib/target/program.py
+
 ## Compile Lux's Standard Library's tests using a JVM-based compiler.
 cd ~/lux/stdlib/ \
 && lein clean \

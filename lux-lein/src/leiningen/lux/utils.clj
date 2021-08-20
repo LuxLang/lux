@@ -95,7 +95,8 @@
                         (project-id project))
           raw-paths (project-jars project)
           stdlib-path (when (not is-stdlib?)
-                        (prepare-path (find-stdlib-path raw-paths)))
+                        (when-let [stdlib-path (find-stdlib-path raw-paths)]
+                          (prepare-path stdlib-path)))
           sdk-path (get-in project [:lux :android :sdk])
           android-path (str sdk-path
                             java.io.File/separator "platforms"
@@ -112,7 +113,8 @@
           program-dependencies (let [deps (->> raw-paths
                                                (filter (complement compiler-dependency?))
                                                (map prepare-path))]
-                                 (if is-stdlib?
+                                 (if (or is-stdlib?
+                                         (nil? stdlib-path))
                                    deps
                                    (list* stdlib-path deps)))
           compiler-path (prepare-path (find-compiler-path raw-paths))
