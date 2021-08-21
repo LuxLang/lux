@@ -53,7 +53,6 @@ These are the steps:
 
 ```
 (.module:
-  {#.doc "This will be our program's main module."}
   [library
    [lux #*
     [program (#+ program:)]
