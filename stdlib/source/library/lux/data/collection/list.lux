@@ -7,7 +7,7 @@
      [apply (#+ Apply)]
      [equivalence (#+ Equivalence)]
      [hash (#+ Hash)]
-     [fold (#+ Fold)]
+     [mix (#+ Mix)]
      [predicate (#+ Predicate)]
      ["." functor (#+ Functor)]
      ["." monad (#+ do Monad)]
@@ -23,32 +23,32 @@
 ...   #End
 ...   (#Item a (List a)))
 
-(implementation: .public fold
-  (Fold List)
+(implementation: .public mix
+  (Mix List)
   
-  (def: (fold f init xs)
+  (def: (mix f init xs)
     (case xs
       #.End
       init
 
       (#.Item x xs')
-      (fold f (f x init) xs'))))
+      (mix f (f x init) xs'))))
 
-(def: .public (aggregates f init inputs)
+(def: .public (mixes f init inputs)
   (All [a b] (-> (-> a b b) b (List a) (List b)))
   (case inputs
     #.End
     (list init)
     
     (#.Item [head tail])
-    (#.Item [init (aggregates f (f head init) tail)])))
+    (#.Item [init (mixes f (f head init) tail)])))
 
 (def: .public (reversed xs)
   (All [a]
     (-> (List a) (List a)))
-  (fold (function (_ head tail) (#.Item head tail))
-        #.End
-        xs))
+  (mix (function (_ head tail) (#.Item head tail))
+       #.End
+       xs))
 
 (def: .public (only keep? xs)
   (All [a]
@@ -205,15 +205,15 @@
     (-> (-> a (Maybe b)) (List a) (List b)))
   (for {... TODO: Stop relying on this ASAP.
         @.js
-        (fold (function (_ head tail)
-                (case (check head)
-                  (#.Some head)
-                  (#.Item head tail)
-                  
-                  #.None
-                  tail))
-              #.End
-              (reversed xs))}
+        (mix (function (_ head tail)
+               (case (check head)
+                 (#.Some head)
+                 (#.Item head tail)
+                 
+                 #.None
+                 tail))
+             #.End
+             (reversed xs))}
        (case xs
          #.End
          #.End
@@ -250,7 +250,7 @@
 
 (def: .public (size list)
   (All [a] (-> (List a) Nat))
-  (fold (function (_ _ acc) (n.+ 1 acc)) 0 list))
+  (mix (function (_ _ acc) (n.+ 1 acc)) 0 list))
 
 (template [<name> <init> <op>]
   [(def: .public (<name> predicate items)
@@ -303,7 +303,7 @@
     (..equivalence (\ super &equivalence)))
   
   (def: hash
-    (\ ..fold fold
+    (\ ..mix mix
        (function (_ member hash)
          (n.+ (\ super hash member) hash))
        0)))
@@ -340,13 +340,15 @@
   
   (def: &functor ..functor)
 
-  (def: (apply ff fa)
+  (def: (on fa ff)
     (case ff
       #.End
       #.End
       
       (#.Item f ff')
-      (compose (map f fa) (apply ff' fa)))))
+      (|> ff'
+          (on fa)
+          (compose (map f fa))))))
 
 (implementation: .public monad
   (Monad List)
@@ -357,7 +359,7 @@
     (#.Item a #.End))
 
   (def: join
-    (|>> reversed (fold compose identity))))
+    (|>> reversed (mix compose identity))))
 
 (def: .public (sorted < xs)
   (All [a] (-> (-> a a Bit) (List a) (List a)))
@@ -366,12 +368,12 @@
     (list)
     
     (#.Item x xs')
-    (let [[pre post] (fold (function (_ x' [pre post])
-                             (if (< x x')
-                               [(#.Item x' pre) post]
-                               [pre (#.Item x' post)]))
-                           [(list) (list)]
-                           xs')]
+    (let [[pre post] (mix (function (_ x' [pre post])
+                            (if (< x x')
+                              [(#.Item x' pre) post]
+                              [pre (#.Item x' post)]))
+                          [(list) (list)]
+                          xs')]
       ($_ compose (sorted < pre) (list x) (sorted < post)))))
 
 (def: .public (empty? xs)
@@ -393,9 +395,8 @@
     (or (\ eq = x x')
         (member? eq xs' x))))
 
-(template [<name> <output> <side> <doc>]
+(template [<name> <output> <side>]
   [(def: .public (<name> xs)
-     {#.doc <doc>}
      (All [a] (-> (List a) (Maybe <output>)))
      (case xs
        #.End
@@ -404,8 +405,8 @@
        (#.Item x xs')
        (#.Some <side>)))]
 
-  [head a        x   "Yields the first element of a list."]
-  [tail (List a) xs' "For a list of size N, yields the N-1 elements after the first one."]
+  [head a        x]
+  [tail (List a) xs']
   )
 
 (def: .public (indices size)
@@ -418,7 +419,7 @@
   (-> Text Code)
   [["" 0 0] (#.Identifier "" name)])
 
-(def: (nat\encode value)
+(def: (nat\encoded value)
   (-> Nat Text)
   (loop [input value
          output ""]
@@ -446,7 +447,7 @@
     (if (n.> 0 num_lists)
       (let [(^open ".") ..functor
             indices (..indices num_lists)
-            type_vars (: (List Code) (map (|>> nat\encode identifier$) indices))
+            type_vars (: (List Code) (map (|>> nat\encoded identifier$) indices))
             zipped_type (` (All [(~+ type_vars)]
                              (-> (~+ (map (: (-> Code Code) (function (_ var) (` (List (~ var)))))
                                           type_vars))
@@ -454,7 +455,7 @@
             vars+lists (|> indices
                            (map ++)
                            (map (function (_ idx)
-                                  (let [base (nat\encode idx)]
+                                  (let [base (nat\encoded idx)]
                                     [(identifier$ base)
                                      (identifier$ ("lux text concat" base "'"))]))))
             pattern (` [(~+ (map (function (_ [v vs]) (` (#.Item (~ v) (~ vs))))
@@ -488,7 +489,7 @@
             indices (..indices num_lists)
             g!return_type (identifier$ "0return_type0")
             g!func (identifier$ "0func0")
-            type_vars (: (List Code) (map (|>> nat\encode identifier$) indices))
+            type_vars (: (List Code) (map (|>> nat\encoded identifier$) indices))
             zipped_type (` (All [(~+ type_vars) (~ g!return_type)]
                              (-> (-> (~+ type_vars) (~ g!return_type))
                                  (~+ (map (: (-> Code Code) (function (_ var) (` (List (~ var)))))
@@ -497,7 +498,7 @@
             vars+lists (|> indices
                            (map ++)
                            (map (function (_ idx)
-                                  (let [base (nat\encode idx)]
+                                  (let [base (nat\encoded idx)]
                                     [(identifier$ base)
                                      (identifier$ ("lux text concat" base "'"))]))))
             pattern (` [(~+ (map (function (_ [v vs]) (` (#.Item (~ v) (~ vs))))
