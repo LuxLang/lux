@@ -93,8 +93,8 @@
                  (do {! meta.monad}
                    [this_module_name meta.current_module_name
                     imp_mods (meta.imported_modules this_module_name)
-                    tag_lists (monad.map ! meta.tag_lists imp_mods)
-                    .let [tag_lists (|> tag_lists list\join (list\map product.left) list\join)
+                    tag_lists (monad.each ! meta.tag_lists imp_mods)
+                    .let [tag_lists (|> tag_lists list\conjoint (list\each product.left) list\conjoint)
                           candidates (list.only (|>> product.right (text\= simple_name))
                                                 tag_lists)]]
                    (case candidates
@@ -136,10 +136,10 @@
                                     (try.else table (dictionary.has' name type table)))
                                   (: (Dictionary Text Type)
                                      (dictionary.empty text.hash))
-                                  (list\join local_batches))]]
+                                  (list\conjoint local_batches))]]
     (in (|> total_locals
             dictionary.entries
-            (list\map (function (_ [name type]) [["" name] type]))))))
+            (list\each (function (_ [name type]) [["" name] type]))))))
 
 (def: local_structs
   (Meta (List [Name Type]))
@@ -153,7 +153,7 @@
   (do {! meta.monad}
     [this_module_name meta.current_module_name
      imported_modules (meta.imported_modules this_module_name)
-     accessible_definitions (monad.map ! meta.definitions imported_modules)]
+     accessible_definitions (monad.each ! meta.definitions imported_modules)]
     (in (list\mix (function (_ [imported_module definitions] tail)
                     (available_definitions imported_module this_module_name definitions tail))
                   #.End
@@ -201,8 +201,9 @@
     (check.check expected_output actual_output)))
 
 (type: #rec Instance
-  {#constructor Name
-   #dependencies (List Instance)})
+  (Record
+   {#constructor Name
+    #dependencies (List Instance)}))
 
 (def: (candidate_provision provision context dep alts)
   (-> (-> Lux Type_Context Type (Check Instance))
@@ -211,21 +212,21 @@
   (do meta.monad
     [compiler meta.compiler_state]
     (case (|> alts
-              (list\map (function (_ [alt_name alt_type])
-                          (case (check.result context
-                                              (do {! check.monad}
-                                                [[tvars alt_type] (concrete_type alt_type)
-                                                 .let [[deps alt_type] (type.flat_function alt_type)]
-                                                 _ (check.check dep alt_type)
-                                                 context' check.context
-                                                 =deps (monad.map ! (provision compiler context') deps)]
-                                                (in =deps)))
-                            (#.Left error)
-                            (list)
+              (list\each (function (_ [alt_name alt_type])
+                           (case (check.result context
+                                               (do {! check.monad}
+                                                 [[tvars alt_type] (concrete_type alt_type)
+                                                  .let [[deps alt_type] (type.flat_function alt_type)]
+                                                  _ (check.check dep alt_type)
+                                                  context' check.context
+                                                  =deps (monad.each ! (provision compiler context') deps)]
+                                                 (in =deps)))
+                             (#.Left error)
+                             (list)
 
-                            (#.Right =deps)
-                            (list [alt_name =deps]))))
-              list\join)
+                             (#.Right =deps)
+                             (list [alt_name =deps]))))
+              list\conjoint)
       #.End
       (meta.failure (format "No candidates for provisioning: " (%.type dep)))
 
@@ -260,23 +261,23 @@
     [compiler meta.compiler_state
      context meta.type_context]
     (case (|> alts
-              (list\map (function (_ [alt_name alt_type])
-                          (case (<| (check.result context)
-                                    (do {! check.monad}
-                                      [[tvars alt_type] (concrete_type alt_type)
-                                       .let [[deps alt_type] (type.flat_function alt_type)]
-                                       _ (check.check alt_type sig_type)
-                                       member_type (member_type member_idx alt_type)
-                                       _ (ensure_function_application! member_type input_types output_type)
-                                       context' check.context
-                                       =deps (monad.map ! (provision compiler context') deps)]
-                                      (in =deps)))
-                            (#.Left error)
-                            (list)
+              (list\each (function (_ [alt_name alt_type])
+                           (case (<| (check.result context)
+                                     (do {! check.monad}
+                                       [[tvars alt_type] (concrete_type alt_type)
+                                        .let [[deps alt_type] (type.flat_function alt_type)]
+                                        _ (check.check alt_type sig_type)
+                                        member_type (member_type member_idx alt_type)
+                                        _ (ensure_function_application! member_type input_types output_type)
+                                        context' check.context
+                                        =deps (monad.each ! (provision compiler context') deps)]
+                                       (in =deps)))
+                             (#.Left error)
+                             (list)
 
-                            (#.Right =deps)
-                            (list [alt_name =deps]))))
-              list\join)
+                             (#.Right =deps)
+                             (list [alt_name =deps]))))
+              list\conjoint)
       #.End
       (meta.failure (format "No alternatives for " (%.type (type.function input_types output_type))))
 
@@ -311,39 +312,16 @@
     (code.identifier constructor)
 
     _
-    (` ((~ (code.identifier constructor)) (~+ (list\map instance$ dependencies))))))
+    (` ((~ (code.identifier constructor)) (~+ (list\each instance$ dependencies))))))
 
 (syntax: .public (\\ [member <code>.identifier
                       args (<>.or (<>.and (<>.some <code>.identifier) <code>.end!)
                                   (<>.and (<>.some <code>.any) <code>.end!))])
-  {#.doc (example "Automatic implementation selection (for type-class style polymorphism)."
-                  "This feature layers type-class style polymorphism on top of Lux's signatures and implementations."
-                  "When calling a polymorphic function, or using a polymorphic constant,"
-                  "this macro will check the types of the arguments, and the expected type for the whole expression"
-                  "and it will search in the local scope, the module's scope and the imports' scope"
-                  "in order to find suitable implementations to satisfy those requirements."
-                  "If a single alternative is found, that one will be used automatically."
-                  "If no alternative is found, or if more than one alternative is found (ambiguity)"
-                  "a compile-time error will be raised, to alert the user."
-                  "Examples:"
-                  "Nat equivalence"
-                  (\ number.equivalence = x y)
-                  (\\ = x y)
-                  "Can optionally add the prefix of the module where the signature was defined."
-                  (\\ equivalence.= x y)
-                  "(List Nat) equivalence"
-                  (\\ =
-                      (list.indices 10)
-                      (list.indices 10))
-                  "(Functor List) map"
-                  (\\ map ++ (list.indices 10))
-                  "Caveat emptor: You need to make sure to import the module of any implementation you want to use."
-                  "Otherwise, this macro will not find it.")}
   (case args
     (#.Left [args _])
     (do {! meta.monad}
       [[member_idx sig_type] (..implicit_member member)
-       input_types (monad.map ! ..implicit_type args)
+       input_types (monad.each ! ..implicit_type args)
        output_type meta.expected_type
        chosen_ones (alternatives sig_type member_idx input_types output_type)]
       (case chosen_ones
@@ -353,19 +331,19 @@
         (#.Item chosen #.End)
         (in (list (` (\ (~ (instance$ chosen))
                         (~ (code.local_identifier (product.right member)))
-                        (~+ (list\map code.identifier args))))))
+                        (~+ (list\each code.identifier args))))))
 
         _
         (meta.failure (format "Too many implementations available: "
                               (|> chosen_ones
-                                  (list\map (|>> product.left %.name))
+                                  (list\each (|>> product.left %.name))
                                   (text.interposed ", "))
                               " --- for type: " (%.type sig_type)))))
 
     (#.Right [args _])
     (do {! meta.monad}
       [labels (|> (macro.identifier "") (list.repeated (list.size args)) (monad.all !))]
-      (in (list (` (let [(~+ (|> args (list.zipped/2 labels) (list\map ..pair_list) list\join))]
+      (in (list (` (let [(~+ (|> args (list.zipped/2 labels) (list\each ..pair_list) list\conjoint))]
                      (..\\ (~ (code.identifier member)) (~+ labels)))))))
     ))
 
@@ -381,28 +359,19 @@
 
 (syntax: .public (with [implementations ..implicits
                         body <code>.any])
-  {#.doc (example "Establish lexical bindings for implementations that will be prioritized over non-lexically-bound implementations."
-                  (with [n.addition]
-                    (n.= (\ n.addition compose left right)
-                         (\\ compose left right))))}
   (do meta.monad
     [g!implicit+ (implicit_bindings (list.size implementations))]
     (in (list (` (let [(~+ (|> (list.zipped/2 g!implicit+ implementations)
-                               (list\map (function (_ [g!implicit implementation])
-                                           (list g!implicit implementation)))
-                               list\join))]
+                               (list\each (function (_ [g!implicit implementation])
+                                            (list g!implicit implementation)))
+                               list\conjoint))]
                    (~ body)))))))
 
 (syntax: .public (implicit: [implementations ..implicits])
-  {#.doc (example "Establish local definitions for implementations that will be prioritized over foreign definitions."
-                  (implicit: [n.multiplication])
-                  
-                  (n.= (\ n.multiplication compose left right)
-                       (\\ compose left right)))}
   (do meta.monad
     [g!implicit+ (implicit_bindings (list.size implementations))]
     (in (|> (list.zipped/2 g!implicit+ implementations)
-            (list\map (function (_ [g!implicit implementation])
-                        (` (def: .private (~ g!implicit)
-                             {#.implementation? #1}
-                             (~ implementation)))))))))
+            (list\each (function (_ [g!implicit implementation])
+                         (` (def: .private (~ g!implicit)
+                              {#.implementation? #1}
+                              (~ implementation)))))))))

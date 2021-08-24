@@ -35,9 +35,10 @@
 (abstract: .public Concern
   {#.doc (example "A particular concern to watch-out for.")}
 
-  {#creation Bit
-   #modification Bit
-   #deletion Bit}
+  (Record
+   {#creation Bit
+    #modification Bit
+    #deletion Bit})
 
   (def: none
     Concern
@@ -139,11 +140,11 @@
   (-> (//.System Async) //.Path (Async (Try (List [//.Path Instant]))))
   (do {! (try.with async.monad)}
     [files (\ fs directory_files directory)]
-    (monad.map ! (function (_ file)
-                   (|> file
-                       (\ fs last_modified)
-                       (\ ! map (|>> [file]))))
-               files)))
+    (monad.each ! (function (_ file)
+                    (|> file
+                        (\ fs last_modified)
+                        (\ ! each (|>> [file]))))
+                files)))
 
 (def: (available_directory_changes fs [directory [concern file_tracker]])
   (-> (//.System Async) [//.Path [Concern File_Tracker]]
@@ -158,11 +159,11 @@
                                   current_files)
                        (list))
            available (|> current_files
-                         (list\map product.left)
+                         (list\each product.left)
                          (set.of_list text.hash))
            deletions (if (..deletion? concern)
                        (|> (dictionary.entries file_tracker)
-                           (list\map product.left)
+                           (list\each product.left)
                            (list.only (|>> (set.member? available) not)))
                        (list))
            modifications (list.all (function (_ [path current_modification])
@@ -235,28 +236,28 @@
          (do {! (try.with async.monad)}
            [changes (|> @tracker
                         dictionary.entries
-                        (monad.map ! (..available_directory_changes fs)))
+                        (monad.each ! (..available_directory_changes fs)))
             _ (do async.monad
                 [_ (stm.commit! (stm.write (|> changes
-                                               (list\map product.left)
+                                               (list\each product.left)
                                                (dictionary.of_list text.hash))
                                            tracker))]
                 (in (#try.Success [])))
             .let [[creations modifications deletions]
                   (list\mix (function (_ [_ [creations modifications deletions]]
                                          [all_creations all_modifications all_deletions])
-                              [(list\compose creations all_creations)
-                               (list\compose modifications all_modifications)
-                               (list\compose deletions all_deletions)])
+                              [(list\composite creations all_creations)
+                               (list\composite modifications all_modifications)
+                               (list\composite deletions all_deletions)])
                             [(list) (list) (list)]
                             changes)]]
-           (in ($_ list\compose
-                   (list\map (|>> product.left [..creation]) creations)
+           (in ($_ list\composite
+                   (list\each (|>> product.left [..creation]) creations)
                    (|> modifications
                        (list.only (function (_ [path previous_modification current_modification])
                                     (not (instant\= previous_modification current_modification))))
-                       (list\map (|>> product.left [..modification])))
-                   (list\map (|>> [..deletion]) deletions)
+                       (list\each (|>> product.left [..modification])))
+                   (list\each (|>> [..deletion]) deletions)
                    )))))
      )))
 
@@ -338,9 +339,9 @@
                                (def: default_key_concern
                                  (-> java/nio/file/WatchKey (IO Concern))
                                  (|>> java/nio/file/WatchKey::pollEvents
-                                      (\ io.monad map (|>> ..default_list
-                                                           (list\map default_event_concern)
-                                                           (list\mix ..also ..none)))))
+                                      (\ io.monad each (|>> ..default_list
+                                                            (list\each default_event_concern)
+                                                            (list\mix ..also ..none)))))
 
                                (import: java/nio/file/WatchService
                                  ["#::."
@@ -401,7 +402,7 @@
 
                                (def: (watch_events concern)
                                  (-> Concern (List Watch_Event))
-                                 ($_ list\compose
+                                 ($_ list\composite
                                      (if (..creation? concern)
                                        (list (:as Watch_Event (java/nio/file/StandardWatchEventKinds::ENTRY_CREATE)))
                                        (list))

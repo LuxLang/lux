@@ -57,11 +57,12 @@
 ... Nodes for the tree data-structure that organizes the data inside
 ... Dictionaries.
 (type: (Node k v)
-  (#Hierarchy Nat (Array (Node k v)))
-  (#Base Bit_Map
-         (Array (Either (Node k v)
-                        [k v])))
-  (#Collisions Hash_Code (Array [k v])))
+  (Variant
+   (#Hierarchy Nat (Array (Node k v)))
+   (#Base Bit_Map
+          (Array (Either (Node k v)
+                         [k v])))
+   (#Collisions Hash_Code (Array [k v]))))
 
 ... #Hierarchy nodes are meant to point down only to lower-level nodes.
 (type: (Hierarchy k v)
@@ -225,7 +226,7 @@
 ... Produces the index of a KV-pair within a #Collisions node.
 (def: (collision_index key_hash key colls)
   (All [k v] (-> (Hash k) k (Collisions k v) (Maybe Index)))
-  (\ maybe.monad map product.left
+  (\ maybe.monad each product.left
      (array.example+ (function (_ idx [key' val'])
                        (\ key_hash = key key'))
                      colls)))
@@ -509,7 +510,7 @@
 
     ... For #Collisions nodes, do a linear scan of all the known KV-pairs.
     (#Collisions _hash _colls)
-    (\ maybe.monad map product.right
+    (\ maybe.monad each product.right
        (array.example (|>> product.left (\ key_hash = key))
                       _colls))
     ))
@@ -518,14 +519,14 @@
   (All [k v] (-> (Node k v) Nat))
   (case node
     (#Hierarchy _size hierarchy)
-    (array\mix n.+ 0 (array\map size' hierarchy))
+    (array\mix n.+ 0 (array\each size' hierarchy))
     
     (#Base _ base)
-    (array\mix n.+ 0 (array\map (function (_ sub_node')
-                                  (case sub_node'
-                                    (#.Left sub_node) (size' sub_node)
-                                    (#.Right _)       1))
-                                base))
+    (array\mix n.+ 0 (array\each (function (_ sub_node')
+                                   (case sub_node'
+                                     (#.Left sub_node) (size' sub_node)
+                                     (#.Right _)       1))
+                                 base))
 
     (#Collisions hash colls)
     (array.size colls)
@@ -535,7 +536,7 @@
   (All [k v] (-> (Node k v) (List [k v])))
   (case node
     (#Hierarchy _size hierarchy)
-    (array\mix (function (_ sub_node tail) (list\compose (entries' sub_node) tail))
+    (array\mix (function (_ sub_node tail) (list\composite (entries' sub_node) tail))
                #.End
                hierarchy)
 
@@ -543,7 +544,7 @@
     (array\mix (function (_ branch tail)
                  (case branch
                    (#.Left sub_node)
-                   (list\compose (entries' sub_node) tail)
+                   (list\composite (entries' sub_node) tail)
 
                    (#.Right [key' val'])
                    (#.Item [key' val'] tail)))
@@ -556,8 +557,9 @@
                colls)))
 
 (type: .public (Dictionary k v)
-  {#hash (Hash k)
-   #root (Node k v)})
+  (Record
+   {#hash (Hash k)
+    #root (Node k v)}))
 
 (def: .public key_hash
   (All [k v] (-> (Dictionary k v) (Hash k)))
@@ -701,28 +703,28 @@
 (implementation: functor'
   (All [k] (Functor (Node k)))
   
-  (def: (map f fa)
+  (def: (each f fa)
     (case fa
       (#Hierarchy size hierarchy)
-      (#Hierarchy size (array\map (map f) hierarchy))
+      (#Hierarchy size (array\each (each f) hierarchy))
       
       (#Base bitmap base)
-      (#Base bitmap (array\map (function (_ either)
-                                 (case either
-                                   (#.Left fa')
-                                   (#.Left (map f fa'))
-                                   
-                                   (#.Right [k v])
-                                   (#.Right [k (f v)])))
-                               base))
+      (#Base bitmap (array\each (function (_ either)
+                                  (case either
+                                    (#.Left fa')
+                                    (#.Left (each f fa'))
+                                    
+                                    (#.Right [k v])
+                                    (#.Right [k (f v)])))
+                                base))
       
       (#Collisions hash collisions)
-      (#Collisions hash (array\map (function (_ [k v])
-                                     [k (f v)])
-                                   collisions)))))
+      (#Collisions hash (array\each (function (_ [k v])
+                                      [k (f v)])
+                                    collisions)))))
 
 (implementation: .public functor
   (All [k] (Functor (Dictionary k)))
   
-  (def: (map f fa)
-    (revised@ #root (\ ..functor' map f) fa)))
+  (def: (each f fa)
+    (revised@ #root (\ ..functor' each f) fa)))

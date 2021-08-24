@@ -110,13 +110,13 @@
          _ (ensure_directory fs (..versioned_lux_archive fs static))]
         (|> module
             (\ fs make_directory)
-            (\ ! map (|>> (case> (#try.Success output)
-                                 (#try.Success [])
+            (\ ! each (|>> (case> (#try.Success output)
+                                  (#try.Success [])
 
-                                 (#try.Failure error)
-                                 (exception.except ..cannot_prepare [(..archive fs static)
-                                                                     module_id
-                                                                     error])))))))))
+                                  (#try.Failure error)
+                                  (exception.except ..cannot_prepare [(..archive fs static)
+                                                                      module_id
+                                                                      error])))))))))
 
 (def: .public (write fs static module_id artifact_id content)
   (-> (file.System Async) Static archive.ID artifact.ID Binary (Async (Try Any)))
@@ -168,12 +168,12 @@
   (-> Target Archive (Try .Lux))
   (do {! try.monad}
     [modules (: (Try (List [Module .Module]))
-                (monad.map ! (function (_ module)
-                               (do !
-                                 [[descriptor document output] (archive.find module archive)
-                                  content (document.read $.key document)]
-                                 (in [module content])))
-                           (archive.archived archive)))]
+                (monad.each ! (function (_ module)
+                                (do !
+                                  [[descriptor document output] (archive.find module archive)
+                                   content (document.read $.key document)]
+                                  (in [module content])))
+                            (archive.archived archive)))]
     (in (with@ #.modules modules (fresh_analysis_state host)))))
 
 (def: (cached_artifacts fs static module_id)
@@ -181,15 +181,15 @@
   (let [! (try.with async.monad)]
     (|> (..module fs static module_id)
         (\ fs directory_files)
-        (\ ! map (|>> (list\map (function (_ file)
-                                  [(file.name fs file) file]))
-                      (list.only (|>> product.left (text\= ..module_descriptor_file) not))
-                      (monad.map ! (function (_ [name path])
-                                     (|> path
-                                         (\ fs read)
-                                         (\ ! map (|>> [name])))))
-                      (\ ! map (dictionary.of_list text.hash))))
-        (\ ! join))))
+        (\ ! each (|>> (list\each (function (_ file)
+                                    [(file.name fs file) file]))
+                       (list.only (|>> product.left (text\= ..module_descriptor_file) not))
+                       (monad.each ! (function (_ [name path])
+                                       (|> path
+                                           (\ fs read)
+                                           (\ ! each (|>> [name])))))
+                       (\ ! each (dictionary.of_list text.hash))))
+        (\ ! conjoint))))
 
 (type: Definitions (Dictionary Text Any))
 (type: Analysers (Dictionary Text analysis.Handler))
@@ -321,19 +321,19 @@
                                     #.End
                                     (#try.Success [definitions bundles output])))))
      content (document.read $.key document)
-     definitions (monad.map ! (function (_ [def_name def_global])
-                                (case def_global
-                                  (#.Alias alias)
-                                  (in [def_name (#.Alias alias)])
-                                  
-                                  (#.Definition [exported? type annotations _])
-                                  (|> definitions
-                                      (dictionary.value def_name)
-                                      try.of_maybe
-                                      (\ ! map (|>> [exported? type annotations]
-                                                    #.Definition
-                                                    [def_name])))))
-                            (value@ #.definitions content))]
+     definitions (monad.each ! (function (_ [def_name def_global])
+                                 (case def_global
+                                   (#.Alias alias)
+                                   (in [def_name (#.Alias alias)])
+                                   
+                                   (#.Definition [exported? type annotations _])
+                                   (|> definitions
+                                       (dictionary.value def_name)
+                                       try.of_maybe
+                                       (\ ! each (|>> [exported? type annotations]
+                                                      #.Definition
+                                                      [def_name])))))
+                             (value@ #.definitions content))]
     (in [(document.write $.key (with@ #.definitions definitions content))
          bundles])))
 
@@ -355,8 +355,8 @@
     [.let [cache (..module fs static module_id)]
      _ (|> cache
            (\ fs directory_files)
-           (\ ! map (monad.map ! (\ fs delete)))
-           (\ ! join))]
+           (\ ! each (monad.each ! (\ fs delete)))
+           (\ ! conjoint))]
     (\ fs delete cache)))
 
 (def: (valid_cache? expected actual)
@@ -409,37 +409,37 @@
   (do {! (try.with async.monad)}
     [pre_loaded_caches (|> archive
                            archive.reservations
-                           (monad.map ! (function (_ [module_name module_id])
-                                          (do !
-                                            [data (..read_module_descriptor fs static module_id)
-                                             [descriptor document] (async\in (<binary>.result ..parser data))]
-                                            (if (text\= archive.runtime_module module_name)
-                                              (in [true
-                                                   [module_name [module_id [descriptor document]]]])
-                                              (do !
-                                                [input (//context.read fs ..pseudo_module import contexts (value@ #static.host_module_extension static) module_name)]
-                                                (in [(..valid_cache? descriptor input)
-                                                     [module_name [module_id [descriptor document]]]])))))))
+                           (monad.each ! (function (_ [module_name module_id])
+                                           (do !
+                                             [data (..read_module_descriptor fs static module_id)
+                                              [descriptor document] (async\in (<binary>.result ..parser data))]
+                                             (if (text\= archive.runtime_module module_name)
+                                               (in [true
+                                                    [module_name [module_id [descriptor document]]]])
+                                               (do !
+                                                 [input (//context.read fs ..pseudo_module import contexts (value@ #static.host_module_extension static) module_name)]
+                                                 (in [(..valid_cache? descriptor input)
+                                                      [module_name [module_id [descriptor document]]]])))))))
      load_order (|> pre_loaded_caches
-                    (list\map product.right)
+                    (list\each product.right)
                     (monad.mix try.monad
                                (function (_ [module [module_id [descriptor document]]] archive)
                                  (archive.has module [descriptor document (: Output row.empty)] archive))
                                archive)
-                    (\ try.monad map (dependency.load_order $.key))
-                    (\ try.monad join)
+                    (\ try.monad each (dependency.load_order $.key))
+                    (\ try.monad conjoint)
                     async\in)
      .let [purge (..full_purge pre_loaded_caches load_order)]
      _ (|> purge
            dictionary.entries
-           (monad.map ! (..purge! fs static)))
+           (monad.each ! (..purge! fs static)))
      loaded_caches (|> load_order
                        (list.only (|>> product.left (dictionary.key? purge) not))
-                       (monad.map ! (function (_ [module_name [module_id [descriptor document _]]])
-                                      (do !
-                                        [[descriptor,document,output bundles] (..load_definitions fs static module_id host_environment descriptor document)]
-                                        (in [[module_name descriptor,document,output]
-                                             bundles])))))]
+                       (monad.each ! (function (_ [module_name [module_id [descriptor document _]]])
+                                       (do !
+                                         [[descriptor,document,output bundles] (..load_definitions fs static module_id host_environment descriptor document)]
+                                         (in [[module_name descriptor,document,output]
+                                              bundles])))))]
     (async\in
      (do {! try.monad}
        [archive (monad.mix !
