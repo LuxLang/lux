@@ -10,19 +10,10 @@ cd ~/lux/lux-python/ && lein clean && lein lux auto test
 ```
 ## Develop
 cd ~/lux/lux-python/ \
-&& lein clean \
-&& lein lux auto build
-
-cd ~/lux/lux-python/ \
 && lux clean \
 && lux auto build
 
 ## Build JVM-based compiler
-cd ~/lux/lux-python/ \
-&& lein clean \
-&& lein lux build \
-&& mv target/program.jar jvm_based_compiler.jar
-
 cd ~/lux/lux-python/ \
 && lux clean \
 && lux build \
@@ -32,15 +23,10 @@ cd ~/lux/lux-python/ \
 # Try
 
 ```
-cd ~/lux/stdlib/ \
-&& lein clean \
-&& java -jar ~/lux/lux-python/target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux \
-&& python3 ~/lux/stdlib/target/program.py
-
 ## Compile Lux's Standard Library's tests using a JVM-based compiler.
 cd ~/lux/stdlib/ \
 && lein clean \
-&& java -jar ~/lux/lux-python/jvm_based_compiler.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux \
+&& java -jar ~/lux/lux-python/target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux \
 && python3 ~/lux/stdlib/target/program.py
 ```
 
@@ -48,6 +34,6 @@ cd ~/lux/stdlib/ \
 
 ```
 cd ~/lux/lux-python/ \
-&& mvn install:install-file -Dfile=jvm_based_compiler.jar -DgroupId=com.github.luxlang -DartifactId=lux-python -Dversion=0.6.0-SNAPSHOT -Dpackaging=jar
+&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-python -Dversion=0.6.0-SNAPSHOT -Dpackaging=jar
 ```
 

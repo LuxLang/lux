@@ -19,7 +19,7 @@
      [number
       ["f" frac]]]
     ["@" target
-     ["_" lua (#+ Expression)]]]]
+     ["_" lua (#+ Expression Statement)]]]]
   ["." //// #_
    ["/" bundle]
    ["/#" // #_
@@ -28,12 +28,18 @@
      [extension (#+ Nullary Unary Binary Trinary
                     nullary unary binary trinary)]
      ["//" lua #_
-      ["#." runtime (#+ Operation Phase Handler Bundle Generator)]]]
+      ["#." runtime (#+ Operation Phase Phase! Handler Bundle Generator)]
+      ["#." primitive]
+      ["#." structure]
+      ["#." reference]
+      ["#." case]
+      ["#." loop]
+      ["#." function]]]
     [//
-     [synthesis (#+ %synthesis)]
+     ["." synthesis (#+ %synthesis)]
      ["." generation]
      [///
-      ["#" phase]]]]])
+      ["#" phase ("#\." monad)]]]]])
 
 (def: .public (custom [parser handler])
   (All [s]
@@ -49,7 +55,51 @@
       (/////.except extension.invalid_syntax [extension_name %synthesis input]))))
 
 (template: (!unary function)
-  (|>> list _.apply/* (|> (_.var function))))
+  [(|>> list _.apply/* (|> (_.var function)))])
+
+(def: .public (statement expression archive synthesis)
+  Phase!
+  (case synthesis
+    ... TODO: Get rid of this ASAP
+    (#synthesis.Extension "lux syntax char case!" parameters)
+    (do /////.monad
+      [body (expression archive synthesis)]
+      (in (:as Statement body)))
+    
+    (^template [<tag>]
+      [(^ (<tag> value))
+       (/////\each _.return (expression archive synthesis))])
+    ([synthesis.bit]
+     [synthesis.i64]
+     [synthesis.f64]
+     [synthesis.text]
+     [synthesis.variant]
+     [synthesis.tuple]
+     [#synthesis.Reference]
+     [synthesis.branch/get]
+     [synthesis.function/apply]
+     [#synthesis.Extension])
+
+    (^ (synthesis.branch/case case))
+    (//case.case! statement expression archive case)
+
+    (^ (synthesis.branch/let let))
+    (//case.let! statement expression archive let)
+
+    (^ (synthesis.branch/if if))
+    (//case.if! statement expression archive if)
+
+    (^ (synthesis.loop/scope scope))
+    (do /////.monad
+      [[inits scope!] (//loop.scope! statement expression archive false scope)]
+      (in scope!))
+
+    (^ (synthesis.loop/recur updates))
+    (//loop.recur! statement expression archive updates)
+
+    (^ (synthesis.function/abstraction abstraction))
+    (/////\each _.return (//function.function statement expression archive abstraction))
+    ))
 
 ... TODO: Get rid of this ASAP
 (def: lux::syntax_char_case!
@@ -62,12 +112,12 @@
              (function (_ extension_name phase archive [input else conditionals])
                (do {! /////.monad}
                  [inputG (phase archive input)
-                  elseG (phase archive else)
+                  else! (..statement phase archive else)
                   @input (\ ! each _.var (generation.identifier "input"))
-                  conditionalsG (: (Operation (List [Expression Expression]))
+                  conditionals! (: (Operation (List [Expression Statement]))
                                    (monad.each ! (function (_ [chars branch])
                                                    (do !
-                                                     [branchG (phase archive branch)]
+                                                     [branch! (..statement phase archive branch)]
                                                      (in [(|> chars
                                                               (list\each (|>> .int _.int (_.= @input)))
                                                               (list\mix (function (_ clause total)
@@ -75,14 +125,23 @@
                                                                             clause
                                                                             (_.or clause total)))
                                                                         _.nil))
-                                                          branchG])))
+                                                          branch!])))
                                                conditionals))
-                  .let [closure (_.closure (list @input)
-                                           (list\mix (function (_ [test then] else)
-                                                       (_.if test (_.return then) else))
-                                                     (_.return elseG)
-                                                     conditionalsG))]]
-                 (in (_.apply/1 closure inputG))))]))
+                  ... .let [closure (_.closure (list @input)
+                  ...                          (list\mix (function (_ [test then] else)
+                  ...                                      (_.if test (_.return then) else))
+                  ...                                    (_.return elseG)
+                  ...                                    conditionalsG))]
+                  ]
+                 ... (in (_.apply/1 closure inputG))
+                 (in (<| (:as Expression)
+                         (: Statement)
+                         ($_ _.then
+                             (_.set (list @input) inputG)
+                             (list\mix (function (_ [test then!] else!)
+                                         (_.if test then! else!))
+                                       else!
+                                       conditionals!))))))]))
 
 (def: lux_procs
   Bundle
@@ -98,8 +157,8 @@
           (/.install "and" (binary (product.uncurried _.bit_and)))
           (/.install "or" (binary (product.uncurried _.bit_or)))
           (/.install "xor" (binary (product.uncurried _.bit_xor)))
-          (/.install "left-shift" (binary (product.uncurried //runtime.i64//left_shift)))
-          (/.install "right-shift" (binary (product.uncurried //runtime.i64//right_shift)))
+          (/.install "left-shift" (binary (product.uncurried //runtime.i64//left_shifted)))
+          (/.install "right-shift" (binary (product.uncurried //runtime.i64//right_shifted)))
           (/.install "=" (binary (product.uncurried _.=)))
           (/.install "+" (binary (product.uncurried _.+)))
           (/.install "-" (binary (product.uncurried _.-)))

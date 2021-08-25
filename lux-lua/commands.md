@@ -1,3 +1,7 @@
+# Notes
+
+* TODO: Switch to [neolua](https://github.com/neolithos/neolua) ASAP. Rembulan is too immature of an implementation.
+
 # Test
 
 ```
@@ -9,16 +13,10 @@ cd ~/lux/lux-lua/ && lein clean && lein lux auto test
 
 ```
 ## Develop
-cd ~/lux/lux-lua/ \
-&& lein clean \
-&& lein lux auto build
-
-## Build JVM-based compiler
 ## NOTE: Must set lux/control/concurrency/thread.parallelism = 1 before compiling to make sure Rembulan doesn't cause trouble.
 cd ~/lux/lux-lua/ \
 && lein clean \
-&& lein lux build \
-&& mv target/program.jar jvm_based_compiler.jar
+&& lein lux auto build
 ```
 
 # Try
@@ -27,7 +25,7 @@ cd ~/lux/lux-lua/ \
 ## Compile Lux's Standard Library's tests using a JVM-based compiler.
 cd ~/lux/stdlib/ \
 && lein clean \
-&& java -jar ~/lux/lux-lua/jvm_based_compiler.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux \
+&& java -jar ~/lux/lux-lua/target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux \
 && ~/lua-5.4.2/install/bin/lua ~/lux/stdlib/target/program.lua
 ```
 
@@ -35,6 +33,6 @@ cd ~/lux/stdlib/ \
 
 ```
 cd ~/lux/lux-lua/ \
-&& mvn install:install-file -Dfile=jvm_based_compiler.jar -DgroupId=com.github.luxlang -DartifactId=lux-lua -Dversion=0.6.0-SNAPSHOT -Dpackaging=jar
+&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-lua -Dversion=0.6.0-SNAPSHOT -Dpackaging=jar
 ```
 

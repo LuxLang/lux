@@ -132,13 +132,13 @@
         (array.copy! tail_size 0 tail 0)
         (array.write! tail_size val))))
 
-(def: (has' level idx val hierarchy)
+(def: (hierarchy\has level idx val hierarchy)
   (All [a] (-> Level Index a (Hierarchy a) (Hierarchy a)))
   (let [sub_idx (branch_idx (i64.right_shifted level idx))]
     (case (array.read! sub_idx hierarchy)
       (#.Some (#Hierarchy sub_node))
       (|> (array.clone hierarchy)
-          (array.write! sub_idx (#Hierarchy (has' (level_down level) idx val sub_node))))
+          (array.write! sub_idx (#Hierarchy (hierarchy\has (level_down level) idx val sub_node))))
 
       (^multi (#.Some (#Base base))
               (n.= 0 (level_down level)))
@@ -175,17 +175,18 @@
               #.Some)
           )))
 
-(def: (list' node)
+(def: (node\list node)
   (All [a] (-> (Node a) (List a)))
   (case node
     (#Base base)
-    (array.list base)
+    (array.list #.None base)
     
     (#Hierarchy hierarchy)
     (|> hierarchy
-        array.list
+        (array.list #.None)
         list.reversed
-        (list\mix (function (_ sub acc) (list\composite (list' sub) acc))
+        (list\mix (function (_ sub acc)
+                    (list\composite (node\list sub) acc))
                   #.End))))
 
 (type: .public (Row a)
@@ -254,8 +255,7 @@
 (def: (base_for idx row)
   (All [a] (-> Index (Row a) (Try (Base a))))
   (if (within_bounds? row idx)
-    (if (n.>= (tail_off (value@ #size row)) idx)
-      (#try.Success (value@ #tail row))
+    (if (n.< (tail_off (value@ #size row)) idx)
       (loop [level (value@ #level row)
              hierarchy (value@ #root row)]
         (case [(n.> branching_exponent level)
@@ -270,7 +270,8 @@
           (exception.except ..base_was_not_found [])
 
           _
-          (exception.except ..incorrect_row_structure []))))
+          (exception.except ..incorrect_row_structure [])))
+      (#try.Success (value@ #tail row)))
     (exception.except ..index_out_of_bounds [row idx])))
 
 (def: .public (item idx row)
@@ -288,13 +289,13 @@
   (All [a] (-> Nat a (Row a) (Try (Row a))))
   (let [row_size (value@ #size row)]
     (if (within_bounds? row idx)
-      (#try.Success (if (n.>= (tail_off row_size) idx)
+      (#try.Success (if (n.< (tail_off row_size) idx)
+                      (revised@ #root (hierarchy\has (value@ #level row) idx val)
+                                row)
                       (revised@ #tail (for {@.old
                                             (: (-> (Base (:parameter 0)) (Base (:parameter 0)))
                                                (|>> array.clone (array.write! (branch_idx idx) val)))}
                                            (|>> array.clone (array.write! (branch_idx idx) val)))
-                                row)
-                      (revised@ #root (has' (value@ #level row) idx val)
                                 row)))
       (exception.except ..index_out_of_bounds [row idx]))))
 
@@ -348,8 +349,8 @@
 
 (def: .public (list row)
   (All [a] (-> (Row a) (List a)))
-  (list\composite (list' (#Hierarchy (value@ #root row)))
-                  (list' (#Base (value@ #tail row)))))
+  (list\composite (node\list (#Hierarchy (value@ #root row)))
+                  (node\list (#Base (value@ #tail row)))))
 
 (def: .public of_list
   (All [a] (-> (List a) (Row a)))

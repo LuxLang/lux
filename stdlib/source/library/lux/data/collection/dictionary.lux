@@ -145,9 +145,11 @@
   (|> array array.clone (array.write! idx value)))
 
 ... Creates a clone of the array, with an empty position at index.
-(def: (array\lacks' idx array)
+(def: (array\clear idx array)
   (All [a] (-> Index (Array a) (Array a)))
-  (|> array array.clone (array.delete! idx)))
+  (|> array
+      array.clone
+      (array.delete! idx)))
 
 ... Shrinks a copy of the array by removing the space at index.
 (def: (array\lacks idx array)
@@ -284,7 +286,7 @@
 ... All empty nodes look the same (a #Base node with clean bitmap is
 ... used).
 ... So, this test is introduced to detect them.
-(def: (empty?' node)
+(def: (node\empty? node)
   (All [k v] (-> (Node k v) Bit))
   (`` (case node
         (#Base (~~ (static ..clean_bitmap)) _)
@@ -355,18 +357,18 @@
         ... However, if the Bit_Position has not been used yet, check
         ... whether this #Base node is ready for a promotion.
         (let [base_count (bitmap_size bitmap)]
-          (if (n.>= ..promotion_threshold base_count)
-            ... If so, promote it to a #Hierarchy node, and add the new
+          (if (n.< ..promotion_threshold base_count)
+            ... If so, resize the #Base node to accommodate the
+            ... new KV-pair.
+            (#Base (with_bit_position bit bitmap)
+                   (array\has (base_index bit bitmap) (#.Right [key val]) base))
+            ... Otherwise, promote it to a #Hierarchy node, and add the new
             ... KV-pair as a singleton node to it.
             (#Hierarchy (++ base_count)
                         (|> base
                             (promotion node\has key_hash level bitmap)
                             (array.write! (level_index level hash)
-                                          (node\has (level_up level) hash key val key_hash empty_node))))
-            ... Otherwise, just resize the #Base node to accommodate the
-            ... new KV-pair.
-            (#Base (with_bit_position bit bitmap)
-                   (array\has (base_index bit bitmap) (#.Right [key val]) base))))))
+                                          (node\has (level_up level) hash key val key_hash empty_node))))))))
     
     ... For #Collisions nodes, compare the hashes.
     (#Collisions _hash _colls)
@@ -390,7 +392,7 @@
           (node\has level hash key val key_hash)))
     ))
 
-(def: (lacks' level hash key key_hash node)
+(def: (node\lacks level hash key key_hash node)
   (All [k v] (-> Level Hash_Code k (Hash k) (Node k v) (Node k v)))
   (case node
     ... For #Hierarchy nodes, find out if there's a valid sub-node for
@@ -404,19 +406,19 @@
 
         ... But if there is, try to remove the key from the sub-node.
         (#.Some sub_node)
-        (let [sub_node' (lacks' (level_up level) hash key key_hash sub_node)]
+        (let [sub_node' (node\lacks (level_up level) hash key key_hash sub_node)]
           ... Then check if a removal was actually done.
           (if (same? sub_node sub_node')
             ... If not, then there's nothing to change here either.
             node
             ... But if the sub_removal yielded an empty sub_node...
-            (if (empty?' sub_node')
+            (if (node\empty? sub_node')
               ... Check if it's due time for a demotion.
-              (if (n.<= demotion_threshold h_size)
-                ... If so, perform it.
-                (#Base (demotion idx [h_size h_array]))
-                ... Otherwise, just clear the space.
-                (#Hierarchy (-- h_size) (array\lacks' idx h_array)))
+              (if (n.> demotion_threshold h_size)
+                ... If so, just clear the space.
+                (#Hierarchy (-- h_size) (array\clear idx h_array))
+                ... Otherwise, perform it.
+                (#Base (demotion idx [h_size h_array])))
               ... But if the sub_removal yielded a non_empty node, then
               ... just update the hiearchy branch.
               (#Hierarchy h_size (array\revised idx sub_node' h_array)))))))
@@ -430,13 +432,13 @@
             ... If set, check if it's a sub_node, and remove the KV
             ... from it.
             (#.Some (#.Left sub_node))
-            (let [sub_node' (lacks' (level_up level) hash key key_hash sub_node)]
+            (let [sub_node' (node\lacks (level_up level) hash key key_hash sub_node)]
               ... Verify that it was removed.
               (if (same? sub_node sub_node')
                 ... If not, there's also nothing to change here.
                 node
                 ... But if it came out empty...
-                (if (empty?' sub_node')
+                (if (node\empty? sub_node')
                   ...# ... figure out whether that's the only position left.
                   (if (only_bit_position? bit bitmap)
                     ... If so, removing it leaves this node empty too.
@@ -482,14 +484,14 @@
         (#Collisions _hash (array\lacks idx _colls))))
     ))
 
-(def: (value' level hash key key_hash node)
+(def: (node\value level hash key key_hash node)
   (All [k v] (-> Level Hash_Code k (Hash k) (Node k v) (Maybe v)))
   (case node
     ... For #Hierarchy nodes, just look-up the key on its children.
     (#Hierarchy _size hierarchy)
     (case (array.read! (level_index level hash) hierarchy)
       #.None            #.None
-      (#.Some sub_node) (value' (level_up level) hash key key_hash sub_node))
+      (#.Some sub_node) (node\value (level_up level) hash key key_hash sub_node))
 
     ... For #Base nodes, check the leaves, and recursively check the branches.
     (#Base bitmap base)
@@ -497,7 +499,7 @@
       (if (with_bit_position? bit bitmap)
         (case (array.read! (base_index bit bitmap) base)
           (#.Some (#.Left sub_node))
-          (value' (level_up level) hash key key_hash sub_node)
+          (node\value (level_up level) hash key key_hash sub_node)
 
           (#.Some (#.Right [key' val']))
           (if (\ key_hash = key key')
@@ -515,16 +517,16 @@
                       _colls))
     ))
 
-(def: (size' node)
+(def: (node\size node)
   (All [k v] (-> (Node k v) Nat))
   (case node
     (#Hierarchy _size hierarchy)
-    (array\mix n.+ 0 (array\each size' hierarchy))
+    (array\mix n.+ 0 (array\each node\size hierarchy))
     
     (#Base _ base)
     (array\mix n.+ 0 (array\each (function (_ sub_node')
                                    (case sub_node'
-                                     (#.Left sub_node) (size' sub_node)
+                                     (#.Left sub_node) (node\size sub_node)
                                      (#.Right _)       1))
                                  base))
 
@@ -532,11 +534,11 @@
     (array.size colls)
     ))
 
-(def: (entries' node)
+(def: (node\entries node)
   (All [k v] (-> (Node k v) (List [k v])))
   (case node
     (#Hierarchy _size hierarchy)
-    (array\mix (function (_ sub_node tail) (list\composite (entries' sub_node) tail))
+    (array\mix (function (_ sub_node tail) (list\composite (node\entries sub_node) tail))
                #.End
                hierarchy)
 
@@ -544,7 +546,7 @@
     (array\mix (function (_ branch tail)
                  (case branch
                    (#.Left sub_node)
-                   (list\composite (entries' sub_node) tail)
+                   (list\composite (node\entries sub_node) tail)
 
                    (#.Right [key' val'])
                    (#.Item [key' val'] tail)))
@@ -578,12 +580,12 @@
 (def: .public (lacks key dict)
   (All [k v] (-> k (Dictionary k v) (Dictionary k v)))
   (let [[key_hash node] dict]
-    [key_hash (lacks' root_level (\ key_hash hash key) key key_hash node)]))
+    [key_hash (node\lacks root_level (\ key_hash hash key) key key_hash node)]))
 
 (def: .public (value key dict)
   (All [k v] (-> k (Dictionary k v) (Maybe v)))
   (let [[key_hash node] dict]
-    (value' root_level (\ key_hash hash key) key key_hash node)))
+    (node\value root_level (\ key_hash hash key) key key_hash node)))
 
 (def: .public (key? dict key)
   (All [k v] (-> (Dictionary k v) k Bit))
@@ -617,7 +619,7 @@
 
 (def: .public size
   (All [k v] (-> (Dictionary k v) Nat))
-  (|>> product.right ..size'))
+  (|>> product.right ..node\size))
 
 (def: .public empty?
   (All [k v] (-> (Dictionary k v) Bit))
@@ -625,7 +627,7 @@
 
 (def: .public entries
   (All [k v] (-> (Dictionary k v) (List [k v])))
-  (|>> product.right ..entries'))
+  (|>> product.right ..node\entries))
 
 (def: .public (of_list key_hash kvs)
   (All [k v] (-> (Hash k) (List [k v]) (Dictionary k v)))
@@ -700,7 +702,7 @@
                           #0))
                       (..entries reference)))))
 
-(implementation: functor'
+(implementation: node_functor
   (All [k] (Functor (Node k)))
   
   (def: (each f fa)
@@ -727,4 +729,4 @@
   (All [k] (Functor (Dictionary k)))
   
   (def: (each f fa)
-    (revised@ #root (\ ..functor' each f) fa)))
+    (revised@ #root (\ ..node_functor each f) fa)))

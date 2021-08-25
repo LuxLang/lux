@@ -9,7 +9,15 @@ cd ~/lux/stdlib/ \
 
 cd ~/lux/stdlib/ \
 && lux clean \
-&& lux with bibliotheca auto test
+&& lux with jvm with bibliotheca auto test
+
+cd ~/lux/stdlib/ \
+&& lux clean \
+&& lux with python with bibliotheca auto test
+
+cd ~/lux/stdlib/ \
+&& lux clean \
+&& lux with lua with bibliotheca auto test
 ```
 
 ## Deploy
@@ -40,11 +48,11 @@ cd ~/lux/stdlib/ \
 
 cd ~/lux/stdlib/ \
 && lux clean \
-&& lux with documentation auto test
+&& lux with jvm with documentation auto test
 
 cd ~/lux/stdlib/ \
 && lux clean \
-&& lux with documentation build \
+&& lux with jvm with documentation build \
 && java -jar target/program.jar > documentation.md
 ```
 
@@ -55,15 +63,6 @@ cd ~/lux/stdlib/ \
 ## Build
 
 ```
-cd ~/lux/stdlib/ \
-&& lein clean \
-&& lein with-profile aedifex lux auto build
-
-cd ~/lux/stdlib/ \
-&& lein clean \
-&& lein with-profile aedifex lux build \
-&& mv target/program.jar aedifex.jar
-
 cd ~/lux/stdlib/ \
 && lux clean \
 && lux with aedifex auto build
@@ -78,11 +77,7 @@ cd ~/lux/stdlib/ \
 
 ```
 cd ~/lux/stdlib/ \
-&& lein clean \
-&& lein with-profile aedifex lux auto test
-
-cd ~/lux/stdlib/ \
 && lux clean \
-&& lux with aedifex auto test
+&& lux with jvm with aedifex auto test
 ```
 
