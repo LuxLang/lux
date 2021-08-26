@@ -373,6 +373,7 @@ Called by `imenu--generic-function'."
 												 "Rec"
 												 "primitive" "->"
 												 "All" "Ex"
+												 "Interface"
 												 "type"))
 							(type//checking (altRE ":" ":as" ":let" ":~" ":expected" ":of" ":sharing" ":by_example" ":hole"))
 							(type//abstract (altRE "abstract:" ":abstraction" ":representation" ":transmutation" "\\^:representation"))
@@ -399,7 +400,7 @@ Called by `imenu--generic-function'."
 							(remember (altRE "remember" "to_do" "fix_me"))
 							(definition (altRE "\\.module:"
 											   "def:" "type:" "program:"
-											   "interface:" "implementation:"
+											   "implementation:"
 											   "macro:" "syntax:"
 											   "exception:"
 											   "word:"
