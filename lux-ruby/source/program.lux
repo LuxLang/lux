@@ -125,23 +125,19 @@
    (first [org/jruby/runtime/ThreadContext] org/jruby/runtime/builtin/IRubyObject)
    (size [org/jruby/runtime/ThreadContext] org/jruby/runtime/builtin/IRubyObject)])
 
-(template [<name>]
-  [(ffi.interface: <name>
-     (getValue [] java/lang/Object))
+(ffi.interface: StructureValue
+  (getValue [] java/lang/Object))
 
-   (`` (import: (~~ (template.identifier ["program/" <name>]))
-         ["#::."
-          (getValue [] java/lang/Object)]))]
-
-  [StructureValue]
-  )
+(import: program/StructureValue
+  ["#::."
+   (getValue [] java/lang/Object)])
 
 (syntax: (method_inputs [input_classes (<code>.tuple (<>.some <code>.any))])
   (monad.each meta.monad
               (function (_ class)
                 (do meta.monad
                   [var (macro.identifier "input")]
-                  (wrap (code.record (list [var class])))))
+                  (in (code.record (list [var class])))))
               input_classes))
 
 (import: org/jruby/runtime/JavaSites$CheckedSites)
@@ -164,13 +160,13 @@
   (org/jruby/embed/ScriptingContainer::new))
 
 (template: (!ruby_runtime)
-  (|> ..interpreter
-      org/jruby/embed/ScriptingContainer::getProvider
-      org/jruby/embed/internal/LocalContextProvider::getRuntime))
+  [(|> ..interpreter
+       org/jruby/embed/ScriptingContainer::getProvider
+       org/jruby/embed/internal/LocalContextProvider::getRuntime)])
 
 (template: (!ruby_thread_context)
-  (|> (!ruby_runtime)
-      org/jruby/Ruby::getCurrentContext))
+  [(|> (!ruby_runtime)
+       org/jruby/Ruby::getCurrentContext)])
 
 (def: initial_ruby_runtime
   (!ruby_runtime))
@@ -239,7 +235,8 @@
   (-> Translator org/jruby/RubyArray (Try Any))
   (let [size (:as Nat (org/jruby/RubyArray::getLength host_object))]
     (loop [idx 0
-           output (:as (Array Any) (array.new size))]
+           output (: (Array Any)
+                     (array.empty size))]
       (if (n.< size idx)
         (case (org/jruby/RubyArray::get (.int idx) host_object)
           #.None
@@ -261,31 +258,31 @@
 
 (def: (read_variant read host_object)
   (-> Translator org/jruby/RubyHash (Try Any))
-  (case [(org/jruby/RubyHash::get runtime.variant_tag_field host_object)
-         (org/jruby/RubyHash::get runtime.variant_flag_field host_object)
-         (org/jruby/RubyHash::get runtime.variant_value_field host_object)]
+  (case [(org/jruby/RubyHash::get (:as java/lang/String runtime.variant_tag_field) host_object)
+         (org/jruby/RubyHash::get (:as java/lang/String runtime.variant_flag_field) host_object)
+         (org/jruby/RubyHash::get (:as java/lang/String runtime.variant_value_field) host_object)]
     (^multi [(#.Some tag) ?flag (#.Some value)]
             {(read value)
-             (#.Some value)})
-    (#try.Success [(java/lang/Long::intValue (:as java/lang/Long tag))
-                   (: Any
-                      (case ?flag
-                        (#.Some _)
-                        ""
+             (#try.Success value)})
+    (#try.Success [(:as Any (java/lang/Long::intValue (:as java/lang/Long tag)))
+                   (:as Any
+                        (case ?flag
+                          (#.Some _)
+                          ""
 
-                        #.None
-                        (ffi.null)))
-                   value])
+                          #.None
+                          (ffi.null)))
+                   (:as Any value)])
 
     _
-    (exception.throw ..unknown_kind_of_object [host_object])))
+    (exception.except ..unknown_kind_of_object [(:as java/lang/Object host_object)])))
 
 (exception: .public nil_has_no_lux_representation)
 
 (def: (read host_object)
   Translator
   (`` (<| (if (ffi.null? host_object)
-            (exception.throw ..nil_has_no_lux_representation []))
+            (exception.except ..nil_has_no_lux_representation []))
           (~~ (template [<class> <post_processing>]
                 [(case (ffi.check <class> host_object)
                    (#.Some typed_object)
@@ -304,7 +301,7 @@
                 [org/jruby/RubyProc [#try.Success]]
                 [org/jruby/java/proxies/JavaProxy [org/jruby/java/proxies/JavaProxy::getObject #try.Success]]
                 ))
-          (exception.throw ..unknown_kind_of_object [host_object])
+          (exception.except ..unknown_kind_of_object [host_object])
           )))
 
 (def: ruby_nil
@@ -388,7 +385,7 @@
                (wrapped_lux_value lux_structure value)
 
                #.None
-               (panic! (exception.construct ..invalid_tuple_access [(org/jruby/RubyFixnum::getLongValue member)])))
+               (panic! (exception.error ..invalid_tuple_access [(org/jruby/RubyFixnum::getLongValue member)])))
 
              #.None)
            (case (ffi.check org/jruby/RubyString member)
@@ -416,10 +413,10 @@
                  (wrapped_lux_value lux_structure value)
 
                  #.None
-                 (panic! (exception.construct ..nil_has_no_lux_representation [])))
+                 (panic! (exception.error ..nil_has_no_lux_representation [])))
 
                field
-               (panic! (exception.construct ..invalid_variant_access [field])))
+               (panic! (exception.error ..invalid_variant_access [field])))
              
              #.None)
            (case (ffi.check org/jruby/RubyRange member)
@@ -432,10 +429,10 @@
                  (lux_structure (java/util/Arrays::copyOfRange value first (i.+ first size))))
 
                _
-               (panic! (exception.construct ..invalid_index (:as java/lang/Object member))))
+               (panic! (exception.error ..invalid_index (:as java/lang/Object member))))
 
              #.None)
-           (panic! (exception.construct ..invalid_index (:as java/lang/Object member))))))))
+           (panic! (exception.error ..invalid_index (:as java/lang/Object member))))))))
 
 (def: (lux_wrapper_equality value)
   (-> (Array java/lang/Object) org/jruby/internal/runtime/methods/DynamicMethod)
@@ -532,7 +529,7 @@
            (org/jruby/RubyBoolean::newBoolean ..initial_ruby_runtime))
 
        #.None
-       (panic! (exception.construct ..invalid_operation ["respond_to?"]))))))
+       (panic! (exception.error ..invalid_operation ["respond_to?"]))))))
 
 (exception: (unknown_method {method Text})
   (exception.report
@@ -565,7 +562,7 @@
                         (org/jruby/runtime/callsite/CacheEntry::new (..lux_wrapper_respond_to? value) 4)
 
                         _
-                        (panic! (exception.construct ..unknown_method [(:as Text method)])))))]
+                        (panic! (exception.error ..unknown_method [(:as Text method)])))))]
     (org/jruby/java/proxies/JavaProxy::new ..initial_ruby_runtime meta_class (:as java/lang/Object value))))
 
 (exception: (cannot_apply_a_non_function {object java/lang/Object})
@@ -607,7 +604,7 @@
       (#try.Failure error))
 
     #.None
-    (exception.throw ..cannot_apply_a_non_function [(:as java/lang/Object macro)])))
+    (exception.except ..cannot_apply_a_non_function [(:as java/lang/Object macro)])))
 
 (def: host
   (IO (Host _.Expression _.Statement))
@@ -615,8 +612,8 @@
                     (function (_ code)
                       (do try.monad
                         [output (org/jruby/embed/ScriptingContainer::runScriptlet (_.code code) ..interpreter)]
-                        (..read (maybe.default (:as java/lang/Object [])
-                                               output)))))]
+                        (..read (maybe.else (:as java/lang/Object [])
+                                            output)))))]
         (: (Host _.Expression _.Statement)
            (implementation
             (def: (evaluate! context code)
@@ -625,13 +622,13 @@
             (def: execute! run!)
 
             (def: (define! context custom input)
-              (let [global (maybe.default (reference.artifact context)
-                                          custom)
+              (let [global (maybe.else (reference.artifact context)
+                                       custom)
                     @global (_.global global)]
                 (do try.monad
-                  [#let [definition (_.set (list @global) input)]
+                  [.let [definition (_.set (list @global) input)]
                    value (run! definition)]
-                  (wrap [global value definition]))))
+                  (in [global value definition]))))
 
             (def: (ingest context content)
               (|> content
@@ -687,7 +684,7 @@
                   ..dummy_static_scope)))
 
              (def: (host_phase partial_application phase)
-               (All [s i o]
+               (All (_ s i o)
                  (-> (List Any) (Phase [extension.Bundle s] i o)
                      org/jruby/RubyProc))
                (let [block (ffi.object [] org/jruby/runtime/Block []
@@ -700,7 +697,7 @@
                                        {_ org/jruby/runtime/Block})
                               org/jruby/runtime/builtin/IRubyObject
                               (<| try.trusted
-                                  (let [inputs (array.to_list inputs)])
+                                  (let [inputs (array.list #.None inputs)])
                                   (case inputs
                                     (^ (list))
                                     (#try.Success (host_phase partial_application phase))
@@ -710,19 +707,19 @@
                                       [input/0 (..read (:as java/lang/Object input/0))]
                                       (case partial_application
                                         (^ (list))
-                                        (wrap (host_phase (list input/0) phase))
+                                        (in (host_phase (list input/0) phase))
                                         
                                         (^ (list partial/0))
-                                        (wrap (host_phase (list partial/0 input/0) phase))
+                                        (in (host_phase (list partial/0 input/0) phase))
                                         
                                         (^ (list partial/0 partial/1))
-                                        (wrap (..to_host ((:as (-> Any Any Any Any) phase)
-                                                          partial/0
-                                                          partial/1
-                                                          input/0)))
+                                        (in (..to_host ((:as (-> Any Any Any Any) phase)
+                                                        partial/0
+                                                        partial/1
+                                                        input/0)))
 
                                         _
-                                        (exception.throw ..invaid_phase_application [partial_application (list.size inputs)])))
+                                        (exception.except ..invaid_phase_application [partial_application (list.size inputs)])))
                                     
                                     (^ (list input/0 input/1))
                                     (do try.monad
@@ -730,16 +727,16 @@
                                        input/1 (..read (:as java/lang/Object input/1))]
                                       (case partial_application
                                         (^ (list))
-                                        (wrap (host_phase (list input/0 input/1) phase))
+                                        (in (host_phase (list input/0 input/1) phase))
                                         
                                         (^ (list partial/0))
-                                        (wrap (..to_host ((:as (-> Any Any Any Any) phase)
-                                                          partial/0
-                                                          input/0
-                                                          input/1)))
+                                        (in (..to_host ((:as (-> Any Any Any Any) phase)
+                                                        partial/0
+                                                        input/0
+                                                        input/1)))
                                         
                                         _
-                                        (exception.throw ..invaid_phase_application [partial_application (list.size inputs)])))
+                                        (exception.except ..invaid_phase_application [partial_application (list.size inputs)])))
                                     
                                     (^ (list input/0 input/1 input/2))
                                     (do try.monad
@@ -748,20 +745,20 @@
                                        input/2 (..read (:as java/lang/Object input/2))]
                                       (case partial_application
                                         (^ (list))
-                                        (wrap (..to_host ((:as (-> Any Any Any Any) phase)
-                                                          input/0
-                                                          input/1
-                                                          input/2)))
+                                        (in (..to_host ((:as (-> Any Any Any Any) phase)
+                                                        input/0
+                                                        input/1
+                                                        input/2)))
                                         
                                         _
-                                        (exception.throw ..invaid_phase_application [partial_application (list.size inputs)])))
+                                        (exception.except ..invaid_phase_application [partial_application (list.size inputs)])))
                                     
                                     _
-                                    (exception.throw ..invaid_phase_application [partial_application (list.size inputs)])))))]
+                                    (exception.except ..invaid_phase_application [partial_application (list.size inputs)])))))]
                  (org/jruby/RubyProc::newProc (!ruby_runtime) block ..proc_type)))
 
              (def: (extender phase_wrapper)
-               (-> platform.Phase_Wrapper Extender)
+               (-> phase.Wrapper Extender)
                ... TODO: Stop relying on coercions ASAP.
                (<| (:as Extender)
                    (function (@self handler))
@@ -788,27 +785,27 @@
 
       @.ruby
       (def: (extender phase_wrapper handler)
-        (-> platform.Phase_Wrapper Extender)
+        (-> phase.Wrapper Extender)
         (:expected handler))})
 
 (def: (phase_wrapper archive)
-  (-> Archive (runtime.Operation platform.Phase_Wrapper))
+  (-> Archive (runtime.Operation phase.Wrapper))
   (do phase.monad
     []
-    (wrap (:as platform.Phase_Wrapper
-               (for {@.old (..host_phase (list))
-                     @.ruby (|>>)})))))
+    (in (:as phase.Wrapper
+             (for {@.old (..host_phase (list))
+                   @.ruby (|>>)})))))
 
 (def: platform
   (IO (Platform Register _.Expression _.Statement))
   (do io.monad
     [host ..host]
-    (wrap {#platform.&file_system (file.async file.default)
-           #platform.host host
-           #platform.phase ruby.generate
-           #platform.runtime runtime.generate
-           #platform.phase_wrapper ..phase_wrapper
-           #platform.write (|>> _.code (\ utf8.codec encoded))})))
+    (in {#platform.&file_system (file.async file.default)
+         #platform.host host
+         #platform.phase ruby.generate
+         #platform.runtime runtime.generate
+         #platform.phase_wrapper ..phase_wrapper
+         #platform.write (|>> _.code (\ utf8.codec encoded))})))
 
 (def: (program context program)
   (Program _.Expression _.Statement)

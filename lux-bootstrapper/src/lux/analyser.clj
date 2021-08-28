@@ -114,7 +114,7 @@
                           (&/$Item ?value
                                    (&/$End))) parameters]
             (&/with-analysis-meta location exo-type
-              (&&lux/analyse-type-check analyse eval! exo-type ?type ?value)))
+              (&&lux/analyse-type-check analyse optimize eval! exo-type ?type ?value)))
 
           "lux type check type"
           (|let [(&/$Item ?value (&/$End)) parameters]
@@ -125,7 +125,7 @@
                           (&/$Item ?value
                                    (&/$End))) parameters]
             (&/with-analysis-meta location exo-type
-              (&&lux/analyse-type-as analyse eval! exo-type ?type ?value)))
+              (&&lux/analyse-type-as analyse optimize eval! exo-type ?type ?value)))
 
           "lux def"
           (|let [(&/$Item [_ (&/$Identifier "" ?name)]

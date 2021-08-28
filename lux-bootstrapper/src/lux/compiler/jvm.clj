@@ -113,7 +113,7 @@
           (&&proc-common/compile-proc (partial compile-expression $begin) ?proc-category ?proc-name ?args special-args))
         
         _
-        (assert false (prn-str 'compile-expression (&/adt->text syntax)))
+        (assert false (prn-str 'compile-expression (&o/show syntax)))
         ))
     ))
 

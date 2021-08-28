@@ -1161,3 +1161,44 @@
   [analysis]
   (->> analysis
        (pass-0 true)))
+
+(defn show [synthesis]
+  (|let [[[?type [_file-name _line _]] ?form] synthesis]
+    (|case ?form
+      ;; 0
+      ($bit it) `(~'$bit ~it)
+      ;; 1
+      ($nat it) `(~'$nat ~it)
+      ;; 2
+      ($int it) `(~'$int ~it)
+      ;; 3
+      ($rev it) `(~'$rev ~it)
+      ;; 4
+      ($frac it) `(~'$frac ~it)
+      ;; 5
+      ($text it) `(~'$text ~it)
+      ;; 6
+      ($variant idx is-last? value) `(~'$variant ~idx ~is-last? ~(show value))
+      ;; 7
+      ($tuple it) `[~@(&/->seq (&/|map show it))]
+      ;; 8
+      ($apply func args) `(~(show func) ~@(&/->seq (&/|map show args)))
+      ;; 9
+      ($case ?value [?pm ?bodies]) `(~'$case ~(show ?value) [?pm ?bodies])
+      ;; 10
+      ($function _register-offset arity scope captured body*) `(~'$function ~_register-offset ~arity ~(show body*))
+      ;; 11
+      ($ann value-expr type-expr) `(~'$ann ~(show value-expr) ~(show type-expr))
+      ;; 12
+      ($var (&/$Local ?idx)) `(~'$var ~?idx)
+      ;; ("captured" 3)
+      ;; ("proc" 3)
+      ;; ("loop" 3) ;; {register-offset Int, inits (List Optimized), body Optimized}
+      ;; ("iter" 2) ;; {register-offset Int, vals (List Optimized)}
+      ($let value register body) `(~'$let ~(show value) ~register ~(show body))
+      ;; ("record-get" 2)
+      ($if test then else) `(~'$if ~(show test) ~(show then) ~(show else))
+
+      _
+      (&/adt->text synthesis)
+      )))

@@ -4,7 +4,8 @@
     ["." meta]
     ["." type ("#\." equivalence)]
     [abstract
-     [monad (#+ do)]]
+     [monad (#+ do)]
+     ["." enum]]
     [control
      ["." maybe ("#\." functor)]
      ["." exception (#+ exception:)]
@@ -16,7 +17,8 @@
       ["%" format (#+ format)]]
      [collection
       ["." list ("#\." monad mix monoid)]
-      ["." set (#+ Set)]]
+      ["." set (#+ Set)]
+      ["." sequence (#+ Sequence)]]
      [format
       ["md" markdown (#+ Markdown Block)]]]
     ["." macro
@@ -85,16 +87,29 @@
               (text.together (list.repeated (n.- reference_column new_column) " "))))))
 
 (def: un_paired
-  (All [a] (-> (List [a a]) (List a)))
-  (let [melded (: (All [a] (-> [a a] (List a) (List a)))
+  (All (_ a) (-> (List [a a]) (List a)))
+  (let [melded (: (All (_ a) (-> [a a] (List a) (List a)))
                   (function (_ [left right] tail)
                     (list& left right tail)))]
     (|>> list.reversed
          (list\mix melded #.End))))
 
-(def: (code_documentation old_location reference_column example)
-  (-> Location Nat Code [Location Text])
+(def: (code_documentation expected_module old_location reference_column example)
+  (-> Text Location Nat Code [Location Text])
   (case example
+    [new_location (#.Identifier [module short])]
+    (let [documentation (cond (text\= expected_module module)
+                              short
+
+                              (text\= .prelude_module module)
+                              (format "." short)
+                              
+                              ... else
+                              (%.name [module short]))]
+      [(revised@ #.column (n.+ (text.size documentation)) new_location)
+       (format (padding reference_column old_location new_location)
+               documentation)])
+    
     (^template [<tag> <format>]
       [[new_location (<tag> value)]
        (let [documentation (`` (|> value (~~ (template.spliced <format>))))]
@@ -107,13 +122,12 @@
      [#.Rev [%.rev]]
      [#.Frac [%.frac]]
      [#.Text [%.text]]
-     [#.Identifier [%.name]]
      [#.Tag [%.name (text.prefix syntax.sigil)]])
 
     (^template [|<| |>| <tag> <prep>]
       [[group_location (<tag> members)]
        (let [[group_location' members_documentation] (list\mix (function (_ part [last_location text_accum])
-                                                                 (let [[member_location member_documentation] (code_documentation last_location reference_column part)]
+                                                                 (let [[member_location member_documentation] (code_documentation expected_module last_location reference_column part)]
                                                                    [member_location (format text_accum member_documentation)]))
                                                                [(revised@ #.column ++ group_location) ""]
                                                                (<prep> members))]
@@ -133,8 +147,8 @@
   (-> Text Text)
   (text.prefix "... "))
 
-(def: (fragment_documentation fragment)
-  (-> Fragment Text)
+(def: (fragment_documentation module fragment)
+  (-> Text Fragment Text)
   (case fragment
     (#Comment comment)
     (..single_line_comment comment)
@@ -143,12 +157,130 @@
     (let [reference_column (..reference_column example)
           [location _] example]
       (|> example
-          (..code_documentation (with@ #.column reference_column location) reference_column)
+          (..code_documentation module (with@ #.column reference_column location) reference_column)
           product.right))))
 
+(def: parameter_name_options "abcdefghijklmnopqrstuvwxyz")
+(def: parameter_name_options_count (text.size parameter_name_options))
+
+(def: (parameter_type_name id)
+  (-> Nat Text)
+  (case (text.char id ..parameter_name_options)
+    (#.Some char)
+    (text.of_char char)
+
+    #.None
+    (format (parameter_type_name (n./ parameter_name_options_count id))
+            (parameter_type_name (n.% parameter_name_options_count id)))))
+
+(def: type_variable_names
+  (Sequence Text)
+  (sequence.iterations (product.forked ++ parameter_type_name)
+                       0))
+
+(template [<name> <partition>]
+  [(def: (<name> id)
+     (-> Nat Bit)
+     (<partition> id))]
+
+  [type_function? n.even?]
+  [type_parameter? n.odd?]
+  )
+
+(def: (parameter_id level id)
+  (-> Nat Nat Nat)
+  (n.- (n./ 2 id) level))
+
+(def: (parameter_name [type_function_name type_function_arguments] level id)
+  (-> [Text (List Text)] Nat Nat Text)
+  (if (type_parameter? id)
+    (let [parameter_id (..parameter_id level id)]
+      (case (list.item parameter_id type_function_arguments)
+        (#.Some found)
+        found
+
+        _
+        (|> type_variable_names
+            (sequence.only (function (_ var_name)
+                             (not (list.member? text.equivalence type_function_arguments var_name))))
+            (sequence.item parameter_id))))      
+    type_function_name))
+
+(def: (level_parameters offset level)
+  (-> Nat Nat (List Text))
+  (if (n.= 0 level)
+    (list)
+    (|> level
+        --
+        (enum.range n.enum 0)
+        (list\each (|>> (n.+ (++ offset)) parameter_type_name)))))
+
+(def: (%type' level type_function_name module type)
+  (-> Nat Text Text Type Text)
+  (case type
+    (#.Primitive name params)
+    (|> params
+        (list\each (|>> (%type' level type_function_name module)
+                        (format " ")))
+        (#.Item (%.text name))
+        text.together
+        (text.enclosed ["(primitive " ")"]))
+
+    (#.Sum _)
+    (|> type
+        type.flat_variant
+        (list\each (%type' level type_function_name module))
+        (text.interposed " ")
+        (text.enclosed ["(Or " ")"]))
+
+    (#.Product _)
+    (|> type
+        type.flat_tuple
+        (list\each (%type' level type_function_name module))
+        (text.interposed " ")
+        (text.enclosed ["[" "]"]))
+
+    (#.Function input output)
+    (let [[ins out] (type.flat_function type)]
+      (format  "(-> "
+               (|> ins (list\each (%type' level type_function_name module)) (text.interposed " "))
+               " "
+               (%type' level type_function_name module out)
+               ")"))
+
+    (#.Parameter idx)
+    (parameter_name [type_function_name (list)] level idx)
+
+    (^template [<tag> <pre> <post>]
+      [(<tag> id)
+       (format <pre> (%.nat id) <post>)])
+    ([#.Var "⌈" "⌋"]
+     [#.Ex  "⟨" "⟩"])
+
+    (^template [<tag> <name> <flat>]
+      [(<tag> _)
+       (let [[level' body] (<flat> type)
+             args (level_parameters level level')
+             body_doc (%type' (n.+ level level') type_function_name module body)]
+         (format "(" <name> " " "(_ " (|> args (text.interposed " ")) ")"
+                 (format " " body_doc)
+                 ")"))])
+    ([#.UnivQ "All" type.flat_univ_q]
+     [#.ExQ   "Ex"  type.flat_ex_q])
+
+    (#.Apply param fun)
+    (let [[type_func type_arguments] (type.flat_application type)]
+      (format  "(" (%type' level type_function_name module type_func) " " (|> type_arguments (list\each (%type' level type_function_name module)) (text.interposed " ")) ")"))
+
+    (#.Named [_module _name] type)
+    (if (text\= module _module)
+      _name
+      (%.name [_module _name]))
+    ))
+
 (def: type
-  (-> Type Text)
-  %.type)
+  (-> Text Type Text)
+  (%type' (-- 0) "?"))
 
 (def: description
   (Parser (Maybe Code))
@@ -186,36 +318,38 @@
   (Parser Example)
   (<code>.tuple (<>.many ..fragment)))
 
-(def: example_documentation
-  (-> Example Code)
-  (|>> (list\each ..fragment_documentation)
-       (list.interposed ..blank_line)
-       (text.interposed "")
-       code.text))
+(def: (example_documentation module example)
+  (-> Text Example Code)
+  (|> example
+      (list\each (..fragment_documentation module))
+      (list.interposed ..blank_line)
+      (text.interposed "")
+      code.text))
 
 (syntax: (minimal_definition_documentation
           [name ..qualified_identifier])
-  (with_expansions [<\n> (~! text.\n)]
-    (macro.with_identifiers [g!type]
-      (in (list (` ($_ ((~! md.then))
-                       ... Name
-                       (<| ((~! md.heading/3))
-                           (~ (code.text (|> name product.right [""] %.name))))
-                       ... Type
-                       (let [(~ g!type) ("lux in-module"
-                                         (~ (code.text (product.left name)))
-                                         (.:of (~ (code.identifier name))))]
-                         ((~! md.code)
-                          (if ((~! type\=) .Type (~ g!type))
-                            (|> (~ (code.identifier name))
-                                (:as .Type)
-                                ((~! type.anonymous))
-                                ((~! ..type))
-                                ((~! %.format)
-                                 ((~! ..single_line_comment) ((~! ..type) (~ g!type)))
-                                 <\n>))
-                            ((~! ..type) (~ g!type))))))
-                   ))))))
+  (let [g!module (code.text (product.left name))]
+    (with_expansions [<\n> (~! text.\n)]
+      (macro.with_identifiers [g!type]
+        (in (list (` ($_ ((~! md.then))
+                         ... Name
+                         (<| ((~! md.heading/3))
+                             (~ (code.text (|> name product.right [""] %.name))))
+                         ... Type
+                         (let [(~ g!type) ("lux in-module"
+                                           (~ g!module)
+                                           (.:of (~ (code.identifier name))))]
+                           ((~! md.code)
+                            (if ((~! type\=) .Type (~ g!type))
+                              (|> (~ (code.identifier name))
+                                  (:as .Type)
+                                  ((~! type.anonymous))
+                                  ((~! ..type) (~ g!module))
+                                  ((~! %.format)
+                                   ((~! ..single_line_comment) ((~! ..type) (~ g!module) (~ g!type)))
+                                   <\n>))
+                              ((~! ..type) (~ g!module) (~ g!type))))))
+                     )))))))
 
 (syntax: (definition_documentation
           [name ..qualified_identifier
@@ -243,7 +377,7 @@
                            (list (` (<| ((~! md.code))
                                         ((~! %.format)
                                          (~+ (|> examples
-                                                 (list\each ..example_documentation)
+                                                 (list\each (..example_documentation (product.left name)))
                                                  (list.interposed ..example_separator))))))))))
                  )))))
 

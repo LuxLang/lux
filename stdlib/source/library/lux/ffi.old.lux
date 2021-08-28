@@ -20,17 +20,15 @@
      [collection
       ["." array (#+ Array)]
       ["." list ("#\." monad mix monoid)]]]
-    [macro (#+ with_identifiers)
+    ["." macro (#+ with_identifiers)
      [syntax (#+ syntax:)]
-     ["." code]]
+     ["." code]
+     ["." template]]
     ["." meta
      ["." annotation]]]])
 
 (template [<name> <op> <from> <to>]
   [(def: .public (<name> value)
-     {#.doc (example "Type converter."
-                     (: <to>
-                        (<name> (: <from> foo))))}
      (-> (primitive <from>) (primitive <to>))
      (<op> value))]
 
@@ -1203,36 +1201,6 @@
                           annotations ..annotations^
                           fields (<>.some (..field_decl^ class_vars))
                           methods (<>.some (..method_def^ class_vars))])
-  {#.doc (example "Allows defining JVM classes in Lux code."
-                  "For example:"
-                  (class: #final (TestClass A) [Runnable]
-                    ... Fields
-                    (#private foo boolean)
-                    (#private bar A)
-                    (#private baz java/lang/Object)
-                    ... Methods
-                    (#public [] (new [value A]) []
-                             (exec (:= ::foo #1)
-                               (:= ::bar value)
-                               (:= ::baz "")
-                               []))
-                    (#public (virtual) java/lang/Object
-                             "")
-                    (#public #static (static) java/lang/Object
-                             "")
-                    (Runnable [] (run) void
-                              [])
-                    )
-
-                  "The tuple corresponds to parent interfaces."
-                  "An optional super-class can be specified before the tuple. If not specified, java.lang.Object will be assumed."
-                  "Fields and methods defined in the class can be used with special syntax."
-                  "For example:"
-                  "::resolved, for accessing the 'resolved' field."
-                  "(:= ::resolved #1) for modifying it."
-                  "(::new! []) for calling the class's constructor."
-                  "(::resolve! container [value]) for calling the 'resolve' method."
-                  )}
   (do meta.monad
     [current_module meta.current_module_name
      .let [fully_qualified_class_name (format (safe current_module) "." full_class_name)
@@ -1257,16 +1225,12 @@
                                               (<code>.tuple (<>.some (..super_class_decl^ class_vars))))
                               annotations ..annotations^
                               members (<>.some (..method_decl^ class_vars))])
-  {#.doc (example "Allows defining JVM interfaces."
-                  (interface: TestInterface
-                    ([] foo [boolean String] void #throws [Exception])))}
   (let [def_code (format "jvm interface:"
                          (spaced (list (class_decl$ class_decl)
                                        (with_brackets (spaced (list\each super_class_decl$ supers)))
                                        (with_brackets (spaced (list\each annotation$ annotations)))
                                        (spaced (list\each method_decl$ members)))))]
-    (in (list (` ((~ (code.text def_code))))))
-    ))
+    (in (list (` ((~ (code.text def_code))))))))
 
 (syntax: .public (object [class_vars (<code>.tuple (<>.some ..type_param^))
                           super (<>.else object_super_class
@@ -1275,17 +1239,6 @@
                                               (<code>.tuple (<>.some (..super_class_decl^ class_vars))))
                           constructor_args (..constructor_args^ class_vars)
                           methods (<>.some ..overriden_method_def^)])
-  {#.doc (example "Allows defining anonymous classes."
-                  "The 1st tuple corresponds to class-level type-variables."
-                  "The 2nd tuple corresponds to parent interfaces."
-                  "The 3rd tuple corresponds to arguments to the super class constructor."
-                  "An optional super-class can be specified before the 1st tuple. If not specified, java.lang.Object will be assumed."
-                  (object [] [Runnable]
-                    []
-                    (Runnable [] (run self) void
-                              (exec (do_something some_value)
-                                [])))
-                  )}
   (let [def_code (format "jvm anon-class:"
                          (spaced (list (super_class_decl$ super)
                                        (with_brackets (spaced (list\each super_class_decl$ interfaces)))
@@ -1294,25 +1247,13 @@
     (in (list (` ((~ (code.text def_code))))))))
 
 (syntax: .public (null [])
-  {#.doc (example "Null object reference."
-                  (null))}
   (in (list (` ("jvm object null")))))
 
 (def: .public (null? obj)
-  {#.doc (example "Test for null object reference."
-                  (= (null? (null))
-                     true)
-                  (= (null? "YOLO")
-                     false))}
   (-> (primitive "java.lang.Object") Bit)
   ("jvm object null?" obj))
 
 (syntax: .public (??? [expr <code>.any])
-  {#.doc (example "Takes a (potentially null) ObjectType reference and creates a (Maybe ObjectType) for it."
-                  (= (??? (: java/lang/String (null)))
-                     #.None)
-                  (= (??? "YOLO")
-                     (#.Some "YOLO")))}
   (with_identifiers [g!temp]
     (in (list (` (let [(~ g!temp) (~ expr)]
                    (if ("jvm object null?" (~ g!temp))
@@ -1320,12 +1261,6 @@
                      (#.Some (~ g!temp)))))))))
 
 (syntax: .public (!!! [expr <code>.any])
-  {#.doc (example "Takes a (Maybe ObjectType) and returns a ObjectType."
-                  "A #.None would get translated into a (null)."
-                  (= (null)
-                     (!!! (??? (: java/lang/Thread (null)))))
-                  (= "foo"
-                     (!!! (??? "foo"))))}
   (with_identifiers [g!value]
     (in (list (` ({(#.Some (~ g!value))
                    (~ g!value)
@@ -1336,11 +1271,6 @@
 
 (syntax: .public (check [class (..generic_type^ (list))
                          unchecked (<>.maybe <code>.any)])
-  {#.doc (example "Checks whether an object is an instance of a particular class."
-                  "Caveat emptor: Cannot check for polymorphism, so avoid using parameterized classes."
-                  (case (check java/lang/String "YOLO")
-                    (#.Some value_as_string)
-                    #.None))}
   (with_identifiers [g!_ g!unchecked]
     (let [class_name (simple_class$ (list) class)
           class_type (` (.primitive (~ (code.text class_name))))
@@ -1363,19 +1293,10 @@
 
 (syntax: .public (synchronized [lock <code>.any
                                 body <code>.any])
-  {#.doc (example "Evaluates body, while holding a lock on a given object."
-                  (synchronized object_to_be_locked
-                    (exec (do_something ___)
-                      (do_something_else ___)
-                      (finish_the_computation ___))))}
   (in (list (` ("jvm object synchronized" (~ lock) (~ body))))))
 
 (syntax: .public (do_to [obj <code>.any
                          methods (<>.some partial_call^)])
-  {#.doc (example "Call a variety of methods on an object. Then, return the object."
-                  (do_to object
-                    (ClassName::method1 arg0 arg1 arg2)
-                    (ClassName::method2 arg3 arg4 arg5)))}
   (with_identifiers [g!obj]
     (in (list (` (let [(~ g!obj) (~ obj)]
                    (exec (~+ (list\each (complete_call$ g!obj) methods))
@@ -1384,12 +1305,13 @@
 (def: (class_import$ [full_name params])
   (-> Class_Declaration Code)
   (let [params' (list\each (|>> product.left code.local_identifier) params)]
-    (` (def: (~ (code.identifier ["" full_name]))
-         {#..jvm_class (~ (code.text full_name))}
-         Type
-         (All [(~+ params')]
-           (primitive (~ (code.text (safe full_name)))
-                      [(~+ params')]))))))
+    (template.with_locals [g!_]
+      (` (def: (~ (code.identifier ["" full_name]))
+           {#..jvm_class (~ (code.text full_name))}
+           Type
+           (All ((~ (' g!_)) (~+ params'))
+             (primitive (~ (code.text (safe full_name)))
+                        [(~+ params')])))))))
 
 (def: (member_type_vars class_tvars member)
   (-> (List Type_Parameter) Import_Member_Declaration (List Type_Parameter))
@@ -1533,24 +1455,25 @@
                        (list\each lux_type_parameter))]
     (case member
       (#EnumDecl enum_members)
-      (do {! meta.monad}
-        [.let [enum_type (: Code
-                            (case class_tvars
-                              #.End
-                              (` (primitive (~ (code.text full_name))))
+      (macro.with_identifiers [g!_]
+        (do {! meta.monad}
+          [.let [enum_type (: Code
+                              (case class_tvars
+                                #.End
+                                (` (primitive (~ (code.text full_name))))
 
-                              _
-                              (let [=class_tvars (|> class_tvars
-                                                     (list.only free_type_param?)
-                                                     (list\each lux_type_parameter))]
-                                (` (All [(~+ =class_tvars)] (primitive (~ (code.text full_name)) [(~+ =class_tvars)]))))))
-               getter_interop (: (-> Text Code)
-                                 (function (_ name)
-                                   (let [getter_name (code.identifier ["" (..import_name import_format method_prefix name)])]
-                                     (` (def: (~ getter_name)
-                                          (~ enum_type)
-                                          ((~ (code.text (format "jvm getstatic" ":" full_name ":" name)))))))))]]
-        (in (list\each getter_interop enum_members)))
+                                _
+                                (let [=class_tvars (|> class_tvars
+                                                       (list.only free_type_param?)
+                                                       (list\each lux_type_parameter))]
+                                  (` (All ((~ g!_) (~+ =class_tvars)) (primitive (~ (code.text full_name)) [(~+ =class_tvars)]))))))
+                 getter_interop (: (-> Text Code)
+                                   (function (_ name)
+                                     (let [getter_name (code.identifier ["" (..import_name import_format method_prefix name)])]
+                                       (` (def: (~ getter_name)
+                                            (~ enum_type)
+                                            ((~ (code.text (format "jvm getstatic" ":" full_name ":" name)))))))))]]
+          (in (list\each getter_interop enum_members))))
       
       (#ConstructorDecl [commons _])
       (do meta.monad
@@ -1666,7 +1589,7 @@
   (primitive "java.lang.Class" [a]))
 
 (def: interface?
-  (All [a] (-> (java/lang/Class a) Bit))
+  (All (_ a) (-> (java/lang/Class a) Bit))
   (|>> "jvm invokevirtual:java.lang.Class:isInterface:"))
 
 (def: (load_class class_name)
@@ -1688,57 +1611,6 @@
 
 (syntax: .public (import: [class_decl ..class_decl^
                            bundles (<>.some (..bundle (product.right class_decl)))])
-  {#.doc (example "Allows importing JVM classes, and using them as types."
-                  "Their methods, fields and enum options can also be imported."
-                  (import: java/lang/Object
-                    ["#::."
-                     (new [])
-                     (equals [java/lang/Object] boolean)
-                     (wait [int] #io #try void)])
-                  
-                  "Special options can also be given for the return values."
-                  "#? means that the values will be returned inside a Maybe type. That way, null becomes #.None."
-                  "#try means that the computation might throw an exception, and the return value will be wrapped by the Try type."
-                  "#io means the computation has side effects, and will be wrapped by the IO type."
-                  "These options must show up in the following order [#io #try #?] (although, each option can be used independently)."
-                  (import: java/lang/String
-                    ["#::."
-                     (new [[byte]])
-                     (#static valueOf [char] java/lang/String)
-                     (#static valueOf #as int_valueOf [int] java/lang/String)])
-
-                  (import: (java/util/List e)
-                    ["#::."
-                     (size [] int)
-                     (get [int] e)])
-
-                  (import: (java/util/ArrayList a)
-                    ["#::."
-                     ([T] toArray [[T]] [T])])
-                  
-                  "The class-type that is generated is of the fully-qualified name."
-                  "This avoids a clash between the java.util.List type, and Lux's own List type."
-                  "All enum options to be imported must be specified."
-                  (import: java/lang/Character$UnicodeScript
-                    ["#::."
-                     (#enum ARABIC CYRILLIC LATIN)])
-
-                  "It should also be noted, the only types that may show up in method arguments or return values may be Java classes, arrays, primitives, void or type-parameters."
-                  "Lux types, such as Maybe cannot be named (otherwise, they'd be confused for Java classes)."
-                  (import: (lux/concurrency/async/JvmAsync A)
-                    ["#::."
-                     (resolve [A] boolean)
-                     (poll [] A)
-                     (wasResolved [] boolean)
-                     (waitOn [lux/Function] void)
-                     (#static [A] make [A] (lux/concurrency/async/JvmAsync A))])
-                  
-                  "Also, the names of the imported members will look like Class::member"
-                  (java/lang/Object::new [])
-                  (java/lang/Object::equals [other_object] my_object)
-                  (java/util/List::size [] my_list)
-                  java/lang/Character$UnicodeScript::LATIN
-                  )}
   (do {! meta.monad}
     [kind (class_kind class_decl)
      =members (|> bundles
@@ -1750,8 +1622,6 @@
 
 (syntax: .public (array [type (..generic_type^ (list))
                          size <code>.any])
-  {#.doc (example "Create an array of the given type, with the given size."
-                  (array java/lang/Object 10))}
   (case type
     (^template [<type> <array_op>]
       [(^ (#GenericClass <type> (list)))
@@ -1769,8 +1639,6 @@
     (in (list (` ("jvm anewarray" (~ (code.text (generic_type$ type))) (~ size)))))))
 
 (syntax: .public (length [array <code>.any])
-  {#.doc (example "Gives the length of an array."
-                  (length my_array))}
   (in (list (` ("jvm arraylength" (~ array))))))
 
 (def: (type_class_name type)
@@ -1797,8 +1665,6 @@
 
 (syntax: .public (read! [idx <code>.any
                          array <code>.any])
-  {#.doc (example "Loads an element from an array."
-                  (read! 10 my_array))}
   (case array
     [_ (#.Identifier array_name)]
     (do meta.monad
@@ -1828,8 +1694,6 @@
 (syntax: .public (write! [idx <code>.any
                           value <code>.any
                           array <code>.any])
-  {#.doc (example "Stores an element into an array."
-                  (write! 10 my_object my_array))}
   (case array
     [_ (#.Identifier array_name)]
     (do meta.monad
@@ -1857,8 +1721,6 @@
                      (..write! (~ idx) (~ value) (~ g!array)))))))))
 
 (syntax: .public (class_for [type (..generic_type^ (list))])
-  {#.doc (example "Loads the class as a java.lang.Class object."
-                  (class_for java/lang/String))}
   (in (list (` ("jvm object class" (~ (code.text (simple_class$ (list) type))))))))
 
 (syntax: .public (type [type (..generic_type^ (list))])

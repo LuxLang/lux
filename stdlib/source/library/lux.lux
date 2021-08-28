@@ -19,7 +19,7 @@
  #1)
 
 ... (type: .public Any
-...   (Ex [a] a))
+...   (Ex (_ a) a))
 ("lux def" Any
  ("lux type check type"
   (9 #1 ["library/lux" "Any"]
@@ -29,7 +29,7 @@
  #1)
 
 ... (type: .public Nothing
-...   (All [a] a))
+...   (All (_ a) a))
 ("lux def" Nothing
  ("lux type check type"
   (9 #1 ["library/lux" "Nothing"]
@@ -1014,54 +1014,9 @@
           ("lux type as" Int param)
           ("lux type as" Int subject))))
 
-(def:'' .private (nested_quantification code)
-        #End
-        (#Function Code Code)
-        ({[_ (#Tuple members)]
-          (tuple$ (list\each nested_quantification members))
-
-          [_ (#Record pairs)]
-          (record$ (list\each ("lux type check" (#Function (#Product Code Code) (#Product Code Code))
-                               (function'' [pair]
-                                           (let'' [name val] pair
-                                                  [name (nested_quantification val)])))
-                              pairs))
-
-          [_ (#Form (#Item [_ (#Tag "library/lux" "Parameter")] (#Item [_ (#Nat idx)] #End)))]
-          (form$ (#Item (tag$ ["library/lux" "Parameter"]) (#Item (nat$ ("lux i64 +" 2 idx)) #End)))
-
-          [_ (#Form members)]
-          (form$ (list\each nested_quantification members))
-
-          _
-          code}
-         code))
-
-(def:'' .private (quantified_args_parser args next)
-        #End
-        ... (-> (List Code) (-> (List Text) (Meta (List Code))) (Meta (List Code)))
-        (#Function ($' List Code)
-                   (#Function (#Function ($' List Text) (#Apply ($' List Code) Meta))
-                              (#Apply ($' List Code) Meta)
-                              ))
-        ({#End
-          (next #End)
-
-          (#Item [_ (#Identifier "" arg_name)] args')
-          (quantified_args_parser args' (function'' [names] (next (#Item arg_name names))))
-
-          _
-          (failure "Expected identifier.")}
-         args))
-
-(def:'' .private (type_parameter idx)
-        #End
-        (#Function Nat Code)
-        (form$ (#Item (tag$ ["library/lux" "Parameter"]) (#Item (nat$ idx) #End))))
-
 (def:'' .private (list\mix f init xs)
         #End
-        ... (All [a b] (-> (-> b a a) a (List b) a))
+        ... (All (_ a b) (-> (-> b a a) a (List b) a))
         (#UnivQ #End (#UnivQ #End (#Function (#Function (#Parameter 1)
                                                         (#Function (#Parameter 3)
                                                                    (#Parameter 3)))
@@ -1081,84 +1036,231 @@
                 (#Function ($' List (#Parameter 1)) Nat))
         (list\mix (function'' [_ acc] ("lux i64 +" 1 acc)) 0 list))
 
-(macro:' .public (All tokens)
+(def:'' .private (let$ binding value body)
+        #End
+        (#Function Code (#Function Code (#Function Code Code)))
+        (form$ (#Item (record$ (#Item [binding body] #End))
+                      (#Item value #End))))
+
+(def:'' .private (UnivQ$ body)
+        #End
+        (#Function Code Code)
+        (form$ (#Item (tag$ ["library/lux" "UnivQ"]) (#Item (tag$ ["library/lux" "End"]) (#Item body #End)))))
+
+(def:'' .private (ExQ$ body)
+        #End
+        (#Function Code Code)
+        (form$ (#Item (tag$ ["library/lux" "ExQ"]) (#Item (tag$ ["library/lux" "End"]) (#Item body #End)))))
+
+(def:'' .private quantification_level
+        #End
+        Text
+        ("lux text concat" double_quote
+         ("lux text concat" "quantification_level"
+          double_quote)))
+
+(def:'' .private quantified
+        #End
+        (#Function Code Code)
+        (let$ (local_identifier$ ..quantification_level) (nat$ 0)))
+
+(def:'' .private (quantified_type_parameter idx)
+        #End
+        (#Function Nat Code)
+        (form$ (#Item (tag$ ["library/lux" "Parameter"])
+                      (#Item (form$ (#Item (text$ "lux i64 +")
+                                           (#Item (local_identifier$ ..quantification_level)
+                                                  (#Item (nat$ idx)
+                                                         #End))))
+                             #End))))
+
+(def:'' .private (next_level depth)
+        #End
+        (#Function Nat Nat)
+        ("lux i64 +" 2 depth))
+
+(def:'' .private (self_id? id)
+        #End
+        (#Function Nat Bit)
+        ("lux i64 =" id ("lux type as" Nat
+                         ("lux i64 *" +2
+                          ("lux i64 /" +2
+                           ("lux type as" Int
+                            id))))))
+
+(def:'' .public (__adjusted_quantified_type__ permission depth type)
+        #End
+        (#Function Nat (#Function Nat (#Function Type Type)))
+        ({0
+          ({... Jackpot!
+            (#Parameter id)
+            ({id'
+              ({#0 (#Parameter id')
+                #1 (#Parameter ("lux i64 -" 2 id'))}
+               (self_id? id))}
+             ("lux i64 -" ("lux i64 -" depth id) 0))
+            
+            ... Recur
+            (#Primitive name parameters)
+            (#Primitive name (list\each (__adjusted_quantified_type__ permission depth)
+                                        parameters))
+
+            (#Sum left right)
+            (#Sum (__adjusted_quantified_type__ permission depth left)
+                  (__adjusted_quantified_type__ permission depth right))
+            
+            (#Product left right)
+            (#Product (__adjusted_quantified_type__ permission depth left)
+                      (__adjusted_quantified_type__ permission depth right))
+            
+            (#Function input output)
+            (#Function (__adjusted_quantified_type__ permission depth input)
+                       (__adjusted_quantified_type__ permission depth output))
+            
+            (#UnivQ environment body)
+            (#UnivQ environment
+                    (__adjusted_quantified_type__ permission (next_level depth) body))
+            
+            (#ExQ environment body)
+            (#ExQ environment
+                  (__adjusted_quantified_type__ permission (next_level depth) body))
+            
+            (#Apply parameter function)
+            (#Apply (__adjusted_quantified_type__ permission depth parameter)
+                    (__adjusted_quantified_type__ permission depth function))
+
+            ... Leave these alone.
+            (#Named name anonymous) type
+            (#Var id) type
+            (#Ex id) type}
+           type)
+
+          _
+          type}
+         permission))
+
+(def:'' .private (with_correct_quantification body)
+        #End
+        (#Function Code Code)
+        (form$ (#Item (identifier$ [prelude_module "__adjusted_quantified_type__"])
+                      (#Item (local_identifier$ ..quantification_level)
+                             (#Item (nat$ 0)
+                                    (#Item body
+                                           #End))))))
+
+(def:'' .private (with_quantification depth body)
+        #End
+        (#Function Nat (#Function Code Code))
+        ({g!level
+          (let$ g!level
+                (form$ (#Item (text$ "lux i64 +")
+                              (#Item g!level
+                                     (#Item (nat$ ("lux type as" Nat
+                                                   ("lux i64 *" +2
+                                                    ("lux type as" Int
+                                                     depth))))
+                                            #End))))
+                body)}
+         (local_identifier$ ..quantification_level)))
+
+(def:'' .private (initialized_quantification? lux)
+        #End
+        (#Function Lux Bit)
+        ({{#info _ #source _ #current_module _ #modules _
+           #scopes scopes #type_context _ #host _
+           #seed _ #expected _ #location _ #extensions _
+           #scope_type_vars _ #eval _}
+          (list\mix (function'' [scope verdict]
+                                ({#1 #1
+                                  _ ({{#name _ #inner _ #captured _
+                                       #locals {#counter _
+                                                #mappings locals}}
+                                      (list\mix (function'' [local verdict]
+                                                            ({[local _]
+                                                              ({#1 #1
+                                                                _ ("lux text =" ..quantification_level local)}
+                                                               verdict)}
+                                                             local))
+                                                #0
+                                                locals)}
+                                     scope)}
+                                 verdict))
+                    #0
+                    scopes)}
+         lux))
+
+(macro:' .public (All tokens lux)
          #End
-         (let'' [self_name tokens] ({(#Item [_ (#Identifier "" self_name)] tokens)
-                                     [self_name tokens]
+         ({(#Item [_ (#Form (#Item self_name args))]
+                  (#Item body #End))
+           (#Right [lux
+                    (#Item ({raw
+                             ({#1 raw
+                               #0 (..quantified raw)}
+                              (initialized_quantification? lux))}
+                            ({#End
+                              body
 
-                                     _
-                                     ["" tokens]}
-                                    tokens)
-                ({(#Item [_ (#Tuple args)] (#Item body #End))
-                  (quantified_args_parser args
-                                          (function'' [names]
-                                                      (let'' body' (list\mix ("lux type check" (#Function Text (#Function Code Code))
-                                                                              (function'' [name' body']
-                                                                                          (form$ (#Item (tag$ ["library/lux" "UnivQ"])
-                                                                                                        (#Item (tag$ ["library/lux" "End"])
-                                                                                                               (#Item (with_replacements (#Item [name' (type_parameter 1)] #End)
-                                                                                                                        (nested_quantification body'))
-                                                                                                                      #End))))))
-                                                                             body
-                                                                             names)
-                                                             (in_meta (#Item ({[#1 _]
-                                                                               body'
+                              (#Item head tail)
+                              (with_correct_quantification
+                                (let$ self_name (quantified_type_parameter 0)
+                                      ({[_ raw]
+                                        raw}
+                                       (list\mix (function'' [parameter offset,body']
+                                                             ({[offset body']
+                                                               [("lux i64 +" 2 offset)
+                                                                (let$ parameter (quantified_type_parameter ("lux i64 +" offset 1))
+                                                                      (UnivQ$ body'))]}
+                                                              offset,body'))
+                                                 [0 (with_quantification (list\size args)
+                                                      body)]
+                                                 args))))}
+                             args))
+                           #End)])
+           
+           _
+           (#Left "Wrong syntax for All")}
+          tokens))
 
-                                                                               [_ #End]
-                                                                               body'
-
-                                                                               [#0 _]
-                                                                               (with_replacements (#Item [self_name (type_parameter (n/* 2 ("lux i64 -" 1 (list\size names))))]
-                                                                                                         #End)
-                                                                                 body')}
-                                                                              [(text\= "" self_name) names])
-                                                                             #End)))))
-                  
-                  _
-                  (failure "Wrong syntax for All")}
-                 tokens)))
-
-(macro:' .public (Ex tokens)
+(macro:' .public (Ex tokens lux)
          #End
-         (let'' [self_name tokens] ({(#Item [_ (#Identifier "" self_name)] tokens)
-                                     [self_name tokens]
+         ({(#Item [_ (#Form (#Item self_name args))]
+                  (#Item body #End))
+           (#Right [lux
+                    (#Item ({raw
+                             ({#1 raw
+                               #0 (..quantified raw)}
+                              (initialized_quantification? lux))}
+                            ({#End
+                              body
 
-                                     _
-                                     ["" tokens]}
-                                    tokens)
-                ({(#Item [_ (#Tuple args)] (#Item body #End))
-                  (quantified_args_parser args
-                                          (function'' [names]
-                                                      (let'' body' (list\mix ("lux type check" (#Function Text (#Function Code Code))
-                                                                              (function'' [name' body']
-                                                                                          (form$ (#Item (tag$ ["library/lux" "ExQ"])
-                                                                                                        (#Item (tag$ ["library/lux" "End"])
-                                                                                                               (#Item (with_replacements (#Item [name' (type_parameter 1)] #End)
-                                                                                                                        (nested_quantification body'))
-                                                                                                                      #End))))))
-                                                                             body
-                                                                             names)
-                                                             (in_meta (#Item ({[#1 _]
-                                                                               body'
-
-                                                                               [_ #End]
-                                                                               body'
-
-                                                                               [#0 _]
-                                                                               (with_replacements (#Item [self_name (type_parameter (n/* 2 ("lux i64 -" 1 (list\size names))))]
-                                                                                                         #End)
-                                                                                 body')}
-                                                                              [(text\= "" self_name) names])
-                                                                             #End)))))
-                  
-                  _
-                  (failure "Wrong syntax for Ex")}
-                 tokens)))
+                              (#Item head tail)
+                              (with_correct_quantification
+                                (let$ self_name (quantified_type_parameter 0)
+                                      ({[_ raw]
+                                        raw}
+                                       (list\mix (function'' [parameter offset,body']
+                                                             ({[offset body']
+                                                               [("lux i64 +" 2 offset)
+                                                                (let$ parameter (quantified_type_parameter ("lux i64 +" offset 1))
+                                                                      (ExQ$ body'))]}
+                                                              offset,body'))
+                                                 [0 (with_quantification (list\size args)
+                                                      body)]
+                                                 args))))}
+                             args))
+                           #End)])
+           
+           _
+           (#Left "Wrong syntax for Ex")}
+          tokens))
 
 (def:'' .private (list\reversed list)
         #End
-        (All [a] (#Function ($' List a) ($' List a)))
-        (list\mix ("lux type check" (All [a] (#Function a (#Function ($' List a) ($' List a))))
+        (All (_ a)
+          (#Function ($' List a) ($' List a)))
+        (list\mix ("lux type check" (All (_ a)
+                                      (#Function a (#Function ($' List a) ($' List a))))
                    (function'' [head tail] (#Item head tail)))
                   #End
                   list))
@@ -1291,7 +1393,7 @@
 
 (def:''' .private (pairs xs)
          #End
-         (All [a] (-> ($' List a) ($' List (Tuple a a))))
+         (All (_ a) (-> ($' List a) ($' List (Tuple a a))))
          ({(#Item x (#Item y xs'))
            (#Item [x y] (pairs xs'))
 
@@ -1316,7 +1418,7 @@
 
 (def:''' .private (any? p xs)
          #End
-         (All [a]
+         (All (_ a)
            (-> (-> a Bit) ($' List a) Bit))
          ({#End
            #0
@@ -1345,7 +1447,7 @@
 
 (def:''' .private (list\composite xs ys)
          #End
-         (All [a] (-> ($' List a) ($' List a) ($' List a)))
+         (All (_ a) (-> ($' List a) ($' List a) ($' List a)))
          ({(#Item x xs')
            (#Item x (list\composite xs' ys))
 
@@ -1365,7 +1467,7 @@
 
 (def:''' .private (function\flipped func)
          #End
-         (All [a b c]
+         (All (_ a b c)
            (-> (-> a b c) (-> b a c)))
          (function' [right left]
                     (func left right)))
@@ -1400,17 +1502,19 @@
 
 ... (type: (Monad m)
 ...   (Interface
-...    (: (All [a] (-> a (m a)))
+...    (: (All (_ a) (-> a (m a)))
 ...       in)
-...    (: (All [a b] (-> (-> a (m b)) (m a) (m b)))
+...    (: (All (_ a b) (-> (-> a (m b)) (m a) (m b)))
 ...       then)))
 ("lux def type tagged" Monad
  (#Named ["library/lux" "Monad"]
-         (All [m]
-           (Tuple (All [a] (-> a ($' m a)))
-                  (All [a b] (-> (-> a ($' m b))
-                                 ($' m a)
-                                 ($' m b))))))
+         (All (_ !)
+           (Tuple (All (_ a)
+                    (-> a ($' ! a)))
+                  (All (_ a b)
+                    (-> (-> a ($' ! b))
+                        ($' ! a)
+                        ($' ! b))))))
  (record$ (list))
  ["in" "then"]
  #0)
@@ -1480,9 +1584,7 @@
 
 (def:''' .private (monad\each m f xs)
          #End
-         ... (All [m a b]
-         ...   (-> (Monad m) (-> a (m b)) (List a) (m (List b))))
-         (All [m a b]
+         (All (_ m a b)
            (-> ($' Monad m)
                (-> a ($' m b))
                ($' List a)
@@ -1500,9 +1602,7 @@
 
 (def:''' .private (monad\mix m f y xs)
          #End
-         ... (All [m a b]
-         ...   (-> (Monad m) (-> a b (m b)) b (List a) (m b)))
-         (All [m a b]
+         (All (_ m a b)
            (-> ($' Monad m)
                (-> a b ($' m b))
                b
@@ -1532,11 +1632,11 @@
 (def:''' .private PList
          #End
          Type
-         (All [a] ($' List (Tuple Text a))))
+         (All (_ a) ($' List (Tuple Text a))))
 
 (def:''' .private (plist\value k plist)
          #End
-         (All [a]
+         (All (_ a)
            (-> Text ($' PList a) ($' Maybe a)))
          ({(#Item [[k' v] plist'])
            (if (text\= k k')
@@ -1837,7 +1937,7 @@
 (def:''' .private (function\composite f g)
          (list [(tag$ ["library/lux" "doc"])
                 (text$ "Function composition.")])
-         (All [a b c]
+         (All (_ a b c)
            (-> (-> b c) (-> a b) (-> a c)))
          (function' [x] (f (g x))))
 
@@ -1911,7 +2011,7 @@
 
 (def:''' .private (every? p xs)
          #End
-         (All [a]
+         (All (_ a)
            (-> (-> a Bit) ($' List a) Bit))
          (list\mix (function' [_2 _1] (if _1 (p _2) #0)) #1 xs))
 
@@ -1945,7 +2045,7 @@
 
 (def:''' .private (list\conjoint xs)
          #End
-         (All [a]
+         (All (_ a)
            (-> ($' List ($' List a)) ($' List a)))
          (list\mix list\composite #End (list\reversed xs)))
 
@@ -2150,7 +2250,7 @@
 
 (def:''' .private (list\interposed sep xs)
          #End
-         (All [a]
+         (All (_ a)
            (-> a ($' List a) ($' List a)))
          ({#End
            xs
@@ -2327,6 +2427,24 @@
            [_ (#Form (#Item [_ (#Identifier ["" ":~"])] (#Item expression #End)))]
            expression
 
+           [_0 (#Form (#Item [_1 (#Record (#Item [binding body] #End))]
+                             (#Item value
+                                    #End)))]
+           [_0 (#Form (#Item [_1 (#Record (#Item [binding (normal_type body)] #End))]
+                             (#Item value
+                                    #End)))]
+
+           [_0 (#Form (#Item [_1 (#Identifier ["library/lux" "__adjusted_quantified_type__"])]
+                             (#Item _permission
+                                    (#Item _level
+                                           (#Item body
+                                                  #End)))))]
+           [_0 (#Form (#Item [_1 (#Identifier ["library/lux" "__adjusted_quantified_type__"])]
+                             (#Item _permission
+                                    (#Item _level
+                                           (#Item (normal_type body)
+                                                  #End)))))]
+
            [_ (#Form (#Item type_fn args))]
            (list\mix ("lux type check" (-> Code Code Code)
                       (function' [arg type_fn] (` (#.Apply (~ arg) (~ type_fn)))))
@@ -2341,13 +2459,17 @@
          (list)
          ({(#Item type #End)
            (do meta_monad
-             [type+ (full_expansion type)]
-             ({(#Item type' #End)
-               (in (list (normal_type type')))
+             [initialized_quantification? (function' [lux] (#Right [lux (initialized_quantification? lux)]))]
+             (if initialized_quantification?
+               (do meta_monad
+                 [type+ (full_expansion type)]
+                 ({(#Item type' #End)
+                   (in (list (normal_type type')))
 
-               _
-               (failure "The expansion of the type-syntax had to yield a single element.")}
-              type+))
+                   _
+                   (failure "The expansion of the type-syntax had to yield a single element.")}
+                  type+))
+               (in (list (..quantified (` (..type (~ type))))))))
 
            _
            (failure "Wrong syntax for type")}
@@ -2356,7 +2478,9 @@
 (macro:' .public (: tokens)
          (list)
          ({(#Item type (#Item value #End))
-           (in_meta (list (` ("lux type check" (type (~ type)) (~ value)))))
+           (in_meta (list (` ("lux type check"
+                              (..type (~ type))
+                              (~ value)))))
 
            _
            (failure "Wrong syntax for :")}
@@ -2365,7 +2489,9 @@
 (macro:' .public (:as tokens)
          (list)
          ({(#Item type (#Item value #End))
-           (in_meta (list (` ("lux type as" (type (~ type)) (~ value)))))
+           (in_meta (list (` ("lux type as"
+                              (..type (~ type))
+                              (~ value)))))
 
            _
            (failure "Wrong syntax for :as")}
@@ -2373,7 +2499,8 @@
 
 (def:''' .private (empty? xs)
          #End
-         (All [a] (-> ($' List a) Bit))
+         (All (_ a)
+           (-> ($' List a) Bit))
          ({#End #1
            _    #0}
           xs))
@@ -2381,7 +2508,8 @@
 (template [<name> <type> <value>]
   [(def:''' .private (<name> xy)
             #End
-            (All [a b] (-> (Tuple a b) <type>))
+            (All (_ a b)
+              (-> (Tuple a b) <type>))
             (let' [[x y] xy]
                   <value>))]
 
@@ -2931,7 +3059,7 @@
            (failure "Wrong syntax for macro:")))
 
 (def: (list\one f xs)
-  (All [a b]
+  (All (_ a b)
     (-> (-> a (Maybe b)) (List a) (Maybe b)))
   (case xs
     #End
@@ -2999,7 +3127,7 @@
                                 ("lux text clip" after_offset after_length input))))))
 
 (def: (item idx xs)
-  (All [a]
+  (All (_ a)
     (-> Nat (List a) (Maybe a)))
   (case xs
     #End
@@ -3199,6 +3327,52 @@
         #None
         (#Left "Not expecting any type.")))))
 
+(def: (type\encoded type)
+  (-> Type Text)
+  (case type
+    (#Primitive name params)
+    (case params
+      #End
+      name
+
+      _
+      ($_ text\composite "(" name " " (|> params (list\each type\encoded) (list\interposed " ") list\reversed (list\mix text\composite "")) ")"))
+
+    (#Sum _)
+    ($_ text\composite "(Or " (|> (flat_variant type) (list\each type\encoded) (list\interposed " ") list\reversed (list\mix text\composite "")) ")")
+    
+    (#Product _)
+    ($_ text\composite "[" (|> (flat_tuple type) (list\each type\encoded) (list\interposed " ") list\reversed (list\mix text\composite "")) "]")
+
+    (#Function _)
+    ($_ text\composite "(-> " (|> (flat_lambda type) (list\each type\encoded) (list\interposed " ") list\reversed (list\mix text\composite "")) ")")
+
+    (#Parameter id)
+    (nat\encoded id)
+    
+    (#Var id)
+    ($_ text\composite "⌈v:" (nat\encoded id) "⌋")
+    
+    (#Ex id)
+    ($_ text\composite "⟨e:" (nat\encoded id) "⟩")
+    
+    (#UnivQ env body)
+    ($_ text\composite "(All " (type\encoded body) ")")
+
+    (#ExQ env body)
+    ($_ text\composite "(Ex " (type\encoded body) ")")
+    
+    (#Apply _)
+    (let [[func args] (flat_application type)]
+      ($_ text\composite
+          "(" (type\encoded func) " "
+          (|> args (list\each type\encoded) (list\interposed " ") list\reversed (list\mix text\composite ""))
+          ")"))
+    
+    (#Named name _)
+    (name\encoded name)
+    ))
+
 (macro: .public (implementation tokens)
   (do meta_monad
     [tokens' (monad\each meta_monad expansion tokens)
@@ -3210,7 +3384,9 @@
                (in_meta tags)
 
                _
-               (failure "No tags available for type.")))
+               (failure ($_ text\composite
+                            "No tags available for type: "
+                            (type\encoded struct_type)))))
      .let [tag_mappings (: (List [Text Code])
                            (list\each (function (_ tag) [(product\right tag) (tag$ tag)])
                                       tags))]
@@ -3304,12 +3480,14 @@
     (failure "Wrong syntax for implementation:")))
 
 (def: (function\identity value)
-  (All [a] (-> a a))
+  (All (_ a)
+    (-> a a))
   value)
 
 (def: (everyP itP tokens)
-  (All [a] (-> (-> (List Code) (Maybe [(List Code) a]))
-               (-> (List Code) (Maybe (List a)))))
+  (All (_ a)
+    (-> (-> (List Code) (Maybe [(List Code) a]))
+        (-> (List Code) (Maybe (List a)))))
   (case tokens
     (#Item _)
     (do maybe_monad
@@ -3475,7 +3653,8 @@
                          (#Some type)
 
                          _
-                         (#Some (` (.All (~ type_name) [(~+ (list\each local_identifier$ args))] (~ type))))))
+                         (#Some (` (.All ((~ type_name) (~+ (list\each local_identifier$ args)))
+                                     (~ type))))))
               total_meta (let [meta (definition_annotations meta)]
                            (` [(~ location_code)
                                (#.Record (~ meta))]))]]
@@ -3676,7 +3855,7 @@
       relatives)))
 
 (def: (list\after amount list)
-  (All [a] (-> Nat (List a) (List a)))
+  (All (_ a) (-> Nat (List a) (List a)))
   (case [amount list]
     (^or [0 _] [_ #End])
     list
@@ -3829,7 +4008,8 @@
     ))
 
 (def: (list\only p xs)
-  (All [a] (-> (-> a Bit) (List a) (List a)))
+  (All (_ a)
+    (-> (-> a Bit) (List a) (List a)))
   (case xs
     #End
     (list)
@@ -3849,7 +4029,7 @@
     output))
 
 (def: (on_either f x1 x2)
-  (All [a b]
+  (All (_ a b)
     (-> (-> a (Maybe b)) a a (Maybe b)))
   (case (f x1)
     #None     (f x2)
@@ -3980,7 +4160,8 @@
       )))
 
 (def: (zipped/2 xs ys)
-  (All [a b] (-> (List a) (List b) (List [a b])))
+  (All (_ a b)
+    (-> (List a) (List b) (List [a b])))
   (case xs
     (#Item x xs')
     (case ys
@@ -3992,52 +4173,6 @@
     
     _
     (list)))
-
-(def: (type\encoded type)
-  (-> Type Text)
-  (case type
-    (#Primitive name params)
-    (case params
-      #End
-      name
-
-      _
-      ($_ text\composite "(" name " " (|> params (list\each type\encoded) (list\interposed " ") list\reversed (list\mix text\composite "")) ")"))
-
-    (#Sum _)
-    ($_ text\composite "(Or " (|> (flat_variant type) (list\each type\encoded) (list\interposed " ") list\reversed (list\mix text\composite "")) ")")
-    
-    (#Product _)
-    ($_ text\composite "[" (|> (flat_tuple type) (list\each type\encoded) (list\interposed " ") list\reversed (list\mix text\composite "")) "]")
-
-    (#Function _)
-    ($_ text\composite "(-> " (|> (flat_lambda type) (list\each type\encoded) (list\interposed " ") list\reversed (list\mix text\composite "")) ")")
-
-    (#Parameter id)
-    (nat\encoded id)
-    
-    (#Var id)
-    ($_ text\composite "⌈v:" (nat\encoded id) "⌋")
-    
-    (#Ex id)
-    ($_ text\composite "⟨e:" (nat\encoded id) "⟩")
-    
-    (#UnivQ env body)
-    ($_ text\composite "(All " (type\encoded body) ")")
-
-    (#ExQ env body)
-    ($_ text\composite "(Ex " (type\encoded body) ")")
-    
-    (#Apply _)
-    (let [[func args] (flat_application type)]
-      ($_ text\composite
-          "(" (type\encoded func) " "
-          (|> args (list\each type\encoded) (list\interposed " ") list\reversed (list\mix text\composite ""))
-          ")"))
-    
-    (#Named name _)
-    (name\encoded name)
-    ))
 
 (macro: .public (^open tokens)
   (case tokens
@@ -4100,7 +4235,8 @@
       (failure "Wrong syntax for cond"))))
 
 (def: (enumeration' idx xs)
-  (All [a] (-> Nat (List a) (List [Nat a])))
+  (All (_ a)
+    (-> Nat (List a) (List [Nat a])))
   (case xs
     (#Item x xs')
     (#Item [idx x] (enumeration' ("lux i64 +" 1 idx) xs'))
@@ -4109,7 +4245,8 @@
     #End))
 
 (def: (enumeration xs)
-  (All [a] (-> (List a) (List [Nat a])))
+  (All (_ a)
+    (-> (List a) (List [Nat a])))
   (enumeration' 0 xs))
 
 (macro: .public (value@ tokens)
@@ -4547,7 +4684,8 @@
 
 (template [<name> <extension>]
   [(def: .public <name>
-     (All [s] (-> (I64 s) (I64 s)))
+     (All (_ s)
+       (-> (I64 s) (I64 s)))
      (|>> (<extension> 1)))]
 
   [++ "lux i64 +"]
@@ -4555,7 +4693,8 @@
   )
 
 (def: (interleaved xs ys)
-  (All [a] (-> (List a) (List a) (List a)))
+  (All (_ a)
+    (-> (List a) (List a) (List a)))
   (case xs
     #End
     #End
@@ -4943,7 +5082,8 @@
     (failure (..wrong_syntax_error (name_of ..$)))))
 
 (def: .public (same? reference sample)
-  (All [a] (-> a a Bit))
+  (All (_ a)
+    (-> a a Bit))
   ("lux is" reference sample))
 
 (macro: .public (^@ tokens)
@@ -5354,24 +5494,26 @@
       #None
       (failure "Wrong syntax for Interface"))))
 
-(def: (recursive_type name body)
-  (-> Text Code Code)
-  (let [body' (|> body
-                  nested_quantification
-                  (with_replacements (list [name (` (#.Apply .Nothing (~ (type_parameter 0))))])))]
-    (` (#.Apply .Nothing (#.UnivQ #.End (~ body'))))))
+(def: (recursive_type g!self g!dummy name body)
+  (-> Code Code Text Code Code)
+  (` ((.All ((~ g!self) (~ g!dummy))
+        (~ (let$ (local_identifier$ name) (` (#.Apply .Nothing (~ g!self)))
+                 body)))
+      .Nothing)))
 
 (macro: .public (Rec tokens)
   (case tokens
     (^ (list [_ (#Identifier "" name)] body))
     (do meta_monad
-      [body' (expansion body)]
+      [body' (expansion body)
+       g!self (identifier "g!self")
+       g!dummy (identifier "g!dummy")]
       (case body'
         (^ (list body' labels))
-        (in (list (..recursive_type name body') labels))
+        (in (list (..recursive_type g!self g!dummy name body') labels))
 
         (^ (list body'))
-        (in (list (..recursive_type name body')))
+        (in (list (..recursive_type g!self g!dummy name body')))
 
         _
         (failure "Wrong syntax for Rec")))

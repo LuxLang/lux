@@ -18,6 +18,10 @@ cd ~/lux/stdlib/ \
 cd ~/lux/stdlib/ \
 && lux clean \
 && lux with lua with bibliotheca auto test
+
+cd ~/lux/stdlib/ \
+&& lux clean \
+&& lux with ruby with bibliotheca auto test
 ```
 
 ## Deploy

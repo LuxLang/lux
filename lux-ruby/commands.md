@@ -26,7 +26,7 @@ cd ~/lux/lux-ruby/ \
 ## Compile Lux's Standard Library's tests using a JVM-based compiler.
 cd ~/lux/stdlib/ \
 && lein clean \
-&& java -jar ~/lux/lux-ruby/jvm_based_compiler.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux \
+&& java -jar ~/lux/lux-ruby/target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux \
 && RUBY_THREAD_VM_STACK_SIZE=15700000 ruby ~/lux/stdlib/target/program.rb
 ```
 
@@ -34,6 +34,6 @@ cd ~/lux/stdlib/ \
 
 ```
 cd ~/lux/lux-ruby/ \
-&& mvn install:install-file -Dfile=jvm_based_compiler.jar -DgroupId=com.github.luxlang -DartifactId=lux-ruby -Dversion=0.6.0-SNAPSHOT -Dpackaging=jar
+&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-ruby -Dversion=0.6.0-SNAPSHOT -Dpackaging=jar
 ```
 

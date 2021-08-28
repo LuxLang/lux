@@ -705,19 +705,18 @@
     (&&/|meta new-type _location
               _analysis)))
 
-(defn analyse-type-check [analyse eval! exo-type ?type ?value]
+(defn analyse-type-check [analyse optimize eval! exo-type ?type ?value]
   (|do [=type (&&/analyse-1 analyse &type/Type ?type)
-        ==type (eval! =type)
+        ==type (eval! (optimize =type))
         _ (&type/check exo-type ==type)
         =value (&&/analyse-1 analyse ==type ?value)
         _location &/location]
     (return (&/|list (&&/|meta ==type _location
-                               (&&/$ann =value =type)
-                               )))))
+                               (&&/$ann =value =type))))))
 
-(defn analyse-type-as [analyse eval! exo-type ?type ?value]
+(defn analyse-type-as [analyse optimize eval! exo-type ?type ?value]
   (|do [=type (&&/analyse-1 analyse &type/Type ?type)
-        ==type (eval! =type)
+        ==type (eval! (optimize =type))
         _ (&type/check exo-type ==type)
         =value (&&/analyse-1+ analyse ?value)]
     (return (&/|list (coerce ==type =value)))))

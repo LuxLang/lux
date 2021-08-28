@@ -31,7 +31,7 @@
 
 (type: Stack
   (Record
-   {#bottom (Maybe Nat)
+   {#bottom (Maybe Code)
     #top (List Code)}))
 
 (def: aliases^
@@ -41,15 +41,19 @@
       <code>.record
       (<>.else (list))))
 
+(def: top^
+  (Parser (List Code))
+  (<code>.tuple (<>.some <code>.any)))
+
 (def: bottom^
-  (Parser Nat)
-  (<code>.form (<>.after (<code>.this! (` #.Parameter)) <code>.nat)))
+  (Parser Code)
+  (<code>.not ..top^))
 
 (def: stack^
   (Parser Stack)
   (<>.either (<>.and (<>.maybe bottom^)
-                     (<code>.tuple (<>.some <code>.any)))
-             (<>.and (|> bottom^ (<>\each (|>> #.Some)))
+                     ..top^)
+             (<>.and (<>\each (|>> #.Some) bottom^)
                      (<>\in (list)))))
 
 (def: (stack_mix tops bottom)
@@ -79,8 +83,8 @@
                                (code.replaced (code.local_identifier from) to pre))
                              aliased
                              aliases))]
-    (case [(|> inputs (value@ #bottom) (maybe\each (|>> code.nat (~) #.Parameter (`))))
-           (|> outputs (value@ #bottom) (maybe\each (|>> code.nat (~) #.Parameter (`))))]
+    (case [(value@ #bottom inputs)
+           (value@ #bottom outputs)]
       [(#.Some bottomI) (#.Some bottomO)]
       (monad.do meta.monad
         [inputC (singleton (macro.full_expansion (stack_mix (value@ #top inputs) bottomI)))
@@ -93,16 +97,17 @@
         (monad.do meta.monad
           [inputC (singleton (macro.full_expansion (stack_mix (value@ #top inputs) (maybe.else g!stack ?bottomI))))
            outputC (singleton (macro.full_expansion (stack_mix (value@ #top outputs) (maybe.else g!stack ?bottomO))))]
-          (in (list (` (All [(~ g!stack)]
-                         (-> (~ (de_alias inputC))
-                             (~ (de_alias outputC))))))))))))
+          (with_identifiers [g!_]
+            (in (list (` (All ((~ g!_) (~ g!stack))
+                           (-> (~ (de_alias inputC))
+                               (~ (de_alias outputC)))))))))))))
 
 (def: begin!
   Any
   [])
 
 (def: end!
-  (All [a] (-> [Any a] a))
+  (All (_ a) (-> [Any a] a))
   (function (_ [_ top])
     top))
 
@@ -129,14 +134,14 @@
                  (|>> (~+ commands)))))))
 
 (syntax: .public (apply [arity (<>.only (n.> 0) <code>.nat)])
-  (with_identifiers [g! g!func g!stack g!output]
+  (with_identifiers [g!_ g!func g!stack g!output]
     (monad.do {! meta.monad}
       [g!inputs (|> (macro.identifier "input") (list.repeated arity) (monad.all !))]
-      (in (list (` (: (All [(~+ g!inputs) (~ g!output)]
+      (in (list (` (: (All ((~ g!_) (~+ g!inputs) (~ g!output))
                         (-> (-> (~+ g!inputs) (~ g!output))
                             (=> [(~+ g!inputs)] [(~ g!output)])))
-                      (function ((~ g!) (~ g!func))
-                        (function ((~ g!) (~ (stack_mix g!inputs g!stack)))
+                      (function ((~ g!_) (~ g!func))
+                        (function ((~ g!_) (~ (stack_mix g!inputs g!stack)))
                           [(~ g!stack) ((~ g!func) (~+ g!inputs))])))))))))
 
 (template [<arity>]
@@ -148,52 +153,52 @@
   )
 
 (def: .public (push x)
-  (All [a] (-> a (=> [] [a])))
+  (All (_ a) (-> a (=> [] [a])))
   (function (_ stack)
     [stack x]))
 
 (def: .public drop
-  (All [t] (=> [t] []))
+  (All (_ t) (=> [t] []))
   (function (_ [stack top])
     stack))
 
 (def: .public nip
-  (All [_ a] (=> [_ a] [a]))
+  (All (_ _ a) (=> [_ a] [a]))
   (function (_ [[stack _] top])
     [stack top]))
 
 (def: .public dup
-  (All [a] (=> [a] [a a]))
+  (All (_ a) (=> [a] [a a]))
   (function (_ [stack top])
     [[stack top] top]))
 
 (def: .public swap
-  (All [a b] (=> [a b] [b a]))
+  (All (_ a b) (=> [a b] [b a]))
   (function (_ [[stack l] r])
     [[stack r] l]))
 
 (def: .public rotL
-  (All [a b c] (=> [a b c] [b c a]))
+  (All (_ a b c) (=> [a b c] [b c a]))
   (function (_ [[[stack a] b] c])
     [[[stack b] c] a]))
 
 (def: .public rotR
-  (All [a b c] (=> [a b c] [c a b]))
+  (All (_ a b c) (=> [a b c] [c a b]))
   (function (_ [[[stack a] b] c])
     [[[stack c] a] b]))
 
 (def: .public &&
-  (All [a b] (=> [a b] [(Tuple a b)]))
+  (All (_ a b) (=> [a b] [(Tuple a b)]))
   (function (_ [[stack l] r])
     [stack [l r]]))
 
 (def: .public ||L
-  (All [a b] (=> [a] [(Or a b)]))
+  (All (_ a b) (=> [a] [(Or a b)]))
   (function (_ [stack l])
     [stack (0 #0 l)]))
 
 (def: .public ||R
-  (All [a b] (=> [b] [(Or a b)]))
+  (All (_ a b) (=> [b] [(Or a b)]))
   (function (_ [stack r])
     [stack (0 #1 r)]))
 
@@ -249,7 +254,7 @@
   )
 
 (def: .public if
-  (All [___a ___z]
+  (All (_ ___a ___z)
     (=> {then (=> ___a ___z)
          else (=> ___a ___z)}
         ___a [Bit then else] ___z))
@@ -259,14 +264,14 @@
       (else stack))))
 
 (def: .public call
-  (All [___a ___z]
+  (All (_ ___a ___z)
     (=> {quote (=> ___a ___z)}
         ___a [quote] ___z))
   (function (_ [stack quote])
     (quote stack)))
 
 (def: .public loop
-  (All [___]
+  (All (_ ___)
     (=> {test (=> ___ ___ [Bit])}
         ___ [test] ___))
   (function (loop [stack pred])
@@ -276,21 +281,21 @@
         stack'))))
 
 (def: .public dip
-  (All [___ a]
+  (All (_ ___ a)
     (=> ___ [a (=> ___ ___)]
         ___ [a]))
   (function (_ [[stack a] quote])
     [(quote stack) a]))
 
 (def: .public dip/2
-  (All [___ a b]
+  (All (_ ___ a b)
     (=> ___ [a b (=> ___ ___)]
         ___ [a b]))
   (function (_ [[[stack a] b] quote])
     [[(quote stack) a] b]))
 
 (def: .public do
-  (All [___a ___z]
+  (All (_ ___a ___z)
     (=> {body (=> ___a ___z)
          pred (=> ___z ___a [Bit])}
         ___a [pred body]
@@ -299,7 +304,7 @@
     [[(body stack) pred] body]))
 
 (def: .public while
-  (All [___a ___z]
+  (All (_ ___a ___z)
     (=> {body (=> ___z ___a)
          pred (=> ___a ___z [Bit])}
         ___a [pred body]
@@ -311,21 +316,21 @@
         stack'))))
 
 (def: .public compose
-  (All [___a ___ ___z]
+  (All (_ ___a ___ ___z)
     (=> [(=> ___a ___) (=> ___ ___z)]
         [(=> ___a ___z)]))
   (function (_ [[stack f] g])
     [stack (|>> f g)]))
 
 (def: .public partial
-  (All [___a ___z a]
+  (All (_ ___a ___z a)
     (=> ___a [a (=> ___a [a] ___z)]
         ___a [(=> ___a ___z)]))
   (function (_ [[stack arg] quote])
     [stack (|>> (push arg) quote)]))
 
 (word: .public when
-  (All [___]
+  (All (_ ___)
     (=> {body (=> ___ ___)}
         ___ [Bit body]
         ___))
@@ -335,7 +340,7 @@
   if)
 
 (word: .public ?
-  (All [a]
+  (All (_ a)
     (=> [Bit a a] [a]))
   rotL
   (push ..drop)
