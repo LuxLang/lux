@@ -56,17 +56,16 @@
 (def IO
   (&/$Named (&/T [(str &/prelude "/control/io") "IO"])
             (&/$UnivQ empty-env
-                      (&/$Primitive (str &/prelude "/type/abstract.Abstraction "
-                                         &/prelude "/control/io.IO")
+                      (&/$Primitive (str &/prelude "/control/io.IO")
                                     (&/|list (&/$Parameter 1))))))
 
 (def List
   (&/$Named (&/T [&/prelude "List"])
             (&/$UnivQ empty-env
                       (&/$Sum
-                       ;; lux;End
+                       ;; .End
                        Any
-                       ;; lux;Item
+                       ;; .Item
                        (&/$Product (&/$Parameter 1)
                                    (&/$Apply (&/$Parameter 1)
                                              (&/$Parameter 0)))))))
@@ -75,9 +74,9 @@
   (&/$Named (&/T [&/prelude "Maybe"])
             (&/$UnivQ empty-env
                       (&/$Sum
-                       ;; lux;None
+                       ;; .None
                        Any
-                       ;; lux;Some
+                       ;; .Some
                        (&/$Parameter 1))
                       )))
 
@@ -140,27 +139,27 @@
                                  (&/$Parameter 1))
                   Code-List (&/$Apply Code List)]
               (&/$UnivQ empty-env
-                        (&/$Sum ;; "lux;Bit"
+                        (&/$Sum ;; .Bit
                          Bit
-                         (&/$Sum ;; "lux;Nat"
+                         (&/$Sum ;; .Nat
                           Nat
-                          (&/$Sum ;; "lux;Int"
+                          (&/$Sum ;; .Int
                            Int
-                           (&/$Sum ;; "lux;Rev"
+                           (&/$Sum ;; .Rev
                             Rev
-                            (&/$Sum ;; "lux;Frac"
+                            (&/$Sum ;; .Frac
                              Frac
-                             (&/$Sum ;; "lux;Text"
+                             (&/$Sum ;; .Text
                               Text
-                              (&/$Sum ;; "lux;Identifier"
+                              (&/$Sum ;; .Identifier
                                Ident
-                               (&/$Sum ;; "lux;Tag"
+                               (&/$Sum ;; .Tag
                                 Ident
-                                (&/$Sum ;; "lux;Form"
+                                (&/$Sum ;; .Form
                                  Code-List
-                                 (&/$Sum ;; "lux;Tuple"
+                                 (&/$Sum ;; .Tuple
                                   Code-List
-                                  ;; "lux;Record"
+                                  ;; .Record
                                   (&/$Apply (&/$Product Code Code) List)
                                   ))))))))))
                         ))))

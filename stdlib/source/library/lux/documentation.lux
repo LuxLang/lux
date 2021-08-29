@@ -9,7 +9,7 @@
     [control
      ["." maybe ("#\." functor)]
      ["." exception (#+ exception:)]
-     ["<>" parser
+     ["<>" parser ("#\." monad)
       ["<.>" code (#+ Parser)]]]
     [data
      ["." product]
@@ -273,14 +273,167 @@
       (format  "(" (%type' level type_function_name module type_func) " " (|> type_arguments (list\each (%type' level type_function_name module)) (text.interposed " ")) ")"))
 
     (#.Named [_module _name] type)
-    (if (text\= module _module)
-      _name
-      (%.name [_module _name]))
+    (cond (text\= module _module)
+          _name
+
+          (text\= .prelude_module _module)
+          (format "." _name)
+
+          ... else
+          (%.name [_module _name]))
     ))
 
 (def: type
   (-> Text Type Text)
   (%type' (-- 0) "?"))
+
+(def: (parameterized_type arity type)
+  (-> Nat Type (Maybe Type))
+  (case arity
+    0 (#.Some type)
+    _ (case type
+        (#.UnivQ _env _type)
+        (parameterized_type (-- arity) _type)
+
+        _
+        #.None)))
+
+(def: (prefixed_lines prefix lines)
+  (-> Text Text Text)
+  (|> lines
+      (text.all_split_by text.new_line)
+      (list\each (|>> (format prefix)))
+      (text.interposed text.new_line)))
+
+(def: (type_definition' level type_function_info tags module type)
+  (-> Nat [Text (List Text)] (List Text) Text Type Text)
+  (case tags
+    (^ (list single_tag))
+    (format "{#" single_tag " " (type_definition' level type_function_info #.None module type) "}")
+
+    _
+    (case type
+      (#.Primitive name params)
+      (case params
+        #.End
+        (format "(primitive " (%.text name) ")")
+
+        _
+        (format "(primitive " (%.text name) " " (|> params (list\each (type_definition' level type_function_info #.None module)) (text.interposed " ")) ")"))
+
+      (#.Sum _)
+      (let [members (type.flat_variant type)]
+        (case tags
+          #.End
+          (format "(Or "
+                  (|> members
+                      (list\each (type_definition' level type_function_info #.None module))
+                      (text.interposed " "))
+                  ")")
+
+          _
+          (|> members
+              (list.zipped/2 tags)
+              (list\each (function (_ [t_name type])
+                           (case type
+                             (#.Product _)
+                             (let [types (type.flat_tuple type)]
+                               (format "(#" t_name " "
+                                       (|> types
+                                           (list\each (type_definition' level type_function_info #.None module))
+                                           (text.interposed " "))
+                                       ")"))
+
+                             _
+                             (format "(#" t_name " " (type_definition' level type_function_info #.None module type) ")"))))
+              (text.interposed text.new_line))))
+
+      (#.Product _)
+      (let [members (type.flat_tuple type)]
+        (case tags
+          #.End
+          (format "[" (|> members (list\each (type_definition' level type_function_info #.None module)) (text.interposed " ")) "]")
+
+          _
+          (let [member_docs (|> members
+                                (list.zipped/2 tags)
+                                (list\each (function (_ [t_name type])
+                                             (format "#" t_name " " (type_definition' level type_function_info #.None module type))))
+                                (text.interposed (format text.new_line " ")))]
+            (format "{" member_docs "}"))))
+
+      (#.Function input output)
+      (let [[ins out] (type.flat_function type)]
+        (format  "(-> " (|> ins (list\each (type_definition' level type_function_info #.None module)) (text.interposed " "))
+                 " "
+                 (type_definition' level type_function_info #.None module out)
+                 ")"))
+
+      (#.Parameter idx)
+      (parameter_name type_function_info level idx)
+
+      (^template [<tag> <pre>]
+        [(<tag> id)
+         (format <pre> (%.nat id))])
+      ([#.Var "-"]
+       [#.Ex  "+"])
+
+      (^template [<tag> <name> <flat>]
+        [(<tag> _)
+         (let [[level' body] (<flat> type)
+               args (level_parameters level level')
+               body_doc (type_definition' (n.+ level level') type_function_info tags module body)
+               fn_name (case type_function_info
+                         [fn_name #.End] fn_name
+                         _ "_")]
+           (format "(" <name> " " "(" fn_name " " (text.interposed " " args) ")"
+                   (case tags
+                     #.End
+                     (format " " body_doc)
+
+                     _
+                     (format text.new_line (prefixed_lines "  " body_doc)))
+                   ")"))])
+      ([#.UnivQ "All" type.flat_univ_q]
+       [#.ExQ   "Ex"  type.flat_ex_q])
+
+      ... Recursive call
+      (#.Apply (#.Parameter param_id) (#.Parameter fn_id))
+      (if (n.= fn_id param_id)
+        (product.left type_function_info)
+        (let [[type_func type_arguments] (type.flat_application type)]
+          (format  "(" (type_definition' level type_function_info tags module (#.Parameter fn_id))
+                   " " (type_definition' level type_function_info tags module (#.Parameter param_id))
+                   ")")))
+
+      (#.Apply param fun)
+      (let [[type_func type_arguments] (type.flat_application type)]
+        (format  "(" (type_definition' level type_function_info tags module type_func)
+                 " " (|> type_arguments
+                         (list\each (type_definition' level type_function_info #.None module))
+                         (text.interposed " "))
+                 ")"))
+
+      (#.Named [_module _name] type)
+      (cond (text\= module _module)
+            _name
+
+            (text\= .prelude_module _module)
+            (format "." _name)
+
+            ... else
+            (%.name [_module _name]))
+      )))
+
+(def: (type_definition module [name parameters] tags type)
+  (-> Text [Text (List Text)] (List Text) Type Text)
+  (let [arity (list.size parameters)]
+    (case (parameterized_type arity type)
+      (#.Some type)
+      (type_definition' (-- arity) [name parameters] tags module type)
+
+      #.None
+      (..type module type))))
 
 (def: description
   (Parser (Maybe Code))
@@ -326,39 +479,60 @@
       (text.interposed "")
       code.text))
 
+(type: Declaration
+  [Name (List Text)])
+
+(def: declaration
+  (Parser Declaration)
+  (<>.either (<>.and ..qualified_identifier (<>\in (list)))
+             (<code>.form (<>.and ..qualified_identifier
+                                  (<>.some (<code>.local_identifier))))))
+
 (syntax: (minimal_definition_documentation
-          [name ..qualified_identifier])
-  (let [g!module (code.text (product.left name))]
+          [[name parameters] ..declaration])
+  (do meta.monad
+    [.let [g!module (code.text (product.left name))]
+     [[_ def_type def_annotations def_value]] (meta.export name)]
     (with_expansions [<\n> (~! text.\n)]
       (macro.with_identifiers [g!type]
         (in (list (` ($_ ((~! md.then))
                          ... Name
                          (<| ((~! md.heading/3))
-                             (~ (code.text (|> name product.right [""] %.name))))
+                             (~ (code.text (%.code (let [g!name (|> name product.right code.local_identifier)]
+                                                     (case parameters
+                                                       #.End
+                                                       g!name
+
+                                                       _
+                                                       (` ((~ g!name) (~+ (list\each code.local_identifier parameters))))))))))
                          ... Type
                          (let [(~ g!type) ("lux in-module"
                                            (~ g!module)
                                            (.:of (~ (code.identifier name))))]
-                           ((~! md.code)
-                            (if ((~! type\=) .Type (~ g!type))
-                              (|> (~ (code.identifier name))
-                                  (:as .Type)
-                                  ((~! type.anonymous))
-                                  ((~! ..type) (~ g!module))
-                                  ((~! %.format)
-                                   ((~! ..single_line_comment) ((~! ..type) (~ g!module) (~ g!type)))
-                                   <\n>))
-                              ((~! ..type) (~ g!module) (~ g!type))))))
+                           ((~! md.code) "clojure"
+                            (~ (if (type\= .Type def_type)
+                                 (` (|> (~ (code.identifier name))
+                                        (:as .Type)
+                                        ((~! type.anonymous))
+                                        ((~! ..type_definition)
+                                         (~ g!module)
+                                         [(~ (code.text (product.right name))) (list (~+ (list\each code.text parameters)))]
+                                         (list))
+                                        ((~! %.format)
+                                         ((~! ..single_line_comment) ((~! ..type) (~ g!module) (~ g!type)))
+                                         <\n>)))
+                                 (` ((~! ..type) (~ g!module) (~ g!type))))))))
                      )))))))
 
 (syntax: (definition_documentation
-          [name ..qualified_identifier
+          [[name parameters] ..declaration
            description ..description
            examples (<>.some ..example)])
   (with_expansions [<\n> (~! text.\n)]
     (in (list (` ($_ ((~! md.then))
                      ((~! ..minimal_definition_documentation)
-                      (~ (code.identifier name)))
+                      ((~ (code.identifier name))
+                       (~+ (list\each code.local_identifier parameters))))
                      ... Description
                      (~+ (case description
                            (#.Some description)
@@ -374,7 +548,7 @@
                            (list)
                            
                            _
-                           (list (` (<| ((~! md.code))
+                           (list (` (<| ((~! md.code) "clojure")
                                         ((~! %.format)
                                          (~+ (|> examples
                                                  (list\each (..example_documentation (product.left name)))
@@ -393,21 +567,23 @@
     #expected (Set Text)
     #definitions (List Definition)}))
 
-(syntax: .public (default [name ..qualified_identifier])
+(syntax: .public (default [[name parameters] ..declaration])
   (let [[_ short] name]
     (in (list (` (: (.List ..Definition)
                     (list {#..definition (~ (code.text short))
                            #..documentation ((~! ..minimal_definition_documentation)
-                                             (~ (code.identifier name)))})))))))
+                                             ((~ (code.identifier name))
+                                              (~+ (list\each code.local_identifier parameters))))})))))))
 
-(syntax: .public (documentation: [name ..qualified_identifier
+(syntax: .public (documentation: [[name parameters] ..declaration
                                   extra (<>.some <code>.any)])
   (let [[_ short] name]
     (in (list (` (.def: .public (~ (code.local_identifier short))
                    (.List ..Definition)
                    (.list {#..definition (~ (code.text short))
                            #..documentation ((~! ..definition_documentation)
-                                             (~ (code.identifier name))
+                                             ((~ (code.identifier name))
+                                              (~+ (list\each code.local_identifier parameters)))
                                              (~+ extra))})))))))
 
 (def: definitions_documentation
