@@ -47,40 +47,76 @@
         ?module-anns (&a-module/get-anns module-name)
         defs &a-module/defs
         imports &a-module/imports
-        tag-groups &a-module/tag-groups
-        :let [def-entries (->> defs
-                               (&/|map (fn [_def]
-                                         (|let [[?name _definition] _def]
-                                           (|case _definition
-                                             (&/$Left [_dmodule _dname])
-                                             (str ?name datum-separator _dmodule &/+name-separator+ _dname)
-                                             
-                                             (&/$Right [exported? ?def-type ?def-anns ?def-value])
-                                             (str ?name
-                                                  datum-separator (if exported? "1" "0")
-                                                  datum-separator (&&&type/serialize-type ?def-type)
-                                                  datum-separator (&&&ann/serialize ?def-anns))))))
-                               (&/|interpose entry-separator)
-                               (&/fold str ""))
+        :let [def-entries (&/fold (fn [def-entries _def]
+                                    (|let [[?name _definition] _def]
+                                      (|case _definition
+                                        (&/$AliasG [_dmodule _dname])
+                                        (str "A"
+                                             datum-separator ?name
+                                             datum-separator _dmodule &/+name-separator+ _dname
+                                             ;; Next
+                                             entry-separator def-entries)
+                                        
+                                        (&/$DefinitionG [exported? ?def-type ?def-anns ?def-value])
+                                        (str "D"
+                                             datum-separator ?name
+                                             datum-separator (if exported? "1" "0")
+                                             datum-separator (&&&type/serialize-type ?def-type)
+                                             datum-separator (&&&ann/serialize ?def-anns)
+                                             ;; Next
+                                             entry-separator def-entries)
+
+                                        (&/$TypeG [exported? value labels])
+                                        (let [[record? head tail] (|case labels
+                                                                    (&/$Left [head tail])
+                                                                    [false head tail]
+                                                                    
+                                                                    (&/$Right [head tail])
+                                                                    [true head tail])]
+                                          (str ":"
+                                               datum-separator ?name
+                                               datum-separator (if exported? "1" "0")
+                                               datum-separator (if record? "1" "0")
+                                               datum-separator head
+                                               datum-separator (->> tail
+                                                                    (&/|interpose &/+name-separator+)
+                                                                    (&/fold str ""))
+                                               ;; Next
+                                               entry-separator def-entries))
+
+                                        (&/$TagG [?export ?type ?group ?index])
+                                        def-entries
+                                        ;; (str "T"
+                                        ;;      datum-separator ?name
+                                        ;;      datum-separator (if ?export "1" "0")
+                                        ;;      datum-separator (&&&type/serialize-type ?type)
+                                        ;;      datum-separator ?index
+                                        ;;      datum-separator (->> ?group
+                                        ;;                           (&/|interpose &/+name-separator+)
+                                        ;;                           (&/fold str "")))
+
+                                        (&/$SlotG [?export ?type ?group ?index])
+                                        def-entries
+                                        ;; (str "S"
+                                        ;;      datum-separator ?name
+                                        ;;      datum-separator (if ?export "1" "0")
+                                        ;;      datum-separator (&&&type/serialize-type ?type)
+                                        ;;      datum-separator ?index
+                                        ;;      datum-separator (->> ?group
+                                        ;;                           (&/|interpose &/+name-separator+)
+                                        ;;                           (&/fold str "")))
+                                        )))
+                                  ""
+                                  defs)
               import-entries (->> imports
                                   (&/|map (fn [import]
                                             (|let [[_module _hash] import]
                                               (str _module datum-separator _hash))))
                                   (&/|interpose entry-separator)
                                   (&/fold str ""))
-              tag-entries (->> tag-groups
-                               (&/|map (fn [group]
-                                         (|let [[type tags] group]
-                                           (->> tags
-                                                (&/|interpose datum-separator)
-                                                (&/fold str "")
-                                                (str type datum-separator)))))
-                               (&/|interpose entry-separator)
-                               (&/fold str ""))
               module-descriptor (->> (&/|list &/version
                                               (Long/toUnsignedString file-hash)
                                               import-entries
-                                              tag-entries
                                               (|case ?module-anns
                                                 (&/$Some module-anns)
                                                 (&&&ann/serialize module-anns)

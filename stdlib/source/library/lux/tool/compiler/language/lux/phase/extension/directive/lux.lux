@@ -228,7 +228,7 @@
          [_ _ exported?] (evaluate! archive Bit exported?C)
          [_ _ annotations] (evaluate! archive Code annotationsC)
          _ (/////directive.lifted_analysis
-            (module.define short_name (#.Right [(:as Bit exported?) type (:as Code annotations) value])))
+            (module.define short_name (#.Definition [(:as Bit exported?) type (:as Code annotations) value])))
          _ (..refresh expander host_analysis)
          _ (..announce_definition! short_name type)]
         (in /////directive.no_requirements))
@@ -236,7 +236,7 @@
       _
       (phase.except ///.invalid_syntax [extension_name %.code inputsC+]))))
 
-(def: (announce_tags! tags owner)
+(def: (announce_labels! tags owner)
   (All (_ anchor expression directive)
     (-> (List Text) Type (Operation anchor expression directive (List Any))))
   (/////directive.lifted_generation
@@ -247,8 +247,11 @@
 (def: (def::type_tagged expander host_analysis)
   (-> Expander /////analysis.Bundle Handler)
   (..custom
-   [($_ <>.and <code>.local_identifier <code>.any <code>.any (<code>.tuple (<>.some <code>.text)) <code>.any)
-    (function (_ extension_name phase archive [short_name valueC annotationsC tags exported?C])
+   [($_ <>.and <code>.local_identifier <code>.any <code>.any
+        (<>.or (<code>.form (<>.some <code>.text))
+               (<code>.tuple (<>.some <code>.text)))
+        <code>.any)
+    (function (_ extension_name phase archive [short_name valueC annotationsC labels exported?C])
       (do phase.monad
         [current_module (/////directive.lifted_analysis
                          (///.lifted meta.current_module_name))
@@ -258,13 +261,27 @@
          .let [exported? (:as Bit exported?)
                annotations (:as Code annotations)]
          [type valueT value] (..definition archive full_name (#.Some .Type) valueC)
-         _ (/////directive.lifted_analysis
-            (do phase.monad
-              [_ (module.define short_name (#.Right [exported? type annotations value]))]
-              (module.declare_tags tags exported? (:as Type value))))
+         labels (/////directive.lifted_analysis
+                 (do phase.monad
+                   [.let [[record? labels] (case labels
+                                             (#.Left tags)
+                                             [false tags]
+                                             
+                                             (#.Right slots)
+                                             [true slots])]
+                    _ (case labels
+                        #.End
+                        (module.define short_name (#.Definition [exported? type annotations value]))
+
+                        (#.Item labels)
+                        (module.define short_name (#.Type [exported? (:as .Type value) (if record?
+                                                                                         (#.Right labels)
+                                                                                         (#.Left labels))])))
+                    _ (module.declare_tags record? labels exported? (:as .Type value))]
+                   (in labels)))
          _ (..refresh expander host_analysis)
          _ (..announce_definition! short_name type)
-         _ (..announce_tags! tags (:as Type value))]
+         _ (..announce_labels! labels (:as Type value))]
         (in /////directive.no_requirements)))]))
 
 (def: imports
@@ -300,17 +317,27 @@
    ["Foreign alias" (%.name foreign)]
    ["Target definition" (%.name target)]))
 
+(exception: .public (cannot_alias_a_label {local Alias} {foreign Alias})
+  (exception.report
+   ["Alias" (%.name local)]
+   ["Label" (%.name foreign)]))
+
 (def: (define_alias alias original)
   (-> Text Name (/////analysis.Operation Any))
   (do phase.monad
     [current_module (///.lifted meta.current_module_name)
      constant (///.lifted (meta.definition original))]
     (case constant
-      (#.Left de_aliased)
+      (#.Alias de_aliased)
       (phase.except ..cannot_alias_an_alias [[current_module alias] original de_aliased])
       
-      (#.Right [exported? original_type original_annotations original_value])
-      (module.define alias (#.Left original)))))
+      (^or (#.Definition _)
+           (#.Type _))
+      (module.define alias (#.Alias original))
+
+      (^or (#.Label _)
+           (#.Slot _))
+      (phase.except ..cannot_alias_a_label [[current_module alias] original]))))
 
 (def: def::alias
   Handler

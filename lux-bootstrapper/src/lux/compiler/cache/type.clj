@@ -97,8 +97,8 @@
         [(<type> (Long/parseLong idx)) input*])))
 
   ^:private deserialize-parameter "$" &/$Parameter
-  ^:private deserialize-ex    "!" &/$Ex
-  ^:private deserialize-var   "?" &/$Var
+  ^:private deserialize-ex        "!" &/$Ex
+  ^:private deserialize-var       "?" &/$Var
   )
 
 (defn ^:private deserialize-named [^String input]

@@ -148,6 +148,13 @@
   ("Jvm" 1)
   ("Js" 1))
 
+(defvariant
+  ("DefinitionG" 1)
+  ("TypeG" 1)
+  ("TagG" 1)
+  ("SlotG" 1)
+  ("AliasG" 1))
+
 (deftuple
   ["info"
    "source"

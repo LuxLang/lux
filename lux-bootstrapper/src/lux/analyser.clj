@@ -17,9 +17,7 @@
 ;; [Utils]
 (defn analyse-variant+ [analyse exo-type ident values]
   (|do [[module tag-name] (&/normalize ident)
-        _ (&&module/ensure-can-see-tag module tag-name)
-        idx (&&module/tag-index module tag-name)
-        group (&&module/tag-group module tag-name)
+        [exported? wanted-type group idx] (&&module/find-tag module (str "#" tag-name))
         :let [is-last? (= idx (dec (&/|length group)))]]
     (if (= 1 (&/|length group))
       (|do [_location &/location]
@@ -29,8 +27,7 @@
         (|do [? (&type/bound? id)]
           (if (or ? (&&/type-tag? module tag-name))
             (&&lux/analyse-variant analyse (&/$Right exo-type) idx is-last? values)
-            (|do [wanted-type (&&module/tag-type module tag-name)
-                  wanted-type* (&type/instantiate-inference wanted-type)
+            (|do [wanted-type* (&type/instantiate-inference wanted-type)
                   [[variant-type variant-location] variant-analysis] (&&/cap-1 (&&lux/analyse-variant analyse (&/$Left wanted-type*) idx is-last? values))
                   _ (&type/check exo-type variant-type)]
               (return (&/|list (&&/|meta exo-type variant-location variant-analysis))))))
@@ -149,12 +146,17 @@
           (|let [(&/$Item [_ (&/$Identifier "" ?name)]
                           (&/$Item ?value
                                    (&/$Item ?meta
-                                            (&/$Item [_ (&/$Tuple ?tags)]
+                                            (&/$Item ?labels
                                                      (&/$Item exported?
                                                               (&/$End))))
                                    )) parameters]
             (&/with-location location
-              (&&lux/analyse-def-type-tagged analyse optimize eval! compile-def ?name ?value ?meta ?tags exported?)))
+              (|case ?labels
+                [_ (&/$Form ?tags)]
+                (&&lux/analyse-def-type-tagged analyse optimize eval! compile-def ?name ?value ?meta false ?tags exported?)
+                
+                [_ (&/$Tuple ?slots)]
+                (&&lux/analyse-def-type-tagged analyse optimize eval! compile-def ?name ?value ?meta true ?slots exported?))))
 
           "lux def program"
           (|let [(&/$Item ?program (&/$End)) parameters]

@@ -1,6 +1,6 @@
 (.module:
   [library
-   [lux (#- type)
+   [lux (#- type macro)
     [abstract
      [functor (#+ Functor)]
      [apply (#+ Apply)]
@@ -189,7 +189,16 @@
                                   (#.Definition [exported? def_type def_anns def_value])
                                   (if (macro_type? def_type)
                                     (#.Some (:as Macro def_value))
-                                    #.None))))))])))))
+                                    #.None)
+
+                                  (#.Type [exported? type labels])
+                                  #.None
+
+                                  (#.Label _)
+                                  #.None
+
+                                  (#.Slot _)
+                                  #.None)))))])))))
 
 (def: .public seed
   (Meta Nat)
@@ -315,13 +324,20 @@
                                                                     (value@ #.definitions)
                                                                     (list.all (function (_ [def_name global])
                                                                                 (case global
-                                                                                  (#.Definition [exported? _ _ _])
+                                                                                  (^or (#.Definition [exported? _])
+                                                                                       (#.Type [exported? _]))
                                                                                   (if (and exported?
                                                                                            (text\= normal_short def_name))
                                                                                     (#.Some (name\encoded [module_name def_name]))
                                                                                     #.None)
 
                                                                                   (#.Alias _)
+                                                                                  #.None
+
+                                                                                  (#.Label _)
+                                                                                  #.None
+
+                                                                                  (#.Slot _)
                                                                                   #.None))))))
                                                    list.together
                                                    (list.sorted text\<)
@@ -348,27 +364,55 @@
   (do ..monad
     [definition (..definition name)]
     (case definition
-      (#.Left de_aliased)
-      (failure ($_ text\composite
-                   "Aliases are not considered exports: "
-                   (name\encoded name)))
-      
-      (#.Right definition)
+      (#.Definition definition)
       (let [[exported? def_type def_data def_value] definition]
         (if exported?
           (in definition)
-          (failure ($_ text\composite "Definition is not an export: " (name\encoded name))))))))
+          (failure ($_ text\composite "Definition is not an export: " (name\encoded name)))))
+
+      (#.Type [exported? type labels])
+      (if exported?
+        (in [exported? .Type (' {}) type])
+        (failure ($_ text\composite "Type is not an export: " (name\encoded name))))
+
+      (#.Alias de_aliased)
+      (failure ($_ text\composite
+                   "Aliases are not considered exports: "
+                   (name\encoded name)))
+
+      (#.Label _)
+      (failure ($_ text\composite
+                   "Tags are not considered exports: "
+                   (name\encoded name)))
+
+      (#.Slot _)
+      (failure ($_ text\composite
+                   "Slots are not considered exports: "
+                   (name\encoded name))))))
 
 (def: .public (definition_type name)
   (-> Name (Meta Type))
   (do ..monad
     [definition (definition name)]
     (case definition
-      (#.Left de_aliased)
+      (#.Alias de_aliased)
       (definition_type de_aliased)
       
-      (#.Right [exported? def_type def_data def_value])
-      (clean_type def_type))))
+      (#.Definition [exported? def_type def_data def_value])
+      (clean_type def_type)
+
+      (#.Type [exported? type labels])
+      (in .Type)
+
+      (#.Label _)
+      (failure ($_ text\composite
+                   "Tags have no type: "
+                   (name\encoded name)))
+
+      (#.Slot _)
+      (failure ($_ text\composite
+                   "Slots have no type: "
+                   (name\encoded name))))))
 
 (def: .public (type name)
   (-> Name (Meta Type))
@@ -385,17 +429,26 @@
   (do ..monad
     [definition (definition name)]
     (case definition
-      (#.Left de_aliased)
+      (#.Alias de_aliased)
       (type_definition de_aliased)
       
-      (#.Right [exported? def_type def_data def_value])
+      (#.Definition [exported? def_type def_data def_value])
       (let [type_code (`` ("lux in-module" (~~ (static .prelude_module)) .type_code))]
         (if (or (same? .Type def_type)
                 (\ code.equivalence =
                    (type_code .Type)
                    (type_code def_type)))
           (in (:as Type def_value))
-          (..failure ($_ text\composite "Definition is not a type: " (name\encoded name))))))))
+          (..failure ($_ text\composite "Definition is not a type: " (name\encoded name)))))
+
+      (#.Type [exported? type labels])
+      (in type)
+
+      (#.Label _)
+      (..failure ($_ text\composite "Tag is not a type: " (name\encoded name)))
+
+      (#.Slot _)
+      (..failure ($_ text\composite "Slot is not a type: " (name\encoded name))))))
 
 (def: .public (globals module)
   (-> Text (Meta (List [Text Global])))
@@ -412,11 +465,20 @@
   (\ ..monad each
      (list.all (function (_ [name global])
                  (case global
-                   (#.Left de_aliased)
+                   (#.Alias de_aliased)
                    #.None
                    
-                   (#.Right definition)
-                   (#.Some [name definition]))))
+                   (#.Definition definition)
+                   (#.Some [name definition])
+
+                   (#.Type [exported? type labels])
+                   (#.Some [name [exported? .Type (' {}) type]])
+
+                   (#.Label _)
+                   #.None
+
+                   (#.Slot _)
+                   #.None)))
      (..globals module)))
 
 (def: .public (exports module_name)
@@ -440,11 +502,12 @@
 (def: .public (tags_of type_name)
   (-> Name (Meta (Maybe (List Name))))
   (do ..monad
-    [.let [[module name] type_name]
-     module (..module module)]
-    (case (plist.value name (value@ #.types module))
-      (#.Some [tags _])
-      (in (#.Some tags))
+    [.let [[module_name name] type_name]
+     module (..module module_name)]
+    (case (plist.value name (value@ #.definitions module))
+      (#.Some (#.Type [exported? type (#.Right slots)]))
+      (in (#.Some (list\each (|>> [module_name])
+                             (#.Item slots))))
 
       _
       (in #.None))))
@@ -489,33 +552,41 @@
      =module (..module module)
      this_module_name ..current_module_name
      imported! (..imported? module)]
-    (case (plist.value name (value@ #.tags =module))
-      (#.Some [idx tag_list exported? type])
+    (case (plist.value (text\composite "#" name) (value@ #.definitions =module))
+      (^or (#.Some (#.Label [exported? type group idx]))
+           (#.Some (#.Slot [exported? type group idx])))
       (if (or (text\= this_module_name module)
               (and imported! exported?))
-        (in [idx tag_list type])
+        (in [idx (list\each (|>> [module]) group) type])
         (..failure ($_ text\composite "Cannot access tag: " (name\encoded tag_name) " from module " this_module_name)))
 
       _
       (..failure ($_ text\composite
-                     "Unknown tag: " (name\encoded tag_name) text.new_line
-                     " Known tags: " (|> =module
-                                         (value@ #.tags)
-                                         (list\each (|>> product.left [module] name\encoded (text.prefix text.new_line)))
-                                         text.together)
-                     )))))
+                     "Unknown tag: " (name\encoded tag_name))))))
 
 (def: .public (tag_lists module)
   (-> Text (Meta (List [(List Name) Type])))
   (do ..monad
     [=module (..module module)
      this_module_name ..current_module_name]
-    (in (|> (value@ #.types =module)
-            (list.only (function (_ [type_name [tag_list exported? type]])
-                         (or exported?
-                             (text\= this_module_name module))))
-            (list\each (function (_ [type_name [tag_list exported? type]])
-                         [tag_list type]))))))
+    (in (list.all (function (_ [short global])
+                    (case global
+                      (#.Type [exported? type labels])
+                      (if (or exported?
+                              (text\= this_module_name module))
+                        (#.Some [(list\each (|>> [module])
+                                            (case labels
+                                              (#.Left tags)
+                                              (#.Item tags)
+                                              
+                                              (#.Right slots)
+                                              (#.Item slots)))
+                                 type])
+                        #.None)
+
+                      _
+                      #.None))
+                  (value@ #.definitions =module)))))
 
 (def: .public locals
   (Meta (List (List [Text Type])))
@@ -536,10 +607,19 @@
   (do ..monad
     [constant (..definition def_name)]
     (in (case constant
-          (#.Left real_def_name)
+          (#.Alias real_def_name)
           real_def_name
 
-          (#.Right _)
+          (#.Definition _)
+          def_name
+
+          (#.Type _)
+          def_name
+
+          (#.Label _)
+          def_name
+
+          (#.Slot _)
           def_name))))
 
 (def: .public compiler_state

@@ -347,15 +347,13 @@
       (&/$Tag ?ident)
       (|do [[=module =name] (&&/resolved-ident ?ident)
             must-infer? (&type/unknown? value-type)
+            [_exported? variant-type** group idx] (&module/find-tag =module (str "#" =name))
             variant-type (if must-infer?
-                           (|do [variant-type (&module/tag-type =module =name)
-                                 variant-type* (&type/instantiate-inference variant-type)
+                           (|do [variant-type* (&type/instantiate-inference variant-type**)
                                  _ (&type/check value-type variant-type*)]
                              (return variant-type*))
                            (return value-type))
             value-type* (adjust-type variant-type)
-            idx (&module/tag-index =module =name)
-            group (&module/tag-group =module =name)
             case-type (&type/sum-at idx value-type*)
             [=test =kont] (analyse-pattern &/$None case-type unit-tuple kont)]
         (return (&/T [($VariantTestAC (&/T [idx (&/|length group) =test])) =kont])))
@@ -374,15 +372,13 @@
       (&/$Form (&/$Item [_ (&/$Tag ?ident)] ?values))
       (|do [[=module =name] (&&/resolved-ident ?ident)
             must-infer? (&type/unknown? value-type)
+            [_exported? variant-type** group idx] (&module/find-tag =module (str "#" =name))
             variant-type (if must-infer?
-                           (|do [variant-type (&module/tag-type =module =name)
-                                 variant-type* (&type/instantiate-inference variant-type)
+                           (|do [variant-type* (&type/instantiate-inference variant-type**)
                                  _ (&type/check value-type variant-type*)]
                              (return variant-type*))
                            (return value-type))
             value-type* (adjust-type variant-type)
-            idx (&module/tag-index =module =name)
-            group (&module/tag-group =module =name)
             case-type (&type/sum-at idx value-type*)
             [=test =kont] (case (int (&/|length ?values))
                             0 (analyse-pattern &/$None case-type unit-tuple kont)

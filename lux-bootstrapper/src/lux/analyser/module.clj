@@ -22,8 +22,6 @@
    "module-aliases"
    "defs"
    "imports"
-   "tags"
-   "types"
    "module-annotations"
    "module-state"])
 
@@ -36,10 +34,6 @@
         (&/|table)
         ;; "lux;imports"
         &/$End
-        ;; "lux;tags"
-        (&/|table)
-        ;; "lux;types"
-        (&/|table)
         ;; module-annotations
         &/$None
         ;; "module-state"
@@ -115,7 +109,7 @@
                                  (&/|update module
                                             (fn [m]
                                               (&/update$ $defs
-                                                         #(&/|put name (&/$Left de-aliased) %)
+                                                         #(&/|put name (&/$AliasG de-aliased) %)
                                                          m))
                                             ms))))
                nil)
@@ -134,7 +128,7 @@
                                  (&/|update module
                                             (fn [m]
                                               (&/update$ $defs
-                                                         #(&/|put name (&/$Right (&/T [exported? def-type def-meta def-value])) %)
+                                                         #(&/|put name (&/$DefinitionG (&/T [exported? def-type def-meta def-value])) %)
                                                          m))
                                             ms))))
                nil)
@@ -150,15 +144,26 @@
     (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
       (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
         (|case $def
-          (&/$Left [o-module o-name])
+          (&/$AliasG [o-module o-name])
           ((type-def o-module o-name) state)
           
-          (&/$Right [exported? ?type ?meta ?value])
+          (&/$DefinitionG [exported? ?type ?meta ?value])
           (if (&type/type= &type/Type ?type)
             (return* state (&/T [exported? ?value]))
             ((&/fail-with-loc (str "[Analyser Error] Not a type: " (&/ident->text (&/T [module name]))
                                    "\nMETA: " (&/show-ast ?meta)))
-             state)))
+             state))
+
+          (&/$TypeG [exported? ?value labels])
+          (return* state (&/T [exported? ?value]))
+
+          (&/$TagG _)
+          ((&/fail-with-loc (str "[Analyser Error] Not a type: " (&/ident->text (&/T [module name]))))
+           state)
+
+          (&/$SlotG _)
+          ((&/fail-with-loc (str "[Analyser Error] Not a type: " (&/ident->text (&/T [module name]))))
+           state))
         ((&/fail-with-loc (str "[Analyser Error] Unknown definition: " (&/ident->text (&/T [module name]))))
          state))
       ((&/fail-with-loc (str "[Analyser Error] Unknown module: " module))
@@ -226,18 +231,35 @@
                                           ms))))
              nil)))
 
+(def empty_annotations
+  (let [dummy_location (&/T ["" 0 0])]
+    (&/T [dummy_location
+          (&/$Record &/$End)])))
+
 (defn find-def! [module name]
   (|do [current-module &/get-module-name]
     (fn [state]
       (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
         (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
           (|case $def
-            (&/$Left [?r-module ?r-name])
+            (&/$AliasG [?r-module ?r-name])
             ((find-def! ?r-module ?r-name)
              state)
 
-            (&/$Right $def*)
-            (return* state (&/T [(&/T [module name]) $def*])))
+            (&/$DefinitionG $def*)
+            (return* state (&/T [(&/T [module name]) $def*]))
+
+            (&/$TypeG [exported? ?value labels])
+            (return* state (&/T [(&/T [module name])
+                                 (&/T [exported? &type/Type empty_annotations ?value])]))
+
+            (&/$TagG _)
+            ((&/fail-with-loc (str "[Analyser Error] Not a definition: " (&/ident->text (&/T [module name]))))
+             state)
+
+            (&/$SlotG _)
+            ((&/fail-with-loc (str "[Analyser Error] Not a definition: " (&/ident->text (&/T [module name]))))
+             state))
           ((&/fail-with-loc (str "[Analyser Error @ find-def!] Definition does not exist: " (str module &/+name-separator+ name)
                                  " at module: " current-module))
            state))
@@ -251,7 +273,7 @@
       (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
         (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
           (|case $def
-            (&/$Left [?r-module ?r-name])
+            (&/$AliasG [?r-module ?r-name])
             (if (.equals ^Object current-module module)
               ((find-def! ?r-module ?r-name)
                state)
@@ -259,7 +281,7 @@
                                      " at module: " current-module))
                state))
             
-            (&/$Right [exported? ?type ?meta ?value])
+            (&/$DefinitionG [exported? ?type ?meta ?value])
             (if (or (.equals ^Object current-module module)
                     (and exported?
                          (or (.equals ^Object module &/prelude)
@@ -268,13 +290,99 @@
                                    (&/T [exported? ?type ?meta ?value])]))
               ((&/fail-with-loc (str "[Analyser Error @ find-def] Cannot use private definition: " (str module &/+name-separator+ name)
                                      " at module: " current-module))
-               state)))
+               state))
+
+            (&/$TypeG [exported? ?value labels])
+            (if (or (.equals ^Object current-module module)
+                    (and exported?
+                         (or (.equals ^Object module &/prelude)
+                             (imports? state module current-module))))
+              (return* state (&/T [(&/T [module name])
+                                   (&/T [exported? &type/Type empty_annotations ?value])]))
+              ((&/fail-with-loc (str "[Analyser Error @ find-def] Cannot use private definition: " (str module &/+name-separator+ name)
+                                     " at module: " current-module))
+               state))
+
+            (&/$TagG _)
+            ((&/fail-with-loc (str "[Analyser Error] Not a definition: " (&/ident->text (&/T [module name]))))
+             state)
+
+            (&/$SlotG _)
+            ((&/fail-with-loc (str "[Analyser Error] Not a definition: " (&/ident->text (&/T [module name]))))
+             state))
           ((&/fail-with-loc (str "[Analyser Error @ find-def] Definition does not exist: " (str module &/+name-separator+ name)
                                  " at module: " current-module))
            state))
         ((&/fail-with-loc (str "[Analyser Error @ find-def] Module does not exist: " module
                                " at module: " current-module))
          state)))))
+
+(do-template [<tag> <find!> <find>]
+  (do (defn <find!> [module name]
+        (|do [current-module &/get-module-name]
+          (fn [state]
+            (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
+              (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
+                (|case $def
+                  (&/$AliasG [?r-module ?r-name])
+                  ((<find!> ?r-module ?r-name)
+                   state)
+
+                  (<tag> ?payload)
+                  (return* state ?payload)
+
+                  _
+                  ((&/fail-with-loc (str "[Analyser Error] Not a label: " (&/ident->text (&/T [module name]))
+                                         " @ " (quote <find!>)))
+                   state))
+                ((&/fail-with-loc (str "[Analyser Error] Label does not exist: " (str module &/+name-separator+ name)
+                                       " at module: " current-module
+                                       " @ " (quote <find!>)))
+                 state))
+              ((&/fail-with-loc (str "[Analyser Error] Module does not exist: " module
+                                     " at module: " current-module
+                                     " @ " (quote <find!>)))
+               state)))))
+    (defn <find> [module name]
+      (|do [current-module &/get-module-name]
+        (fn [state]
+          (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
+            (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
+              (|case $def
+                (&/$AliasG [?r-module ?r-name])
+                (if (.equals ^Object current-module module)
+                  ((<find!> ?r-module ?r-name)
+                   state)
+                  ((&/fail-with-loc (str "[Analyser Error] Cannot use (private) alias: " (str module &/+name-separator+ name)
+                                         " at module: " current-module
+                                         " @ " (quote <find>)))
+                   state))
+                
+                (<tag> [exported? type group index])
+                (if (or (.equals ^Object current-module module)
+                        exported?)
+                  (return* state (&/T [exported? type group index]))
+                  ((&/fail-with-loc (str "[Analyser Error] Cannot use private label: " (str module &/+name-separator+ name)
+                                         " at module: " current-module
+                                         " @ " (quote <find>)))
+                   state))
+
+                _
+                ((&/fail-with-loc (str "[Analyser Error] Not a label: " (&/ident->text (&/T [module name]))
+                                       " @ " (quote <find>)))
+                 state))
+              ((&/fail-with-loc (str "[Analyser Error] Label does not exist: " (str module &/+name-separator+ name)
+                                     " at module: " current-module
+                                     " @ " (quote <find>)))
+               state))
+            ((&/fail-with-loc (str "[Analyser Error] Module does not exist: " module
+                                   " at module: " current-module
+                                   " @ " (quote <find>)))
+             state))))))
+
+  &/$TagG find-tag! find-tag
+  &/$SlotG find-slot! find-slot
+  )
 
 (defn defined? [module name]
   (&/try-all% (&/|list (|do [_ (find-def! module name)]
@@ -291,21 +399,14 @@
                   (&/set$ &/$current-module (&/$Some name)))
              nil)))
 
-(do-template [<name> <tag> <type>]
-  (defn <name>
-    <type>
-    [module]
-    (fn [state]
-      (if-let [=module (->> state (&/get$ &/$modules) (&/|get module))]
-        (return* state (&/get$ <tag> =module))
-        ((&/fail-with-loc (str "[Lux Error] Unknown module: " module))
-         state))
-      ))
-
-  tags-by-module  $tags        "(-> Text (Lux (List (, Text (, Int (List Text) Type)))))"
-  types-by-module $types       "(-> Text (Lux (List (, Text (, (List Text) Type)))))"
-  module-hash     $module-hash "(-> Text (Lux Int))"
-  )
+(defn module-hash
+  "(-> Text (Lux Int))"
+  [module]
+  (fn [state]
+    (if-let [=module (->> state (&/get$ &/$modules) (&/|get module))]
+      (return* state (&/get$ $module-hash =module))
+      ((&/fail-with-loc (str "[Lux Error] Unknown module: " module))
+       state))))
 
 (def imports
   (|do [module &/get-module-name
@@ -316,85 +417,90 @@
                 (return (&/T [_module _hash]))))
             _imports)))
 
-(defn ensure-undeclared-tags [module tags]
-  (|do [tags-table (tags-by-module module)
-        _ (&/map% (fn [tag]
-                    (if (&/|get tag tags-table)
-                      (&/fail-with-loc (str "[Analyser Error] Cannot re-declare tag: " (&/ident->text (&/T [module tag]))))
-                      (return nil)))
-                  tags)]
-    (return nil)))
+(defn define_tag [module name exported? type group index]
+  (fn [state]
+    (|case (&/get$ &/$scopes state)
+      (&/$Item ?env (&/$End))
+      (return* (->> state
+                    (&/update$ &/$modules
+                               (fn [ms]
+                                 (&/|update module
+                                            (fn [m]
+                                              (&/update$ $defs
+                                                         #(&/|put name (&/$TagG (&/T [exported? type group index])) %)
+                                                         m))
+                                            ms))))
+               nil)
+      
+      _
+      ((&/fail-with-loc (str "[Analyser Error] Cannot create a new global tag outside of a global environment: " (str module &/+name-separator+ name)))
+       state))))
 
-(defn ensure-undeclared-type [module name]
-  (|do [types-table (types-by-module module)
-        _ (&/assert! (nil? (&/|get name types-table))
-                     (str "[Analyser Error] Cannot re-declare type: " (&/ident->text (&/T [module name]))))]
-    (return nil)))
+(defn define_slot [module name exported? type group index]
+  (fn [state]
+    (|case (&/get$ &/$scopes state)
+      (&/$Item ?env (&/$End))
+      (return* (->> state
+                    (&/update$ &/$modules
+                               (fn [ms]
+                                 (&/|update module
+                                            (fn [m]
+                                              (&/update$ $defs
+                                                         #(&/|put name (&/$SlotG (&/T [exported? type group index])) %)
+                                                         m))
+                                            ms))))
+               nil)
+      
+      _
+      ((&/fail-with-loc (str "[Analyser Error] Cannot create a new global slot outside of a global environment: " (str module &/+name-separator+ name)))
+       state))))
 
-(defn declare-tags
+(defn declare-labels
   "(-> Text (List Text) Bit Type (Lux Null))"
-  [module tag-names was-exported? type]
-  (|do [_ (ensure-undeclared-tags module tag-names)
-        type-name (&type/type-name type)
+  [module record? label-names was-exported? type]
+  (|do [type-name (&type/type-name type)
         :let [[_module _name] type-name]
         _ (&/assert! (= module _module)
-                     (str "[Module Error] Cannot define tags for a type belonging to a foreign module: " (&/ident->text type-name)))
-        _ (ensure-undeclared-type _module _name)]
-    (fn [state]
-      (if-let [=module (->> state (&/get$ &/$modules) (&/|get module))]
-        (let [tags (&/|map (fn [tag-name] (&/T [module tag-name])) tag-names)]
-          (return* (&/update$ &/$modules
-                              (fn [=modules]
-                                (&/|update module
-                                           #(->> %
-                                                 (&/set$ $tags (&/fold (fn [table idx+tag-name]
-                                                                         (|let [[idx tag-name] idx+tag-name]
-                                                                           (&/|put tag-name (&/T [idx tags was-exported? type]) table)))
-                                                                       (&/get$ $tags %)
-                                                                       (&/enumerate tag-names)))
-                                                 (&/update$ $types (partial &/|put _name (&/T [tags was-exported? type]))))
-                                           =modules))
-                              state)
-                   nil))
-        ((&/fail-with-loc (str "[Lux Error] Unknown module: " module))
-         state)))))
+                     (str "[Module Error] Cannot define labels for a type belonging to a foreign module: " (&/ident->text type-name)))]
+    (if (nil? record?)
+      (return &/unit-tag)
+      (if record?
+        (&/map% (fn [idx+label-name]
+                  (|let [[index label-name] idx+label-name]
+                    (define_slot module (str "#" label-name) was-exported? type label-names index)))
+                (&/enumerate label-names))
+        (&/map% (fn [idx+label-name]
+                  (|let [[index label-name] idx+label-name]
+                    (define_tag module (str "#" label-name) was-exported? type label-names index)))
+                (&/enumerate label-names))))))
 
-(defn ensure-can-see-tag
-  "(-> Text Text (Lux Any))"
-  [module tag-name]
-  (|do [current-module &/get-module-name]
-    (fn [state]
-      (if-let [=module (->> state (&/get$ &/$modules) (&/|get module))]
-        (if-let [^objects idx+tags+exported+type (&/|get tag-name (&/get$ $tags =module))]
-          (|let [[?idx ?tags ?exported ?type] idx+tags+exported+type]
-            (if (or ?exported
-                    (= module current-module))
-              (return* state &/unit-tag)
-              ((&/fail-with-loc (str "[Analyser Error] Cannot access tag #" (&/ident->text (&/T [module tag-name])) " from module " current-module))
-               state)))
-          ((&/fail-with-loc (str "[Module Error] Unknown tag: " (&/ident->text (&/T [module tag-name]))))
-           state))
-        ((&/fail-with-loc (str "[Module Error] Unknown module: " module))
-         state)))))
+(defn define-type [module name exported? def-meta def-value record? labels]
+  (|case labels
+    (&/$End)
+    (define module name exported? &type/Type def-meta def-value)
 
-(do-template [<name> <part> <doc>]
-  (defn <name>
-    <doc>
-    [module tag-name]
-    (fn [state]
-      (if-let [=module (->> state (&/get$ &/$modules) (&/|get module))]
-        (if-let [^objects idx+tags+exported+type (&/|get tag-name (&/get$ $tags =module))]
-          (|let [[?idx ?tags ?exported ?type] idx+tags+exported+type]
-            (return* state <part>))
-          ((&/fail-with-loc (str "[Module Error] Unknown tag: " (&/ident->text (&/T [module tag-name]))))
-           state))
-        ((&/fail-with-loc (str "[Module Error] Unknown module: " module))
-         state))))
-
-  tag-index ?idx  "(-> Text Text (Lux Int))"
-  tag-group ?tags "(-> Text Text (Lux (List Ident)))"
-  tag-type  ?type "(-> Text Text (Lux Type))"
-  )
+    (&/$Item labelH labelT)
+    (|do [_ (declare-labels module record? labels exported? def-value)]
+      (fn [state]
+        (|case (&/get$ &/$scopes state)
+          (&/$Item ?env (&/$End))
+          (return* (->> state
+                        (&/update$ &/$modules
+                                   (fn [ms]
+                                     (&/|update module
+                                                (fn [m]
+                                                  (&/update$ $defs
+                                                             #(&/|put name (&/$TypeG (&/T [exported? def-value (if record?
+                                                                                                                 (&/$Right (&/T [labelH labelT]))
+                                                                                                                 (&/$Left (&/T [labelH labelT])))]))
+                                                                      %)
+                                                             m))
+                                                ms))))
+                   nil)
+          
+          _
+          ((&/fail-with-loc (str "[Analyser Error] Cannot create a new global definition outside of a global environment: " (str module &/+name-separator+ name)))
+           state))))))
 
 (def defs
   (|do [module &/get-module-name]
@@ -417,15 +523,3 @@
 
     _
     (&/fail-with-loc "[Analyser Error] Incorrect import syntax.")))
-
-(def ^{:doc "(Lux (List [Text (List Text)]))"}
-  tag-groups
-  (|do [module &/get-current-module]
-    (return (&/|map (fn [pair]
-                      (|case pair
-                        [name [tags exported? _]]
-                        (&/T [name (&/|map (fn [tag]
-                                             (|let [[t-prefix t-name] tag]
-                                               t-name))
-                                           tags)])))
-                    (&/get$ $types module)))))

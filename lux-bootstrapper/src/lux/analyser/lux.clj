@@ -248,9 +248,9 @@
   (|do [[rec-members rec-type] (&&record/order-record ?elems)]
     (|case exo-type
       (&/$Var id)
-      (|do [? (&type/bound? id)]
-        (if ?
-            (analyse-tuple analyse (&/$Right exo-type) rec-members)
+      (|do [verdict (&type/bound? id)]
+        (if verdict
+          (analyse-tuple analyse (&/$Right exo-type) rec-members)
           (|do [[[tuple-type tuple-location] tuple-analysis] (&&/cap-1 (analyse-tuple analyse (&/$Left rec-type) rec-members))
                 _ (&type/check exo-type tuple-type)]
             (return (&/|list (&&/|meta exo-type tuple-location
@@ -261,7 +261,7 @@
       )))
 
 (defn ^:private analyse-global [analyse exo-type module name]
-  (|do [[[r-module r-name] [exported? endo-type ?meta ?value]] (&&module/find-def module name)
+  (|do [[[r-module r-name] [exported? endo-type ?annotations ?value]] (&&module/find-def module name)
         ;; This is a small shortcut to optimize analysis of typing code.
         _ (if (and (&type/type= &type/Type endo-type)
                    (&type/type= &type/Type exo-type))
@@ -376,7 +376,7 @@
 (defn analyse-apply [analyse location exo-type macro-caller =fn ?args]
   (|case =fn
     [_ (&&/$def ?module ?name)]
-    (|do [[real-name [exported? ?type ?meta ?value]] (&&module/find-def! ?module ?name)]
+    (|do [[real-name [exported? ?type ?annotations ?value]] (&&module/find-def! ?module ?name)]
       (if (&type/type= &type/Macro ?type)
         (|do [macro-expansion (fn [state]
                                 (|case (macro-caller ?value ?args state)
@@ -549,7 +549,7 @@
                                 (str "\nThis is an alias for " source-name)))))
       (return &/$End))))
 
-(defn analyse-def* [analyse optimize eval! compile-def ?name ?value ?meta exported? & [?expected-type]]
+(defn analyse-def* [analyse optimize eval! compile-def ?name ?value ?annotations exported? type? & [?expected-type]]
   (|do [_ &/ensure-directive
         module-name &/get-module-name
         _ (ensure-undefined! module-name ?name)
@@ -561,32 +561,29 @@
                     (&&/analyse-1+ analyse ?value))))
         =exported? (&&/analyse-1 analyse &type/Bit exported?)
         ==exported? (eval! (optimize =exported?))
-        =meta (&&/analyse-1 analyse &type/Code ?meta)
-        ==meta (eval! (optimize =meta))
-        def-value (compile-def ?name (optimize =value) ==meta ==exported?)
+        =annotations (&&/analyse-1 analyse &type/Code ?annotations)
+        ==annotations (eval! (optimize =annotations))
+        def-value (compile-def ?name (optimize =value) ==annotations ==exported? type?)
         _ &type/reset-mappings
         :let [def-type (&&/expr-type* =value)
               _ (println 'DEF (str module-name &/+name-separator+ ?name
                                    " : " (&type/show-type def-type)))]]
     (return (&/T [module-name def-type def-value ==exported?]))))
 
-(defn analyse-def [analyse optimize eval! compile-def ?name ?value ?meta exported?]
-  (|do [_ (analyse-def* analyse optimize eval! compile-def ?name ?value ?meta exported?)]
+(defn analyse-def [analyse optimize eval! compile-def ?name ?value ?annotations exported?]
+  (|do [_ (analyse-def* analyse optimize eval! compile-def ?name ?value ?annotations exported? &/$None)]
     (return &/$End)))
 
-(defn analyse-def-type-tagged [analyse optimize eval! compile-def ?name ?value ?meta tags* exported?]
-  (|do [[module-name def-type def-value =exported?] (analyse-def* analyse optimize eval! compile-def ?name ?value ?meta exported? &type/Type)
-        _ (&/assert! (&type/type= &type/Type def-type)
-                     "[Analyser Error] Cannot define tags for non-type.")
-        tags (&/map% (fn [tag*]
-                       (|case tag*
-                         [_ (&/$Text tag)]
-                         (return tag)
+(defn analyse-def-type-tagged [analyse optimize eval! compile-def ?name ?value ?annotations record? labels* exported?]
+  (|do [labels (&/map% (fn [tag*]
+                         (|case tag*
+                           [_ (&/$Text tag)]
+                           (return tag)
 
-                         _
-                         (&/fail-with-loc "[Analyser Error] Incorrect format for tags.")))
-                     tags*)
-        _ (&&module/declare-tags module-name tags =exported? def-value)]
+                           _
+                           (&/fail-with-loc "[Analyser Error] Incorrect format for labels.")))
+                       labels*)
+        _ (analyse-def* analyse optimize eval! compile-def ?name ?value ?annotations exported? (&/$Some (&/T [record? labels])) &type/Type)]
     (return &/$End)))
 
 (defn analyse-def-alias [?alias ?original]
@@ -661,9 +658,9 @@
         (return (doto (promise)
                   (deliver (&/$Right _compiler))))))))
 
-(defn analyse-module [analyse optimize eval! compile-module ?meta ?imports]
+(defn analyse-module [analyse optimize eval! compile-module ?annotations ?imports]
   (|do [_ &/ensure-directive
-        =anns (&&/analyse-1 analyse &type/Code ?meta)
+        =anns (&&/analyse-1 analyse &type/Code ?annotations)
         ==anns (eval! (optimize =anns))
         module-name &/get-module-name
         _ (&&module/set-anns ==anns module-name)

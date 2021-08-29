@@ -28,11 +28,6 @@
   (exception.report
    ["Module" module]))
 
-(exception: .public (cannot_declare_tag_twice {module Text} {tag Text})
-  (exception.report
-   ["Module" module]
-   ["Tag" tag]))
-
 (template [<name>]
   [(exception: .public (<name> {tags (List Text)} {owner Type})
      (exception.report
@@ -51,7 +46,16 @@
                  (format "alias " (%.name alias))
                  
                  (#.Definition definition)
-                 (format "definition " (%.name name)))]))
+                 (format "definition " (%.name name))
+
+                 (#.Type _)
+                 (format "type " (%.name name))
+
+                 (#.Label _)
+                 (format "tag " (%.name name))
+
+                 (#.Slot _)
+                 (format "slot " (%.name name)))]))
 
 (exception: .public (can_only_change_state_of_active_module {module Text} {state Module_State})
   (exception.report
@@ -73,8 +77,6 @@
    #.module_aliases     (list)
    #.definitions        (list)
    #.imports            (list)
-   #.tags               (list)
-   #.types              (list)
    #.module_annotations #.None
    #.module_state       #.Active})
 
@@ -211,41 +213,20 @@
   [set_cached   cached?   #.Cached]
   )
 
-(template [<name> <tag> <type>]
-  [(def: (<name> module_name)
-     (-> Text (Operation <type>))
-     (///extension.lifted
-      (function (_ state)
-        (case (|> state (value@ #.modules) (plist.value module_name))
-          (#.Some module)
-          (#try.Success [state (value@ <tag> module)])
+(def: (hash module_name)
+  (-> Text (Operation Nat))
+  (///extension.lifted
+   (function (_ state)
+     (case (|> state (value@ #.modules) (plist.value module_name))
+       (#.Some module)
+       (#try.Success [state (value@ #.module_hash module)])
 
-          #.None
-          ((/.except' unknown_module module_name) state)))))]
+       #.None
+       ((/.except' unknown_module module_name) state)))))
 
-  [tags  #.tags        (List [Text [Nat (List Name) Bit Type]])]
-  [types #.types       (List [Text [(List Name) Bit Type]])]
-  [hash  #.module_hash Nat]
-  )
-
-(def: (ensure_undeclared_tags module_name tags)
-  (-> Text (List Tag) (Operation Any))
+(def: .public (declare_tags record? tags exported? type)
+  (-> Bit (List Tag) Bit Type (Operation Any))
   (do {! ///.monad}
-    [bindings (..tags module_name)
-     _ (monad.each !
-                   (function (_ tag)
-                     (case (plist.value tag bindings)
-                       #.None
-                       (in [])
-
-                       (#.Some _)
-                       (/.except ..cannot_declare_tag_twice [module_name tag])))
-                   tags)]
-    (in [])))
-
-(def: .public (declare_tags tags exported? type)
-  (-> (List Tag) Bit Type (Operation Any))
-  (do ///.monad
     [self_name (///extension.lifted meta.current_module_name)
      [type_module type_name] (case type
                                (#.Named type_name _)
@@ -253,23 +234,11 @@
 
                                _
                                (/.except ..cannot_declare_tags_for_unnamed_type [tags type]))
-     _ (ensure_undeclared_tags self_name tags)
      _ (///.assertion cannot_declare_tags_for_foreign_type [tags type]
                       (text\= self_name type_module))]
-    (///extension.lifted
-     (function (_ state)
-       (case (|> state (value@ #.modules) (plist.value self_name))
-         (#.Some module)
-         (let [namespaced_tags (list\each (|>> [self_name]) tags)]
-           (#try.Success [(revised@ #.modules
-                                    (plist.revised self_name
-                                                   (|>> (revised@ #.tags (function (_ tag_bindings)
-                                                                           (list\mix (function (_ [idx tag] table)
-                                                                                       (plist.has tag [idx namespaced_tags exported? type] table))
-                                                                                     tag_bindings
-                                                                                     (list.enumeration tags))))
-                                                        (revised@ #.types (plist.has type_name [namespaced_tags exported? type]))))
-                                    state)
-                          []]))
-         #.None
-         ((/.except' unknown_module self_name) state))))))
+    (monad.each ! (function (_ [index short])
+                    (..define (format "#" short)
+                              (if record?
+                                (#.Slot [exported? type tags index])
+                                (#.Label [exported? type tags index]))))
+                (list.enumeration tags))))
