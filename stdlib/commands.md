@@ -57,7 +57,7 @@ cd ~/lux/stdlib/ \
 cd ~/lux/stdlib/ \
 && lux clean \
 && lux with jvm with documentation build \
-&& java -jar target/program.jar > documentation.md
+&& java -jar target/program.jar > ~/documentation.md
 ```
 
 ---
