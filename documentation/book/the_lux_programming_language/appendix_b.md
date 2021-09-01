@@ -1,4 +1,4 @@
-# Appendix B: Math in Lux
+# Appendix B: Math
 
 Math in Lux is a bit different from what you might be used to in other languages.
 

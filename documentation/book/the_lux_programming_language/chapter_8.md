@@ -1,4 +1,4 @@
-# Chapter 8: Functors and Monads
+# Chapter 8: Functors and monads
 
 _Where I will try to explain something really confusing, and you'll pretend you understand to avoid hurting my feelings._
 

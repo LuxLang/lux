@@ -1,4 +1,4 @@
-# Chapter 3: Syntax and Data-Types
+# Chapter 3: Syntax and data-types
 
 _Where you will learn the what Lux code is made of._
 

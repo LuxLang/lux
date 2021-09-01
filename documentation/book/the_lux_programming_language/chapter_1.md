@@ -1,4 +1,4 @@
-# Chapter 1: Getting Started
+# Chapter 1: Getting started
 
 _Where you will learn how to set up a development environment for Lux._
 

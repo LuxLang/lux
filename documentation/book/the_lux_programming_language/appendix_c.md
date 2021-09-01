@@ -1,4 +1,4 @@
-# Appendix C: Pattern-Matching Macros
+# Appendix C: Pattern-matching macros
 
 Pattern-matching is a native Lux feature, and yet `case` is a macro.
 

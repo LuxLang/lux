@@ -1,4 +1,4 @@
-# Chapter 9: Metaprogramming
+# Chapter 9: Meta-programming
 
 _Where we go meta. For real._
 

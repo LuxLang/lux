@@ -1,4 +1,4 @@
-# Chapter 5: Control Flow
+# Chapter 5: Control flow
 
 _Where you will learn how to give intelligence to your code._
 

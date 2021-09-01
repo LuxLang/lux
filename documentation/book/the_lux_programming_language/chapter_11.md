@@ -1,4 +1,4 @@
-# Chapter 11: Syntax Macros
+# Chapter 11: Syntax macros
 
 _Where science turns into magic once more._
 

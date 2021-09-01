@@ -1,4 +1,4 @@
-# Chapter 7: Interfaces and Implementations
+# Chapter 7: Polymorphism a.k.a. interfaces and implementations
 
 _Where types and values collide._
 

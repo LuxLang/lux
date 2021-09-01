@@ -1,4 +1,4 @@
-# Chapter 6: Types in Detail
+# Chapter 6: Types in detail
 
 _Where you will learn the truth behind types._
 

@@ -1,4 +1,4 @@
-# Chapter 2: The Basics
+# Chapter 2: The basics
 
 _Where you will learn the fundamentals of Lux programming._
 

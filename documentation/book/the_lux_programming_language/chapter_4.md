@@ -1,4 +1,4 @@
-# Chapter 4: Functions and Definitions
+# Chapter 4: Functions and definitions
 
 _Where you will learn how to build your own Lux code._
 
