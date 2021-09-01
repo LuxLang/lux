@@ -129,7 +129,8 @@
              (import: org/openjdk/nashorn/api/scripting/ScriptObjectMirror
                ["#::."
                 (size [] int)
-                (toString [] java/lang/String)])
+                (toString [] java/lang/String)
+                (getOwnKeys [boolean] [java/lang/String])])
 
              (import: org/openjdk/nashorn/internal/runtime/Undefined)
 
@@ -173,7 +174,7 @@
                     (|> value .nat runtime.low jvm_int)
 
                     _
-                    (panic! (exception.construct ..unknown_member [member (:as java/lang/Object value)]))))
+                    (panic! (exception.error ..unknown_member [member (:as java/lang/Object value)]))))
                  ))
 
              (def: (::toString js_object)
@@ -256,7 +257,7 @@
                       (|> value (array.read! 2) maybe.trusted js_object (:as java/lang/Object))
                       
                       _
-                      (panic! (exception.construct ..unknown_member [(:as Text member) (:as java/lang/Object value)])))
+                      (panic! (exception.error ..unknown_member [(:as Text member) (:as java/lang/Object value)])))
                     )
                    (org/openjdk/nashorn/api/scripting/AbstractJSObject
                     [] (getSlot self {idx int}) java/lang/Object
@@ -272,7 +273,17 @@
              (exception: (unknown_kind_of_host_object {object java/lang/Object})
                (exception.report
                 ["Class" (java/lang/Object::toString (java/lang/Object::getClass object))]
-                ["Object" (java/lang/Object::toString object)]))
+                ["Object" (java/lang/Object::toString object)]
+                ["Keys" (case (ffi.check org/openjdk/nashorn/api/scripting/ScriptObjectMirror object)
+                          (#.Some object)
+                          (|> object
+                              (org/openjdk/nashorn/api/scripting/ScriptObjectMirror::getOwnKeys true)
+                              (:as (Array Text))
+                              (array.list #.None)
+                              (%.list %.text))
+                          
+                          #.None
+                          "???")]))
 
              (def: (check_int js_object)
                (-> org/openjdk/nashorn/api/scripting/ScriptObjectMirror
@@ -286,9 +297,9 @@
                          {[(java/lang/Number::longValue high)
                            (java/lang/Number::longValue low)]
                           [high low]})
-                 (#.Some (.int (n.+ (|> high .nat (i64.left_shift 32))
+                 (#.Some (.int (n.+ (|> high .nat (i64.left_shifted 32))
                                     (if (i.< +0 (.int low))
-                                      (|> low .nat (i64.left_shift 32) (i64.right_shift 32))
+                                      (|> low .nat (i64.left_shifted 32) (i64.right_shifted 32))
                                       (.nat low)))))
 
                  _
@@ -305,15 +316,15 @@
                          {(ffi.check java/lang/Number tag)
                           (#.Some tag)}
                          {(lux_object value)
-                          (#.Some value)})
-                 (#.Some [(java/lang/Number::intValue tag)
-                          (maybe.default (ffi.null) ?flag)
+                          (#try.Success value)})
+                 (#.Some [(java/lang/Number::intValue (:as java/lang/Number tag))
+                          (maybe.else (ffi.null) ?flag)
                           value])
 
                  _
                  #.None))
 
-             (def: (check_array lux_object js_object)
+             (def: (check_tuple lux_object js_object)
                (-> (-> java/lang/Object (Try Any))
                    org/openjdk/nashorn/api/scripting/ScriptObjectMirror
                    (Maybe (Array java/lang/Object)))
@@ -321,7 +332,7 @@
                  (let [num_keys (.nat (org/openjdk/nashorn/api/scripting/ScriptObjectMirror::size js_object))]
                    (loop [idx 0
                           output (: (Array java/lang/Object)
-                                    (array.new num_keys))]
+                                    (array.empty num_keys))]
                      (if (n.< num_keys idx)
                        (case (org/openjdk/nashorn/api/scripting/JSObject::getMember (%.nat idx) js_object)
                          (#.Some member)
@@ -345,22 +356,22 @@
              (def: (lux_object js_object)
                (-> java/lang/Object (Try Any))
                (`` (<| (if (ffi.null? js_object)
-                         (exception.throw ..null_has_no_lux_representation [#.None]))
+                         (exception.except ..null_has_no_lux_representation [#.None]))
                        (case (ffi.check org/openjdk/nashorn/internal/runtime/Undefined js_object)
                          (#.Some _)
-                         (exception.throw ..undefined_has_no_lux_representation [])
+                         (exception.except ..undefined_has_no_lux_representation [])
                          #.None)
                        (~~ (template [<class>]
                              [(case (ffi.check <class> js_object)
                                 (#.Some js_object)
-                                (exception.return js_object)
+                                (#try.Success js_object)
                                 #.None)]
 
                              [java/lang/Boolean] [java/lang/String]))
                        (~~ (template [<class> <method>]
                              [(case (ffi.check <class> js_object)
                                 (#.Some js_object)
-                                (exception.return (<method> js_object))
+                                (#try.Success (<method> js_object))
                                 #.None)]
 
                              [java/lang/Number java/lang/Number::doubleValue]
@@ -370,26 +381,28 @@
                          (#.Some js_object)
                          (case (check_int js_object)
                            (#.Some value)
-                           (exception.return value)
+                           (#try.Success value)
 
                            #.None
                            (case (check_variant lux_object js_object)
                              (#.Some value)
-                             (exception.return value)
+                             (#try.Success value)
 
                              #.None
-                             (case (check_array lux_object js_object)
+                             (case (check_tuple lux_object js_object)
                                (#.Some value)
-                               (exception.return value)
+                               (#try.Success value)
 
                                #.None
                                (if (org/openjdk/nashorn/api/scripting/JSObject::isFunction js_object)
-                                 (exception.return js_object)
-                                 ... (exception.throw ..unknown_kind_of_host_object (:as java/lang/Object js_object))
-                                 (exception.return js_object)))))
+                                 (#try.Success js_object)
+                                 ... (exception.except ..unknown_kind_of_host_object [(:as java/lang/Object js_object)])
+                                 (#try.Success js_object)
+                                 ))))
                          #.None)
                        ... else
-                       (exception.throw ..unknown_kind_of_host_object (:as java/lang/Object js_object))
+                       ... (exception.except ..unknown_kind_of_host_object [(:as java/lang/Object js_object)])
+                       (#try.Success js_object)
                        )))
 
              (def: (ensure_function function)
@@ -413,7 +426,7 @@
                               (|>> (:as (Array java/lang/Object)) js_structure (:as java/lang/Object)))]
                  (<| (:as (Try (Try [Lux (List Code)])))
                      (org/openjdk/nashorn/api/scripting/JSObject::call #.None
-                                                                       (|> (array.new 2)
+                                                                       (|> (array.empty 2)
                                                                            (: (Array java/lang/Object))
                                                                            (array.write! 0 (to_js inputs))
                                                                            (array.write! 1 (to_js lux)))
@@ -438,7 +451,7 @@
                    (#try.Failure error))
                  
                  #.None
-                 (exception.throw ..cannot_apply_a_non_function (:as java/lang/Object macro))))
+                 (exception.except ..cannot_apply_a_non_function (:as java/lang/Object macro))))
              )
 
       @.js
@@ -457,24 +470,24 @@
                    (..lux_object output)
 
                    #.None
-                   (exception.throw ..null_has_no_lux_representation [(#.Some input)]))))
+                   (exception.except ..null_has_no_lux_representation [(#.Some input)]))))
 
              (def: (execute! interpreter input)
                (-> javax/script/ScriptEngine _.Statement (Try Any))
                (do try.monad
                  [?output (javax/script/ScriptEngine::eval (_.code input) interpreter)]
-                 (wrap [])))
+                 (in [])))
 
              (def: (define! interpreter context custom input)
                (-> javax/script/ScriptEngine Context (Maybe Text) _.Expression (Try [Text Any _.Statement]))
-               (let [global (maybe.default (reference.artifact context)
-                                           custom)
+               (let [global (maybe.else (reference.artifact context)
+                                        custom)
                      @global (_.var global)]
                  (do try.monad
-                   [#let [definition (_.define @global input)]
+                   [.let [definition (_.define @global input)]
                     _ (execute! interpreter definition)
                     value (evaluate! interpreter context @global)]
-                   (wrap [global value definition]))))
+                   (in [global value definition]))))
 
              (def: host
                (IO (Host _.Expression _.Statement))
@@ -515,27 +528,27 @@
                  [?output (..eval (_.code input))]
                  (case ?output
                    (#.Some output)
-                   (wrap output)
+                   (in output)
 
                    #.None
-                   (exception.throw ..null_has_no_lux_representation [(#.Some input)]))))
+                   (exception.except ..null_has_no_lux_representation [(#.Some input)]))))
 
              (def: (execute! input)
                (-> _.Statement (Try Any))
                (do try.monad
                  [?output (..eval (_.code input))]
-                 (wrap [])))
+                 (in [])))
 
              (def: (define! context custom input)
                (-> Context (Maybe Text) _.Expression (Try [Text Any _.Statement]))
-               (let [global (maybe.default (reference.artifact context)
-                                           custom)
+               (let [global (maybe.else (reference.artifact context)
+                                        custom)
                      @global (_.var global)]
                  (do try.monad
-                   [#let [definition (_.define @global input)]
+                   [.let [definition (_.define @global input)]
                     _ (..execute! definition)
                     value (..evaluate! context @global)]
-                   (wrap [global value definition]))))
+                   (in [global value definition]))))
 
              (def: host
                (IO (Host _.Expression _.Statement))
@@ -558,30 +571,30 @@
              )})
 
 (def: (phase_wrapper archive)
-  (-> Archive (runtime.Operation platform.Phase_Wrapper))
+  (-> Archive (runtime.Operation phase.Wrapper))
   (do phase.monad
     []
-    (wrap (:as platform.Phase_Wrapper
-               (for {... The implementation for @.old is technically incorrect.
-                     ... However, the JS compiler runs fast enough on Node to be fully hosted there.
-                     ... And running the JS compiler on the JVM (on top of Nashorn) is impractically slow.
-                     ... This means that in practice, only the @.js implementation matters.
-                     ... And since no cross-language boundary needs to be handled, it's a correct implementation.
-                     @.old (|>>)
-                     @.js (|>>)})))))
+    (in (:as phase.Wrapper
+             (for {... The implementation for @.old is technically incorrect.
+                   ... However, the JS compiler runs fast enough on Node to be fully hosted there.
+                   ... And running the JS compiler on the JVM (on top of Nashorn) is impractically slow.
+                   ... This means that in practice, only the @.js implementation matters.
+                   ... And since no cross-language boundary needs to be handled, it's a correct implementation.
+                   @.old (|>>)
+                   @.js (|>>)})))))
 
 (def: platform
   (IO (Platform [Register Text] _.Expression _.Statement))
   (do io.monad
     [host ..host]
-    (wrap {#platform.&file_system (for {@.old (file.async file.default)
-                                        @.jvm (file.async file.default)
-                                        @.js file.default})
-           #platform.host host
-           #platform.phase js.generate
-           #platform.runtime runtime.generate
-           #platform.phase_wrapper ..phase_wrapper
-           #platform.write (|>> _.code (\ utf8.codec encoded))})))
+    (in {#platform.&file_system (for {@.old (file.async file.default)
+                                      @.jvm (file.async file.default)
+                                      @.js file.default})
+         #platform.host host
+         #platform.phase js.generate
+         #platform.runtime runtime.generate
+         #platform.phase_wrapper ..phase_wrapper
+         #platform.write (|>> _.code (\ utf8.codec encoded))})))
 
 (def: (program context program)
   (Program _.Expression _.Statement)
@@ -602,7 +615,7 @@
 
 (for {@.old
       (def: (extender phase_wrapper)
-        (-> platform.Phase_Wrapper Extender)
+        (-> phase.Wrapper Extender)
         ... TODO: Stop relying on coercions ASAP.
         (<| (:as Extender)
             (function (@self handler))
@@ -617,10 +630,10 @@
             (:as Try)
             (do try.monad
               [handler (try.of_maybe (..ensure_function handler))
-               #let [to_js (: (-> Any java/lang/Object)
+               .let [to_js (: (-> Any java/lang/Object)
                               (|>> (:as (Array java/lang/Object)) js_structure (:as java/lang/Object)))]
                output (org/openjdk/nashorn/api/scripting/JSObject::call #.None
-                                                                        (|> (array.new 5)
+                                                                        (|> (array.empty 5)
                                                                             (: (Array java/lang/Object))
                                                                             (array.write! 0 name)
                                                                             (array.write! 1 (:as java/lang/Object (extender phase)))
@@ -632,7 +645,7 @@
 
       @.js
       (def: (extender phase_wrapper handler)
-        (-> platform.Phase_Wrapper Extender)
+        (-> phase.Wrapper Extender)
         (:expected handler))})
 
 (def: (declare_success! _)
@@ -657,7 +670,7 @@
                            generation.bundle
                            (function.constant extension/bundle.empty)
                            ..program
-                           [(& Register Text) _.Expression _.Statement]
+                           [(And Register Text) _.Expression _.Statement]
                            ..extender
                            service
                            [(packager.package _.use_strict _.code _.then ..scope)

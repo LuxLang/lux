@@ -14,14 +14,14 @@
   :dependencies [[org.clojure/clojure "1.6.0"]
                  [org.clojure/core.match "0.2.1"]
                  ;; Prefer when building Lua compiler.
-                 [org.ow2.asm/asm-all "5.0.3"]
+                 ;; [org.ow2.asm/asm-all "5.0.3"]
 
                  ;; Prefer when building JS compiler.
-                 ;; [org.ow2.asm/asm "7.3.1"]
-                 ;; [org.ow2.asm/asm-commons "7.3.1"]
-                 ;; [org.ow2.asm/asm-analysis "7.3.1"]
-                 ;; [org.ow2.asm/asm-tree "7.3.1"]
-                 ;; [org.ow2.asm/asm-util "7.3.1"]
+                 [org.ow2.asm/asm "7.3.1"]
+                 [org.ow2.asm/asm-commons "7.3.1"]
+                 [org.ow2.asm/asm-analysis "7.3.1"]
+                 [org.ow2.asm/asm-tree "7.3.1"]
+                 [org.ow2.asm/asm-util "7.3.1"]
                  ]
   :warn-on-reflection true
   :repositories [["snapshots" "https://oss.sonatype.org/content/repositories/snapshots/"]

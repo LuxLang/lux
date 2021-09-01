@@ -13,6 +13,10 @@ cd ~/lux/stdlib/ \
 
 cd ~/lux/stdlib/ \
 && lux clean \
+&& lux with js with bibliotheca auto test
+
+cd ~/lux/stdlib/ \
+&& lux clean \
 && lux with python with bibliotheca auto test
 
 cd ~/lux/stdlib/ \
@@ -69,11 +73,11 @@ cd ~/lux/stdlib/ \
 ```
 cd ~/lux/stdlib/ \
 && lux clean \
-&& lux with aedifex auto build
+&& lux with jvm with aedifex auto build
 
 cd ~/lux/stdlib/ \
 && lux clean \
-&& lux with aedifex build \
+&& lux with jvm with aedifex build \
 && mv target/program.jar aedifex.jar
 ```
 

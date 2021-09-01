@@ -8,8 +8,10 @@ cd ~/lux/lux-js/ && lein clean && lein lux auto test
 # Build
 
 ```
-cd ~/lux/lux-js/ && lein lux auto build
-cd ~/lux/lux-js/ && lein clean && lein lux auto build
+## Develop
+cd ~/lux/lux-js/ \
+&& lein clean \
+&& lein lux auto build
 
 ## Build JVM-based compiler
 cd ~/lux/lux-js/ \
@@ -20,7 +22,7 @@ cd ~/lux/lux-js/ \
 ## Use JVM-based compiler to produce a JS/Node-based compiler.
 cd ~/lux/lux-js/ \
 && lein clean \
-&& java -jar jvm_based_compiler.jar build --source ~/lux/lux-js/source --target ~/lux/lux-js/target --module program \
+&& time java -jar jvm_based_compiler.jar build --source ~/lux/lux-js/source --target ~/lux/lux-js/target --module program \
 && mv target/program.js node_based_compiler.js
 
 ## Use JS/Node-based compiler to produce another JS/Node-based compiler.
