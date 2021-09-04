@@ -245,20 +245,24 @@
       )))
 
 (defn analyse-record [analyse exo-type ?elems]
-  (|do [[rec-members rec-type] (&&record/order-record ?elems)]
-    (|case exo-type
-      (&/$Var id)
-      (|do [verdict (&type/bound? id)]
-        (if verdict
-          (analyse-tuple analyse (&/$Right exo-type) rec-members)
-          (|do [[[tuple-type tuple-location] tuple-analysis] (&&/cap-1 (analyse-tuple analyse (&/$Left rec-type) rec-members))
-                _ (&type/check exo-type tuple-type)]
-            (return (&/|list (&&/|meta exo-type tuple-location
-                                       tuple-analysis))))))
+  (|do [rec-members&rec-type (&&record/order-record ?elems)]
+    (|case rec-members&rec-type
+      (&/$Some [rec-members rec-type])
+      (|case exo-type
+        (&/$Var id)
+        (|do [verdict (&type/bound? id)]
+          (if verdict
+            (analyse-tuple analyse (&/$Right exo-type) rec-members)
+            (|do [[[tuple-type tuple-location] tuple-analysis] (&&/cap-1 (analyse-tuple analyse (&/$Left rec-type) rec-members))
+                  _ (&type/check exo-type tuple-type)]
+              (return (&/|list (&&/|meta exo-type tuple-location
+                                         tuple-analysis))))))
 
-      _
-      (analyse-tuple analyse (&/$Right exo-type) rec-members)
-      )))
+        _
+        (analyse-tuple analyse (&/$Right exo-type) rec-members))
+
+      (&/$None)
+      (analyse-tuple analyse (&/$Right exo-type) ?elems))))
 
 (defn ^:private analyse-global [analyse exo-type module name]
   (|do [[[r-module r-name] [exported? endo-type ?annotations ?value]] (&&module/find-def module name)

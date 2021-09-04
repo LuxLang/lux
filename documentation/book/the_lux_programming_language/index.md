@@ -1,7 +1,7 @@
 # Table of contents
 
 * [Introduction](introduction.md)
-* [Chapter 1: Getting started](chapter_*md)
+* [Chapter 1: Getting started](chapter_1.md)
 	_Where you will learn how to set up a development environment for Lux._
 * [Chapter 2: The basics](chapter_2.md)
 	_Where you will learn the fundamentals of Lux programming._
@@ -21,7 +21,7 @@
 	_Where we go meta. For real._
 * [Chapter 10: Code and macros](chapter_10.md)
 	_Where magic turns into science._
-* [Chapter 11: Syntax macros](chapter_1*md)
+* [Chapter 11: Syntax macros](chapter_11.md)
 	_Where science turns into magic once more._
 * [Chapter 12: I/O](chapter_12.md)
 	_Where you will learn how to interact with the outside world._

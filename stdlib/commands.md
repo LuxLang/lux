@@ -72,6 +72,10 @@ cd ~/lux/stdlib/ \
 
 ```
 cd ~/lux/stdlib/ \
+&& lein clean \
+&& lein with-profile aedifex lux auto build
+
+cd ~/lux/stdlib/ \
 && lux clean \
 && lux with jvm with aedifex auto build
 

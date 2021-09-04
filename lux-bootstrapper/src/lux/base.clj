@@ -273,7 +273,7 @@
         :else pattern))
 
 (defmacro |case [value & branches]
-  (assert (= 0 (mod (count branches) 2)))
+  (assert (even? (count branches)))
   (let [value* (if (vector? value)
                  [`(T [~@value])]
                  [value])]
@@ -381,7 +381,7 @@
         ))))
 
 (defmacro |do [steps return]
-  (assert (= 0 (rem (count steps) 2)) "The number of steps must be even!")
+  (assert (even? (count steps)) "The number of steps must be even!")
   (reduce (fn [inner [label computation]]
             (case label
               :let `(|let ~computation ~inner)
@@ -580,19 +580,21 @@
 (defn list-join [xss]
   (fold |++ $End xss))
 
-(defn |as-pairs [xs]
-  (|case xs
-    ($Item x ($Item y xs*))
-    ($Item (T [x y]) (|as-pairs xs*))
-
-    _
-    $End))
-
 (defn |reverse [xs]
   (fold (fn [tail head]
           ($Item head tail))
         $End
         xs))
+
+(defn |as-pairs [xs]
+  (loop [input xs
+         output $End]
+    (|case input
+      ($Item headL ($Item headR tail))
+      (recur tail ($Item (T [headL headR]) output))
+
+      _
+      (|reverse output))))
 
 (defn add-loc [meta ^String msg]
   (if (.startsWith msg "@")

@@ -1,6 +1,6 @@
 (.module:
   [library
-   [lux (#- type macro)
+   [lux (#- type macro try)
     [abstract
      [functor (#+ Functor)]
      [apply (#+ Apply)]
@@ -548,24 +548,27 @@
      (|>> (value@ #.imports) (list.any? (text\= import)))
      ..current_module))
 
-(def: .public (tag tag_name)
-  (-> Name (Meta [Nat (List Name) Type]))
-  (do ..monad
-    [.let [[module name] tag_name]
-     =module (..module module)
-     this_module_name ..current_module_name
-     imported! (..imported? module)]
-    (case (plist.value (text\composite "#" name) (value@ #.definitions =module))
-      (^or (#.Some (#.Label [exported? type group idx]))
-           (#.Some (#.Slot [exported? type group idx])))
-      (if (or (text\= this_module_name module)
-              (and imported! exported?))
-        (in [idx (list\each (|>> [module]) group) type])
-        (..failure ($_ text\composite "Cannot access tag: " (name\encoded tag_name) " from module " this_module_name)))
+(template [<name> <tag> <description>]
+  [(def: .public (<name> tag_name)
+     (-> Name (Meta [Nat (List Name) Type]))
+     (do ..monad
+       [.let [[module name] tag_name]
+        =module (..module module)
+        this_module_name ..current_module_name]
+       (case (plist.value (text\composite "#" name) (value@ #.definitions =module))
+         (#.Some (<tag> [exported? type group idx]))
+         (if (or (text\= this_module_name module)
+                 exported?)
+           (in [idx (list\each (|>> [module]) group) type])
+           (..failure ($_ text\composite "Cannot access " <description>  ": " (name\encoded tag_name) " from module " this_module_name)))
 
-      _
-      (..failure ($_ text\composite
-                     "Unknown tag: " (name\encoded tag_name))))))
+         _
+         (..failure ($_ text\composite
+                        "Unknown " <description>  ": " (name\encoded tag_name))))))]
+
+  [tag #.Label "tag"]
+  [slot #.Slot "slot"]
+  )
 
 (def: .public (tag_lists module)
   (-> Text (Meta (List [(List Name) Type])))
@@ -650,3 +653,13 @@
     [eval (\ ! each (value@ #.eval)
              ..compiler_state)]
     (eval type code)))
+
+(def: .public (try computation)
+  (All (_ it) (-> (Meta it) (Meta (Try it))))
+  (function (_ lux)
+    (case (computation lux)
+      (#try.Success [lux' output])
+      (#try.Success [lux' (#try.Success output)])
+
+      (#try.Failure error)
+      (#try.Success [lux (#try.Failure error)]))))

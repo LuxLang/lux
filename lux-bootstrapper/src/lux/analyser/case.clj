@@ -298,51 +298,51 @@
             =kont kont]
         (return (&/T [($TextTestAC ?value) =kont])))
 
+      (&/$Tuple (&/$End))
+      (|do [_ (&type/check value-type &type/Any)
+            =kont kont]
+        (return (&/T [($TupleTestAC (&/|list)) =kont])))
+
+      (&/$Tuple (&/$Item ?member (&/$End)))
+      (analyse-pattern var?? value-type ?member kont)
+
       (&/$Tuple ?members)
-      (|case ?members
-        (&/$End)
-        (|do [_ (&type/check value-type &type/Any)
-              =kont kont]
-          (return (&/T [($TupleTestAC (&/|list)) =kont])))
+      (|do [rec-members&rec-type (&&record/order-record ?members)]
+        (|case rec-members&rec-type
+          (&/$Some [rec-members rec-type])
+          (|do [must-infer? (&type/unknown? value-type)
+                rec-type* (if must-infer?
+                            (&type/instantiate-inference rec-type)
+                            (return value-type))
+                _ (&type/check value-type rec-type*)]
+            (analyse-pattern &/$None rec-type* (&/T [meta (&/$Tuple rec-members)]) kont))
 
-        (&/$Item ?member (&/$End))
-        (analyse-pattern var?? value-type ?member kont)
+          (&/$None)
+          (|do [must-infer? (&type/unknown? value-type)
+                value-type* (if must-infer?
+                              (|do [member-types (&/map% (fn [_] &type/create-var+) (&/|range (&/|length ?members)))]
+                                (return (&type/fold-prod member-types)))
+                              (adjust-type value-type))]
+            (|case value-type*
+              (&/$Product _)
+              (|let [num-elems (&/|length ?members)
+                     [_shorter _tuple-types] (&type/tuple-types-for (&/|length ?members) value-type*)]
+                (if (= num-elems _shorter)
+                  (|do [[=tests =kont] (&/fold (fn [kont* vm]
+                                                 (|let [[v m] vm]
+                                                   (|do [[=test [=tests =kont]] (analyse-pattern &/$None v m kont*)]
+                                                     (return (&/T [(&/$Item =test =tests) =kont])))))
+                                               (|do [=kont kont]
+                                                 (return (&/T [&/$End =kont])))
+                                               (&/|reverse (&/zip2 _tuple-types ?members)))]
+                    (return (&/T [($TupleTestAC =tests) =kont])))
+                  (&/fail-with-loc (str "[Pattern-matching Error] Pattern-matching mismatch. Requires tuple[" (&/|length (&type/flatten-prod value-type*)) "]. Given tuple [" (&/|length ?members) "].\n"
+                                        "           At: " (&/show-ast pattern) "\n"
+                                        "Expected type: " (&type/show-type value-type*) "\n"
+                                        "  Actual type: " (&type/show-type value-type)))))
 
-        _
-        (|do [must-infer? (&type/unknown? value-type)
-              value-type* (if must-infer?
-                            (|do [member-types (&/map% (fn [_] &type/create-var+) (&/|range (&/|length ?members)))]
-                              (return (&type/fold-prod member-types)))
-                            (adjust-type value-type))]
-          (|case value-type*
-            (&/$Product _)
-            (|let [num-elems (&/|length ?members)
-                   [_shorter _tuple-types] (&type/tuple-types-for (&/|length ?members) value-type*)]
-              (if (= num-elems _shorter)
-                (|do [[=tests =kont] (&/fold (fn [kont* vm]
-                                               (|let [[v m] vm]
-                                                 (|do [[=test [=tests =kont]] (analyse-pattern &/$None v m kont*)]
-                                                   (return (&/T [(&/$Item =test =tests) =kont])))))
-                                             (|do [=kont kont]
-                                               (return (&/T [&/$End =kont])))
-                                             (&/|reverse (&/zip2 _tuple-types ?members)))]
-                  (return (&/T [($TupleTestAC =tests) =kont])))
-                (&/fail-with-loc (str "[Pattern-matching Error] Pattern-matching mismatch. Requires tuple[" (&/|length (&type/flatten-prod value-type*)) "]. Given tuple [" (&/|length ?members) "].\n"
-                                      "           At: " (&/show-ast pattern) "\n"
-                                      "Expected type: " (&type/show-type value-type*) "\n"
-                                      "  Actual type: " (&type/show-type value-type)))))
-
-            _
-            (&/fail-with-loc (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type))))))
-
-      (&/$Record pairs)
-      (|do [[rec-members rec-type] (&&record/order-record pairs)
-            must-infer? (&type/unknown? value-type)
-            rec-type* (if must-infer?
-                        (&type/instantiate-inference rec-type)
-                        (return value-type))
-            _ (&type/check value-type rec-type*)]
-        (analyse-pattern &/$None rec-type* (&/T [meta (&/$Tuple rec-members)]) kont))
+              _
+              (&/fail-with-loc (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type)))))))
 
       (&/$Tag ?ident)
       (|do [[=module =name] (&&/resolved-ident ?ident)

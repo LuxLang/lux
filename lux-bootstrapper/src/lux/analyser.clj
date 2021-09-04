@@ -88,10 +88,6 @@
 
       (&/$Tuple ?elems)
       (&/with-analysis-meta location exo-type
-        (&&lux/analyse-tuple analyse (&/$Right exo-type) ?elems))
-
-      (&/$Record ?elems)
-      (&/with-analysis-meta location exo-type
         (&&lux/analyse-record analyse exo-type ?elems))
 
       (&/$Tag ?ident)
