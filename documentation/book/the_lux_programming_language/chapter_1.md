@@ -19,7 +19,7 @@ The instructions for how to install it are at the link and it won't take much ti
 
 ## Question #2: How do I build Lux programs?
 
-Lux uses a custom-made build tool named Aedifex which is configured using a declarative Lux-based syntax.
+Lux uses a custom-made build tool named _Aedifex_ which is configured using a declarative Lux-based syntax.
 To install Aedifex, go to https://github.com/LuxLang/lux/tree/master/shell and download either `lux.bat` or `lux.sh` depending on whether you're on Windows or Linux/Mac.
 Also download the `aedifex.jar` file, and place it (along with either of the scripts you downloaded) somewhere in your `PATH`.
 Now, you'll have access to the `lux` command, which allows you to run Aedifex to build and test Lux projects.
@@ -82,6 +82,8 @@ A directory named `target` will have been created, containing everything that wa
 
 6. Run the program with this command: `java -jar target/jvm/program.jar`
 7. Smile :)
+
+	For a thorough specification of what Aedifex can do, please refer to [Appendix H](appendix_h.md).
 
 ## Question #4: Where can I find documentation for Lux?
 

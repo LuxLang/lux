@@ -33,6 +33,7 @@
 	_Where you will learn a new way to organize your data._
 * [Chapter 16: Testing](chapter_16.md)
 	_Where you will learn how to avoid annoying bug reports._
+* [Conclusion](conclusion.md)
 * [Appendix A: Import syntax](appendix_a.md)
 * [Appendix B: Math](appendix_b.md)
 * [Appendix C: Pattern-matching macros](appendix_c.md)
@@ -40,4 +41,5 @@
 * [Appendix E: Lux implementation details](appendix_e.md)
 * [Appendix F: Implicit polymorphism](appendix_f.md)
 * [Appendix G: Regular expressions](appendix_g.md)
+* [Appendix H: Aedifex](appendix_h.md)
 
