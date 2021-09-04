@@ -34,6 +34,9 @@
        [lux
         ["." syntax]]]]]]])
 
+(template: (|recursion_dummy|)
+  [(#.Primitive "" #.End)])
+
 (type: Fragment
   (Variant
    (#Comment Text)
@@ -271,6 +274,12 @@
     ([#.UnivQ "All" type.flat_univ_q]
      [#.ExQ   "Ex"  type.flat_ex_q])
 
+    (^ (#.Apply (|recursion_dummy|) (#.Parameter 0)))
+    type_function_name
+
+    (^ (#.Apply (|recursion_dummy|) (#.UnivQ _ body)))
+    (format "(Rec " type_function_name " " (%type' level type_function_name module body) ")")
+
     (#.Apply param fun)
     (let [[type_func type_arguments] (type.flat_application type)]
       (format  "(" (%type' level type_function_name module type_func) " " (|> type_arguments (list\each (%type' level type_function_name module)) (text.interposed " ")) ")"))
@@ -341,15 +350,16 @@
                            (case type
                              (#.Product _)
                              (let [types (type.flat_tuple type)]
-                               (format "(#" t_name " "
+                               (format " (#" t_name " "
                                        (|> types
                                            (list\each (type_definition' level type_function_info #.None module))
                                            (text.interposed " "))
                                        ")"))
 
                              _
-                             (format "(#" t_name " " (type_definition' level type_function_info #.None module type) ")"))))
-              (text.interposed text.new_line))))
+                             (format " (#" t_name " " (type_definition' level type_function_info #.None module type) ")"))))
+              (text.interposed text.new_line)
+              (text.enclosed [(format "(Variant" \n) ")"]))))
 
       (#.Product _)
       (let [members (type.flat_tuple type)]
@@ -358,12 +368,13 @@
           (format "[" (|> members (list\each (type_definition' level type_function_info #.None module)) (text.interposed " ")) "]")
 
           _
-          (let [member_docs (|> members
-                                (list.zipped/2 tags)
-                                (list\each (function (_ [t_name type])
-                                             (format "#" t_name " " (type_definition' level type_function_info #.None module type))))
-                                (text.interposed (format text.new_line " ")))]
-            (format "{" member_docs "}"))))
+          (|> members
+              (list.zipped/2 tags)
+              (list\each (function (_ [t_name type])
+                           (format "#" t_name " " (type_definition' level type_function_info #.None module type))))
+              (text.interposed (format \n "  "))
+              (text.enclosed [" [" "]"])
+              (text.enclosed [(format "(Record" \n) ")"]))))
 
       (#.Function input output)
       (let [[ins out] (type.flat_function type)]
@@ -401,13 +412,16 @@
        [#.ExQ   "Ex"  type.flat_ex_q])
 
       ... Recursive call
-      (#.Apply (#.Parameter param_id) (#.Parameter fn_id))
-      (if (n.= fn_id param_id)
-        (product.left type_function_info)
-        (let [[type_func type_arguments] (type.flat_application type)]
-          (format  "(" (type_definition' level type_function_info tags module (#.Parameter fn_id))
-                   " " (type_definition' level type_function_info tags module (#.Parameter param_id))
-                   ")")))
+      (^ (#.Apply (|recursion_dummy|) (#.Parameter 0)))
+      (product.left type_function_info)
+
+      (^ (#.Apply (|recursion_dummy|) (#.UnivQ _ body)))
+      (|> (type_definition' level type_function_info tags module body)
+          (text.all_split_by \n)
+          (list\each (text.prefix " "))
+          (text.interposed \n)
+          (text.enclosed [(format "(Rec " (product.left type_function_info) \n)
+                          ")"]))
 
       (#.Apply param fun)
       (let [[type_func type_arguments] (type.flat_application type)]
