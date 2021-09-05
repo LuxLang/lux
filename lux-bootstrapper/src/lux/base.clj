@@ -966,6 +966,16 @@
         _
         output))))
 
+(defn without-scope [body]
+  (fn [state]
+    (|case (body (set$ $scopes (|list (env "WITHOUT-SCOPE" "")) state))
+      ($Right state* datum)
+      (return* (set$ $scopes (get$ $scopes state) state*)
+               datum)
+      
+      output
+      output)))
+
 (defn run-state [monad state]
   (monad state))
 

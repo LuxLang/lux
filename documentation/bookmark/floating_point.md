@@ -12,6 +12,7 @@
 
 # Random generation
 
+1. [Drawing random floating-point numbers from an interval](https://hal.archives-ouvertes.fr/hal-03282794/document)
 1. [Uniform random floats:  How to generate a double-precision floating-point number in [0, 1] uniformly at random given a uniform random source of bits](https://mumble.net/~campbell/2014/04/28/uniform-random-float)
 
 # Correctness

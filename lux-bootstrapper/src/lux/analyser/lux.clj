@@ -1,4 +1,5 @@
 (ns lux.analyser.lux
+  (:refer-clojure :exclude [eval])
   (:require (clojure [template :refer [do-template]]
                      [set :as set])
             clojure.core.match
@@ -553,6 +554,11 @@
                                 (str "\nThis is an alias for " source-name)))))
       (return &/$End))))
 
+(defn eval [analyse optimize eval! type code]
+  (|do [analysis (&/without-scope
+                  (&&/analyse-1 analyse type code))]
+    (eval! (optimize analysis))))
+
 (defn analyse-def* [analyse optimize eval! compile-def ?name ?value ?annotations exported? type? & [?expected-type]]
   (|do [_ &/ensure-directive
         module-name &/get-module-name
@@ -563,10 +569,8 @@
                     (&/with-expected-type ?expected-type
                       (&&/analyse-1 analyse ?expected-type ?value))
                     (&&/analyse-1+ analyse ?value))))
-        =exported? (&&/analyse-1 analyse &type/Bit exported?)
-        ==exported? (eval! (optimize =exported?))
-        =annotations (&&/analyse-1 analyse &type/Code ?annotations)
-        ==annotations (eval! (optimize =annotations))
+        ==exported? (eval analyse optimize eval! &type/Bit exported?)
+        ==annotations (eval analyse optimize eval! &type/Code ?annotations)
         def-value (compile-def ?name (optimize =value) ==annotations ==exported? type?)
         _ &type/reset-mappings
         :let [def-type (&&/expr-type* =value)
@@ -664,8 +668,7 @@
 
 (defn analyse-module [analyse optimize eval! compile-module ?annotations ?imports]
   (|do [_ &/ensure-directive
-        =anns (&&/analyse-1 analyse &type/Code ?annotations)
-        ==anns (eval! (optimize =anns))
+        ==anns (eval analyse optimize eval! &type/Code ?annotations)
         module-name &/get-module-name
         _ (&&module/set-anns ==anns module-name)
         _imports (&&module/fetch-imports ?imports)
@@ -707,17 +710,15 @@
               _analysis)))
 
 (defn analyse-type-check [analyse optimize eval! exo-type ?type ?value]
-  (|do [=type (&&/analyse-1 analyse &type/Type ?type)
-        ==type (eval! (optimize =type))
+  (|do [==type (eval analyse optimize eval! &type/Type ?type)
         _ (&type/check exo-type ==type)
         =value (&&/analyse-1 analyse ==type ?value)
         _location &/location]
     (return (&/|list (&&/|meta ==type _location
-                               (&&/$ann =value =type))))))
+                               (&&/$ann =value ==type))))))
 
 (defn analyse-type-as [analyse optimize eval! exo-type ?type ?value]
-  (|do [=type (&&/analyse-1 analyse &type/Type ?type)
-        ==type (eval! (optimize =type))
+  (|do [==type (eval analyse optimize eval! &type/Type ?type)
         _ (&type/check exo-type ==type)
         =value (&&/analyse-1+ analyse ?value)]
     (return (&/|list (coerce ==type =value)))))
