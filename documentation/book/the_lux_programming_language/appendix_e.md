@@ -83,7 +83,7 @@ One that I really like and has turned out to be very useful to me, is that you c
 
 Here are some examples from the `library/lux/ffi` module, where I have some types and code-parsers for the many macros implemented there:
 
-```
+```clojure
 (type: .public Privacy
   (Variant
    #PublicP
@@ -113,7 +113,7 @@ This wouldn't be possible if variant types weren't nested/composable; forcing me
 
 Here's an example of `<>.and` in action:
 
-```
+```clojure
 ... From library/lux/target/jvm/type
 (type: .public Argument
   [Text (Type Value)])

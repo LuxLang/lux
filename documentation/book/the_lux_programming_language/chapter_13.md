@@ -28,7 +28,7 @@ Let's explore them.
 
 It's all done with the help of the `import:` macro:
 
-```
+```clojure
 ... Allows importing JVM classes, and using them as types.
 ... Their methods, fields and enum options can also be imported.
 (import: java/lang/Object
@@ -96,7 +96,7 @@ As you have noticed, it works by creating functions (and constant values) for al
 
 Normally, you'd use the `class:` macro:
 
-```
+```clojure
 ... Allows defining JVM classes in Lux code.
 ... For example:
 (class: #final (TestClass A) [Runnable]
@@ -131,7 +131,7 @@ Normally, you'd use the `class:` macro:
 
 And, for anonymous classes, you'd use `object`:
 
-```
+```clojure
 ... Allows defining anonymous classes.
 ... The 1st tuple corresponds to class-level type-variables.
 ... The 2nd tuple corresponds to parent interfaces.
@@ -149,14 +149,14 @@ And, for anonymous classes, you'd use `object`:
 
 * Accessing class objects.
 
-```
+```clojure
 ... Loads the class as a java.lang.Class object.
 (class_for java/lang/String)
 ```
 
 * Test instances.
 
-```
+```clojure
 ... Checks whether an object is an instance of a particular class.
 ... Caveat emptor: Can't check for polymorphism, so avoid using parameterized classes.
 (case (check java/lang/String "YOLO")
@@ -166,7 +166,7 @@ And, for anonymous classes, you'd use `object`:
 
 * Synchronizing threads.
 
-```
+```clojure
 ... Evaluates body, while holding a lock on a given object.
 (synchronized object-to-be-locked
 (exec
@@ -177,7 +177,7 @@ And, for anonymous classes, you'd use `object`:
 
 Calling multiple methods consecutively
 
-```
+```clojure
 ... Call a variety of methods on an object. Then, return the object.
 (do_to object
   (ClassName::method1 arg0 arg1 arg2)

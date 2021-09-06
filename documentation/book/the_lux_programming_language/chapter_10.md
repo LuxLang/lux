@@ -48,7 +48,7 @@ But macros work with the Lux _AST_, so that's the first thing you need to master
 
 Check it out:
 
-```
+```clojure
 (type: #export Location
   {#module Text
    #line   Nat
@@ -104,7 +104,7 @@ Imagine having to generate an entire function definition (or something even larg
 
 Well, don't fret. The Lux Standard Library already comes with a powerful mechanism for easily generating any code you want and you don't even need to import it (i.e. it's in the `library/lux` module).
 
-```
+```clojure
 ... Quotation as a macro.
 (' "YOLO")
 ```
@@ -118,7 +118,7 @@ If you want to know what that would look like with the tools at `library/lux/mac
 
 The beautiful thing is that `(' (you can use the "'" #macro [to generate {arbitrary code} without] worrying (about the "complexity")))`.
 
-```
+```clojure
 ... Hygienic quasi-quotation as a macro.
 ... Unquote (~) and unquote-splice (~+) must also be used as forms.
 ... All unprefixed identifiers will receive their parent module's prefix if imported; otherwise will receive the prefix of the module on which the quasi-quote is being used.
@@ -143,7 +143,7 @@ With these tools, you can introduce a lot of complexity and customization into y
 	This ensures that if you make a mistake writing your template code, it will be easy to spot during development.
 	Also, it will be harder to collide (by mistake) with user code if you, for instance, write the code for making a local variable named `foo`, and then the person using your macro uses a different `foo` somewhere in their code.
 
-```
+```clojure
 ... Unhygienic quasi-quotation as a macro.
 ... Unquote (~) and unquote-splice (~+) must also be used as forms.
 (`' (def: (~ name)
@@ -161,7 +161,7 @@ Now that you know how to generate code like a pro, it's time to see how macros g
 
 First, let's check the type of macros:
 
-```
+```clojure
 (type: .public Macro
   (primitive "#Macro"))
 ```
@@ -177,7 +177,7 @@ It does so by labelling (_type-wise_) with this funky type.
 
 There is, however, another type which elucidates what is going on with macros.
 
-```
+```clojure
 (type: .public Macro'
   (-> (List Code) (Meta (List Code))))
 ```
@@ -187,7 +187,7 @@ Now, you can see how everything connects.
 
 You define macros by using the `macro:` macro (_so meta..._):
 
-```
+```clojure
 (macro: .public (name_of tokens)
   {#.doc (doc "Given an identifier or a tag, gives back a 2 tuple with the module and name parts, both as Text."
               (name_of #.doc)
@@ -205,7 +205,7 @@ You define macros by using the `macro:` macro (_so meta..._):
 
 Here's another example:
 
-```
+```clojure
 (macro: .public (else tokens state)
   {#.doc (doc "Allows you to provide a default value that will be used"
               "if a (Maybe x) value turns out to be #.None."

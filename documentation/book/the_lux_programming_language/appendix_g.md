@@ -10,7 +10,7 @@ Of course, the parser may fail, in which case the user should receive some meani
 
 The `library/lux/control/parser/text` library provides a type, and a host of combinators, for building and working with text parsers.
 
-```
+```clojure
 (type: .public Offset
   Nat)
 
@@ -37,7 +37,7 @@ The `regex` macro, in turn, compiles the given syntax into a text parser, which 
 
 Here are some samples for regular expressions:
 
-```
+```clojure
 ... Literals
 (regex "a")
 
@@ -119,7 +119,7 @@ This is important because the groups and alternations that you use in your regul
 
 For example:
 
-```
+```clojure
 ... This returns a single piece of text
 (regex "a{1,}")
 

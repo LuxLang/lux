@@ -42,7 +42,7 @@ They provide a description of the functionality expected of proper implementatio
 
 Here's an example:
 
-```
+```clojure
 (interface: #export (Order a)
   (: (Equivalence a)
      &equivalence)
@@ -72,7 +72,7 @@ If interfaces are record types, then that means implementations must be actual r
 
 Let's take a look at how you make one:
 
-```
+```clojure
 (implementation: #export order (Order Frac)
   (def: &equivalence ..equivalence)
   (def: < ..<))
@@ -86,7 +86,7 @@ For implementations, the convention is just to name them as lower-cased versions
 
 Here is another example, from the `lux/data/collection/list` module:
 
-```
+```clojure
 (implementation: #export monoid
   (All [a]
     (Monoid (List a)))
@@ -123,7 +123,7 @@ It's time to get them out and use them.
 There are 2 main ways to use the stuff inside your implementations: `open:` and `\`.
 Let's check them out.
 
-```
+```clojure
 ## Opens an implementation and generates a definition for each of its members (including nested members).
 ## For example:
 (open library/lux/math/number/int.order "i::.")
@@ -137,7 +137,7 @@ You may also give it an optional prefix for the definitions, in case you want to
 
 	You might want to check out [Appendix C](appendix_c.md) to discover a pattern-matching macro version of `open:` called `^open`.
 
-```
+```clojure
 ## Allows accessing the value of a implementation's member.
 (: (-> Int Text)
    (\ library/lux/math/number/int.decimal encode))
@@ -161,7 +161,7 @@ For more information about that, head over to [Appendix F](appendix_f.md) to rea
 
 I can't emphasize enough that _implementations_ are values. And to exemplify it for you, here's a function from the `lux/abstract/monad` module that takes in an implementation (among other things) and uses it within its code:
 
-```
+```clojure
 (def: #export (map monad f xs)
   (All [M a b]
     (-> (Monad M) (-> a (M b)) (List a) (M (List b))))

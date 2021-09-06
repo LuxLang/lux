@@ -22,7 +22,7 @@ Most compilers are just programs that take source code and emit some binary exec
 
 The `Lux` type enters the stage.
 
-```
+```clojure
 (type: #export Lux
   {#info            Info
    #source          Source
@@ -70,7 +70,7 @@ I won't go into detail about what's available, but you'll quickly get an idea of
 
 However, one thing I _will_ say is that those functions rely heavily on the `Meta` type, which is defined thusly:
 
-```
+```clojure
 (type: #export (Meta a)
   (-> Lux (Either Text [Lux a])))
 ```
@@ -101,7 +101,7 @@ Another important piece of information you should be aware of is that definition
 
 The relevant types in the `library/lux` module are:
 
-```
+```clojure
 (type: #export Location
   {#module Text
    #line   Nat
@@ -135,7 +135,7 @@ All you need to do is pass in some record syntax, with tags signaling the type o
 
 Here's an example from `library/lux`:
 
-```
+```clojure
 (def: #export (is? reference sample)
   {#.doc (doc "Tests whether the 2 values are identical (not just 'equal')."
               "This one should succeed:"

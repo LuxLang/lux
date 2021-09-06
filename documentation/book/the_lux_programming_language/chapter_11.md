@@ -16,7 +16,7 @@ The `library/lux/control/parser/code` module houses some powerful tools.
 
 For starters, it's the home of the (_code_) `Parser` type:
 
-```
+```clojure
 (type: .public Parser
   {#.doc "A Lux code parser."}
   (//.Parser (List Code)))
@@ -24,7 +24,7 @@ For starters, it's the home of the (_code_) `Parser` type:
 
 Which is based on the `Parser` type from the `library/lux/control/parser` module:
 
-```
+```clojure
 (type: .public (Parser s a)
   {#.doc "A generic parser."}
   (-> s (Try [s a])))
@@ -40,7 +40,7 @@ There are many such code-parsers (and combinators) in the `library/lux/control/p
 
 Then, in the `library/lux/macro/syntax` module, there is a mechanism for defining macros: the `syntax:` macro.
 
-```
+```clojure
 "A more advanced way to define macros than 'macro:'."
 "The inputs to the macro can be parsed in complex ways through the use of syntax parsers."
 "The macro body is also (implicitly) run in the Meta monad, to save some typing."
@@ -73,7 +73,7 @@ What do those code-parsers look like?
 
 Here is an example:
 
-```
+```clojure
 ... Taken from library/lux/math/infix.
 
 (.module:
@@ -150,7 +150,7 @@ Here is an example:
 
 And here are some examples of syntax macros:
 
-```
+```clojure
 ... Also from library/lux/math/infix.
 
 (def: (prefix infix)
@@ -184,7 +184,7 @@ And here are some examples of syntax macros:
   (in (list (..prefix expr))))
 ```
 
-```
+```clojure
 (syntax: .public (^sequence& {patterns (<code>.form (<>.many <code>.any))}
                              body
                              {branches (<>.some <code>.any)})
@@ -201,7 +201,7 @@ And here are some examples of syntax macros:
       (in (list& g!sequence body+ branches)))))
 ```
 
-```
+```clojure
 (syntax: .public (cond> {_ _reversed_}
                         prev
                         {else body^}

@@ -20,7 +20,7 @@ I added the `library/lux/control/pipe` module, which contains several macros mea
 
 Take a look at these babies:
 
-```
+```clojure
 ... Loops for pipes.
 ... Both the testing and calculating steps are pipes and must be given inside tuples.
 (|> 1
@@ -38,7 +38,7 @@ Which value? Whatever has been piped into `loop>` from the underlying `|>` (in t
 
 ---
 
-```
+```clojure
 ... Branching for pipes.
 ... Both the tests and the bodies are piped-code, and must be given inside a tuple.
 ... If a last else-pipe isn't given, the piped-argument will be used instead.
@@ -55,7 +55,7 @@ But what's that thing over there? That `new>` thing?
 
 Well, it's another piping macro. Of course!
 
-```
+```clojure
 ... Ignores the piped argument, and begins a new pipe.
 (|> 20
     (i.* 3)
@@ -69,7 +69,7 @@ Useful in certain kinds of situations.
 
 ---
 
-```
+```clojure
 ... Gives a name to the piped-argument, within the given expression.
 (|> 5
     (let> @ (+ @ @)))
@@ -81,7 +81,7 @@ Pretty nifty, huh?
 
 ---
 
-```
+```clojure
 ... Pattern-matching for pipes.
 ... The bodies of each branch are NOT pipes; just regular values.
 (|> 5
@@ -106,7 +106,7 @@ You'll thank me later.
 
 ---
 
-```
+```clojure
 ... Monadic pipes.
 ... Each steps in the monadic computation is a pipe and must be given inside a tuple.
 (|> 5
@@ -128,7 +128,7 @@ All you need is a macro that takes anything you want as parameters, but always t
 
 As an example, here's the definition for `let>`:
 
-```
+```clojure
 (syntax: .public (let> [binding <code>.any
                         body <code>.any
                         prev <code>.any])
@@ -148,7 +148,7 @@ Oh... and did I mention the `|>>` macro?
 
 It generates for you a single-argument function that will immediately pipe its argument through all the steps you give it?
 
-```
+```clojure
 (only (|>> (member? forbidden-definitions)
            not)
       all_definitions)

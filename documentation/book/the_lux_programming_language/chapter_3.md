@@ -8,14 +8,14 @@ _Where you will learn the what Lux code is made of._
 
 * `Bit`s look like this:
 
-```
+```clojure
 #0 ## false
 #1 ## true
 ```
 
 * `Nat`s look like this:
 
-```
+```clojure
 0
 123
 0456
@@ -24,7 +24,7 @@ _Where you will learn the what Lux code is made of._
 
 * `Int`s look like this:
 
-```
+```clojure
 +0
 -123
 +0456
@@ -33,7 +33,7 @@ _Where you will learn the what Lux code is made of._
 
 * `Rev`s look like this:
 
-```
+```clojure
 .123
 .04,56
 .7890
@@ -41,7 +41,7 @@ _Where you will learn the what Lux code is made of._
 
 * `Frac`s look like this:
 
-```
+```clojure
 +123.456
 -456.7890
 +0.001
@@ -50,32 +50,32 @@ _Where you will learn the what Lux code is made of._
 
 * `Text`s look like this:
 
-```
+```clojure
 "This is a single-line text"
 ```
 
 * `Unit` looks like this:
 
-```
+```clojure
 []
 ```
 
 * Variants look like this:
 
-```
+```clojure
 #Foo
 (#Bar 10 +20.0 "thirty")
 ```
 
 * Tuples look like this:
 
-```
+```clojure
 [123 ["nested" #tuple] true]
 ```
 
 * Records look like this:
 
-```
+```clojure
 {#name "Lux" #paradigm #Functional #platforms (list #JVM)}
 ```
 
@@ -161,7 +161,7 @@ There is also a separate macro for type-coerciones that's called `:as`, which is
 
 Now that we know about type annotations, I'll show you some types by giving you some valid Lux expressions:
 
-```
+```clojure
 (: Bit #1)
 (: Bit .true)
 (: Nat 123)

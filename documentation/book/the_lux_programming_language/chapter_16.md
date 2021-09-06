@@ -19,7 +19,7 @@ Not only that, but the _Aedifex_ build tool for Lux also includes a command for 
 How do you set that up?
 Let's take a look at the `project.lux` file for the Lux standard library itself.
 
-```
+```clojure
 {#identity ["com.github.luxlang" "stdlib" "0.6.0"]
 
 #deploy_repositories {"snapshots" "https://oss.sonatype.org/content/repositories/snapshots/"
@@ -37,7 +37,7 @@ The `#test` parameter is similar to the `#program` parameter in that it specifie
 
 Here is a summary of the file:
 
-```
+```clojure
 (.module:
   [library
    ["/" lux #*
@@ -69,7 +69,7 @@ To know how tests work, let's take a look at one of those modules.
 
 	From `test/lux/data/collection/stack`.
 
-```
+```clojure
 (.module:
   [library
    [lux #*
@@ -168,5 +168,9 @@ Without tests, the reliability of programs becomes a matter of faith, not engine
 
 Automated tests can be integrated into processes of continuous delivery and integration to increase the confidence of individuals and teams that real value is being delivered, and that the customer won't be dissatisfied by buggy software.
 
-Now that you know how to test your programs, you know everything you need to know to be a Lux programmer.
+Now that you know how to test your programs, you know everything you need to know to be a Lux programmer... on the JVM.
+
+However, Lux has been expanded with support for other platforms, and it's time for you to learn about some of its capabilities.
+
+See you in [the next chapter](chapter_17.md)!
 

@@ -41,13 +41,13 @@ You see; this might look very impractical to those accustomed to the old way, bu
 
 Consider this:
 
-```
+```clojure
 (|> x (/ scale) (pow 3.0) (- shift))
 ```
 
 If I was using the traditional way of doing math, I wouldn't be able to pipe it, and it would look like this:
 
-```
+```clojure
 (- (pow (/ x scale)
         3.0)
    shift)
@@ -67,7 +67,7 @@ It's called `infix`, and it allows you to do infix math, with nested expressions
 
 Here's an example:
 
-```
+```clojure
 (infix [[3.0 pow 2.0] + [5.0 * 8.0]])
 ```
 

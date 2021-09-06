@@ -50,7 +50,7 @@ The result is that, through the `do` macro, you can implement complex concurrent
 
 If you're curious about how that looks, take a peek:
 
-```
+```clojure
 (def: .public (and left right)
   (All [a b] (-> (Async a) (Async b) (Async [a b])))
   (do monad
@@ -112,7 +112,7 @@ Also, interaction with actors is based on _message-passing_, and an actor may co
 
 The relevant module is the `library/lux/control/concurrency/actor` module, and the relevant type is:
 
-```
+```clojure
 (abstract: .public (Actor s)
   ...
   )
@@ -128,7 +128,7 @@ Just from this definition, it's easy to see that actors are stateful (a necessit
 
 To create an actor, you must first specify its `Behavior`:
 
-```
+```clojure
 (type: .public (Behavior o s)
   {#on_init (-> o s)
    #on_mail (-> (Mail s) s (Actor s) (Async (Try s)))})
@@ -140,7 +140,7 @@ You can then call the `spawn!` function with an initial state and a `Behavior`.
 
 But writing complex actors with multiple options for its messages can be messy with these tools, so a macro was made to simplify that.
 
-```
+```clojure
 ... Defines a named actor, with its behavior and internal state.
 ... Messages for the actor must be defined after the on_mail handler.
 (actor: .public (stack a)

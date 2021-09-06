@@ -16,7 +16,7 @@ Let's see them in action.
 
 ## Pattern-matching macros in the Standard Library
 
-```
+```clojure
 (case (list 1 2 3)
   (^ (list x y z))
   (#.Some (+ x (* y z)))
@@ -29,7 +29,7 @@ You may remember how annoying it was to pattern-match against lists in the [Chap
 
 Well, by using the `^` pattern-matching macro, you can use any normal macros you want inside the pattern to profit from their code-construction capacities.
 
-```
+```clojure
 ... Multi-level pattern matching.
 ... Useful in situations where the result of a branch depends on further refinements on the values being matched.
 ... For example:
@@ -58,7 +58,7 @@ It's one of those features you don't need often, but when you do, it saves the d
 
 The possibilities are endless when it comes to the refinement you can do, and when you consider what you'd have to do to get the same results without it, it's easy to see how much code it saves you.
 
-```
+```clojure
 ... Allows you to simultaneously bind and de-structure a value.
 (def: (hash (^@ set [element_hash _]))
   (list::mix (function (_ elem acc)
@@ -69,7 +69,7 @@ The possibilities are endless when it comes to the refinement you can do, and wh
 
 `^@` is for when you want to deal with a value both as a whole and in parts.
 
-```
+```clojure
 ... Same as the "open" macro, but meant to be used as a pattern-matching macro for generating local bindings.
 ... Can optionally take a "prefix" text for the generated local bindings.
 (def: #export (range (^open ".") from to)
@@ -81,7 +81,7 @@ The possibilities are endless when it comes to the refinement you can do, and wh
 
 It's excellent when taking structures as function arguments, or when opening structures locally in `let` expressions.
 
-```
+```clojure
 ... Or-patterns.
 (type: Weekday
   #Monday
@@ -106,7 +106,7 @@ It's excellent when taking structures as function arguments, or when opening str
 
 It's a real time-saver.
 
-```
+```clojure
 ... It's similar to do-template, but meant to be used during pattern-matching.
 (def: (beta_reduce env type)
   (-> (List Type) Type Type)
@@ -151,7 +151,7 @@ You can save yourself quite a lot of typing (and debugging) by reusing a lot of 
 
 It's a great asset!
 
-```
+```clojure
 ... Allows you to extract record members as local variables with the same names.
 ... For example:
 (let [(^slots [#foo #bar #baz]) quux]
@@ -162,7 +162,7 @@ It's a great asset!
 
 Now you can work with record member values with ease.
 
-```
+```clojure
 ... Allows destructuring of streams in pattern-matching expressions.
 ... Caveat emptor: Only use it for destructuring, and not for testing values within the streams.
 (let [(^sequence& x y z _tail) (some_sequence_function 1 2 3)]
@@ -213,7 +213,7 @@ However, most of the time, you'll just return the branches (and sometimes the bo
 
 To make things easier to understand, here is the implementation of the `^` macro, from the `library/lux` module:
 
-```
+```clojure
 (macro: (^ tokens)
   (case tokens
     (#Item [_ (#Form (#Item pattern #End))] (#Item body branches))

@@ -4,7 +4,7 @@ You've already seen some import syntax, but now you'll see all the options avail
 
 If you recall [Chapter 1](chapter_1.md), there was this example code:
 
-```
+```clojure
 (.module:
   [library
    [lux #*
@@ -47,7 +47,7 @@ It is also important to note that while imports can be nested for convenience, t
 
 The `.module:` declaration could just as easily been written like this:
 
-```
+```clojure
 (.module:
   [library/lux #*]
   [library/lux/program (#+ program:)]
@@ -63,7 +63,7 @@ Any module-path fragments included in the import syntax without such options wil
 It is also possible to have the `.module:` macro open interface implementations for you when importing the modules that contain them.
 For example:
 
-```
+```clojure
 (.module:
   [library
    [lux #*
@@ -89,7 +89,7 @@ The `#` syntax for aliasing can also be used between modules, and not just when 
 
 For example:
 
-```
+```clojure
 (.module:
   [library
    [lux #*
@@ -108,7 +108,7 @@ Non-aliased paths don't count as context.
 
 This means:
 
-```
+```clojure
 (.module:
   [library
    [lux #*
@@ -128,7 +128,7 @@ I should also note that you can **both** locally import definitions and open imp
 
 For example:
 
-```
+```clojure
 (.module:
   [library
    [lux #*
@@ -143,7 +143,7 @@ Another important feature of module imports is relative addressing, which comes 
 
 For the first one, suppose you have the following directory structure:
 
-```
+```clojure
 program
 	foo
 		bar
@@ -160,7 +160,7 @@ And you're writing code in the `program/foo/baz` module.
 
 You can import other modules in the hierarchy like this:
 
-```
+```clojure
 ... In program/foo/baz
 (.module:
   [library
@@ -183,7 +183,7 @@ You can think about it like this:
 
 Also, this relative path syntax can be nested, like so:
 
-```
+```clojure
 ... In program/foo/baz
 (.module:
   [library
@@ -199,7 +199,7 @@ Also, this relative path syntax can be nested, like so:
 
 Or even:
 
-```
+```clojure
 ... In program/foo/baz
 (.module:
   [library
@@ -219,7 +219,7 @@ That is because, since it's nested under another `//`, it's relative to `program
 
 For the second way to do relative imports, you can see this example:
 
-```
+```clojure
 ... In program/foo/baz
 (.module:
   [library

@@ -28,7 +28,7 @@ That wrapper happens to be a type, as **all** functor wrappers are types.
 
 But not just any type. You see, functors have requirements.
 
-```
+```clojure
 (interface: #export (Functor f)
   (: (All [a b]
        (-> (-> a b) (f a) (f b)))
@@ -47,7 +47,7 @@ Not every parameterized type can be a functor, but if the type is something that
 
 Remember that `Maybe` type we talked about? Let's see how it plays with `Functor`.
 
-```
+```clojure
 (type: (Maybe a)
   #.None
   (#.Some a))
@@ -59,7 +59,7 @@ We've seen `Maybe` before, but now we can check out how it's implemented.
 
 Here is its `Functor` implementation.
 
-```
+```clojure
 (implementation: #export functor
   (Functor Maybe)
   
@@ -73,7 +73,7 @@ Here is its `Functor` implementation.
 
 We'll know how everything fits if we fill in the blanks for `map`'s type:
 
-```
+```clojure
 (All [a b]
   (-> (-> a b) (Maybe a) (Maybe b))
 ```
@@ -90,7 +90,7 @@ Oh, and remember our `iterate_list` function from [chapter 5](chapter_5.md)?
 
 Turns out, that's just the `Functor` implementation from `lux/data/collection/list`:
 
-```
+```clojure
 (implementation: #export functor
   (Functor List)
   
@@ -118,7 +118,7 @@ I mean, you can use the `list` and `list&` macros to create lists and the `#.Non
 
 Well, let me introduce you to `Monad`:
 
-```
+```clojure
 (interface: #export (Monad m)
   (: (Functor m)
      &functor)
@@ -142,7 +142,7 @@ To get a taste for it, let's check out another functorial type.
 
 Remember what I said about error-handling?
 
-```
+```clojure
 (type: #export (Try a)
   (#Failure Text)
   (#Success a))
@@ -152,7 +152,7 @@ This type expresses errors as `Text` values (and it lives in the `lux/control/tr
 
 Here are the relevant `Functor` and `Monad` implementations:
 
-```
+```clojure
 (implementation: #export functor
   (Functor Try)
   
@@ -187,7 +187,7 @@ The thing about `Monad` is that, with it, you can use `map` functions that also 
 
 Let's see that in action:
 
-```
+```clojure
 (.module:
   [library
     [lux #*
@@ -210,7 +210,7 @@ _It's magic!_
 
 Not really. It's just the `Monad` for `List`:
 
-```
+```clojure
 (implementation: #export functor
   (Functor List)
   
@@ -274,7 +274,7 @@ Time for the VIP treatment.
 
 These macros always show up at the right time to saves us from our hurdles!
 
-```
+```clojure
 (.module:
   [library
     [lux #*

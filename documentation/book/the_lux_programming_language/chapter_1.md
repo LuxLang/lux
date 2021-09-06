@@ -34,7 +34,7 @@ These are the steps:
 2. Create a new project file at `my_project/project.lux`.
 3. Add this to the project file:
 
-```
+```clojure
 {#identity ["my.group" "my_project" "0.1.0-SNAPSHOT"]
  #repositories ["https://oss.sonatype.org/content/repositories/snapshots/"
                 "https://oss.sonatype.org/service/local/staging/deploy/maven2/"]
@@ -51,7 +51,7 @@ These are the steps:
 
 4. Create `my_project/source/main.lux` and add this code to it:
 
-```
+```clojure
 (.module:
   [library
    [lux #*

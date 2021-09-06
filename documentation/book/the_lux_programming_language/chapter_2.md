@@ -59,7 +59,7 @@ We'll also explore macros further in later chapters.
 
 ## Comments
 
-```
+```clojure
 ## They look like this.
 ## They all start with 2 continuous # characters and go on until the end of the line.
 ```
@@ -108,7 +108,7 @@ Now, let's talk a bit more about the program we saw last time.
 
 In the previous chapter we compiled and ran a Lux program, but nothing has been explained yet. Let's review the code and see in detail what was done.
 
-```
+```clojure
 (.module:
   {#.doc "This will be our program's main module."}
   [library

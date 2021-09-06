@@ -10,7 +10,7 @@ No worries. You're about to find out!
 
 First, let's talk about how to make your own functions.
 
-```
+```clojure
 (function (plus_two x) (inc (inc x)))
 ```
 
@@ -21,7 +21,7 @@ What is it's type?
 
 Well, I'm glad you asked.
 
-```
+```clojure
 (: (-> Nat Nat)
    (function (plus_two x) (inc (inc x))))
 ```
@@ -29,7 +29,7 @@ Well, I'm glad you asked.
 That `->` thingie you see there is a macro for generating function types.
 It works like this:
 
-```
+```clojure
 (-> arg1 arg2 ... argN return)
 ```
 
@@ -37,7 +37,7 @@ The types of the arguments and the return type can be any type you want (even ot
 
 How do we use our function? Just put it at the beginning for a form:
 
-```
+```clojure
 ((function (plus_two x) (inc (inc x))) 5)
 ## => 7
 ```
@@ -50,7 +50,7 @@ How do we use the `plus_two` function without having to inline its definition (l
 
 Well, we just need to define it!
 
-```
+```clojure
 (def: plus_two
   (: (-> Nat Nat)
      (function (_ x)
@@ -59,7 +59,7 @@ Well, we just need to define it!
 
 Or, alternatively:
 
-```
+```clojure
 (def: plus_two
   (-> Nat Nat)
   (function (_ x)
@@ -70,7 +70,7 @@ Notice how the `def:` macro can take the type of its value before the value itse
 
 Now, we can use the square function more conveniently.
 
-```
+```clojure
 (plus_two 7)
 ## => 9
 ```
@@ -79,7 +79,7 @@ Nice!
 
 Also, I forgot to mention another form of the `def:` macro which is even more convenient:
 
-```
+```clojure
 (def: (plus_two x)
   (-> Nat Nat)
   (inc (inc x)))
@@ -99,7 +99,7 @@ Functions, of course, can take more than one argument, and you can even refer to
 
 Check this one out:
 
-```
+```clojure
 (def: (factorial' acc n)
   (-> Nat Nat Nat)
   (if (n.= 0 n)
@@ -113,7 +113,7 @@ Check this one out:
 
 And if we just had the function expression itself, it would look like this:
 
-```
+```clojure
 (function (factorial' acc n)
   (if (n.= 0 n)
     acc
@@ -132,7 +132,7 @@ The reason it exists is that Lux's arithmetic functions are not polymorphic on t
 
 If you import the module for `Nat` numbers, like so:
 
-```
+```clojure
 (.module
   [library
    [lux
@@ -149,7 +149,7 @@ Also, it might be good to explain that Lux functions can be partially applied. T
 
 That means, our factorial function could have been implemented like this:
 
-```
+```clojure
 (def: factorial
   (-> Nat Nat)
   (factorial' +1))
@@ -157,7 +157,7 @@ That means, our factorial function could have been implemented like this:
 
 Or, to make it shorter:
 
-```
+```clojure
 (def: factorial (factorial' +1))
 ```
 

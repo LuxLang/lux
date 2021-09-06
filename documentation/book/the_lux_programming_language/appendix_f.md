@@ -37,14 +37,14 @@ Fantastic!
 
 This is how you'd use it:
 
-```
+```clojure
 ... Equality for nats
 (\ nat.equivalence = x y)
 ## vs
 (\\ = x y)
 ```
 
-```
+```clojure
 ... Equality for lists of nats
 (\ (list.equivalence nat.equivalence) =
    (list.indices 10)
@@ -53,7 +53,7 @@ This is how you'd use it:
 (\\ = (list.indices 10) (list.indices 10))
 ```
 
-```
+```clojure
 ... Functor mapping
 (\ list.functor each nat.inc (list.indices 10))
 ... vs

@@ -119,7 +119,7 @@ This allows you to segregate useful configuration into different profiles and th
 
 Now that we have seen the available commands, it would be useful to see an annotated example `project.lux` file to see what bits of configuration it can contain.
 
-```
+```clojure
 ["" ... The empty text ("") is used to specify the default profile.
  [... An optional identity for the project.
   ... It can also be specified or overriden in a non-default profile.

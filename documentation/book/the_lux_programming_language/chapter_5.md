@@ -18,7 +18,7 @@ But before we head into that, let's first see 2 weaker mechanisms for branching 
 
 We've already met the humble `if` expression in the previous chapter. As explained there, the expression takes the following form:
 
-```
+```clojure
 (if test
   then
   else)
@@ -28,7 +28,7 @@ Where `test`, `then` and `else` are arbitrary Lux expressions.
 
 In terms of types, it works like this:
 
-```
+```clojure
 (: X (if (: Bit test)
        (: X then)
        (: X else)))
@@ -36,7 +36,7 @@ In terms of types, it works like this:
 
 Here is an example:
 
-```
+```clojure
 (if true
   "Oh, yeah!"
   "Aw, hell naw!")
@@ -52,7 +52,7 @@ For those of you coming from conventional programming languages, `cond` is like 
 
 It looks like this:
 
-```
+```clojure
 (cond test-1 then-1
       test-2 then-2
       ...
@@ -62,7 +62,7 @@ It looks like this:
 
 And, in terms of types, it looks like this:
 
-```
+```clojure
 (: X (cond (: Bit test-1) (: X then-1)
            (: Bit test-2) (: X then-2)
            ...
@@ -73,7 +73,7 @@ And, in terms of types, it looks like this:
 
 Here is an example:
 
-```
+```clojure
 (cond (n.even? num) "even"
       (n.odd? num)  "odd"
       ## else-branch
@@ -98,7 +98,7 @@ We can see its power by looking at some examples.
 
 For instance, the `factorial'` function you saw in the previous chapter could have been written like this:
 
-```
+```clojure
 (def: (factorial' acc n)
   (-> Nat Nat Nat)
   (case n
@@ -115,7 +115,7 @@ The _"default"_ branch works because we're binding the value of `n` onto a varia
 
 However, since it is binding a variable, that means we could have used `_` instead of `n` during our calculations; like this:
 
-```
+```clojure
 (def: (factorial' acc n)
   (-> Nat Nat Nat)
   (case n
@@ -134,7 +134,7 @@ Regarding the _"much more"_ claim, you should check out [Appendix C](appendix_c.
 
 Here are a couple more examples so you can see the possibilities.
 
-```
+```clojure
 (let [test true]
   (case test
     #1 "Oh, yeah!"
@@ -142,7 +142,7 @@ Here are a couple more examples so you can see the possibilities.
    ))
 ```
 
-```
+```clojure
 (case (list 1 2 3)
   (#.Item x (#.Item y (#.Item z #.End)))
   (#.Some (n.+ x (n.* y z)))
@@ -156,7 +156,7 @@ In the first example, you'll notice that we have rewritten the prior `if` exampl
 `let` is a simple way to create local-variables in Lux.
 It's syntax looks like this:
 
-```
+```clojure
 (: X (let [var-1 expr-1
            var-2 expr-2
            ...
@@ -174,7 +174,7 @@ Now, in the second example, we're deconstructing a list in order to extract its 
 
 The `List` type is defined like this:
 
-```
+```clojure
 (type: (List a)
   #End
   (#Item a (List a)))
@@ -204,7 +204,7 @@ In functional programming, _recursion_ is the main mechanism for looping in your
 
 Recursion is nothing more than the capacity for a function to call itself (often with different parameters than the initial call). It's not hard to see how this mechanism can be used to loop in any way you want, and we've already seen examples of recursion in action.
 
-```
+```clojure
 (def: (factorial' acc n)
   (-> Nat Nat Nat)
   (if (n.= 0 n)
@@ -224,7 +224,7 @@ Our example `factorial'` function has its recursive call in the _tail position_ 
 
 This alternative doesn't:
 
-```
+```clojure
 (def: (factorial' acc n)
   (-> Nat Nat Nat)
   (if (n.= 0 n)
@@ -252,7 +252,7 @@ Lux also offers a macro that gives you a slightly similar experience to those ki
 
 To see it in action, let's rewrite (once more!) our `factorial` function:
 
-```
+```clojure
 (def: (factorial n)
   (-> Nat Nat)
   (loop [acc 1
@@ -274,7 +274,7 @@ It's based on using a single macro, called `|>`, which allows you to write deepl
 
 Here is a simple example to see how it works:
 
-```
+```clojure
 (|> elems
     (map to_text)
     (interpose " ")
@@ -300,7 +300,7 @@ Oh, and before I forget, there is also a macro for doing reverse piping (which c
 
 Out previous example would look like this:
 
-```
+```clojure
 (<| (fold append_text "")
     (interpose " ")
     (map to_text)
@@ -319,7 +319,7 @@ Well, we haven't really seen that in action yet.
 
 It's time to put that theory into practice... with an example:
 
-```
+```clojure
 (def: (iterate_list f list)
   (All [a b] (-> (-> a b) (List a) (List b)))
   (case list
@@ -346,7 +346,7 @@ But here, we're pretty much defining a function that takes care of all the cerem
 
 You could use it like this:
 
-```
+```clojure
 (iterate_list (n.* 5) (list 0 1 2 3 4 5 6 7 8 9))
 
 ## => (list 0 5 10 15 20 25 30 35 40 45)

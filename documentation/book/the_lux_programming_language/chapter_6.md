@@ -8,7 +8,7 @@ We've talked about Lux types already, but only in a very high-level way.
 
 On this chapter, you'll see how types are constructed, and hopefully that will give you some insight to understand better the subjects of later chapters.
 
-```
+```clojure
 (type: #export #rec Type
   (#Primitive Text (List Type))
   (#Sum Type Type)
@@ -39,7 +39,7 @@ Let's go over each of them.
 
 ---
 
-```
+```clojure
 (#Primitive Text (List Type))
 ```
 
@@ -47,7 +47,7 @@ This is what connects Lux's type-system with the host platform's. These types re
 
 ---
 
-```
+```clojure
 (#Sum Type Type)
 (#Product Type Type)
 ```
@@ -66,7 +66,7 @@ What do I mean?
 
 Well, let me show you. To the left, you'll see the type as it's written in normal Lux code, and to the right you'll see the type value it generates.
 
-```
+```clojure
 (|)                   => Nothing
 (| Bit)               => Bit
 (| Bit Int)           => (#Sum Bit Int)
@@ -122,7 +122,7 @@ You might think that dummy values are, well, _dumb_, but they show up all the ti
 
 Consider the `Maybe` type:
 
-```
+```clojure
 (type: #export (Maybe a)
   #None
   (#Some a))
@@ -132,7 +132,7 @@ The `#Some` tag holds values of type `a`, but what does `#None` hold? Nothing?
 
 Well, `Maybe` is a variant, which means it's a `#Sum`, which looks like this:
 
-```
+```clojure
 (#Sum Type Type)
 ```
 
@@ -142,7 +142,7 @@ Well, `Any`thing, really.
 
 So the type definition for `Maybe` is equivalent to this:
 
-```
+```clojure
 (type: #export (Maybe a)
   (#None Any)
   (#Some a))
@@ -158,7 +158,7 @@ So `#None` is equivalent to `(#None [])`.
 
 ---
 
-```
+```clojure
 (#Function Type Type)
 ```
 
@@ -178,7 +178,7 @@ Yep, that's a direct consequence of this theoretical model.
 
 ---
 
-```
+```clojure
 (#Parameter Nat)
 ```
 
@@ -188,7 +188,7 @@ We'll talk about those later. But, suffice it to say that `#Parameter` helps the
 
 ---
 
-```
+```clojure
 (#Var Nat)
 ```
 
@@ -202,7 +202,7 @@ Type-variables, however, cannot be _re-bound_ once they have been set, to avoid 
 
 ---
 
-```
+```clojure
 (#Ex Nat)
 ```
 
@@ -216,7 +216,7 @@ It may sound like a useless thing, but it can power some advanced techniques.
 
 ---
 
-```
+```clojure
 (#UnivQ (List Type) Type)
 ```
 
@@ -228,7 +228,7 @@ The other `Type` there is the _body_ of the universal quantification.
 
 To understand better what's going on, let's transform the type of our `iterate_list` function from [Chapter 5](chapter_5.md) into its type value.
 
-```
+```clojure
 (All [a b] (-> (-> a b) (List a) (List b)))
 
 ## =>
@@ -246,7 +246,7 @@ Also, `a` and `b` are just nice syntactic labels that get transformed into `#Par
 
 ---
 
-```
+```clojure
 (#ExQ (List Type) Type)
 ```
 
@@ -258,7 +258,7 @@ Whereas universal quantification works with type-variables, existential quantifi
 
 ---
 
-```
+```clojure
 (#Apply Type Type)
 ```
 
@@ -274,7 +274,7 @@ For multi-parameter types, like `Dictionary` (from `lux/data/collection/dictiona
 
 ---
 
-```
+```clojure
 (#Named Name Type)
 ```
 
