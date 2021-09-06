@@ -40,8 +40,8 @@
   ["." // {"+" [ByteCode]}])
 
 (def: $Text (type.class "java.lang.String" (list)))
-(def: .public $Tag type.int)
-(def: .public $Flag (type.class "java.lang.Object" (list)))
+(def: .public $Lefts type.int)
+(def: .public $Right? (type.class "java.lang.Object" (list)))
 (def: .public $Value (type.class "java.lang.Object" (list)))
 (def: .public $Index type.int)
 (def: .public $Stack (type.array $Value))
@@ -63,7 +63,7 @@
          outI _.SWAP (printI "println"))))
 
 (def: variant_method
-  (type.method [(list) (list $Tag $Flag $Value) //.$Variant (list)]))
+  (type.method [(list) (list $Lefts $Right? $Value) //.$Variant (list)]))
 
 (def: .public variantI
   Inst
@@ -79,7 +79,7 @@
 
 (def: .public rightI
   Inst
-  (|>> _.ICONST_1
+  (|>> _.ICONST_0
        (_.string "")
        _.DUP2_X1
        _.POP2
@@ -119,14 +119,14 @@
 
 (def: adt_methods
   Def
-  (let [store_tagI (|>> _.DUP _.ICONST_0 (_.ILOAD 0) (_.wrap type.int) _.AASTORE)
+  (let [store_leftsI (|>> _.DUP _.ICONST_0 (_.ILOAD 0) (_.wrap type.int) _.AASTORE)
         store_flagI (|>> _.DUP _.ICONST_1 (_.ALOAD 1) _.AASTORE)
         store_valueI (|>> _.DUP _.ICONST_2 (_.ALOAD 2) _.AASTORE)]
     (|>> ($d.method #$.Public $.staticM "variant_make"
-                    (type.method [(list) (list $Tag $Flag $Value) //.$Variant (list)])
+                    (type.method [(list) (list $Lefts $Right? $Value) //.$Variant (list)])
                     (|>> _.ICONST_3
                          (_.ANEWARRAY $Value)
-                         store_tagI
+                         store_leftsI
                          store_flagI
                          store_valueI
                          _.ARETURN)))))
@@ -187,65 +187,79 @@
                          (_.ALOAD 1)
                          _.AASTORE
                          _.ARETURN))
-         ($d.method #$.Public $.staticM "pm_variant" (type.method [(list) (list //.$Variant $Tag $Flag) $Value (list)])
+         ($d.method #$.Public $.staticM "pm_variant" (type.method [(list) (list //.$Variant $Lefts $Right?) $Value (list)])
                     (<| _.with_label (function (_ @loop))
                         _.with_label (function (_ @perfect_match!))
-                        _.with_label (function (_ @tags_match!))
+                        _.with_label (function (_ @lefts_match!))
                         _.with_label (function (_ @maybe_nested))
                         _.with_label (function (_ @mismatch!))
                         (let [$variant (_.ALOAD 0)
-                              $tag (_.ILOAD 1)
-                              $last? (_.ALOAD 2)
+                              $lefts (_.ILOAD 1)
+                              $right? (_.ALOAD 2)
                               
                               variant_partI (: (-> Nat Inst)
                                                (function (_ idx)
                                                  (|>> (_.int (.int idx)) _.AALOAD)))
-                              ::tag (: Inst
-                                       (|>> (variant_partI 0) (_.unwrap type.int)))
-                              ::last? (variant_partI 1)
+                              ::lefts (: Inst
+                                         (|>> (variant_partI 0)
+                                              (_.unwrap type.int)))
+                              ::right? (variant_partI 1)
                               ::value (variant_partI 2)
+                              
+                              not_found _.NULL
 
-                              super_nested_tag (|>> _.SWAP ... variant::tag, tag
-                                                    _.ISUB)
-                              super_nested (|>> super_nested_tag ... super_tag
-                                                $variant ::last? ... super_tag, super_last
-                                                $variant ::value ... super_tag, super_last, super_value
+                              super_nested_lefts (|>> _.SWAP ... variant::lefts, lefts
+                                                      _.ISUB
+                                                      (_.int +1)
+                                                      _.ISUB)
+                              super_nested (|>> super_nested_lefts ... super_lefts
+                                                $variant ::right? ... super_lefts, super_right?
+                                                $variant ::value ... super_lefts, super_right?, super_value
                                                 ..variantI)
                               
-                              update_$tag _.ISUB
                               update_$variant (|>> $variant ::value
                                                    (_.CHECKCAST //.$Variant)
                                                    (_.ASTORE 0))
+                              update_$lefts (|>> _.ISUB
+                                                 (_.int +1)
+                                                 _.ISUB)
                               iterate! (: (-> Label Inst)
                                           (function (_ @loop)
                                             (|>> update_$variant
-                                                 update_$tag
-                                                 (_.GOTO @loop))))
-                              
-                              not_found _.NULL])
-                        (|>> $tag ... tag
+                                                 update_$lefts
+                                                 (_.GOTO @loop))))])
+                        (|>> $lefts ... lefts
                              (_.label @loop)
-                             $variant ::tag ... tag, variant::tag
-                             _.DUP2 (_.IF_ICMPEQ @tags_match!) ... tag, variant::tag
-                             _.DUP2 (_.IF_ICMPGT @maybe_nested) ... tag, variant::tag
-                             $last? (_.IFNULL @mismatch!) ... tag, variant::tag
+                             $variant ::lefts ... lefts, variant::lefts
+                             _.DUP2 (_.IF_ICMPEQ @lefts_match!) ... lefts, variant::lefts
+                             _.DUP2 (_.IF_ICMPGT @maybe_nested) ... lefts, variant::lefts
+                             $right? (_.IFNULL @mismatch!) ... lefts, variant::lefts
                              super_nested ... super_variant
                              _.ARETURN
-                             (_.label @tags_match!) ... tag, variant::tag
-                             $last? ... tag, variant::tag, last?
-                             $variant ::last? ... tag, variant::tag, last?, variant::last?
-                             (_.IF_ACMPEQ @perfect_match!) ... tag, variant::tag
-                             (_.label @maybe_nested) ... tag, variant::tag
-                             $variant ::last? ... tag, variant::tag, variant::last?
-                             (_.IFNULL @mismatch!) ... tag, variant::tag
-                             (iterate! @loop)
-                             (_.label @perfect_match!) ... tag, variant::tag
-                             ... _.POP2
-                             $variant ::value
-                             _.ARETURN
-                             (_.label @mismatch!) ... tag, variant::tag
+                             ...........................
+                             ...... @lefts_match! ......
+                             ...........................
+                             (_.label @lefts_match!) ... lefts, variant::lefts
+                             $right? ... lefts, variant::lefts, right?
+                             $variant ::right? ... lefts, variant::lefts, right?, variant::right?
+                             (_.IF_ACMPEQ @perfect_match!) ... lefts, variant::lefts
+                             ........................
+                             ...... @mismatch! ......
+                             ........................
+                             (_.label @mismatch!) ... lefts, variant::lefts
                              ... _.POP2
                              not_found
+                             _.ARETURN
+                             (_.label @maybe_nested) ... lefts, variant::lefts
+                             $variant ::right? ... lefts, variant::lefts, variant::right?
+                             (_.IFNULL @mismatch!) ... lefts, variant::lefts
+                             (iterate! @loop)
+                             .............................
+                             ...... @perfect_match! ......
+                             .............................
+                             (_.label @perfect_match!) ... lefts, variant::lefts
+                             ... _.POP2
+                             $variant ::value
                              _.ARETURN)))
          ($d.method #$.Public $.staticM "tuple_left" (type.method [(list) (list //.$Tuple $Index) $Value (list)])
                     (<| _.with_label (function (_ @loop))

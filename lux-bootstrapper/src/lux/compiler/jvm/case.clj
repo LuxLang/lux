@@ -133,17 +133,17 @@
     (&o/$VariantPM _idx+)
     (|let [$success (new Label)
            $fail (new Label)
-           [_idx is-last] (|case _idx+
-                            (&/$Left _idx)
-                            (&/T [_idx false])
+           [_lefts _right?] (|case _idx+
+                              (&/$Left _idx)
+                              (&/T [_idx false])
 
-                            (&/$Right _idx)
-                            (&/T [_idx true]))
+                              (&/$Right _idx)
+                              (&/T [(dec _idx) true]))
            _ (doto writer
                stack-peek
                (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-               (.visitLdcInsn (int _idx)))
-           _ (if is-last
+               (.visitLdcInsn (int _lefts)))
+           _ (if _right?
                (.visitLdcInsn writer "")
                (.visitInsn writer Opcodes/ACONST_NULL))]
       (doto writer

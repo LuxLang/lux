@@ -153,64 +153,80 @@
                (.visitEnd)))
          _ (let [$loop (new Label)
                  $perfect-match! (new Label)
-                 $tags-match! (new Label)
+                 $lefts-match! (new Label)
                  $maybe-nested (new Label)
                  $mismatch! (new Label)
 
                  !variant (<bytecode> (.visitVarInsn Opcodes/ALOAD 0))
-                 !tag (<bytecode> (.visitVarInsn Opcodes/ILOAD 1))
-                 !last? (<bytecode> (.visitVarInsn Opcodes/ALOAD 2))
+                 !lefts (<bytecode> (.visitVarInsn Opcodes/ILOAD 1))
+                 !right? (<bytecode> (.visitVarInsn Opcodes/ALOAD 2))
 
-                 <>tag (<bytecode> (.visitLdcInsn (int 0))
-                                   (.visitInsn Opcodes/AALOAD)
-                                   &&/unwrap-int)
-                 <>last? (<bytecode> (.visitLdcInsn (int 1))
-                                     (.visitInsn Opcodes/AALOAD))
+                 <>lefts (<bytecode> (.visitLdcInsn (int 0))
+                                     (.visitInsn Opcodes/AALOAD)
+                                     &&/unwrap-int)
+                 <>right? (<bytecode> (.visitLdcInsn (int 1))
+                                      (.visitInsn Opcodes/AALOAD))
                  <>value (<bytecode> (.visitLdcInsn (int 2))
                                      (.visitInsn Opcodes/AALOAD))
 
                  not-found (<bytecode> (.visitInsn Opcodes/ACONST_NULL))
 
-                 super-nested-tag (<bytecode> (.visitInsn Opcodes/SWAP)
-                                              (.visitInsn Opcodes/ISUB))
-                 super-nested (<bytecode> super-nested-tag ;; super-tag
-                                          !variant <>last? ;; super-tag, super-last
-                                          !variant <>value ;; super-tag, super-last, super-value
+                 super-nested-lefts (<bytecode> (.visitInsn Opcodes/SWAP)
+                                                (.visitInsn Opcodes/ISUB)
+                                                (.visitLdcInsn (int 1))
+                                                (.visitInsn Opcodes/ISUB))
+                 super-nested (<bytecode> super-nested-lefts ;; super-lefts
+                                          !variant <>right? ;; super-lefts, super-right?
+                                          !variant <>value ;; super-lefts, super-right?, super-value
                                           (.visitMethodInsn Opcodes/INVOKESTATIC rt-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;"))
 
                  update-!variant (<bytecode> !variant <>value
                                              (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
                                              (.visitVarInsn Opcodes/ASTORE 0))
-                 update-!tag (<bytecode> (.visitInsn Opcodes/ISUB))
+                 update-!lefts (<bytecode> (.visitInsn Opcodes/ISUB)
+                                           (.visitLdcInsn (int 1))
+                                           (.visitInsn Opcodes/ISUB))
                  iterate! (fn [^Label $loop]
                             (<bytecode> update-!variant
-                                        update-!tag
+                                        update-!lefts
                                         (.visitJumpInsn Opcodes/GOTO $loop)))]
              (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "sum_get" "([Ljava/lang/Object;ILjava/lang/Object;)Ljava/lang/Object;" nil nil)
                (.visitCode)
-               !tag ;; tag
+               !lefts ;; lefts
                (.visitLabel $loop)
-               !variant <>tag ;; tag, variant::tag
-               (.visitInsn Opcodes/DUP2) (.visitJumpInsn Opcodes/IF_ICMPEQ $tags-match!) ;; tag, variant::tag
-               (.visitInsn Opcodes/DUP2) (.visitJumpInsn Opcodes/IF_ICMPGT $maybe-nested) ;; tag, variant::tag
-               !last? (.visitJumpInsn Opcodes/IFNULL $mismatch!) ;; tag, variant::tag
+               !variant <>lefts ;; lefts, variant::lefts
+               (.visitInsn Opcodes/DUP2) (.visitJumpInsn Opcodes/IF_ICMPEQ $lefts-match!) ;; lefts, variant::lefts
+               (.visitInsn Opcodes/DUP2) (.visitJumpInsn Opcodes/IF_ICMPGT $maybe-nested) ;; lefts, variant::lefts
+               !right? (.visitJumpInsn Opcodes/IFNULL $mismatch!) ;; lefts, variant::lefts
                super-nested ;; super-variant
                (.visitInsn Opcodes/ARETURN)
-               (.visitLabel $tags-match!) ;; tag, variant::tag
-               !last? ;; tag, variant::tag, last?
-               !variant <>last?
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;; $lefts-match! ;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $lefts-match!) ;; lefts, variant::lefts
+               !right? ;; lefts, variant::lefts, right?
+               !variant <>right? ;; lefts, variant::lefts, right?, variant::right?
                (.visitJumpInsn Opcodes/IF_ACMPEQ $perfect-match!)
-               (.visitLabel $maybe-nested) ;; tag, variant::tag
-               !variant <>last? ;; tag, variant::tag, variant::last?
-               (.visitJumpInsn Opcodes/IFNULL $mismatch!) ;; tag, variant::tag
-               ((iterate! $loop))
-               (.visitLabel $perfect-match!)
-               ;; (.visitInsn Opcodes/POP2)
-               !variant <>value
-               (.visitInsn Opcodes/ARETURN)
-               (.visitLabel $mismatch!) ;; tag, variant::tag
+               ;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;; $mismatch! ;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $mismatch!) ;; lefts, variant::lefts
                ;; (.visitInsn Opcodes/POP2)
                not-found
+               (.visitInsn Opcodes/ARETURN)
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;; $maybe-nested ;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $maybe-nested) ;; lefts, variant::lefts
+               !variant <>right? ;; lefts, variant::lefts, variant::right?
+               (.visitJumpInsn Opcodes/IFNULL $mismatch!) ;; lefts, variant::lefts
+               ((iterate! $loop))
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               ;;;;;; $perfect-match! ;;;;;;
+               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+               (.visitLabel $perfect-match!) ;; lefts, variant::lefts
+               ;; (.visitInsn Opcodes/POP2) ;;
+               !variant <>value
                (.visitInsn Opcodes/ARETURN)
                (.visitMaxs 0 0)
                (.visitEnd)))
@@ -338,7 +354,7 @@
                   (.visitEnd))
               _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "make_none" "()[Ljava/lang/Object;" nil nil)
                   (.visitCode)
-                  (.visitLdcInsn (->> #'&/$None meta ::&/idx int)) ;; I
+                  (.visitLdcInsn (->> #'&/$None meta ::&/lefts int)) ;; I
                   (.visitInsn Opcodes/ACONST_NULL) ;; I?
                   (.visitLdcInsn &/unit-tag) ;; I?U
                   (.visitMethodInsn Opcodes/INVOKESTATIC rt-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
@@ -347,7 +363,7 @@
                   (.visitEnd))
               _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "make_some" "(Ljava/lang/Object;)[Ljava/lang/Object;" nil nil)
                   (.visitCode)
-                  (.visitLdcInsn (->> #'&/$Some meta ::&/idx int)) ;; I
+                  (.visitLdcInsn (->> #'&/$Some meta ::&/lefts int)) ;; I
                   (.visitLdcInsn "") ;; I?
                   (.visitVarInsn Opcodes/ALOAD 0) ;; I?O
                   (.visitMethodInsn Opcodes/INVOKESTATIC rt-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
@@ -400,7 +416,7 @@
                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Throwable" "printStackTrace" "(Ljava/io/PrintWriter;)V") ;; TW
                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/io/StringWriter" "toString" "()Ljava/lang/String;") ;; TS
                     (.visitInsn Opcodes/SWAP) (.visitInsn Opcodes/POP) ;; S
-                    (.visitLdcInsn (->> #'&/$Left meta ::&/idx int)) ;; SI
+                    (.visitLdcInsn (->> #'&/$Left meta ::&/lefts int)) ;; SI
                     (.visitInsn Opcodes/ACONST_NULL) ;; SI?
                     swap2x1 ;; I?S
                     (.visitMethodInsn Opcodes/INVOKESTATIC rt-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")

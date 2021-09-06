@@ -31,25 +31,25 @@
   (assert (> (count names) 1))
   `(do ~@(for [[[name num-params] idx] (map vector names (range (count names)))
                :let [last-idx (dec (count names))
-                     is-last? (if (= idx last-idx)
-                                ""
-                                nil)
+                     [lefts right?] (if (= idx last-idx)
+                                      [(dec idx) ""]
+                                      [idx nil])
                      def-name (with-meta (symbol (str "$" name))
-                                {::idx idx
-                                 ::is-last? is-last?})]]
+                                {::lefts lefts
+                                 ::right? right?})]]
            (cond (= 0 num-params)
                  `(def ~def-name
-                    (to-array [(int ~idx) ~is-last? unit-tag]))
+                    (to-array [(int ~lefts) ~right? unit-tag]))
 
                  (= 1 num-params)
                  `(defn ~def-name [arg#]
-                    (to-array [(int ~idx) ~is-last? arg#]))
+                    (to-array [(int ~lefts) ~right? arg#]))
 
                  :else
                  (let [g!args (map (fn [_] (gensym "arg"))
                                    (range num-params))]
                    `(defn ~def-name [~@g!args]
-                      (to-array [(int ~idx) ~is-last? (T [~@g!args])])))
+                      (to-array [(int ~lefts) ~right? (T [~@g!args])])))
                  ))))
 
 (defmacro deftuple [names]
@@ -263,13 +263,11 @@
 
                             ;; else
                             (mapv transform-pattern pattern))
-        (seq? pattern) [(if-let [tag-var (ns-resolve *ns* (first pattern))]
-                          (-> tag-var
-                              meta
-                              ::idx)
-                          (assert false (str "Unknown var: " (first pattern))))
-                        '_
-                        (transform-pattern (vec (rest pattern)))]
+        (seq? pattern) (if-let [tag-var (ns-resolve *ns* (first pattern))]
+                         [(-> tag-var meta ::lefts)
+                          (-> tag-var meta ::right?)
+                          (transform-pattern (vec (rest pattern)))]
+                         (assert false (str "Unknown var: " (first pattern))))
         :else pattern))
 
 (defmacro |case [value & branches]

@@ -75,7 +75,9 @@
 
 (defn compile-variant [compile tag tail? value]
   (|do [^MethodVisitor *writer* &/get-writer
-        :let [_ (.visitLdcInsn *writer* (int tag))
+        :let [_ (.visitLdcInsn *writer* (int (if tail?
+                                               (dec tag)
+                                               tag)))
               _ (if tail?
                   (.visitLdcInsn *writer* "")
                   (.visitInsn *writer* Opcodes/ACONST_NULL))]
@@ -342,7 +344,7 @@
                   $end (new Label)
                   _ (doto main-writer
                       ;; Tail: Begin
-                      (.visitLdcInsn (->> #'&/$End meta ::&/idx int)) ;; I
+                      (.visitLdcInsn (->> #'&/$End meta ::&/lefts int)) ;; I
                       (.visitInsn Opcodes/ACONST_NULL) ;; I?
                       (.visitLdcInsn &/unit-tag) ;; I?U
                       (.visitMethodInsn Opcodes/INVOKESTATIC &rt/rt-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;") ;; V
@@ -381,7 +383,7 @@
                       (.visitInsn Opcodes/AASTORE) ;; I2
                       ;; Tuple: End
                       ;; Item: Begin
-                      (.visitLdcInsn (->> #'&/$Item meta ::&/idx int)) ;; I2I
+                      (.visitLdcInsn (->> #'&/$Item meta ::&/lefts int)) ;; I2I
                       (.visitLdcInsn "") ;; I2I?
                       (.visitInsn Opcodes/DUP2_X1) ;; II?2I?
                       (.visitInsn Opcodes/POP2) ;; II?2
