@@ -35,6 +35,8 @@
 	_Where you will learn how to avoid annoying bug reports._
 * [Chapter 17: Cross-platform Lux](chapter_17.md)
 	_Where you will sail to exotic foreign platforms on the S.S. Lux._
+* [Chapter 18: Extensions](chapter_18.md)
+	_Where you will teach new tricks to an old compiler._
 * [Conclusion](conclusion.md)
 * [Appendix A: Import syntax](appendix_a.md)
 * [Appendix B: Math](appendix_b.md)
