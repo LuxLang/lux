@@ -171,13 +171,15 @@
 
 (def: (parameter_type_name id)
   (-> Nat Text)
-  (case (text.char id ..parameter_name_options)
-    (#.Some char)
-    (text.of_char char)
+  (format "_" (%.nat id))
+  ... (case (text.char id ..parameter_name_options)
+  ...   (#.Some char)
+  ...   (text.of_char char)
 
-    #.None
-    (format (parameter_type_name (n./ parameter_name_options_count id))
-            (parameter_type_name (n.% parameter_name_options_count id)))))
+  ...   #.None
+  ...   (format (parameter_type_name (n./ parameter_name_options_count id))
+  ...           (parameter_type_name (n.% parameter_name_options_count id))))
+  )
 
 (def: type_variable_names
   (Sequence Text)
@@ -206,10 +208,11 @@
         found
 
         _
-        (|> type_variable_names
-            (sequence.only (function (_ var_name)
-                             (not (list.member? text.equivalence type_function_arguments var_name))))
-            (sequence.item parameter_id))))      
+        (let [parameter_id (n.- (list.size type_function_arguments) parameter_id)]
+          (|> type_variable_names
+              (sequence.only (function (_ var_name)
+                               (not (list.member? text.equivalence type_function_arguments var_name))))
+              (sequence.item parameter_id)))))      
     type_function_name))
 
 (def: (level_parameters offset level)
@@ -221,12 +224,19 @@
         (enum.range n.enum 0)
         (list\each (|>> (n.+ (++ offset)) parameter_type_name)))))
 
-(def: (%type' level type_function_name module type)
-  (-> Nat Text Text Type Text)
+(def: (nested line_prefix body)
+  (-> Text Text Text)
+  (|> body
+      (text.all_split_by \n)
+      (list\each (text.prefix line_prefix))
+      (text.interposed \n)))
+
+(def: (%type' level type_function_name nestable? module type)
+  (-> Nat Text Bit Text Type Text)
   (case type
     (#.Primitive name params)
     (|> params
-        (list\each (|>> (%type' level type_function_name module)
+        (list\each (|>> (%type' level type_function_name false module)
                         (format " ")))
         (#.Item (%.text name))
         text.together
@@ -235,23 +245,23 @@
     (#.Sum _)
     (|> type
         type.flat_variant
-        (list\each (%type' level type_function_name module))
+        (list\each (%type' level type_function_name false module))
         (text.interposed " ")
         (text.enclosed ["(Or " ")"]))
 
     (#.Product _)
     (|> type
         type.flat_tuple
-        (list\each (%type' level type_function_name module))
+        (list\each (%type' level type_function_name false module))
         (text.interposed " ")
         (text.enclosed ["[" "]"]))
 
     (#.Function input output)
     (let [[ins out] (type.flat_function type)]
       (format  "(-> "
-               (|> ins (list\each (%type' level type_function_name module)) (text.interposed " "))
+               (|> ins (list\each (%type' level type_function_name false module)) (text.interposed " "))
                " "
-               (%type' level type_function_name module out)
+               (%type' level type_function_name false module out)
                ")"))
 
     (#.Parameter idx)
@@ -267,9 +277,11 @@
       [(<tag> _)
        (let [[level' body] (<flat> type)
              args (level_parameters level level')
-             body_doc (%type' (n.+ level level') type_function_name module body)]
+             body_doc (%type' (n.+ level level') type_function_name nestable? module body)]
          (format "(" <name> " " "(_ " (|> args (text.interposed " ")) ")"
-                 (format " " body_doc)
+                 (if nestable?
+                   (format \n (nested "  " body_doc))
+                   (format " " body_doc))
                  ")"))])
     ([#.UnivQ "All" type.flat_univ_q]
      [#.ExQ   "Ex"  type.flat_ex_q])
@@ -278,11 +290,17 @@
     type_function_name
 
     (^ (#.Apply (|recursion_dummy|) (#.UnivQ _ body)))
-    (format "(Rec " type_function_name " " (%type' level type_function_name module body) ")")
+    (format "(Rec " type_function_name
+            \n (nested " " (%type' level type_function_name nestable? module body))
+            ")")
 
     (#.Apply param fun)
     (let [[type_func type_arguments] (type.flat_application type)]
-      (format  "(" (%type' level type_function_name module type_func) " " (|> type_arguments (list\each (%type' level type_function_name module)) (text.interposed " ")) ")"))
+      (format  "(" (%type' level type_function_name false module type_func)
+               " " (|> type_arguments
+                       (list\each (%type' level type_function_name false module))
+                       (text.interposed " "))
+               ")"))
 
     (#.Named [_module _name] type)
     (cond (text\= module _module)
@@ -297,7 +315,7 @@
 
 (def: type
   (-> Text Type Text)
-  (%type' (-- 0) "?"))
+  (%type' (-- 0) "?" true))
 
 (def: (parameterized_type arity type)
   (-> Nat Type (Maybe Type))
@@ -310,18 +328,12 @@
         _
         #.None)))
 
-(def: (prefixed_lines prefix lines)
-  (-> Text Text Text)
-  (|> lines
-      (text.all_split_by text.new_line)
-      (list\each (|>> (format prefix)))
-      (text.interposed text.new_line)))
-
-(def: (type_definition' level type_function_info tags module type)
-  (-> Nat [Text (List Text)] (List Text) Text Type Text)
+(def: (type_definition' nestable? level arity type_function_info tags module type)
+  (-> Bit Nat Nat [Text (List Text)] (List Text) Text Type Text)
   (case tags
     (^ (list single_tag))
-    (format "(Record [#" single_tag " " (type_definition' level type_function_info #.None module type) "])")
+    (format "(Record" \n
+            " [#" single_tag " " (type_definition' false level arity type_function_info #.None module type) "])")
 
     _
     (case type
@@ -331,7 +343,7 @@
         (format "(primitive " (%.text name) ")")
 
         _
-        (format "(primitive " (%.text name) " " (|> params (list\each (type_definition' level type_function_info #.None module)) (text.interposed " ")) ")"))
+        (format "(primitive " (%.text name) " " (|> params (list\each (type_definition' false level arity type_function_info #.None module)) (text.interposed " ")) ")"))
 
       (#.Sum _)
       (let [members (type.flat_variant type)]
@@ -339,7 +351,7 @@
           #.End
           (format "(Or "
                   (|> members
-                      (list\each (type_definition' level type_function_info #.None module))
+                      (list\each (type_definition' false level arity type_function_info #.None module))
                       (text.interposed " "))
                   ")")
 
@@ -352,35 +364,35 @@
                              (let [types (type.flat_tuple type)]
                                (format " (#" t_name " "
                                        (|> types
-                                           (list\each (type_definition' level type_function_info #.None module))
+                                           (list\each (type_definition' false level arity type_function_info #.None module))
                                            (text.interposed " "))
                                        ")"))
 
                              _
-                             (format " (#" t_name " " (type_definition' level type_function_info #.None module type) ")"))))
-              (text.interposed text.new_line)
+                             (format " (#" t_name " " (type_definition' false level arity type_function_info #.None module type) ")"))))
+              (text.interposed \n)
               (text.enclosed [(format "(Variant" \n) ")"]))))
 
       (#.Product _)
       (let [members (type.flat_tuple type)]
         (case tags
           #.End
-          (format "[" (|> members (list\each (type_definition' level type_function_info #.None module)) (text.interposed " ")) "]")
+          (format "[" (|> members (list\each (type_definition' false level arity type_function_info #.None module)) (text.interposed " ")) "]")
 
           _
           (|> members
               (list.zipped/2 tags)
               (list\each (function (_ [t_name type])
-                           (format "#" t_name " " (type_definition' level type_function_info #.None module type))))
+                           (format "#" t_name " " (type_definition' false level arity type_function_info #.None module type))))
               (text.interposed (format \n "  "))
               (text.enclosed [" [" "]"])
               (text.enclosed [(format "(Record" \n) ")"]))))
 
       (#.Function input output)
       (let [[ins out] (type.flat_function type)]
-        (format  "(-> " (|> ins (list\each (type_definition' level type_function_info #.None module)) (text.interposed " "))
+        (format  "(-> " (|> ins (list\each (type_definition' false level arity type_function_info #.None module)) (text.interposed " "))
                  " "
-                 (type_definition' level type_function_info #.None module out)
+                 (type_definition' false level arity type_function_info #.None module out)
                  ")"))
 
       (#.Parameter idx)
@@ -395,18 +407,15 @@
       (^template [<tag> <name> <flat>]
         [(<tag> _)
          (let [[level' body] (<flat> type)
-               args (level_parameters level level')
-               body_doc (type_definition' (n.+ level level') type_function_info tags module body)
+               args (level_parameters (n.- arity level) level')
+               body_doc (type_definition' nestable? (n.+ level level') arity type_function_info tags module body)
                fn_name (case type_function_info
                          [fn_name #.End] fn_name
                          _ "_")]
            (format "(" <name> " " "(" fn_name " " (text.interposed " " args) ")"
-                   (case tags
-                     #.End
-                     (format " " body_doc)
-
-                     _
-                     (format text.new_line (prefixed_lines "  " body_doc)))
+                   (if nestable?
+                     (format \n (..nested "  " body_doc))
+                     (format " " body_doc))
                    ")"))])
       ([#.UnivQ "All" type.flat_univ_q]
        [#.ExQ   "Ex"  type.flat_ex_q])
@@ -416,7 +425,7 @@
       (product.left type_function_info)
 
       (^ (#.Apply (|recursion_dummy|) (#.UnivQ _ body)))
-      (|> (type_definition' level type_function_info tags module body)
+      (|> (type_definition' nestable? level arity type_function_info tags module body)
           (text.all_split_by \n)
           (list\each (text.prefix " "))
           (text.interposed \n)
@@ -425,9 +434,9 @@
 
       (#.Apply param fun)
       (let [[type_func type_arguments] (type.flat_application type)]
-        (format  "(" (type_definition' level type_function_info tags module type_func)
+        (format  "(" (type_definition' false level arity type_function_info tags module type_func)
                  " " (|> type_arguments
-                         (list\each (type_definition' level type_function_info #.None module))
+                         (list\each (type_definition' false level arity type_function_info #.None module))
                          (text.interposed " "))
                  ")"))
 
@@ -447,7 +456,7 @@
   (let [arity (list.size parameters)]
     (case (parameterized_type arity type)
       (#.Some type)
-      (type_definition' (-- arity) [name parameters] tags module type)
+      (type_definition' true (-- arity) arity [name parameters] tags module type)
 
       #.None
       (..type module type))))
