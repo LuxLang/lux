@@ -24,7 +24,7 @@
       ["n" nat]]]
     ["[0]" meta
      ["[0]" annotation]]
-    ["[0]" type
+    ["[0]" type ("[1]\[0]" equivalence)
      ["[0]" check {"+" [Check]}]]]])
 
 (def: (type_var id env)
@@ -117,19 +117,36 @@
      [idx tag_list sig_type] (meta.slot member)]
     (in [idx sig_type])))
 
-(def: (available_definitions source_module target_module constants aggregate)
-  (-> Text Text (List [Text Definition]) (-> (List [Name Type]) (List [Name Type])))
+(def: .public (compatible_type? interface candidate)
+  (-> Type Type Bit)
+  (with_expansions [<found?> (type\= interface candidate)]
+    (<| (or <found?>)
+
+        (let [[parameters candidate] (type.flat_univ_q candidate)])
+        (or <found?>)
+
+        (let [[inputs candidate] (type.flat_function candidate)])
+        (or <found?>)
+
+        (let [[candidate parameters] (type.flat_application candidate)])
+        (or <found?>)
+        
+        (let [candidate (type.de_aliased candidate)])
+        <found?>)))
+
+(def: (available_definitions sig_type source_module target_module constants aggregate)
+  (-> Type Text Text (List [Text Definition]) (-> (List [Name Type]) (List [Name Type])))
   (list\mix (function (_ [name [exported? def_type def_anns def_value]] aggregate)
-              (if (and (annotation.implementation? def_anns)
-                       (or (text\= target_module source_module)
-                           exported?))
+              (if (and (or (text\= target_module source_module)
+                           exported?)
+                       (compatible_type? sig_type def_type))
                 (#.Item [[source_module name] def_type] aggregate)
                 aggregate))
             aggregate
             constants))
 
-(def: local_env
-  (Meta (List [Name Type]))
+(def: (local_env sig_type)
+  (-> Type (Meta (List [Name Type])))
   (do meta.monad
     [local_batches meta.locals
      .let [total_locals (list\mix (function (_ [name type] table)
@@ -139,23 +156,26 @@
                                   (list\conjoint local_batches))]]
     (in (|> total_locals
             dictionary.entries
-            (list\each (function (_ [name type]) [["" name] type]))))))
+            (list.all (function (_ [name type])
+                        (if (compatible_type? sig_type type)
+                          (#.Some [["" name] type])
+                          #.None)))))))
 
-(def: local_structs
-  (Meta (List [Name Type]))
+(def: (local_structs sig_type)
+  (-> Type (Meta (List [Name Type])))
   (do [! meta.monad]
     [this_module_name meta.current_module_name
      definitions (meta.definitions this_module_name)]
-    (in (available_definitions this_module_name this_module_name definitions #.End))))
+    (in (available_definitions sig_type this_module_name this_module_name definitions #.End))))
 
-(def: imported_structs
-  (Meta (List [Name Type]))
+(def: (imported_structs sig_type)
+  (-> Type (Meta (List [Name Type])))
   (do [! meta.monad]
     [this_module_name meta.current_module_name
      imported_modules (meta.imported_modules this_module_name)
      accessible_definitions (monad.each ! meta.definitions imported_modules)]
     (in (list\mix (function (_ [imported_module definitions] tail)
-                    (available_definitions imported_module this_module_name definitions tail))
+                    (available_definitions sig_type imported_module this_module_name definitions tail))
                   #.End
                   (list.zipped/2 imported_modules accessible_definitions)))))
 
@@ -234,13 +254,13 @@
       found
       (in found))))
 
-(def: (provision compiler context dep)
-  (-> Lux Type_Context Type (Check Instance))
+(def: (provision sig_type compiler context dep)
+  (-> Type Lux Type_Context Type (Check Instance))
   (case (meta.result compiler
                      ($_ meta.either
-                         (do meta.monad [alts ..local_env] (..candidate_provision provision context dep alts))
-                         (do meta.monad [alts ..local_structs] (..candidate_provision provision context dep alts))
-                         (do meta.monad [alts ..imported_structs] (..candidate_provision provision context dep alts))))
+                         (do meta.monad [alts (..local_env sig_type)] (..candidate_provision (provision sig_type) context dep alts))
+                         (do meta.monad [alts (..local_structs sig_type)] (..candidate_provision (provision sig_type) context dep alts))
+                         (do meta.monad [alts (..imported_structs sig_type)] (..candidate_provision (provision sig_type) context dep alts))))
     (#.Left error)
     (check.failure error)
 
@@ -271,7 +291,7 @@
                                         member_type (member_type member_idx alt_type)
                                         _ (ensure_function_application! member_type input_types output_type)
                                         context' check.context
-                                        =deps (monad.each ! (provision compiler context') deps)]
+                                        =deps (monad.each ! (provision sig_type compiler context') deps)]
                                        (in =deps)))
                              (#.Left error)
                              (list)
@@ -289,9 +309,9 @@
   (-> Type Nat (List Type) Type (Meta (List Instance)))
   (let [test (candidate_alternatives sig_type member_idx input_types output_type)]
     ($_ meta.either
-        (do meta.monad [alts ..local_env] (test alts))
-        (do meta.monad [alts ..local_structs] (test alts))
-        (do meta.monad [alts ..imported_structs] (test alts)))))
+        (do meta.monad [alts (..local_env sig_type)] (test alts))
+        (do meta.monad [alts (..local_structs sig_type)] (test alts))
+        (do meta.monad [alts (..imported_structs sig_type)] (test alts)))))
 
 (def: (var? input)
   (-> Code Bit)
@@ -374,5 +394,4 @@
     (in (|> (list.zipped/2 g!implicit+ implementations)
             (list\each (function (_ [g!implicit implementation])
                          (` (def: .private (~ g!implicit)
-                              {#.implementation? #1}
                               (~ implementation)))))))))
