@@ -21,7 +21,9 @@
       ["[0]" rev]
       ["[0]" frac]]]]]
   [//
-   ["[0]" code]])
+   ["[0]" code]]
+  ["[0]" / "_"
+   ["[1][0]" export]])
 
 (def: (self_documenting binding parser)
   (All (_ a) (-> Code (Parser a) (Parser a)))
@@ -41,70 +43,54 @@
     #.End                   #.End
     (#.Item [[x y] pairs']) (list& x y (un_paired pairs'))))
 
+(def: syntax
+  (Parser [Code [Text (List Code)] Code])
+  (/export.parser
+   ($_ <>.and
+       (</>.form ($_ <>.and
+                     </>.local_identifier
+                     (</>.tuple (<>.some </>.any))))
+       </>.any)))
+
 (macro: .public (syntax: tokens)
-  (let [?parts (: (Maybe [Code Text (List Code) Code Code])
-                  (case tokens
-                    (^ (list export_policy
-                             [_ (#.Form (list [_ (#.Identifier ["" name])] [_ (#.Tuple args)]))]
-                             body))
-                    (#.Some [export_policy name args (` {}) body])
+  (case (</>.result ..syntax tokens)
+    (#try.Success [export_policy [name args] body])
+    (with_identifiers [g!tokens g!body g!error]
+      (do [! meta.monad]
+        [_ (if (|> args list.size nat.even?)
+             (in [])
+             (meta.failure "Syntax pattern expects pairs of bindings and code-parsers."))
+         vars+parsers (monad.each !
+                                  (: (-> [Code Code] (Meta [Code Code]))
+                                     (function (_ [var parser])
+                                       (with_expansions [<default> (in [var
+                                                                        (` ((~! ..self_documenting) (' (~ var))
+                                                                            (~ parser)))])]
+                                         (case var
+                                           [_ (#.Identifier ["" _])]
+                                           <default>
 
-                    (^ (list export_policy
-                             [_ (#.Form (list [_ (#.Identifier ["" name])] [_ (#.Tuple args)]))]
-                             meta_data
-                             body))
-                    (#.Some [export_policy name args meta_data body])
+                                           [_ (#.Identifier _)]
+                                           (in [var parser])
 
-                    (^ (list [_ (#.Form (list [_ (#.Identifier ["" name])] [_ (#.Tuple args)]))]
-                             body))
-                    (#.Some [(` .private) name args (` {}) body])
+                                           _
+                                           <default>))))
+                                  (list.pairs args))
+         this_module meta.current_module_name
+         .let [g!state (code.identifier ["" "*lux*"])
+               error_msg (code.text (macro.wrong_syntax_error [this_module name]))]]
+        (in (list (` (macro: (~ export_policy) ((~ (code.identifier ["" name])) (~ g!tokens) (~ g!state))
+                       ({(#.Right (~ g!body))
+                         ((~ g!body) (~ g!state))
 
-                    (^ (list [_ (#.Form (list [_ (#.Identifier ["" name])] [_ (#.Tuple args)]))]
-                             meta_data
-                             body))
-                    (#.Some [(` .private) name args meta_data body])
-
-                    _
-                    #.None))]
-    (case ?parts
-      (#.Some [export_policy name args meta body])
-      (with_identifiers [g!tokens g!body g!error]
-        (do [! meta.monad]
-          [_ (if (|> args list.size nat.even?)
-               (in [])
-               (meta.failure "Syntax pattern expects pairs of bindings and code-parsers."))
-           vars+parsers (monad.each !
-                                    (: (-> [Code Code] (Meta [Code Code]))
-                                       (function (_ [var parser])
-                                         (with_expansions [<default> (in [var
-                                                                          (` ((~! ..self_documenting) (' (~ var))
-                                                                              (~ parser)))])]
-                                           (case var
-                                             [_ (#.Identifier ["" _])]
-                                             <default>
-
-                                             [_ (#.Identifier _)]
-                                             (in [var parser])
-
-                                             _
-                                             <default>))))
-                                    (list.pairs args))
-           this_module meta.current_module_name
-           .let [g!state (code.identifier ["" "*lux*"])
-                 error_msg (code.text (macro.wrong_syntax_error [this_module name]))]]
-          (in (list (` (macro: (~ export_policy) ((~ (code.identifier ["" name])) (~ g!tokens) (~ g!state))
-                         (~ meta)
-                         ({(#.Right (~ g!body))
-                           ((~ g!body) (~ g!state))
-
-                           (#.Left (~ g!error))
-                           (#.Left ((~! text.interposed) (~! text.new_line) (list (~ error_msg) (~ g!error))))}
-                          ((~! </>.result)
-                           (: ((~! </>.Parser) (Meta (List Code)))
-                              ((~! do) (~! <>.monad)
-                               [(~+ (..un_paired vars+parsers))]
-                               ((~' in) (~ body))))
-                           (~ g!tokens)))))))))
-      
-      _
-      (meta.failure (macro.wrong_syntax_error (name_of ..syntax:))))))
+                         (#.Left (~ g!error))
+                         (#.Left ((~! text.interposed) (~! text.new_line) (list (~ error_msg) (~ g!error))))}
+                        ((~! </>.result)
+                         (: ((~! </>.Parser) (Meta (List Code)))
+                            ((~! do) (~! <>.monad)
+                             [(~+ (..un_paired vars+parsers))]
+                             ((~' in) (~ body))))
+                         (~ g!tokens)))))))))
+    
+    (#try.Failure error)
+    (meta.failure (macro.wrong_syntax_error (name_of ..syntax:)))))

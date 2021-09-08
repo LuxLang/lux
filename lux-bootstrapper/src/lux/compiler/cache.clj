@@ -11,8 +11,7 @@
                           [module :as &a-module])
             (lux.compiler [core :as &&core]
                           [io :as &&io])
-            (lux.compiler.cache [type :as &&&type]
-                                [ann :as &&&ann]))
+            (lux.compiler.cache [type :as &&&type]))
   (:import (java.io File)
            ))
 
@@ -75,20 +74,16 @@
 (defn make-identifier [ident]
   (&/T [(&/T ["" 0 0]) (&/$Identifier ident)]))
 
-(defn make-record [kvs]
-  (&/T [(&/T ["" 0 0]) (&/$Record kvs)]))
-
 (defn ^:private process-def-entry [load-def-value module ^String _def-entry]
   (let [parts (.split _def-entry &&core/datum-separator)]
     (case (first parts)
       "A" (let [[_ _name ^String _alias] parts
                 [__module __name] (.split _alias &/+name-separator+)]
             (&a-module/define-alias module _name (&/T [__module __name])))
-      "D" (let [[_ _name _exported? _type _anns] parts
-                [def-anns _] (&&&ann/deserialize _anns)
+      "D" (let [[_ _name _exported? _type] parts
                 [def-type _] (&&&type/deserialize-type _type)]
             (|do [def-value (load-def-value module _name)]
-              (&a-module/define module _name (= "1" _exported?) def-type def-anns def-value)))
+              (&a-module/define module _name (= "1" _exported?) def-type def-value)))
       ":" (let [[_ _name _exported? _record? _head _tail] parts
                 labels (&/$Item _head (if _tail
                                         (&/->list (seq (.split _tail "\\.")))
@@ -96,7 +91,7 @@
             (|do [def-value (load-def-value module _name)]
               (&a-module/define-type
                 module _name
-                (= "1" _exported?) (make-record &/$End)
+                (= "1" _exported?)
                 def-value (= "1" _record?) labels)))
       ;; "T" (let [[_ _name _exported? _type _index _group] parts
       ;;           [_type _] (&&&type/deserialize-type _type)

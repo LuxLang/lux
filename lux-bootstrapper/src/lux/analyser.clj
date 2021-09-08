@@ -123,12 +123,11 @@
           "lux def"
           (|let [(&/$Item [_ (&/$Identifier "" ?name)]
                           (&/$Item ?value
-                                   (&/$Item ?meta
-                                            (&/$Item exported?
-                                                     (&/$End)))
+                                   (&/$Item exported?
+                                            (&/$End))
                                    )) parameters]
             (&/with-location location
-              (&&lux/analyse-def analyse optimize eval! compile-def ?name ?value ?meta exported?)))
+              (&&lux/analyse-def analyse optimize eval! compile-def ?name ?value exported?)))
 
           "lux def alias"
           (|let [(&/$Item [_ (&/$Identifier "" ?alias)]
@@ -141,18 +140,17 @@
           "lux def type tagged"
           (|let [(&/$Item [_ (&/$Identifier "" ?name)]
                           (&/$Item ?value
-                                   (&/$Item ?meta
-                                            (&/$Item ?labels
-                                                     (&/$Item exported?
-                                                              (&/$End))))
+                                   (&/$Item ?labels
+                                            (&/$Item exported?
+                                                     (&/$End)))
                                    )) parameters]
             (&/with-location location
               (|case ?labels
                 [_ (&/$Form ?tags)]
-                (&&lux/analyse-def-type-tagged analyse optimize eval! compile-def ?name ?value ?meta false ?tags exported?)
+                (&&lux/analyse-def-type-tagged analyse optimize eval! compile-def ?name ?value false ?tags exported?)
                 
                 [_ (&/$Tuple ?slots)]
-                (&&lux/analyse-def-type-tagged analyse optimize eval! compile-def ?name ?value ?meta true ?slots exported?))))
+                (&&lux/analyse-def-type-tagged analyse optimize eval! compile-def ?name ?value true ?slots exported?))))
 
           "lux def program"
           (|let [(&/$Item ?program (&/$End)) parameters]

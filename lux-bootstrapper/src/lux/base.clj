@@ -600,11 +600,11 @@
     (|let [[file line col] meta]
       (str "@ " file "," line "," col "\n" msg))))
 
-(defn fail-with-loc [msg]
+(defn fail-with-loc [^String msg]
   (fn [state]
     (fail* (add-loc (get$ $location state) msg))))
 
-(defn assert! [test message]
+(defn assert! [test ^String message]
   (if test
     (return unit-tag)
     (fail-with-loc message)))

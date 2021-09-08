@@ -7,8 +7,7 @@
             (lux [base :as & :refer [|case |let |do return* return fail*]])
             (lux.analyser [base :as &a]
                           [module :as &a-module])
-            (lux.compiler.cache [type :as &&&type]
-                                [ann :as &&&ann]))
+            (lux.compiler.cache [type :as &&&type]))
   (:import (java.io File
                     BufferedOutputStream
                     FileOutputStream)))
@@ -56,12 +55,11 @@
                                              ;; Next
                                              entry-separator def-entries)
                                         
-                                        (&/$DefinitionG [exported? ?def-type ?def-anns ?def-value])
+                                        (&/$DefinitionG [exported? ?def-type ?def-value])
                                         (str "D"
                                              datum-separator ?name
                                              datum-separator (if exported? "1" "0")
                                              datum-separator (&&&type/serialize-type ?def-type)
-                                             datum-separator (&&&ann/serialize ?def-anns)
                                              ;; Next
                                              entry-separator def-entries)
 

@@ -119,7 +119,7 @@
 (defn compile-apply [compile ?fn ?args]
   (|case ?fn
     [_ (&o/$def ?module ?name)]
-    (|do [[_ [_ _ _ func-obj]] (&a-module/find-def! ?module ?name)
+    (|do [[_ [_ _ func-obj]] (&a-module/find-def! ?module ?name)
           class-loader &/loader
           :let [func-class (class func-obj)
                 func-arity (.get ^Field (.getDeclaredField func-class &&/arity-field) nil)
@@ -252,7 +252,7 @@
       (str base "\n\n" "Caused by: " (throwable->text cause))
       base)))
 
-(defn ^:private install-def! [class-loader current-class module-name ?name ?body ?meta exported? type?]
+(defn ^:private install-def! [class-loader current-class module-name ?name ?body exported? type?]
   (|do [_ (return nil)
         :let [def-class (&&/load-class! class-loader (&host-generics/->class-name current-class))
               def-type (&a/expr-type* ?body)]
@@ -264,15 +264,15 @@
         _ (&/without-repl-closure
            (|case type?
              (&/$Some [record? labels])
-             (&a-module/define-type module-name ?name exported? ?meta def-value record? labels)
+             (&a-module/define-type module-name ?name exported? def-value record? labels)
 
              (&/$None)
-             (&a-module/define module-name ?name exported? def-type ?meta def-value)))]
+             (&a-module/define module-name ?name exported? def-type def-value)))]
     (return def-value)))
 
 (let [class-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
       field-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC)]
-  (defn compile-def [compile ?name ?body ?meta exported? type?]
+  (defn compile-def [compile ?name ?body exported? type?]
     (|do [module-name &/get-module-name
           class-loader &/loader]
       (|case (de-ann ?body)
@@ -303,7 +303,7 @@
                       (return nil)))
                 :let [_ (.visitEnd =class)]
                 _ (&&/save-class! def-name (.toByteArray =class))
-                def-value (install-def! class-loader current-class module-name ?name ?body ?meta exported? type?)]
+                def-value (install-def! class-loader current-class module-name ?name ?body exported? type?)]
             (return def-value)))
 
         _
@@ -329,7 +329,7 @@
                     (return nil)))
               :let [_ (.visitEnd =class)]
               _ (&&/save-class! def-name (.toByteArray =class))
-              def-value (install-def! class-loader current-class module-name ?name ?body ?meta exported? type?)]
+              def-value (install-def! class-loader current-class module-name ?name ?body exported? type?)]
           (return def-value))))))
 
 (defn compile-program [compile ?program]

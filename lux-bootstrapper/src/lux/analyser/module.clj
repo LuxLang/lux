@@ -115,7 +115,7 @@
       ((&/fail-with-loc (str "[Analyser Error] Cannot create a new global definition outside of a global environment: " (str module &/+name-separator+ name)))
        state))))
 
-(defn define [module name exported? def-type def-meta def-value]
+(defn define [module name exported? def-type def-value]
   (fn [state]
     (|case (&/get$ &/$scopes state)
       (&/$Item ?env (&/$End))
@@ -125,7 +125,7 @@
                                  (&/|update module
                                             (fn [m]
                                               (&/update$ $defs
-                                                         #(&/|put name (&/$DefinitionG (&/T [exported? def-type def-meta def-value])) %)
+                                                         #(&/|put name (&/$DefinitionG (&/T [exported? def-type def-value])) %)
                                                          m))
                                             ms))))
                nil)
@@ -144,11 +144,10 @@
           (&/$AliasG [o-module o-name])
           ((type-def o-module o-name) state)
           
-          (&/$DefinitionG [exported? ?type ?meta ?value])
+          (&/$DefinitionG [exported? ?type ?value])
           (if (&type/type= &type/Type ?type)
             (return* state (&/T [exported? ?value]))
-            ((&/fail-with-loc (str "[Analyser Error] Not a type: " (&/ident->text (&/T [module name]))
-                                   "\nMETA: " (&/show-ast ?meta)))
+            ((&/fail-with-loc (str "[Analyser Error] Not a type: " (&/ident->text (&/T [module name]))))
              state))
 
           (&/$TypeG [exported? ?value labels])
@@ -209,11 +208,6 @@
        (&/get$ $imports)
        (&/|any? (partial = imported-module-name))))
 
-(def empty_annotations
-  (let [dummy_location (&/T ["" 0 0])]
-    (&/T [dummy_location
-          (&/$Record &/$End)])))
-
 (defn find-def! [module name]
   (|do [current-module &/get-module-name]
     (fn [state]
@@ -229,7 +223,7 @@
 
             (&/$TypeG [exported? ?value labels])
             (return* state (&/T [(&/T [module name])
-                                 (&/T [exported? &type/Type empty_annotations ?value])]))
+                                 (&/T [exported? &type/Type ?value])]))
 
             (&/$TagG _)
             ((&/fail-with-loc (str "[Analyser Error] Not a definition: " (&/ident->text (&/T [module name]))))
@@ -259,13 +253,13 @@
                                      " at module: " current-module))
                state))
             
-            (&/$DefinitionG [exported? ?type ?meta ?value])
+            (&/$DefinitionG [exported? ?type ?value])
             (if (or (.equals ^Object current-module module)
                     (and exported?
                          (or (.equals ^Object module &/prelude)
                              (imports? state module current-module))))
               (return* state (&/T [(&/T [module name])
-                                   (&/T [exported? ?type ?meta ?value])]))
+                                   (&/T [exported? ?type ?value])]))
               ((&/fail-with-loc (str "[Analyser Error @ find-def] Cannot use private definition: " (str module &/+name-separator+ name)
                                      " at module: " current-module))
                state))
@@ -276,7 +270,7 @@
                          (or (.equals ^Object module &/prelude)
                              (imports? state module current-module))))
               (return* state (&/T [(&/T [module name])
-                                   (&/T [exported? &type/Type empty_annotations ?value])]))
+                                   (&/T [exported? &type/Type ?value])]))
               ((&/fail-with-loc (str "[Analyser Error @ find-def] Cannot use private definition: " (str module &/+name-separator+ name)
                                      " at module: " current-module))
                state))
@@ -452,10 +446,10 @@
                     (define_tag module (str "#" label-name) was-exported? type label-names index)))
                 (&/enumerate label-names))))))
 
-(defn define-type [module name exported? def-meta def-value record? labels]
+(defn define-type [module name exported? def-value record? labels]
   (|case labels
     (&/$End)
-    (define module name exported? &type/Type def-meta def-value)
+    (define module name exported? &type/Type def-value)
 
     (&/$Item labelH labelT)
     (|do [_ (declare-labels module record? labels exported? def-value)]

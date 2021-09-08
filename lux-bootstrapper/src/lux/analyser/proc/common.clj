@@ -32,7 +32,7 @@
 
 (defn- analyse-lux-macro [analyse exo-type ?values]
   (|do [:let [(&/$Item macro (&/$End)) ?values]
-        [_real-name [_exported? _def-type _meta macro-type]] (&&module/find-def! &/prelude "Macro'")
+        [_real-name [_exported? _def-type macro-type]] (&&module/find-def! &/prelude "Macro'")
         [[=macro*-type =location] =macro] (&&/analyse-1 analyse macro-type macro)
         _ (&type/check exo-type &type/Macro)]
     (return (&/|list (&&/|meta exo-type =location
