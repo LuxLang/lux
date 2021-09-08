@@ -3825,14 +3825,18 @@
           ("lux text concat" left right))))
    "" template))
 
-(def: contextual_reference "#")
-(def: self_reference ".")
+(def: (alias_stand_in index)
+  (-> Nat Text)
+  ($_ "lux text concat" "[" (nat\encoded index) "]"))
 
-(def: (module_alias context self aliased)
-  (-> Text Text Text Text)
-  (|> aliased
-      (replaced ..self_reference self)
-      (replaced ..contextual_reference context)))
+(def: (module_alias context aliased)
+  (-> (List Text) Text Text)
+  (product\right
+   (list\mix (function (_ replacement [index aliased])
+               [("lux i64 +" 1 index)
+                (replaced (alias_stand_in index) replacement aliased)])
+             [0 aliased]
+             context)))
 
 (def: .public module_separator
   "/")
@@ -3909,8 +3913,8 @@
                      "Importing module: " module ..\n
                      "   Relative Root: " relative_root ..\n))))))
 
-(def: (imports_parser nested? relative_root context_alias imports)
-  (-> Bit Text Text (List Code) (Meta (List Importation)))
+(def: (imports_parser nested? relative_root context imports)
+  (-> Bit Text (List Text) (List Code) (Meta (List Importation)))
   (do meta_monad
     [imports' (monad\each meta_monad
                           (: (-> Code (Meta (List Importation)))
@@ -3938,7 +3942,7 @@
                                     .let [[referral extra] referral+extra]
                                     openings+extra (openings_parser extra)
                                     .let [[openings extra] openings+extra]
-                                    sub_imports (imports_parser #1 absolute_module_name context_alias extra)]
+                                    sub_imports (imports_parser #1 absolute_module_name context extra)]
                                    (in (case [referral openings]
                                          [#Nothing #End]
                                          sub_imports
@@ -3962,8 +3966,8 @@
                                     .let [[referral extra] referral+extra]
                                     openings+extra (openings_parser extra)
                                     .let [[openings extra] openings+extra
-                                          module_alias (..module_alias context_alias module_name alias)]
-                                    sub_imports (imports_parser #1 absolute_module_name module_alias extra)]
+                                          module_alias (..module_alias (#Item module_name context) alias)]
+                                    sub_imports (imports_parser #1 absolute_module_name (#Item module_alias context) extra)]
                                    (in (case [referral openings]
                                          [#Ignore #End]
                                          sub_imports
@@ -4242,7 +4246,7 @@
           [full_body ((: (-> Name [(List Name) (List Type)] Code (Meta Code))
                          (function (recur source [tags members] target)
                            (let [locals (list\each (function (_ [t_module t_name])
-                                                     ["" (..module_alias "" t_name alias)])
+                                                     ["" (..module_alias (list t_name) alias)])
                                                    tags)
                                  pattern (tuple$ (list\each identifier$ locals))]
                              (do meta_monad
@@ -4363,7 +4367,7 @@
         (in_meta (list\conjoint decls')))
 
       _
-      (in_meta (list (` ("lux def" (~ (local_identifier$ (..module_alias "" short alias)))
+      (in_meta (list (` ("lux def" (~ (local_identifier$ (..module_alias (list short) alias)))
                          (~ source+)
                          [(~ location_code) (#.Record #.End)]
                          #0)))))))
@@ -4516,7 +4520,7 @@
                            #Nothing
                            (list)))
         openings (list\each (function (_ [alias structs])
-                              (form$ (list& (text$ (..replaced ..contextual_reference module_alias alias))
+                              (form$ (list& (text$ (..module_alias (list (alias_stand_in 0) module_alias) alias))
                                             (list\each local_identifier$ structs))))
                             r_opens)]
     (` ((~! ..refer) (~ (text$ module_name))
@@ -4533,7 +4537,7 @@
                                  _
                                  [(list) tokens]))]
      current_module current_module_name
-     imports (imports_parser #0 current_module "" _imports)
+     imports (imports_parser #0 current_module #End _imports)
      .let [=imports (|> imports
                         (list\each (: (-> Importation Code)
                                       (function (_ [module_name m_alias =refer])
@@ -4551,7 +4555,7 @@
 (macro: .public (\ tokens)
   (case tokens
     (^ (list struct [_ (#Identifier member)]))
-    (in_meta (list (` (let [(^open (~ (text$ ..self_reference))) (~ struct)] (~ (identifier$ member))))))
+    (in_meta (list (` (let [(^open (~ (text$ (alias_stand_in 0)))) (~ struct)] (~ (identifier$ member))))))
 
     (^ (list& struct member args))
     (in_meta (list (` ((..\ (~ struct) (~ member)) (~+ args)))))
