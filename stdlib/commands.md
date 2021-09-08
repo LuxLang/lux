@@ -56,11 +56,11 @@ cd ~/lux/stdlib/ \
 
 cd ~/lux/stdlib/ \
 && lux clean \
-&& lux with jvm with documentation auto test
+&& lux with jvm with scriptum auto test
 
 cd ~/lux/stdlib/ \
 && lux clean \
-&& lux with jvm with documentation build \
+&& lux with jvm with scriptum build \
 && java -jar target/program.jar > ~/documentation.md
 ```
 

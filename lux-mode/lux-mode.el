@@ -378,7 +378,7 @@ Called by `imenu--generic-function'."
 							(type//checking (altRE ":" ":as" ":let" ":~" ":expected" ":of" ":sharing" ":by_example" ":hole"))
 							(type//abstract (altRE "abstract:" ":abstraction" ":representation" ":transmutation" "\\^:representation"))
 							(type//unit (altRE "unit:" "scale:"))
-							(type//poly (altRE "poly:" "derived:"))
+							(type//poly (altRE "poly:"))
 							(type//dynamic (altRE ":dynamic" "/.:static"))
 							(type//capability (altRE "capability:"))
 							;; Data
