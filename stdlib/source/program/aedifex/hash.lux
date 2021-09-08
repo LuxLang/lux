@@ -31,138 +31,136 @@
    ("static" getInstance [java/lang/String] java/security/MessageDigest)
    (digest [[byte]] [byte])])
 
-(abstract: .public SHA-1 {} Any)
-(abstract: .public MD5 {} Any)
+(abstract: .public SHA-1 Any [])
+(abstract: .public MD5 Any [])
 
 (abstract: .public (Hash h)
-  {}
-
   Binary
 
-  (def: .public data
-    (All (_ h) (-> (Hash h) Binary))
-    (|>> :representation))
+  [(def: .public data
+     (All (_ h) (-> (Hash h) Binary))
+     (|>> :representation))
 
-  (template [<name> <kind> <algorithm>]
-    [(def: .public (<name> value)
-       (-> Binary (Hash <kind>))
-       (|> (java/security/MessageDigest::getInstance [<algorithm>])
-           (java/security/MessageDigest::digest [value])
-           :abstraction))]
+   (template [<name> <kind> <algorithm>]
+     [(def: .public (<name> value)
+        (-> Binary (Hash <kind>))
+        (|> (java/security/MessageDigest::getInstance [<algorithm>])
+            (java/security/MessageDigest::digest [value])
+            :abstraction))]
 
-    [sha-1 ..SHA-1 "SHA-1"]
-    [md5 ..MD5 "MD5"]
-    )
+     [sha-1 ..SHA-1 "SHA-1"]
+     [md5 ..MD5 "MD5"]
+     )
 
-  (def: encoded
-    (Format Binary)
-    (binary.aggregate (function (_ byte representation)
-                        (let [hex (\ n.hex encoded byte)
-                              hex (case (text.size hex)
-                                    1 (format "0" hex)
-                                    _ hex)]
-                          (format representation hex)))
-                      ""))
+   (def: encoded
+     (Format Binary)
+     (binary.aggregate (function (_ byte representation)
+                         (let [hex (\ n.hex encoded byte)
+                               hex (case (text.size hex)
+                                     1 (format "0" hex)
+                                     _ hex)]
+                           (format representation hex)))
+                       ""))
 
-  (template [<factor> <name>]
-    [(def: <name>
-       Nat
-       <factor>)]
+   (template [<factor> <name>]
+     [(def: <name>
+        Nat
+        <factor>)]
 
-    [20 sha-1::size]
-    [16 md5::size]
-    )
+     [20 sha-1::size]
+     [16 md5::size]
+     )
 
-  (def: hex_per_byte
-    2)
+   (def: hex_per_byte
+     2)
 
-  (def: hex_per_chunk
-    (n.* hex_per_byte i64.bytes_per_i64))
+   (def: hex_per_chunk
+     (n.* hex_per_byte i64.bytes_per_i64))
 
-  (exception: .public (not_a_hash {size Nat} {value Text})
-    (exception.report
-     ["Pseudo hash" (%.text value)]
-     ["Expected size" (%.nat size)]
-     ["Actual size" (%.nat (text.size value))]))
-  
-  (template [<name> <size>]
-    [(exception: .public (<name> {data Binary})
-       (exception.report
-        ["Pseudo hash" (%.text (..encoded data))]
-        ["Expected size" (%.nat <size>)]
-        ["Actual size" (%.nat (binary.size data))]))]
+   (exception: .public (not_a_hash {size Nat} {value Text})
+     (exception.report
+      ["Pseudo hash" (%.text value)]
+      ["Expected size" (%.nat size)]
+      ["Actual size" (%.nat (text.size value))]))
+   
+   (template [<name> <size>]
+     [(exception: .public (<name> {data Binary})
+        (exception.report
+         ["Pseudo hash" (%.text (..encoded data))]
+         ["Expected size" (%.nat <size>)]
+         ["Actual size" (%.nat (binary.size data))]))]
 
-    [not_a_sha-1 ..sha-1::size]
-    [not_a_md5 ..md5::size]
-    )
+     [not_a_sha-1 ..sha-1::size]
+     [not_a_md5 ..md5::size]
+     )
 
-  (template [<name> <kind> <size> <exception>]
-    [(def: .public (<name> data)
-       (-> Binary (Try (Hash <kind>)))
-       (if (n.= <size> (binary.size data))
-         (#try.Success (:abstraction data))
-         (exception.except <exception> [data])))]
+   (template [<name> <kind> <size> <exception>]
+     [(def: .public (<name> data)
+        (-> Binary (Try (Hash <kind>)))
+        (if (n.= <size> (binary.size data))
+          (#try.Success (:abstraction data))
+          (exception.except <exception> [data])))]
 
-    [as_sha-1 SHA-1 ..sha-1::size ..not_a_sha-1]
-    [as_md5 MD5 ..md5::size ..not_a_md5]
-    )
+     [as_sha-1 SHA-1 ..sha-1::size ..not_a_sha-1]
+     [as_md5 MD5 ..md5::size ..not_a_md5]
+     )
 
-  (def: hash_size
-    (-> Text Nat)
-    (|>> text.size (n./ ..hex_per_byte)))
+   (def: hash_size
+     (-> Text Nat)
+     (|>> text.size (n./ ..hex_per_byte)))
 
-  (def: encoding_size
-    (-> Nat Nat)
-    (n.* ..hex_per_byte))
+   (def: encoding_size
+     (-> Nat Nat)
+     (n.* ..hex_per_byte))
 
-  (def: (decoded size constructor encoded)
-    (All (_ h)
-      (-> Nat (-> Binary (Try (Hash h)))
-          (-> Text (Try (Hash h)))))
-    (let [hash_size (..hash_size encoded)]
-      (if (n.= size hash_size)
-        (loop [input encoded
-               chunk 0
-               output (binary.empty hash_size)]
-          (let [index (n.* chunk i64.bytes_per_i64)]
-            (case (text.split_at ..hex_per_chunk input)
-              (#.Some [head tail])
-              (do try.monad
-                [head (\ n.hex decoded head)
-                 output (binary.write/64! index head output)]
-                (recur tail (++ chunk) output))
-              
-              #.None
-              (case (..hash_size input)
-                0 (constructor output)
-                (^template [<size> <write>]
-                  [<size>
-                   (do try.monad
-                     [head (\ n.hex decoded input)
-                      output (<write> index head output)]
-                     (constructor output))])
-                ([1 binary.write/8!]
-                 [2 binary.write/16!]
-                 [4 binary.write/32!])
-                _ (exception.except ..not_a_hash [(..encoding_size size) encoded])))))
-        (exception.except ..not_a_hash [(..encoding_size size) encoded]))))
+   (def: (decoded size constructor encoded)
+     (All (_ h)
+       (-> Nat (-> Binary (Try (Hash h)))
+           (-> Text (Try (Hash h)))))
+     (let [hash_size (..hash_size encoded)]
+       (if (n.= size hash_size)
+         (loop [input encoded
+                chunk 0
+                output (binary.empty hash_size)]
+           (let [index (n.* chunk i64.bytes_per_i64)]
+             (case (text.split_at ..hex_per_chunk input)
+               (#.Some [head tail])
+               (do try.monad
+                 [head (\ n.hex decoded head)
+                  output (binary.write/64! index head output)]
+                 (recur tail (++ chunk) output))
+               
+               #.None
+               (case (..hash_size input)
+                 0 (constructor output)
+                 (^template [<size> <write>]
+                   [<size>
+                    (do try.monad
+                      [head (\ n.hex decoded input)
+                       output (<write> index head output)]
+                      (constructor output))])
+                 ([1 binary.write/8!]
+                  [2 binary.write/16!]
+                  [4 binary.write/32!])
+                 _ (exception.except ..not_a_hash [(..encoding_size size) encoded])))))
+         (exception.except ..not_a_hash [(..encoding_size size) encoded]))))
 
-  (template [<codec> <hash> <nat> <constructor>]
-    [(implementation: .public <codec>
-       (Codec Text (Hash <hash>))
+   (template [<codec> <hash> <nat> <constructor>]
+     [(implementation: .public <codec>
+        (Codec Text (Hash <hash>))
 
-       (def: encoded (|>> :representation ..encoded))
-       (def: decoded (..decoded <nat> <constructor>)))]
+        (def: encoded (|>> :representation ..encoded))
+        (def: decoded (..decoded <nat> <constructor>)))]
 
-    [sha-1_codec SHA-1 ..sha-1::size ..as_sha-1]
-    [md5_codec MD5 ..md5::size ..as_md5]
-    )
+     [sha-1_codec SHA-1 ..sha-1::size ..as_sha-1]
+     [md5_codec MD5 ..md5::size ..as_md5]
+     )
 
-  (implementation: .public equivalence
-    (All (_ h) (Equivalence (Hash h)))
+   (implementation: .public equivalence
+     (All (_ h) (Equivalence (Hash h)))
 
-    (def: (= reference subject)
-      (\ binary.equivalence =
-         (:representation reference)
-         (:representation subject))))
+     (def: (= reference subject)
+       (\ binary.equivalence =
+          (:representation reference)
+          (:representation subject))))]
   )
