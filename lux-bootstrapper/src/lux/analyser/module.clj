@@ -22,7 +22,6 @@
    "module-aliases"
    "defs"
    "imports"
-   "module-annotations"
    "module-state"])
 
 (defn ^:private new-module [hash]
@@ -34,8 +33,6 @@
         (&/|table)
         ;; "lux;imports"
         &/$End
-        ;; module-annotations
-        &/$None
         ;; "module-state"
         $Active]
        ))
@@ -211,25 +208,6 @@
        (&/|get source-module-name)
        (&/get$ $imports)
        (&/|any? (partial = imported-module-name))))
-
-(defn get-anns [module-name]
-  (fn [state]
-    (if-let [module (->> state
-                         (&/get$ &/$modules)
-                         (&/|get module-name))]
-      (return* state (&/get$ $module-annotations module))
-      ((&/fail-with-loc (str "[Analyser Error] Module does not exist: " module-name))
-       state))))
-
-(defn set-anns [anns module-name]
-  (fn [state]
-    (return* (->> state
-                  (&/update$ &/$modules
-                             (fn [ms]
-                               (&/|update module-name
-                                          #(&/set$ $module-annotations (&/$Some anns) %)
-                                          ms))))
-             nil)))
 
 (def empty_annotations
   (let [dummy_location (&/T ["" 0 0])]

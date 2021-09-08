@@ -112,22 +112,16 @@
   (|do [_ (delete module)]
     (return false)))
 
-(defn ^:private install-module [load-def-value module module-hash imports ?module-anns def-entries]
+(defn ^:private install-module [load-def-value module module-hash imports def-entries]
   (|do [_ (&a-module/create-module module module-hash)
         _ (&a-module/flag-cached-module module)
-        _ (|case ?module-anns
-            (&/$Some module-anns)
-            (&a-module/set-anns module-anns module)
-
-            (&/$None _)
-            (return nil))
         _ (&a-module/set-imports imports)
         _ (&/map% (partial process-def-entry load-def-value module)
                   def-entries)]
     (return nil)))
 
 (defn ^:private process-module [pre-load! source-dirs cache-table module-name module-hash
-                                _imports-section _module-anns-section _defs-section
+                                _imports-section _defs-section
                                 load-def-value install-all-defs-in-module uninstall-all-defs-in-module]
   (|do [^String descriptor (&&core/read-module-descriptor! module-name)
         :let [imports (let [imports (vec (.split ^String _imports-section &&core/entry-separator))
@@ -144,17 +138,12 @@
                               imports)]
     (if (&/|every? (fn [_module] (contains? cache-table* _module))
                    imports)
-      (let [[?module-anns _] (if (= "..." _module-anns-section)
-                               [&/$None nil]
-                               (let [[module-anns _] (&&&ann/deserialize _module-anns-section)]
-                                 [(&/$Some module-anns) _]))
-            def-entries (let [def-entries (vec (.split ^String _defs-section &&core/entry-separator))]
+      (let [def-entries (let [def-entries (vec (.split ^String _defs-section &&core/entry-separator))]
                           (if (= [""] def-entries)
                             &/$End
                             (&/->list def-entries)))]
         (|do [_ (install-all-defs-in-module module-name)
-              _ (install-module load-def-value module-name module-hash
-                                imports ?module-anns def-entries)
+              _ (install-module load-def-value module-name module-hash imports def-entries)
               =module (&/find-module module-name)]
           (return (&/T [true (assoc cache-table* module-name =module)]))))
       (return (&/T [false cache-table*])))))
@@ -191,14 +180,14 @@
 
         :else
         (|do [^String descriptor (&&core/read-module-descriptor! module-name)
-              :let [[_compiler _hash _imports-section _module-anns-section _defs-section] (.split descriptor &&core/section-separator)
+              :let [[_compiler _hash _imports-section _defs-section] (.split descriptor &&core/section-separator)
                     drop-cache! (|do [_ (uninstall-cache module-name)
                                       _ (uninstall-all-defs-in-module module-name)]
                                   (return cache-table))]]
           (if (and (= module-hash (Long/parseUnsignedLong ^String _hash))
                    (= &/version _compiler))
             (|do [[success? cache-table*] (process-module pre-load! source-dirs cache-table module-name module-hash
-                                                          _imports-section _module-anns-section _defs-section
+                                                          _imports-section _defs-section
                                                           load-def-value install-all-defs-in-module uninstall-all-defs-in-module)
                   _ (if success?
                       (return nil)

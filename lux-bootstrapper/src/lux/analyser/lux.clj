@@ -666,11 +666,9 @@
         (return (doto (promise)
                   (deliver (&/$Right _compiler))))))))
 
-(defn analyse-module [analyse optimize eval! compile-module ?annotations ?imports]
+(defn analyse-module [analyse optimize eval! compile-module ?imports]
   (|do [_ &/ensure-directive
-        ==anns (eval analyse optimize eval! &type/Code ?annotations)
         module-name &/get-module-name
-        _ (&&module/set-anns ==anns module-name)
         _imports (&&module/fetch-imports ?imports)
         current-module &/get-module-name
         =asyncs (&/map% (fn [_import]

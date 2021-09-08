@@ -284,11 +284,11 @@ The type-system would work just fine without it, but users of the language proba
 
 `#Named` is what gives the name _"List"_ to the `List` type, so you can actually read about it everywhere without getting bogged down in implementation details.
 
-You see, Lux's type system is structural in nature, rather than nominal (the dominating style in programming languages).
+You see, Lux's type system is structural in nature, rather than nominal (the usual style in programming languages).
 
 That means all that matters is how a type is built; not what you call it.
 
-That implies 2 types with different names, but the exact same value, would actually type-check in your code.
+That implies 2 types with different names, but the exact same internal structure, would actually type-check in your code.
 
 That may sound odd (if you come from Java or other languages with nominal types), but it's actually very convenient and enables you to do some pretty nifty tricks.
 

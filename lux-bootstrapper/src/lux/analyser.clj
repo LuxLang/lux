@@ -160,9 +160,9 @@
               (&&lux/analyse-program analyse optimize compile-program ?program)))
 
           "lux def module"
-          (|let [(&/$Item ?meta (&/$Item ?imports (&/$End))) parameters]
+          (|let [(&/$Item ?imports (&/$End)) parameters]
             (&/with-location location
-              (&&lux/analyse-module analyse optimize eval! compile-module ?meta ?imports)))
+              (&&lux/analyse-module analyse optimize eval! compile-module ?imports)))
 
           "lux in-module"
           (|let [(&/$Item [_ (&/$Text ?module)] (&/$Item ?expr (&/$End))) parameters]

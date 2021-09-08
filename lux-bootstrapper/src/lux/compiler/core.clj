@@ -44,7 +44,6 @@
 
 (defn generate-module-descriptor [file-hash]
   (|do [module-name &/get-module-name
-        ?module-anns (&a-module/get-anns module-name)
         defs &a-module/defs
         imports &a-module/imports
         :let [def-entries (&/fold (fn [def-entries _def]
@@ -117,12 +116,6 @@
               module-descriptor (->> (&/|list &/version
                                               (Long/toUnsignedString file-hash)
                                               import-entries
-                                              (|case ?module-anns
-                                                (&/$Some module-anns)
-                                                (&&&ann/serialize module-anns)
-
-                                                (&/$None _)
-                                                "...")
                                               def-entries)
                                      (&/|interpose section-separator)
                                      (&/fold str ""))]]
