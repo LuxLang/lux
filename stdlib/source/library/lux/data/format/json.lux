@@ -67,40 +67,47 @@
   (-> (List [String JSON]) JSON)
   (|>> (dictionary.of_list text.hash) #..Object))
 
-(syntax: .public (json [token <code>.any])
-  (let [(^open "[0]") ..monad
-        wrapper (function (_ x) (` (..json (~ x))))]
-    (case token
-      (^template [<ast_tag> <ctor> <json_tag>]
-        [[_ (<ast_tag> value)]
-         (in (list (` (: JSON (<json_tag> (~ (<ctor> value)))))))])
-      ([#.Bit  code.bit  #..Boolean]
-       [#.Frac code.frac #..Number]
-       [#.Text code.text #..String])
+(def: jsonP
+  (<code>.Parser JSON)
+  (<>.rec
+   (function (_ jsonP)
+     ($_ <>.or
+         (<code>.local_tag! "null")
+         <code>.bit
+         <code>.frac
+         <code>.text
+         (<>\each row.of_list
+                  (<code>.tuple (<>.some jsonP)))
+         (<>\each (dictionary.of_list text.hash)
+                  (<code>.variant (<>.some (<>.and <code>.text jsonP))))
+         ))))
 
-      [_ (#.Tag ["" "null"])]
-      (in (list (` (: JSON #..Null))))
+(def: (jsonF token)
+  (-> JSON Code)
+  (case token
+    (#Null _)
+    (` #..Null)
+    
+    (^template [<ctor> <json_tag>]
+      [(<json_tag> value)
+       (` (<json_tag> (~ (<ctor> value))))])
+    ([code.bit  #..Boolean]
+     [code.frac #..Number]
+     [code.text #..String])
+    
+    (#Array members)
+    (` (#..Array ((~! row.row) (~+ (row.list (row\each jsonF members))))))
 
-      [_ (#.Tuple members)]
-      (in (list (` (: JSON (#..Array ((~! row) (~+ (list\each wrapper members))))))))
+    (#Object pairs)
+    (` (#..Object ((~! dictionary.of_list)
+                   (~! text.hash)
+                   (list (~+ (|> pairs
+                                 dictionary.entries
+                                 (list\each (function (_ [key_name value])
+                                              (` [(~ (code.text key_name)) (~ (jsonF value))])))))))))))
 
-      [_ (#.Record pairs)]
-      (do [! ..monad]
-        [pairs' (monad.each !
-                            (function (_ [slot value])
-                              (case slot
-                                [_ (#.Text key_name)]
-                                (in (` [(~ (code.text key_name)) (~ (wrapper value))]))
-
-                                _
-                                (meta.failure "Wrong syntax for JSON object.")))
-                            pairs)]
-        (in (list (` (: JSON (#..Object ((~! dictionary.of_list)
-                                         (~! text.hash)
-                                         (list (~+ pairs')))))))))
-      
-      _
-      (in (list token)))))
+(syntax: .public (json [token ..jsonP])
+  (in (list (` (: JSON (~ (jsonF token)))))))
 
 (def: .public (fields json)
   (-> JSON (Try (List String)))

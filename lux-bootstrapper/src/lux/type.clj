@@ -157,10 +157,10 @@
                                 Ident
                                 (&/$Sum ;; .Form
                                  Code-List
-                                 (&/$Sum ;; .Tuple
+                                 (&/$Sum ;; .Variant
                                   Code-List
-                                  ;; .Record
-                                  (&/$Apply (&/$Product Code Code) List)
+                                  ;; .Tuple
+                                  Code-List
                                   ))))))))))
                         ))))
 

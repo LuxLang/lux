@@ -54,12 +54,8 @@
     [_ (&/$Tuple elems)]
     (str "[" (serialize-seq serialize elems))
 
-    [_ (&/$Record kvs)]
-    (str "{" (serialize-seq (fn [kv]
-                              (|let [[k v] kv]
-                                (str (serialize k)
-                                     (serialize v))))
-                            kvs))
+    [_ (&/$Variant kvs)]
+    (str "{" (serialize-seq serialize elems))
     
     _
     (assert false)
@@ -104,11 +100,6 @@
             [(&/$Item head tail) input*]))
         ))
 
-(defn ^:private deserialize-kv [input]
-  (when-let [[key input*] (deserialize input)]
-    (when-let [[ann input*] (deserialize input*)]
-      [(&/T [key ann]) input*])))
-
 (do-template [<name> <signal> <type> <deserializer>]
   (defn <name> [^String input]
     (when (.startsWith input <signal>)
@@ -118,7 +109,7 @@
 
   ^:private deserialize-form   "(" &/$Form   deserialize
   ^:private deserialize-tuple  "[" &/$Tuple  deserialize
-  ^:private deserialize-record "{" &/$Record deserialize-kv
+  ^:private deserialize-variant "{" &/$Variant deserialize
   )
 
 (defn deserialize
@@ -133,6 +124,6 @@
       (deserialize-identifier input)
       (deserialize-tag input)
       (deserialize-form input)
+      (deserialize-variant input)
       (deserialize-tuple input)
-      (deserialize-record input)
       (assert false "[Cache Error] Cannot deserialize annocation.")))

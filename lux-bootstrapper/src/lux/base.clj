@@ -84,8 +84,8 @@
   ("Identifier" 1)
   ("Tag" 1)
   ("Form" 1)
-  ("Tuple" 1)
-  ("Record" 1))
+  ("Variant" 1)
+  ("Tuple" 1))
 
 ;; Type
 (defvariant
@@ -1258,15 +1258,11 @@
       ?name
       (str ?module +name-separator+ ?name))
 
+    [_ ($Variant ?elems)]
+    (str "{" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) "}")
+
     [_ ($Tuple ?elems)]
     (str "[" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) "]")
-
-    [_ ($Record ?elems)]
-    (str "{" (->> ?elems
-                  (|map (fn [elem]
-                          (|let [[k v] elem]
-                            (str (show-ast k) " " (show-ast v)))))
-                  (|interpose " ") (fold str "")) "}")
 
     [_ ($Form ?elems)]
     (str "(" (->> ?elems (|map show-ast) (|interpose " ") (fold str "")) ")")

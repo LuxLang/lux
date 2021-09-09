@@ -6,17 +6,13 @@
                  [lexer :as &lexer])))
 
 ;; [Utils]
-(def ^:private base-uneven-record-error
-  "[Parser Error] Records must have an even number of elements.")
-
 (defn ^:private repeat% [action]
   (fn [state]
     (|case (action state)
       (&/$Left ^String error)
-      (if (or (.contains error base-uneven-record-error)
-              (not (.contains error "[Parser Error]")))
-        (&/$Left error)
-        (&/$Right (&/T [state &/$End])))
+      (if (.contains error "[Parser Error]")
+        (&/$Right (&/T [state &/$End]))
+        (&/$Left error))
 
       (&/$Right state* head)
       ((|do [tail (repeat% action)]
@@ -35,23 +31,10 @@
         (&/fail-with-loc (str "[Parser Error] Unbalanced " <description> "."))
         )))
 
-  ^:private parse-form  &lexer/$Close_Paren   "parantheses" &/$Form
-  ^:private parse-tuple &lexer/$Close_Bracket "brackets"    &/$Tuple
+  ^:private parse-form    &lexer/$Close_Paren   "parantheses" &/$Form
+  ^:private parse-variant &lexer/$Close_Brace   "braces"      &/$Variant
+  ^:private parse-tuple   &lexer/$Close_Bracket "brackets"    &/$Tuple
   )
-
-(defn ^:private parse-record [parse]
-  (|do [elems* (repeat% parse)
-        token &lexer/lex
-        :let [elems (&/fold &/|++ &/$End elems*)]]
-    (|case token
-      [meta (&lexer/$Close_Brace _)]
-      (|do [_ (&/assert! (even? (&/|length elems))
-                         (&/fail-with-loc base-uneven-record-error))]
-        (return (&/$Record (&/|as-pairs elems))))
-      
-      _
-      (&/fail-with-loc "[Parser Error] Unbalanced braces.")
-      )))
 
 ;; [Interface]
 (def parse
@@ -92,12 +75,12 @@
       (|do [syntax (parse-form parse)]
         (return (&/|list (&/T [meta syntax]))))
       
-      (&lexer/$Open_Bracket _)
-      (|do [syntax (parse-tuple parse)]
+      (&lexer/$Open_Brace _)
+      (|do [syntax (parse-variant parse)]
         (return (&/|list (&/T [meta syntax]))))
 
-      (&lexer/$Open_Brace _)
-      (|do [syntax (parse-record parse)]
+      (&lexer/$Open_Bracket _)
+      (|do [syntax (parse-tuple parse)]
         (return (&/|list (&/T [meta syntax]))))
 
       _

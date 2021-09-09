@@ -187,10 +187,12 @@
           (analyse-variant+ analyse exo-type ?ident parameters))
 
         ;; Pattern-matching syntax.
-        (&/$Record ?pattern-matching)
-        (|let [(&/$Item ?input (&/$End)) parameters]
-          (&/with-analysis-meta location exo-type
-            (&&lux/analyse-case analyse exo-type ?input ?pattern-matching)))
+        (&/$Variant ?pattern-matching)
+        (if (even? (&/|length ?pattern-matching))
+          (|let [(&/$Item ?input (&/$End)) parameters]
+            (&/with-analysis-meta location exo-type
+              (&&lux/analyse-case analyse exo-type ?input (&/|as-pairs ?pattern-matching))))
+          (&/fail-with-loc (str "[Analyser Error] Unknown syntax: " (&/show-ast (&/T [(&/T ["" -1 -1]) token])))))
 
         ;; Function syntax.
         (&/$Tuple (&/$Item [_ (&/$Identifier "" ?self)]
