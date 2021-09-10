@@ -544,11 +544,12 @@ This function also returns nil meaning don't specify the indentation."
                              (last
                               (split-string (substring-no-properties function) "\\.")))))
         (setq method (get (intern-soft function-tail) 'lux-indent-function))
-        (cond ((member (char-after open-paren) '(?\{ ?\[))
+        (cond ((member (char-after open-paren) '(?\[ ;; ?\{
+													 ))
                (goto-char open-paren)
                (1+ (current-column)))
               ((or (eq method 'defun)
-                   (and (null method)
+				   (and (null method)
                         (> (length function) 2)
 						(or (string-match withRE function-tail)
                             (string-match definitionRE function-tail))))
