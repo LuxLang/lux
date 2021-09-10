@@ -86,13 +86,27 @@
       (|do [_ (&type/check exo-type &type/Text)]
         (return (&/|list (&&/|meta exo-type location (&&/$text ?value)))))
 
-      (&/$Tuple ?elems)
-      (&/with-analysis-meta location exo-type
-        (&&lux/analyse-record analyse exo-type ?elems))
-
       (&/$Tag ?ident)
       (&/with-analysis-meta location exo-type
         (analyse-variant+ analyse exo-type ?ident &/$End))
+
+      (&/$Variant (&/$Item [command-meta command] parameters))
+      (|case command
+        (&/$Nat idx)
+        (|let [(&/$Item [_ (&/$Bit ?right)] parameters*) parameters]
+          (&/with-analysis-meta location exo-type
+            (&&lux/analyse-variant analyse (&/$Right exo-type) (if ?right (inc idx) idx) ?right parameters*)))
+
+        (&/$Tag ?ident)
+        (&/with-analysis-meta location exo-type
+          (analyse-variant+ analyse exo-type ?ident parameters))
+
+        _
+        (&/fail-with-loc (str "[Analyser Error] Unknown syntax: " (&/show-ast (&/T [(&/T ["" -1 -1]) token])))))
+
+      (&/$Tuple ?elems)
+      (&/with-analysis-meta location exo-type
+        (&&lux/analyse-record analyse exo-type ?elems))
 
       (&/$Identifier ?ident)
       (&/with-analysis-meta location exo-type
@@ -146,7 +160,7 @@
                                    )) parameters]
             (&/with-location location
               (|case ?labels
-                [_ (&/$Form ?tags)]
+                [_ (&/$Variant ?tags)]
                 (&&lux/analyse-def-type-tagged analyse optimize eval! compile-def ?name ?value false ?tags exported?)
                 
                 [_ (&/$Tuple ?slots)]
@@ -176,15 +190,6 @@
                   
                   :else
                   (&&common/analyse-proc analyse exo-type ?procedure parameters))))
-        
-        (&/$Nat idx)
-        (|let [(&/$Item [_ (&/$Bit ?right)] parameters*) parameters]
-          (&/with-analysis-meta location exo-type
-            (&&lux/analyse-variant analyse (&/$Right exo-type) (if ?right (inc idx) idx) ?right parameters*)))
-
-        (&/$Tag ?ident)
-        (&/with-analysis-meta location exo-type
-          (analyse-variant+ analyse exo-type ?ident parameters))
 
         ;; Pattern-matching syntax.
         (&/$Variant ?pattern-matching)

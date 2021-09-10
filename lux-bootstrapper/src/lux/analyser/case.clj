@@ -358,7 +358,7 @@
             [=test =kont] (analyse-pattern &/$None case-type unit-tuple kont)]
         (return (&/T [($VariantTestAC (&/T [idx (&/|length group) =test])) =kont])))
 
-      (&/$Form (&/$Item [_ (&/$Nat idx)] (&/$Item [_ (&/$Bit right?)] ?values)))
+      (&/$Variant (&/$Item [_ (&/$Nat idx)] (&/$Item [_ (&/$Bit right?)] ?values)))
       (let [idx (if right? (inc idx) idx)]
         (|do [value-type* (adjust-type value-type)
               case-type (&type/sum-at idx value-type*)
@@ -369,7 +369,7 @@
                               (analyse-pattern &/$None case-type (&/T [(&/T ["" -1 -1]) (&/$Tuple ?values)]) kont))]
           (return (&/T [($VariantTestAC (&/T [idx (&/|length (&type/flatten-sum value-type*)) =test])) =kont]))))
 
-      (&/$Form (&/$Item [_ (&/$Tag ?ident)] ?values))
+      (&/$Variant (&/$Item [_ (&/$Tag ?ident)] ?values))
       (|do [[=module =name] (&&/resolved-ident ?ident)
             must-infer? (&type/unknown? value-type)
             [_exported? variant-type** group idx] (&module/find-tag =module (str "#" =name))
