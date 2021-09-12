@@ -17,10 +17,10 @@
                                           (|do [module &/get-module-name]
                                             (return (&/$Some (&/T [module &/$End &type/Any]))))
                                           
-                                          (&/$Item [[_ (&/$Tag slot0)] _] _)
+                                          (&/$Item [[_ (&/$Identifier slot0)] _] _)
                                           (|do [[module name] (&&/resolved-ident slot0)
                                                 _exported?&type&slots&_index (fn [lux]
-                                                                               (|case ((&&module/find-slot module (str "#" name)) lux)
+                                                                               (|case ((&&module/find-slot module name) lux)
                                                                                  (&/$Left error)
                                                                                  (&/$Right (&/T [lux &/$None]))
                                                                                  
@@ -39,7 +39,7 @@
           (&/$Some [module slot-group slot-type])
           (|do [=pairs (&/map% (fn [kv]
                                  (|case kv
-                                   [[_ (&/$Tag k)] v]
+                                   [[_ (&/$Identifier k)] v]
                                    (|do [=k (&&/resolved-ident k)]
                                      (return (&/T [(&/ident->text =k) v])))
 

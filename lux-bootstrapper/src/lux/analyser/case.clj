@@ -182,8 +182,9 @@
     _
     (&/fail-with-loc (str "[Type System] Not a type-function:\n" (&type/show-type type-fn) "\n"))))
 
-(defn adjust-type* [up type]
+(defn adjust-type*
   "(-> (List (, (Maybe (List Type)) Int Type)) Type (Lux Type))"
+  [up type]
   (|case type
     (&/$UnivQ _aenv _abody)
     (&type/with-var
@@ -245,9 +246,37 @@
     (&/fail-with-loc (str "[Pattern-matching Error] Cannot pattern-match against type: " (&type/show-type type)))
     ))
 
-(defn adjust-type [type]
+(defn adjust-type
   "(-> Type (Lux Type))"
+  [type]
   (adjust-type* &/$End type))
+
+(defn analyse-tuple-pattern [analyse-pattern pattern value-type ?members kont]
+  (|do [must-infer? (&type/unknown? value-type)
+        value-type* (if must-infer?
+                      (|do [member-types (&/map% (fn [_] &type/create-var+) (&/|range (&/|length ?members)))]
+                        (return (&type/fold-prod member-types)))
+                      (adjust-type value-type))]
+    (|case value-type*
+      (&/$Product _)
+      (|let [num-elems (&/|length ?members)
+             [_shorter _tuple-types] (&type/tuple-types-for (&/|length ?members) value-type*)]
+        (if (= num-elems _shorter)
+          (|do [[=tests =kont] (&/fold (fn [kont* vm]
+                                         (|let [[v m] vm]
+                                           (|do [[=test [=tests =kont]] (analyse-pattern &/$None v m kont*)]
+                                             (return (&/T [(&/$Item =test =tests) =kont])))))
+                                       (|do [=kont kont]
+                                         (return (&/T [&/$End =kont])))
+                                       (&/|reverse (&/zip2 _tuple-types ?members)))]
+            (return (&/T [($TupleTestAC =tests) =kont])))
+          (&/fail-with-loc (str "[Pattern-matching Error] Pattern-matching mismatch. Requires tuple[" (&/|length (&type/flatten-prod value-type*)) "]. Given tuple [" (&/|length ?members) "].\n"
+                                "           At: " (&/show-ast pattern) "\n"
+                                "Expected type: " (&type/show-type value-type*) "\n"
+                                "  Actual type: " (&type/show-type value-type)))))
+
+      _
+      (&/fail-with-loc (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type))))))
 
 (defn ^:private analyse-pattern [var?? value-type pattern kont]
   (|let [[meta pattern*] pattern]
@@ -315,48 +344,15 @@
                             (&type/instantiate-inference rec-type)
                             (return value-type))
                 _ (&type/check value-type rec-type*)]
-            (analyse-pattern &/$None rec-type* (&/T [meta (&/$Tuple rec-members)]) kont))
-
-          (&/$None)
-          (|do [must-infer? (&type/unknown? value-type)
-                value-type* (if must-infer?
-                              (|do [member-types (&/map% (fn [_] &type/create-var+) (&/|range (&/|length ?members)))]
-                                (return (&type/fold-prod member-types)))
-                              (adjust-type value-type))]
-            (|case value-type*
-              (&/$Product _)
-              (|let [num-elems (&/|length ?members)
-                     [_shorter _tuple-types] (&type/tuple-types-for (&/|length ?members) value-type*)]
-                (if (= num-elems _shorter)
-                  (|do [[=tests =kont] (&/fold (fn [kont* vm]
-                                                 (|let [[v m] vm]
-                                                   (|do [[=test [=tests =kont]] (analyse-pattern &/$None v m kont*)]
-                                                     (return (&/T [(&/$Item =test =tests) =kont])))))
-                                               (|do [=kont kont]
-                                                 (return (&/T [&/$End =kont])))
-                                               (&/|reverse (&/zip2 _tuple-types ?members)))]
-                    (return (&/T [($TupleTestAC =tests) =kont])))
-                  (&/fail-with-loc (str "[Pattern-matching Error] Pattern-matching mismatch. Requires tuple[" (&/|length (&type/flatten-prod value-type*)) "]. Given tuple [" (&/|length ?members) "].\n"
-                                        "           At: " (&/show-ast pattern) "\n"
-                                        "Expected type: " (&type/show-type value-type*) "\n"
-                                        "  Actual type: " (&type/show-type value-type)))))
+            (|case rec-members
+              (&/$Item singleton (&/$End))
+              (analyse-pattern &/$None rec-type* singleton kont)
 
               _
-              (&/fail-with-loc (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type)))))))
+              (analyse-tuple-pattern analyse-pattern pattern rec-type* rec-members kont)))
 
-      (&/$Tag ?ident)
-      (|do [[=module =name] (&&/resolved-ident ?ident)
-            must-infer? (&type/unknown? value-type)
-            [_exported? variant-type** group idx] (&module/find-tag =module (str "#" =name))
-            variant-type (if must-infer?
-                           (|do [variant-type* (&type/instantiate-inference variant-type**)
-                                 _ (&type/check value-type variant-type*)]
-                             (return variant-type*))
-                           (return value-type))
-            value-type* (adjust-type variant-type)
-            case-type (&type/sum-at idx value-type*)
-            [=test =kont] (analyse-pattern &/$None case-type unit-tuple kont)]
-        (return (&/T [($VariantTestAC (&/T [idx (&/|length group) =test])) =kont])))
+          (&/$None)
+          (analyse-tuple-pattern analyse-pattern pattern value-type ?members kont)))
 
       (&/$Variant (&/$Item [_ (&/$Nat idx)] (&/$Item [_ (&/$Bit right?)] ?values)))
       (let [idx (if right? (inc idx) idx)]
@@ -369,10 +365,10 @@
                               (analyse-pattern &/$None case-type (&/T [(&/T ["" -1 -1]) (&/$Tuple ?values)]) kont))]
           (return (&/T [($VariantTestAC (&/T [idx (&/|length (&type/flatten-sum value-type*)) =test])) =kont]))))
 
-      (&/$Variant (&/$Item [_ (&/$Tag ?ident)] ?values))
+      (&/$Variant (&/$Item [_ (&/$Identifier ?ident)] ?values))
       (|do [[=module =name] (&&/resolved-ident ?ident)
             must-infer? (&type/unknown? value-type)
-            [_exported? variant-type** group idx] (&module/find-tag =module (str "#" =name))
+            [_exported? variant-type** group idx] (&module/find-tag =module =name)
             variant-type (if must-infer?
                            (|do [variant-type* (&type/instantiate-inference variant-type**)
                                  _ (&type/check value-type variant-type*)]

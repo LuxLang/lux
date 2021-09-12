@@ -15,28 +15,6 @@
                                [jvm :as &&jvm])))
 
 ;; [Utils]
-(defn analyse-variant+ [analyse exo-type ident values]
-  (|do [[module tag-name] (&/normalize ident)
-        [exported? wanted-type group idx] (&&module/find-tag module (str "#" tag-name))
-        :let [is-last? (= idx (dec (&/|length group)))]]
-    (if (= 1 (&/|length group))
-      (|do [_location &/location]
-        (analyse exo-type (&/T [_location (&/$Tuple values)])))
-      (|case exo-type
-        (&/$Var id)
-        (|do [? (&type/bound? id)]
-          (if (or ? (&&/type-tag? module tag-name))
-            (&&lux/analyse-variant analyse (&/$Right exo-type) idx is-last? values)
-            (|do [wanted-type* (&type/instantiate-inference wanted-type)
-                  [[variant-type variant-location] variant-analysis] (&&/cap-1 (&&lux/analyse-variant analyse (&/$Left wanted-type*) idx is-last? values))
-                  _ (&type/check exo-type variant-type)]
-              (return (&/|list (&&/|meta exo-type variant-location variant-analysis))))))
-
-        _
-        (&&lux/analyse-variant analyse (&/$Right exo-type) idx is-last? values)
-        ))
-    ))
-
 (defn ^:private just-analyse [analyser syntax]
   (&type/with-var
     (fn [?var]
@@ -86,10 +64,6 @@
       (|do [_ (&type/check exo-type &type/Text)]
         (return (&/|list (&&/|meta exo-type location (&&/$text ?value)))))
 
-      (&/$Tag ?ident)
-      (&/with-analysis-meta location exo-type
-        (analyse-variant+ analyse exo-type ?ident &/$End))
-
       (&/$Variant (&/$Item [command-meta command] parameters))
       (|case command
         (&/$Nat idx)
@@ -97,9 +71,10 @@
           (&/with-analysis-meta location exo-type
             (&&lux/analyse-variant analyse (&/$Right exo-type) (if ?right (inc idx) idx) ?right parameters*)))
 
-        (&/$Tag ?ident)
+        (&/$Identifier ?ident)
         (&/with-analysis-meta location exo-type
-          (analyse-variant+ analyse exo-type ?ident parameters))
+          (|do [[normal-module normal-short] (&/normalize ?ident)]
+            (&&lux/analyse-variant+ analyse exo-type normal-module normal-short parameters)))
 
         _
         (&/fail-with-loc (str "[Analyser Error] Unknown syntax: " (&/show-ast (&/T [(&/T ["" -1 -1]) token])))))

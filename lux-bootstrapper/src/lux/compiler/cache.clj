@@ -68,9 +68,6 @@
       (delete-all-module-files (new File (str output-dir-prefix f))))
     nil))
 
-(defn make-tag [ident]
-  (&/T [(&/T ["" 0 0]) (&/$Tag ident)]))
-
 (defn make-identifier [ident]
   (&/T [(&/T ["" 0 0]) (&/$Identifier ident)]))
 

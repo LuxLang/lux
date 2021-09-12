@@ -245,6 +245,25 @@
             (&/fail-with-loc (str err "\n" "[Analyser Error] Cannot create variant if the expected type is " (&type/show-type exo-type) " " idx " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
       )))
 
+(defn analyse-variant+ [analyse exo-type module tag-name values]
+  (|do [[exported? wanted-type group idx] (&&module/find-tag module tag-name)
+        :let [is-last? (= idx (dec (&/|length group)))]]
+    (if (= 1 (&/|length group))
+      (|do [_location &/location]
+        (analyse exo-type (&/T [_location (&/$Tuple values)])))
+      (|case exo-type
+        (&/$Var id)
+        (|do [? (&type/bound? id)]
+          (if (or ? (&&/type-tag? module tag-name))
+            (analyse-variant analyse (&/$Right exo-type) idx is-last? values)
+            (|do [wanted-type* (&type/instantiate-inference wanted-type)
+                  [[variant-type variant-location] variant-analysis] (&&/cap-1 (analyse-variant analyse (&/$Left wanted-type*) idx is-last? values))
+                  _ (&type/check exo-type variant-type)]
+              (return (&/|list (&&/|meta exo-type variant-location variant-analysis))))))
+
+        _
+        (analyse-variant analyse (&/$Right exo-type) idx is-last? values)))))
+
 (defn analyse-record [analyse exo-type ?elems]
   (|do [rec-members&rec-type (&&record/order-record ?elems)]
     (|case rec-members&rec-type
@@ -362,13 +381,19 @@
                 =arg (&/with-attempt
                        (&&/analyse-1 analyse ?input-t ?arg)
                        (fn [err]
-                         (&/fail-with-loc (str err "\n" "[Analyser Error] Argument expected: " (&type/show-type ?input-t)))))]
+                         (&/fail-with-loc (str err "\n"
+                                               "[Analyser Error] Argument expected: " (&type/show-type ?input-t)))))]
             (return (&/T [=output-t (&/$Item =arg =args)])))
 
           _
           (&/fail-with-loc (str "[Analyser Error] Cannot apply a non-function: " (&type/show-type ?fun-type*))))
         (fn [err]
-          (&/fail-with-loc (str err "\n" "[Analyser Error] Cannot apply function " (&type/show-type fun-type) " to args: " (->> ?args (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
+          (&/fail-with-loc (str err "\n"
+                                "[Analyser Error] Cannot apply function " (&type/show-type fun-type)
+                                " to args: " (->> ?args
+                                                  (&/|map &/show-ast)
+                                                  (&/|interpose " ")
+                                                  (&/fold str "")))))))
     ))
 
 (defn ^:private do-analyse-apply [analyse exo-type =fn ?args]
@@ -392,7 +417,7 @@
                                   ((&/fail-with-loc error) state)))
               module-name &/get-module-name
               ;; :let [[r-prefix r-name] real-name
-              ;;       _ (when (= "module:" r-name)
+              ;;       _ (when (or (= "\\" r-name))
               ;;           (->> macro-expansion
               ;;                (&/|map (fn [ast] (str (&/show-ast ast) "\n")))
               ;;                (&/fold str "")

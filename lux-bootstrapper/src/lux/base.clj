@@ -82,7 +82,6 @@
   ("Frac" 1)
   ("Text" 1)
   ("Identifier" 1)
-  ("Tag" 1)
   ("Form" 1)
   ("Variant" 1)
   ("Tuple" 1))
@@ -612,6 +611,15 @@
 (def get-state
   (fn [state]
     (return* state state)))
+
+(defn try% [action]
+  (fn [state]
+    (|case (action state)
+      ($Right output)
+      ($Right (T [state ($Some output)]))
+
+      ($Left _)
+      ($Right (T [state $None])))))
 
 (defn try-all% [monads]
   (|case monads
@@ -1247,11 +1255,6 @@
 
     [_ ($Text ?value)]
     (str "\"" ?value "\"")
-
-    [_ ($Tag ?module ?tag)]
-    (if (.equals "" ?module)
-      (str "#" ?tag)
-      (str "#" ?module +name-separator+ ?tag))
 
     [_ ($Identifier ?module ?name)]
     (if (.equals "" ?module)

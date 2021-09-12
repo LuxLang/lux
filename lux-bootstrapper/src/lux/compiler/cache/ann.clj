@@ -45,9 +45,6 @@
     [_ (&/$Identifier ident)]
     (str "@" (serialize-ident ident) stop)
 
-    [_ (&/$Tag ident)]
-    (str "#" (serialize-ident ident) stop)
-
     [_ (&/$Form elems)]
     (str "(" (serialize-seq serialize elems))
 
@@ -87,8 +84,7 @@
             [_module _name] (.split ident* "\\." 2)]
         [(&/T [dummy-location (<tag> (&/T [_module _name]))]) input*])))
 
-  ^:private deserialize-identifier "@" &/$Identifier
-  ^:private deserialize-tag        "#" &/$Tag)
+  ^:private deserialize-identifier "@" &/$Identifier)
 
 (defn ^:private deserialize-seq [deserializer ^String input]
   (cond (.startsWith input nil-signal)
@@ -122,7 +118,6 @@
       (deserialize-frac input)
       (deserialize-text input)
       (deserialize-identifier input)
-      (deserialize-tag input)
       (deserialize-form input)
       (deserialize-variant input)
       (deserialize-tuple input)

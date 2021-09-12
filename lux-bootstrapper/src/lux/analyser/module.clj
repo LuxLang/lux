@@ -96,44 +96,6 @@
                           state)
                nil))))
 
-(defn define-alias [module name de-aliased]
-  (fn [state]
-    (|case (&/get$ &/$scopes state)
-      (&/$Item ?env (&/$End))
-      (return* (->> state
-                    (&/update$ &/$modules
-                               (fn [ms]
-                                 (&/|update module
-                                            (fn [m]
-                                              (&/update$ $defs
-                                                         #(&/|put name (&/$AliasG de-aliased) %)
-                                                         m))
-                                            ms))))
-               nil)
-      
-      _
-      ((&/fail-with-loc (str "[Analyser Error] Cannot create a new global definition outside of a global environment: " (str module &/+name-separator+ name)))
-       state))))
-
-(defn define [module name exported? def-type def-value]
-  (fn [state]
-    (|case (&/get$ &/$scopes state)
-      (&/$Item ?env (&/$End))
-      (return* (->> state
-                    (&/update$ &/$modules
-                               (fn [ms]
-                                 (&/|update module
-                                            (fn [m]
-                                              (&/update$ $defs
-                                                         #(&/|put name (&/$DefinitionG (&/T [exported? def-type def-value])) %)
-                                                         m))
-                                            ms))))
-               nil)
-      
-      _
-      ((&/fail-with-loc (str "[Analyser Error] Cannot create a new global definition outside of a global environment: " (str module &/+name-separator+ name)))
-       state))))
-
 (defn type-def
   "(-> Text Text (Lux [Bit Type]))"
   [module name]
@@ -289,6 +251,24 @@
                                " at module: " current-module))
          state)))))
 
+(defn find-global [module name]
+  (|do [current-module &/get-module-name]
+    (fn [state]
+      (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
+        (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
+          (|case $def
+            (&/$AliasG [?r-module ?r-name]) (return* state $def)
+            (&/$DefinitionG _) (return* state $def)
+            (&/$TypeG _) (return* state $def)
+            (&/$TagG _) (return* state $def)
+            (&/$SlotG _) (return* state $def))
+          ((&/fail-with-loc (str "[Analyser Error @ find-def] Global does not exist: " (str module &/+name-separator+ name)
+                                 " at module: " current-module))
+           state))
+        ((&/fail-with-loc (str "[Analyser Error @ find-def] Module does not exist: " module
+                               " at module: " current-module))
+         state)))))
+
 (do-template [<tag> <find!> <find>]
   (do (defn <find!> [module name]
         (|do [current-module &/get-module-name]
@@ -356,6 +336,19 @@
   &/$SlotG find-slot! find-slot
   )
 
+(defn if_not_defined [module name then]
+  (|do [exists? (&/try% (find-global module name))]
+    (|case exists?
+      (&/$Some _)
+      (fn [state]
+        ((&/fail-with-loc (str "[Analyser Error] Cannot create a new global because the name is already taken."
+                               "\n" "Module: " module
+                               "\n" "Name: " name))
+         state))
+      
+      (&/$None)
+      then)))
+
 (defn defined? [module name]
   (&/try-all% (&/|list (|do [_ (find-def! module name)]
                          (return true))
@@ -389,43 +382,73 @@
                 (return (&/T [_module _hash]))))
             _imports)))
 
-(defn define_tag [module name exported? type group index]
-  (fn [state]
-    (|case (&/get$ &/$scopes state)
-      (&/$Item ?env (&/$End))
-      (return* (->> state
-                    (&/update$ &/$modules
-                               (fn [ms]
-                                 (&/|update module
-                                            (fn [m]
-                                              (&/update$ $defs
-                                                         #(&/|put name (&/$TagG (&/T [exported? type group index])) %)
-                                                         m))
-                                            ms))))
-               nil)
-      
-      _
-      ((&/fail-with-loc (str "[Analyser Error] Cannot create a new global tag outside of a global environment: " (str module &/+name-separator+ name)))
-       state))))
+(defn define-alias [module name de-aliased]
+  (if_not_defined
+      module name
+      (fn [state]
+        (|case (&/get$ &/$scopes state)
+          (&/$Item ?env (&/$End))
+          (return* (->> state
+                        (&/update$ &/$modules
+                                   (fn [ms]
+                                     (&/|update module
+                                                (fn [m]
+                                                  (&/update$ $defs
+                                                             #(&/|put name (&/$AliasG de-aliased) %)
+                                                             m))
+                                                ms))))
+                   nil)
+          
+          _
+          ((&/fail-with-loc (str "[Analyser Error] Cannot create a new global definition outside of a global environment: " (str module &/+name-separator+ name)))
+           state)))))
 
-(defn define_slot [module name exported? type group index]
-  (fn [state]
-    (|case (&/get$ &/$scopes state)
-      (&/$Item ?env (&/$End))
-      (return* (->> state
-                    (&/update$ &/$modules
-                               (fn [ms]
-                                 (&/|update module
-                                            (fn [m]
-                                              (&/update$ $defs
-                                                         #(&/|put name (&/$SlotG (&/T [exported? type group index])) %)
-                                                         m))
-                                            ms))))
-               nil)
-      
-      _
-      ((&/fail-with-loc (str "[Analyser Error] Cannot create a new global slot outside of a global environment: " (str module &/+name-separator+ name)))
-       state))))
+(defn define [module name exported? def-type def-value]
+  (if_not_defined
+      module name
+      (fn [state]
+        (|case (&/get$ &/$scopes state)
+          (&/$Item ?env (&/$End))
+          (return* (->> state
+                        (&/update$ &/$modules
+                                   (fn [ms]
+                                     (&/|update module
+                                                (fn [m]
+                                                  (&/update$ $defs
+                                                             #(&/|put name (&/$DefinitionG (&/T [exported? def-type def-value])) %)
+                                                             m))
+                                                ms))))
+                   nil)
+          
+          _
+          ((&/fail-with-loc (str "[Analyser Error] Cannot create a new global definition outside of a global environment: " (str module &/+name-separator+ name)))
+           state)))))
+
+(do-template [<name> <tag>]
+  (defn <name> [module name exported? type group index]
+    (if_not_defined
+        module name
+        (fn [state]
+          (|case (&/get$ &/$scopes state)
+            (&/$Item ?env (&/$End))
+            (return* (->> state
+                          (&/update$ &/$modules
+                                     (fn [ms]
+                                       (&/|update module
+                                                  (fn [m]
+                                                    (&/update$ $defs
+                                                               #(&/|put name (<tag> (&/T [exported? type group index])) %)
+                                                               m))
+                                                  ms))))
+                     nil)
+            
+            _
+            ((&/fail-with-loc (str "[Analyser Error] Cannot create a new global outside of a global environment: " (str module &/+name-separator+ name)))
+             state)))))
+
+  define_tag &/$TagG
+  define_slot &/$SlotG
+  )
 
 (defn declare-labels
   "(-> Text (List Text) Bit Type (Lux Null))"
@@ -439,40 +462,42 @@
       (if record?
         (&/map% (fn [idx+label-name]
                   (|let [[index label-name] idx+label-name]
-                    (define_slot module (str "#" label-name) was-exported? type label-names index)))
+                    (define_slot module label-name was-exported? type label-names index)))
                 (&/enumerate label-names))
         (&/map% (fn [idx+label-name]
                   (|let [[index label-name] idx+label-name]
-                    (define_tag module (str "#" label-name) was-exported? type label-names index)))
+                    (define_tag module label-name was-exported? type label-names index)))
                 (&/enumerate label-names))))))
 
 (defn define-type [module name exported? def-value record? labels]
-  (|case labels
-    (&/$End)
-    (define module name exported? &type/Type def-value)
+  (if_not_defined
+      module name
+      (|case labels
+        (&/$End)
+        (define module name exported? &type/Type def-value)
 
-    (&/$Item labelH labelT)
-    (|do [_ (declare-labels module record? labels exported? def-value)]
-      (fn [state]
-        (|case (&/get$ &/$scopes state)
-          (&/$Item ?env (&/$End))
-          (return* (->> state
-                        (&/update$ &/$modules
-                                   (fn [ms]
-                                     (&/|update module
-                                                (fn [m]
-                                                  (&/update$ $defs
-                                                             #(&/|put name (&/$TypeG (&/T [exported? def-value (if record?
-                                                                                                                 (&/$Right (&/T [labelH labelT]))
-                                                                                                                 (&/$Left (&/T [labelH labelT])))]))
-                                                                      %)
-                                                             m))
-                                                ms))))
-                   nil)
-          
-          _
-          ((&/fail-with-loc (str "[Analyser Error] Cannot create a new global definition outside of a global environment: " (str module &/+name-separator+ name)))
-           state))))))
+        (&/$Item labelH labelT)
+        (|do [_ (declare-labels module record? labels exported? def-value)]
+          (fn [state]
+            (|case (&/get$ &/$scopes state)
+              (&/$Item ?env (&/$End))
+              (return* (->> state
+                            (&/update$ &/$modules
+                                       (fn [ms]
+                                         (&/|update module
+                                                    (fn [m]
+                                                      (&/update$ $defs
+                                                                 #(&/|put name (&/$TypeG (&/T [exported? def-value (if record?
+                                                                                                                     (&/$Right (&/T [labelH labelT]))
+                                                                                                                     (&/$Left (&/T [labelH labelT])))]))
+                                                                          %)
+                                                                 m))
+                                                    ms))))
+                       nil)
+              
+              _
+              ((&/fail-with-loc (str "[Analyser Error] Cannot create a new global definition outside of a global environment: " (str module &/+name-separator+ name)))
+               state)))))))
 
 (def defs
   (|do [module &/get-module-name]

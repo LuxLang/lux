@@ -100,14 +100,14 @@ Otherwise check `define-lux-indent' and `put-lux-indent'."
     (modify-syntax-entry ?\t "-" table)
     (modify-syntax-entry ?\r "-" table)
     (modify-syntax-entry ?\n "> " table)
-    (modify-syntax-entry ?. "w" table)
+    (modify-syntax-entry ?# "w" table)
     (modify-syntax-entry ?+ "w" table)
     (modify-syntax-entry ?- "w" table)
+    (modify-syntax-entry ?. "w" table)
     (modify-syntax-entry ?, "w" table)
     (modify-syntax-entry '(?a . ?z) "w" table)
     (modify-syntax-entry '(?A . ?Z) "w" table)
     (modify-syntax-entry '(?0 . ?9) "w" table)
-    (modify-syntax-entry ?# "w" table)
     (modify-syntax-entry ?~ "w" table)
     (modify-syntax-entry ?' "w" table)
     (modify-syntax-entry ?` "w" table)
@@ -141,19 +141,8 @@ See `paredit-space-for-delimiter-predicates' for the meaning of
 ENDP and DELIM."
   (if (derived-mode-p 'lux-mode)
       (save-excursion
-        (backward-char)
-        (if (and (or (char-equal delim ?\")
-                     (char-equal delim ?\()
-                     (char-equal delim ?\{)
-					 (char-equal delim ?\[))
-                 (not endp))
-            (if (char-equal (char-after) ?#)
-                (and (not (bobp))
-                     (or (char-equal ?w (char-syntax (char-before)))
-                         (char-equal ?_ (char-syntax (char-before)))))
-              t)
-          t))
-    t))
+        (backward-char)))
+  t)
 
 (defun lux-enable-paredit-backslash ()
   "Getting paredit to work with backslashes (\)"
@@ -335,9 +324,6 @@ Called by `imenu--generic-function'."
 (defun literal (content)
   (concat "\\<" content "\\>"))
 
-(defun special (normal)
-  (concat "#" normal))
-
 (defconst lux-font-lock-keywords
   (eval-when-compile
 	(let* ((natural "[0-9][0-9,]*")
@@ -346,20 +332,10 @@ Called by `imenu--generic-function'."
 		   (sign (altRE "-" "\\+"))
 		   (identifier (concat identifier_h identifier_t "*"))
 		   (integer (concat sign natural))
-		   (bitRE (literal (special (altRE "0" "1"))))
+		   (bitRE (literal (altRE "#0" "#1")))
 		   (natRE (literal natural))
 		   (int&fracRE (literal (concat integer "\\(\\." natural "\\(\\(e\\|E\\)" integer "\\)?\\)?")))
 		   (revRE (literal (concat "\\." natural)))
-		   (tagRE (let ((separator "\\."))
-					(let ((in-prelude separator)
-						  (in-current-module (concat separator separator))
-						  (in-module (concat identifier separator))
-						  (in-local ""))
-					  (special (concat (altRE in-prelude
-											  in-current-module
-											  in-module
-											  in-local)
-									   identifier)))))
 		   (specialRE (let (;; Control
 							(control//flow (altRE "case" "exec" "let" "if" "cond" "loop" "recur" "do" "be"))
 							(control//pattern-matching (altRE "\\^" "\\^or" "\\^slots"
@@ -459,8 +435,6 @@ Called by `imenu--generic-function'."
 		(,int&fracRE 0 font-lock-constant-face)
 		;; Rev literals
 		(,revRE 0 font-lock-constant-face)
-		;; Tags
-		(,tagRE 0 font-lock-type-face)
 		)))
   "Default expressions to highlight in Lux mode.")
 

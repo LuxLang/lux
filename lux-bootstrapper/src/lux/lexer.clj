@@ -16,7 +16,6 @@
   ("Frac" 1)
   ("Text" 1)
   ("Identifier" 1)
-  ("Tag" 1)
   ("Open_Paren" 0)
   ("Close_Paren" 0)
   ("Open_Bracket" 0)
@@ -34,7 +33,7 @@
     (return (&/T [meta ($Text content)]))))
 
 (def +ident-re+
-  #"^([^0-9\[\]\{\}\(\)\s\"#.][^\[\]\{\}\(\)\s\"#.]*)")
+  #"^([^0-9\[\]\{\}\(\)\s\".][^\[\]\{\}\(\)\s\".]*)")
 
 ;; [Lexers]
 (def ^:private lex-white-space
@@ -95,11 +94,6 @@
   (|do [[meta ident] lex-ident]
     (return (&/T [meta ($Identifier ident)]))))
 
-(def ^:private lex-tag
-  (|do [[meta _ _] (&reader/read-text "#")
-        [_ ident] lex-ident]
-    (return (&/T [meta ($Tag ident)]))))
-
 (do-template [<name> <text> <tag>]
   (def <name>
     (|do [[meta _ _] (&reader/read-text <text>)]
@@ -133,5 +127,4 @@
                         lex-int
                         lex-text
                         lex-identifier
-                        lex-tag
                         lex-delimiter)))

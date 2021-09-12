@@ -121,54 +121,6 @@
                                             (&/$Product Ident Type)))))))))))
                                   )))))
 
-(def Location
-  (&/$Named (&/T [&/prelude "Location"])
-            (&/$Product Text (&/$Product Nat Nat))))
-
-(def Meta
-  (&/$Named (&/T [&/prelude "Meta"])
-            (&/$UnivQ empty-env
-                      (&/$UnivQ empty-env
-                                (&/$Product (&/$Parameter 3)
-                                            (&/$Parameter 1))))))
-
-(def Code*
-  (&/$Named (&/T [&/prelude "Code'"])
-            (let [Code (&/$Apply (&/$Apply (&/$Parameter 1)
-                                           (&/$Parameter 0))
-                                 (&/$Parameter 1))
-                  Code-List (&/$Apply Code List)]
-              (&/$UnivQ empty-env
-                        (&/$Sum ;; .Bit
-                         Bit
-                         (&/$Sum ;; .Nat
-                          Nat
-                          (&/$Sum ;; .Int
-                           Int
-                           (&/$Sum ;; .Rev
-                            Rev
-                            (&/$Sum ;; .Frac
-                             Frac
-                             (&/$Sum ;; .Text
-                              Text
-                              (&/$Sum ;; .Identifier
-                               Ident
-                               (&/$Sum ;; .Tag
-                                Ident
-                                (&/$Sum ;; .Form
-                                 Code-List
-                                 (&/$Sum ;; .Variant
-                                  Code-List
-                                  ;; .Tuple
-                                  Code-List
-                                  ))))))))))
-                        ))))
-
-(def Code
-  (&/$Named (&/T [&/prelude "Code"])
-            (let [w (&/$Apply Location Meta)]
-              (&/$Apply (&/$Apply w Code*) w))))
-
 (def Macro
   (&/$Named (&/T [&/prelude "Macro"])
             (&/$Primitive "#Macro" &/$End)))

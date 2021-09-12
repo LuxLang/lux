@@ -68,9 +68,6 @@
       (&lexer/$Identifier ?ident)
       (return (&/|list (&/T [meta (&/$Identifier ?ident)])))
 
-      (&lexer/$Tag ?ident)
-      (return (&/|list (&/T [meta (&/$Tag ?ident)])))
-
       (&lexer/$Open_Paren _)
       (|do [syntax (parse-form parse)]
         (return (&/|list (&/T [meta syntax]))))
