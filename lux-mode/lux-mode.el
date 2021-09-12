@@ -324,13 +324,24 @@ Called by `imenu--generic-function'."
 (defun literal (content)
   (concat "\\<" content "\\>"))
 
+(defun +class (characters)
+  (concat "[" characters "]"))
+
+(defun -class (characters)
+  (altRE "^" (concat "[^" characters "]")))
+
 (defconst lux-font-lock-keywords
   (eval-when-compile
 	(let* ((natural "[0-9][0-9,]*")
-		   (identifier_h "[a-zA-Z-\\+_=!@\\$%\\^&\\*<>;,/\\\\\\|':~\\?]")
-		   (identifier_t "[a-zA-Z0-9-\\+_=!@\\$%\\^&\\*<>;,/\\\\\\|':~\\?]")
+		   (identifier_h|label "#")
+		   (identifier_h|type "A-Z")
+		   (identifier_h (concat identifier_h|type
+								 identifier_h|label
+								 "a-zA-Z-\\+_=!@\\$%\\^&\\*<>;,/\\\\\\|':~\\?"))
+		   (identifier_t (altRE identifier_h
+								"0-9"))
 		   (sign (altRE "-" "\\+"))
-		   (identifier (concat identifier_h identifier_t "*"))
+		   (identifier (concat (+class identifier_h) (+class identifier_t) "*"))
 		   (integer (concat sign natural))
 		   (bitRE (literal (altRE "#0" "#1")))
 		   (natRE (literal natural))
@@ -360,8 +371,8 @@ Called by `imenu--generic-function'."
 							(type//capability (altRE "capability:"))
 							;; Data
 							(data//record (altRE "value@" "with@" "revised@"))
-							(data//interface (altRE "open:" "implementation" "\\\\"))
-							(data//implicit (altRE "implicit:" "\\\\\\\\"))
+							(data//interface (altRE "open:" "implementation" "#"))
+							(data//implicit (altRE "implicit:" "##"))
 							(data//collection (altRE "list" "list&" "row" "tree"))
 							;; Code
 							(code//quotation (altRE "`" "`'" "'" "~" "~\\+" "~!" "~'"))
@@ -424,17 +435,30 @@ Called by `imenu--generic-function'."
 							"infix"
 							"format"
 							"regex")
-						   "\\>")))))
+						   "\\>"))))
+		   (separator "\\.")
+		   (in-prelude separator)
+		   (in-current-module (concat separator separator))
+		   (in-module (concat identifier separator))
+		   ;; (in-local "")
+		   (in-local (altRE (+class "()")
+							(-class identifier_t)))
+		   (global_prefix (altRE in-prelude
+								 in-current-module
+								 in-module
+								 in-local))
+		   (typeRE (concat global_prefix (+class identifier_h|type) (+class identifier_t) "*"))
+		   (labelRE (concat global_prefix (+class identifier_h|label) (+class identifier_t) "*"))
+		   (literalRE (altRE bitRE ;; Bit literals
+							 natRE ;; Nat literals
+							 int&fracRE ;; Int literals && Frac literals
+							 revRE ;; Rev literals
+							 )))
 	  `(;; Special forms
 		(,specialRE 1 font-lock-builtin-face)
-		;; Bit literals
-		(,bitRE 0 font-lock-constant-face)
-		;; Nat literals
-		(,natRE 0 font-lock-constant-face)
-		;; Int literals && Frac literals
-		(,int&fracRE 0 font-lock-constant-face)
-		;; Rev literals
-		(,revRE 0 font-lock-constant-face)
+		(,literalRE 0 font-lock-constant-face)
+		(,typeRE 0 font-lock-type-face)
+		(,labelRE 0 font-lock-keyword-face)
 		)))
   "Default expressions to highlight in Lux mode.")
 
@@ -460,11 +484,10 @@ highlighted region)."
   (setq font-lock-defaults
         '(lux-font-lock-keywords         ; keywords
           nil nil
-          (("+-*/.<>=!?$%_&~^:@" . "w")) ; syntax alist
+          (("+-*/.<>=!?$%_&~^:@#" . "w")) ; syntax alist
           nil
           (font-lock-mark-block-function . mark-defun)
-          (font-lock-syntactic-face-function
-           . lux-font-lock-syntactic-face-function))))
+          (font-lock-syntactic-face-function . lux-font-lock-syntactic-face-function))))
 
 (defvar withRE (concat "\\`" "with" (altRE "_" "\\'")))
 (defvar definitionRE ":\\'")
