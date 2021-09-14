@@ -1246,24 +1246,37 @@
          ..Tuple)
 
 (def:''' .private (pairs xs)
-         (All (_ a) (-> ($' List a) ($' List (Tuple a a))))
+         (All (_ a) (-> ($' List a) ($' Maybe ($' List (Tuple a a)))))
          ({{#Item x {#Item y xs'}}
-           {#Item [x y] (pairs xs')}
+           ({{#Some tail}
+             {#Some {#Item [x y] tail}}
+             
+             {#None}
+             {#None}}
+            (pairs xs'))
+
+           {#End}
+           {#Some {#End}}
 
            _
-           {#End}}
+           {#None}}
           xs))
 
 (macro:' .private (let' tokens)
-         ({{#Item [[_ {#Tuple bindings}] {#Item [body {#End}]}]}
-           (in_meta (list (list#mix ("lux type check" (-> (Tuple Code Code) Code
-                                                          Code)
-                                     (function' [binding body]
-                                                ({[label value]
-                                                  (form$ (list (variant$ (list label body)) value))}
-                                                 binding)))
-                                    body
-                                    (list#reversed (pairs bindings)))))
+         ({{#Item [_ {#Tuple bindings}] {#Item body {#End}}}
+           ({{#Some bindings}
+             (in_meta (list (list#mix ("lux type check" (-> (Tuple Code Code) Code
+                                                            Code)
+                                       (function' [binding body]
+                                                  ({[label value]
+                                                    (form$ (list (variant$ (list label body)) value))}
+                                                   binding)))
+                                      body
+                                      (list#reversed bindings))))
+             
+             {#None}
+             (failure "Wrong syntax for let'")}
+            (pairs bindings))
 
            _
            (failure "Wrong syntax for let'")}
@@ -1393,33 +1406,38 @@
 
 (macro:' .private (do tokens)
          ({{#Item monad {#Item [_ {#Tuple bindings}] {#Item body {#End}}}}
-           (let' [g!in (local_symbol$ "in")
-                  g!then (local_symbol$ " then ")
-                  body' (list#mix ("lux type check" (-> (Tuple Code Code) Code Code)
-                                   (function' [binding body']
-                                              (let' [[var value] binding]
-                                                    ({[_ {#Symbol [module short]}]
-                                                      ({""
-                                                        (form$ (list g!then
-                                                                     (form$ (list (tuple$ (list (local_symbol$ "") var)) body'))
-                                                                     value))
+           ({{#Some bindings}
+             (let' [g!in (local_symbol$ "in")
+                    g!then (local_symbol$ " then ")
+                    body' (list#mix ("lux type check" (-> (Tuple Code Code) Code Code)
+                                     (function' [binding body']
+                                                (let' [[var value] binding]
+                                                      ({[_ {#Symbol [module short]}]
+                                                        ({""
+                                                          (form$ (list g!then
+                                                                       (form$ (list (tuple$ (list (local_symbol$ "") var)) body'))
+                                                                       value))
+
+                                                          _
+                                                          (form$ (list var value body'))}
+                                                         module)
+                                                        
 
                                                         _
-                                                        (form$ (list var value body'))}
-                                                       module)
-                                                      
-
-                                                      _
-                                                      (form$ (list g!then
-                                                                   (form$ (list (tuple$ (list (local_symbol$ "") var)) body'))
-                                                                   value))}
-                                                     var))))
-                                  body
-                                  (list#reversed (pairs bindings)))]
-                 (in_meta (list (form$ (list (variant$ (list (tuple$ (list (symbol$ [..prelude_module "#in"]) g!in
-                                                                           (symbol$ [..prelude_module "#then"]) g!then))
-                                                             body'))
-                                             monad)))))
+                                                        (form$ (list g!then
+                                                                     (form$ (list (tuple$ (list (local_symbol$ "") var)) body'))
+                                                                     value))}
+                                                       var))))
+                                    body
+                                    (list#reversed bindings))]
+                   (in_meta (list (form$ (list (variant$ (list (tuple$ (list (symbol$ [..prelude_module "#in"]) g!in
+                                                                             (symbol$ [..prelude_module "#then"]) g!then))
+                                                               body'))
+                                               monad)))))
+             
+             {#None}
+             (failure "Wrong syntax for do")}
+            (pairs bindings))
 
            _
            (failure "Wrong syntax for do")}
@@ -1945,10 +1963,6 @@
          (-> Frac Text)
          ("lux f64 encode" x))
 
-(def:''' .private (multiple? div n)
-         (-> Nat Nat Bit)
-         (|> n (n/% div) ("lux i64 =" 0)))
-
 (def:''' .public (not x)
          (-> Bit Bit)
          (if x #0 #1))
@@ -2416,17 +2430,21 @@
 (macro:' .public (let tokens)
          (case tokens
            (^ (list [_ {#Tuple bindings}] body))
-           (if (multiple? 2 (list#size bindings))
-             (|> bindings pairs list#reversed
-                 (list#mix (: (-> [Code Code] Code Code)
-                              (function' [lr body']
-                                         (let' [[l r] lr]
-                                               (if (symbol? l)
-                                                 (` ({(~ l) (~ body')} (~ r)))
-                                                 (` (case (~ r) (~ l) (~ body')))))))
-                           body)
-                 list
-                 in_meta)
+           (case (..pairs bindings)
+             {#Some bindings}
+             (|>  bindings
+                  list#reversed
+                  (list#mix (: (-> [Code Code] Code Code)
+                               (function' [lr body']
+                                          (let' [[l r] lr]
+                                                (if (symbol? l)
+                                                  (` ({(~ l) (~ body')} (~ r)))
+                                                  (` (case (~ r) (~ l) (~ body')))))))
+                            body)
+                  list
+                  in_meta)
+
+             {#None}
              (failure "let requires an even number of parts"))
 
            _
@@ -3780,19 +3798,22 @@
     (failure "Wrong syntax for ^open")))
 
 (macro: .public (cond tokens)
-  (if ("lux i64 =" 0 (n/% 2 (list#size tokens)))
-    (failure "cond requires an uneven number of arguments.")
-    (case (list#reversed tokens)
-      (^ (list& else branches'))
+  (case (list#reversed tokens)
+    (^ (list& else branches'))
+    (case (pairs branches')
+      {#Some branches'}
       (in_meta (list (list#mix (: (-> [Code Code] Code Code)
                                   (function (_ branch else)
                                     (let [[right left] branch]
                                       (` (if (~ left) (~ right) (~ else))))))
                                else
-                               (pairs branches'))))
-      
-      _
-      (failure "Wrong syntax for cond"))))
+                               branches')))
+
+      {#None}
+      (failure "cond requires an uneven number of arguments."))
+    
+    _
+    (failure "Wrong syntax for cond")))
 
 (def: (enumeration' idx xs)
   (All (_ a)
@@ -4309,32 +4330,36 @@
                   {#None})]
     (case ?params
       {#Some [name bindings body]}
-      (let [pairs (pairs bindings)
-            vars (list#each product#left pairs)
-            inits (list#each product#right pairs)]
-        (if (every? symbol? inits)
-          (do meta_monad
-            [inits' (: (Meta (List Symbol))
-                       (case (monad#each maybe_monad symbol_name inits)
-                         {#Some inits'} (in_meta inits')
-                         {#None}        (failure "Wrong syntax for loop")))
-             init_types (monad#each meta_monad type_definition inits')
-             expected ..expected_type]
-            (in_meta (list (` (("lux type check"
-                                (-> (~+ (list#each type_code init_types))
-                                    (~ (type_code expected)))
-                                (function ((~ name) (~+ vars))
-                                  (~ body)))
-                               (~+ inits))))))
-          (do meta_monad
-            [aliases (monad#each meta_monad
-                                 (: (-> Code (Meta Code))
-                                    (function (_ _) (..generated_symbol "")))
-                                 inits)]
-            (in_meta (list (` (let [(~+ (..interleaved aliases inits))]
-                                (.loop (~ name)
-                                  [(~+ (..interleaved vars aliases))]
-                                  (~ body)))))))))
+      (case (pairs bindings)
+        {#Some pairs}
+        (let [vars (list#each product#left pairs)
+              inits (list#each product#right pairs)]
+          (if (every? symbol? inits)
+            (do meta_monad
+              [inits' (: (Meta (List Symbol))
+                         (case (monad#each maybe_monad symbol_name inits)
+                           {#Some inits'} (in_meta inits')
+                           {#None}        (failure "Wrong syntax for loop")))
+               init_types (monad#each meta_monad type_definition inits')
+               expected ..expected_type]
+              (in_meta (list (` (("lux type check"
+                                  (-> (~+ (list#each type_code init_types))
+                                      (~ (type_code expected)))
+                                  (function ((~ name) (~+ vars))
+                                    (~ body)))
+                                 (~+ inits))))))
+            (do meta_monad
+              [aliases (monad#each meta_monad
+                                   (: (-> Code (Meta Code))
+                                      (function (_ _) (..generated_symbol "")))
+                                   inits)]
+              (in_meta (list (` (let [(~+ (..interleaved aliases inits))]
+                                  (.loop (~ name)
+                                    [(~+ (..interleaved vars aliases))]
+                                    (~ body)))))))))
+
+        {#None}
+        (failure "Wrong syntax for loop"))
 
       {#None}
       (failure "Wrong syntax for loop"))))
@@ -4749,21 +4774,12 @@
         (in_meta (list pick))
         (target_pick target options' default)))))
 
-(def: (pairs' tokens)
-  (-> (List Code) (Maybe (List [Code Code])))
-  (if (|> tokens
-          list#size
-          (n/% 2)
-          ("lux i64 =" 0))
-    {#Some (pairs tokens)}
-    {#None}))
-
 (macro: .public (for tokens)
   (do meta_monad
     [target ..target]
     (case tokens
       (^ (list [_ {#Tuple options}]))
-      (case (pairs' options)
+      (case (pairs options)
         {#Some options}
         (target_pick target options {#None})
 
@@ -4771,7 +4787,7 @@
         (failure (..wrong_syntax_error (symbol ..for))))
       
       (^ (list [_ {#Tuple options}] default))
-      (case (pairs' options)
+      (case (pairs options)
         {#Some options}
         (target_pick target options {#Some default})
 
@@ -4906,13 +4922,15 @@
 (macro: .public (:let tokens)
   (case tokens
     (^ (list [_ {#Tuple bindings}] bodyT))
-    (if (multiple? 2 (list#size bindings))
+    (case (..pairs bindings)
+      {#Some bindings}
       (in_meta (list (` (..with_expansions [(~+ (|> bindings
-                                                    ..pairs
                                                     (list#each (function (_ [localT valueT])
                                                                  (list localT (` (..as_is (~ valueT))))))
                                                     (list#mix list#composite (list))))]
                           (~ bodyT)))))
+      
+      {#None}
       (..failure ":let requires an even number of parts"))
 
     _
