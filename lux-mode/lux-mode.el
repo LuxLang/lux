@@ -220,14 +220,23 @@ ENDP and DELIM."
 				  (funcall self argument))))
   )
 
+(defun lux/insert_semicolon ()
+  "Just write a ; in the buffer."
+  (interactive)
+  (insert-char ?\;))
+
 (defun lux-paredit-setup ()
   "Make \"paredit-mode\" play nice with `lux-mode'."
   (when (>= paredit-version 21)
+	;; Extend
     (define-key lux-mode-map "{" #'paredit-open-curly)
     (define-key lux-mode-map "}" #'paredit-close-curly)
-    (add-to-list 'paredit-space-for-delimiter-predicates
+	(add-to-list 'paredit-space-for-delimiter-predicates
                  #'lux-space-for-delimiter-p)
 	(lux-enable-paredit-backslash)
+	;; Re-bind
+	(define-key lux-mode-map
+	  [remap paredit-semicolon] #'lux/insert_semicolon)
 	))
 
 (defun indent_lux_line! (&optional indent)
