@@ -359,7 +359,7 @@ Called by `imenu--generic-function'."
 							(type//syntax (altRE "Union" "Or" "Variant"
 												 "Tuple" "And" "Record"
 												 "Rec"
-												 "primitive" "->"
+												 "Primitive" "->"
 												 "All" "Ex"
 												 "Interface"
 												 "type"))
