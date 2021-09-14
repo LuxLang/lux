@@ -28,7 +28,7 @@
 
 (def: (path_optimization body_optimization offset)
   (-> (Transform Synthesis) Register (Transform Path))
-  (function (recur path)
+  (function (again path)
     (case path
       {/.#Bind register}
       {.#Some {/.#Bind (register_optimization offset register)}}
@@ -36,17 +36,17 @@
       (^template [<tag>]
         [{<tag> left right}
          (do maybe.monad
-           [left' (recur left)
-            right' (recur right)]
+           [left' (again left)
+            right' (again right)]
            (in {<tag> left' right'}))])
       ([/.#Alt] [/.#Seq])
 
       {/.#Bit_Fork when then else}
       (do [! maybe.monad]
-        [then (recur then)
+        [then (again then)
          else (case else
                 {.#Some else}
-                (# ! each (|>> {.#Some}) (recur else))
+                (# ! each (|>> {.#Some}) (again else))
 
                 {.#None}
                 (in {.#None}))]
@@ -55,10 +55,10 @@
       (^template [<tag>]
         [{<tag> [[test then] elses]}
          (do [! maybe.monad]
-           [then (recur then)
+           [then (again then)
             elses (monad.each ! (function (_ [else_test else_then])
                                   (do !
-                                    [else_then (recur else_then)]
+                                    [else_then (again else_then)]
                                     (in [else_test else_then])))
                               elses)]
            (in {<tag> [[test then] elses]}))])
@@ -86,14 +86,14 @@
       (case structure
         {analysis.#Variant variant}
         (do maybe.monad
-          [value' (|> variant (value@ analysis.#value) (recur false))]
+          [value' (|> variant (value@ analysis.#value) (again false))]
           (in (|> variant
                   (with@ analysis.#value value')
                   /.variant)))
         
         {analysis.#Tuple tuple}
         (|> tuple
-            (monad.each maybe.monad (recur false))
+            (monad.each maybe.monad (again false))
             (maybe#each (|>> /.tuple))))
 
       {/.#Reference reference}
@@ -116,59 +116,59 @@
 
       (^ (/.branch/case [input path]))
       (do maybe.monad
-        [input' (recur false input)
-         path' (path_optimization (recur return?) offset path)]
+        [input' (again false input)
+         path' (path_optimization (again return?) offset path)]
         (in (|> path' [input'] /.branch/case)))
 
       (^ (/.branch/let [input register body]))
       (do maybe.monad
-        [input' (recur false input)
-         body' (recur return? body)]
+        [input' (again false input)
+         body' (again return? body)]
         (in (/.branch/let [input' (register_optimization offset register) body'])))
 
       (^ (/.branch/if [input then else]))
       (do maybe.monad
-        [input' (recur false input)
-         then' (recur return? then)
-         else' (recur return? else)]
+        [input' (again false input)
+         then' (again return? then)
+         else' (again return? else)]
         (in (/.branch/if [input' then' else'])))
 
       (^ (/.branch/get [path record]))
       (do maybe.monad
-        [record (recur false record)]
+        [record (again false record)]
         (in (/.branch/get [path record])))
 
       (^ (/.loop/scope scope))
       (do [! maybe.monad]
         [inits' (|> scope
                     (value@ /.#inits)
-                    (monad.each ! (recur false)))
-         iteration' (recur return? (value@ /.#iteration scope))]
+                    (monad.each ! (again false)))
+         iteration' (again return? (value@ /.#iteration scope))]
         (in (/.loop/scope [/.#start (|> scope (value@ /.#start) (register_optimization offset))
                            /.#inits inits'
                            /.#iteration iteration'])))
 
-      (^ (/.loop/recur args))
+      (^ (/.loop/again args))
       (|> args
-          (monad.each maybe.monad (recur false))
-          (maybe#each (|>> /.loop/recur)))
+          (monad.each maybe.monad (again false))
+          (maybe#each (|>> /.loop/again)))
 
       (^ (/.function/abstraction [environment arity body]))
       (do [! maybe.monad]
-        [environment' (monad.each ! (recur false) environment)]
+        [environment' (monad.each ! (again false) environment)]
         (in (/.function/abstraction [environment' arity body])))
       
       (^ (/.function/apply [abstraction arguments]))
       (do [! maybe.monad]
-        [arguments' (monad.each ! (recur false) arguments)]
+        [arguments' (monad.each ! (again false) arguments)]
         (with_expansions [<application> (as_is (do !
-                                                 [abstraction' (recur false abstraction)]
+                                                 [abstraction' (again false abstraction)]
                                                  (in (/.function/apply [abstraction' arguments']))))]
           (case abstraction
             (^ {/.#Reference {reference.#Variable (variable.self)}})
             (if (and return?
                      (n.= arity (list.size arguments)))
-              (in (/.loop/recur arguments'))
+              (in (/.loop/again arguments'))
               (if true_loop?
                 {.#None}
                 <application>))
@@ -180,26 +180,26 @@
       (^ {/.#Extension ["lux syntax char case!" (list& input else matches)]})
       (if return?
         (do [! maybe.monad]
-          [input (recur false input)
+          [input (again false input)
            matches (monad.each !
                                (function (_ match)
                                  (case match
                                    (^ {/.#Structure {analysis.#Tuple (list when then)}})
                                    (do !
-                                     [when (recur false when)
-                                      then (recur return? then)]
+                                     [when (again false when)
+                                      then (again return? then)]
                                      (in {/.#Structure {analysis.#Tuple (list when then)}}))
 
                                    _
-                                   (recur false match)))
+                                   (again false match)))
                                matches)
-           else (recur return? else)]
+           else (again return? else)]
           (in {/.#Extension ["lux syntax char case!" (list& input else matches)]}))
         {.#None})
 
       {/.#Extension [name args]}
       (|> args
-          (monad.each maybe.monad (recur false))
+          (monad.each maybe.monad (again false))
           (maybe#each (|>> [name] {/.#Extension}))))))
 
 (def: .public (optimization true_loop? offset inits functionS)

@@ -37,16 +37,16 @@
 
 (def: (remove_local_from_path remove_local redundant)
   (-> (Remover Synthesis) (Remover Path))
-  (function (recur path)
+  (function (again path)
     (case path
       {/.#Seq {/.#Bind register}
               post}
       (if (n.= redundant register)
-        (recur post)
+        (again post)
         {/.#Seq {/.#Bind (if (n.> redundant register)
                            (-- register)
                            register)}
-                (recur post)})
+                (again post)})
 
       (^or {/.#Seq {/.#Access {/.#Member member}}
                    {/.#Seq {/.#Bind register}
@@ -57,27 +57,27 @@
                            {/.#Bind register}}
                    post})
       (if (n.= redundant register)
-        (recur post)
+        (again post)
         {/.#Seq {/.#Access {/.#Member member}}
                 {/.#Seq {/.#Bind (if (n.> redundant register)
                                    (-- register)
                                    register)}
-                        (recur post)}})
+                        (again post)}})
 
       (^template [<tag>]
         [{<tag> left right}
-         {<tag> (recur left) (recur right)}])
+         {<tag> (again left) (again right)}])
       ([/.#Seq]
        [/.#Alt])
 
       {/.#Bit_Fork when then else}
-      {/.#Bit_Fork when (recur then) (maybe#each recur else)}
+      {/.#Bit_Fork when (again then) (maybe#each again else)}
 
       (^template [<tag>]
         [{<tag> [[test then] tail]}
-         {<tag> [[test (recur then)]
+         {<tag> [[test (again then)]
                  (list#each (function (_ [test' then'])
-                              [test' (recur then')])
+                              [test' (again then')])
                             tail)]}])
       ([/.#I64_Fork]
        [/.#F64_Fork]
@@ -105,7 +105,7 @@
 
 (def: (remove_local redundant)
   (Remover Synthesis)
-  (function (recur synthesis)
+  (function (again synthesis)
     (case synthesis
       {/.#Primitive _}
       synthesis
@@ -113,10 +113,10 @@
       {/.#Structure structure}
       {/.#Structure (case structure
                       {analysis.#Variant [lefts right value]}
-                      {analysis.#Variant [lefts right (recur value)]}
+                      {analysis.#Variant [lefts right (again value)]}
                       
                       {analysis.#Tuple tuple}
-                      {analysis.#Tuple (list#each recur tuple)})}
+                      {analysis.#Tuple (list#each again tuple)})}
       
       {/.#Reference reference}
       (case reference
@@ -131,41 +131,41 @@
                     {/.#Branch branch}
                     {/.#Branch (case branch
                                  {/.#Let input register output}
-                                 {/.#Let (recur input)
+                                 {/.#Let (again input)
                                          (..prune redundant register)
-                                         (recur output)}
+                                         (again output)}
                                  
                                  {/.#If test then else}
-                                 {/.#If (recur test) (recur then) (recur else)}
+                                 {/.#If (again test) (again then) (again else)}
                                  
                                  {/.#Get path record}
-                                 {/.#Get path (recur record)}
+                                 {/.#Get path (again record)}
                                  
                                  {/.#Case input path}
-                                 {/.#Case (recur input) (remove_local_from_path remove_local redundant path)})}
+                                 {/.#Case (again input) (remove_local_from_path remove_local redundant path)})}
                     
                     {/.#Loop loop}
                     {/.#Loop (case loop
                                {/.#Scope [start inits iteration]}
                                {/.#Scope [(..prune redundant start)
-                                          (list#each recur inits)
-                                          (recur iteration)]}
+                                          (list#each again inits)
+                                          (again iteration)]}
                                
-                               {/.#Recur resets}
-                               {/.#Recur (list#each recur resets)})}
+                               {/.#Again resets}
+                               {/.#Again (list#each again resets)})}
 
                     {/.#Function function}
                     {/.#Function (case function
                                    {/.#Abstraction [environment arity body]}
-                                   {/.#Abstraction [(list#each recur environment)
+                                   {/.#Abstraction [(list#each again environment)
                                                     arity
                                                     body]}
 
                                    {/.#Apply abstraction inputs}
-                                   {/.#Apply (recur abstraction) (list#each recur inputs)})})}
+                                   {/.#Apply (again abstraction) (list#each again inputs)})})}
       
       {/.#Extension name inputs}
-      {/.#Extension name (list#each recur inputs)})))
+      {/.#Extension name (list#each again inputs)})))
 
 (type: Redundancy
   (Dictionary Register Bit))
@@ -195,7 +195,7 @@
 
 (def: (list_optimization optimization)
   (All (_ a) (-> (Optimization a) (Optimization (List a))))
-  (function (recur [redundancy values])
+  (function (again [redundancy values])
     (case values
       {.#End}
       {try.#Success [redundancy
@@ -204,7 +204,7 @@
       {.#Item head tail}
       (do try.monad
         [[redundancy head] (optimization [redundancy head])
-         [redundancy tail] (recur [redundancy tail])]
+         [redundancy tail] (again [redundancy tail])]
         (in [redundancy
              {.#Item head tail}])))))
 
@@ -245,7 +245,7 @@
 
 (def: (path_optimization optimization)
   (-> (Optimization Synthesis) (Optimization Path))
-  (function (recur [redundancy path])
+  (function (again [redundancy path])
     (case path
       (^or {/.#Pop}
            {/.#Access _})
@@ -254,13 +254,13 @@
 
       {/.#Bit_Fork when then else}
       (do [! try.monad]
-        [[redundancy then] (recur [redundancy then])
+        [[redundancy then] (again [redundancy then])
          [redundancy else] (case else
                              {.#Some else}
                              (# ! each
                                 (function (_ [redundancy else])
                                   [redundancy {.#Some else}])
-                                (recur [redundancy else]))
+                                (again [redundancy else]))
 
                              {.#None}
                              (in [redundancy {.#None}]))]
@@ -269,11 +269,11 @@
       (^template [<tag> <type>]
         [{<tag> [[test then] elses]}
          (do [! try.monad]
-           [[redundancy then] (recur [redundancy then])
+           [[redundancy then] (again [redundancy then])
             [redundancy elses] (..list_optimization (: (Optimization [<type> Path])
                                                        (function (_ [redundancy [else_test else_then]])
                                                          (do !
-                                                           [[redundancy else_then] (recur [redundancy else_then])]
+                                                           [[redundancy else_then] (again [redundancy else_then])]
                                                            (in [redundancy [else_test else_then]]))))
                                                     [redundancy elses])]
            (in [redundancy {<tag> [[test then] elses]}]))])
@@ -289,8 +289,8 @@
       
       {/.#Alt left right}
       (do try.monad
-        [[redundancy left] (recur [redundancy left])
-         [redundancy right] (recur [redundancy right])]
+        [[redundancy left] (again [redundancy left])
+         [redundancy right] (again [redundancy right])]
         (in [redundancy {/.#Alt left right}]))
       
       {/.#Seq pre post}
@@ -298,12 +298,12 @@
         [.let [baseline (|> redundancy
                             dictionary.keys
                             (set.of_list n.hash))]
-         [redundancy pre] (recur [redundancy pre])
+         [redundancy pre] (again [redundancy pre])
          .let [bindings (|> redundancy
                             dictionary.keys
                             (set.of_list n.hash)
                             (set.difference baseline))]
-         [redundancy post] (recur [redundancy post])
+         [redundancy post] (again [redundancy post])
          .let [redundants (|> redundancy
                               dictionary.entries
                               (list.only (function (_ [register redundant?])
@@ -408,11 +408,11 @@
             (in [(list#mix dictionary.lacks redundancy extension)
                  {/.#Control {/.#Loop {/.#Scope [start inits iteration]}}}]))
           
-          {/.#Recur resets}
+          {/.#Again resets}
           (do try.monad
             [[redundancy resets] (..list_optimization optimization' [redundancy resets])]
             (in [redundancy
-                 {/.#Control {/.#Loop {/.#Recur resets}}}])))
+                 {/.#Control {/.#Loop {/.#Again resets}}}])))
 
         {/.#Function function}
         (case function
