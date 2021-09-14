@@ -179,16 +179,20 @@ ENDP and DELIM."
 					  (interactive "P")
 					  (cond ((or (consp argument) (eobp))
 							 (delete-char +1))
+							
 							((integerp argument)
 							 (if (< argument 0)
 								 (paredit-backward-delete argument)
 							   (while (> argument 0)
 								 (paredit-forward-delete)
 								 (setq argument (- argument 1)))))
+							
 							((paredit-in-string-p)
 							 (paredit-forward-delete-in-string))
+							
 							((paredit-in-comment-p)
 							 (paredit-forward-delete-in-comment))
+							
 							((let ((syn (char-syntax (char-after))))
 							   (or (eq syn ?\( )
 								   (eq syn ?\" )))
@@ -198,13 +202,13 @@ ENDP and DELIM."
 								 (forward-char)
 							   (message "Deleting spurious opening delimiter.")
 							   (delete-char +1)))
+							
 							((and (not (paredit-in-char-p (1- (point))))
 								  (eq (char-syntax (char-after)) ?\) )
 								  (eq (char-before) (matching-paren (char-after))))
 							 (delete-char -1) ; Empty list -- delete both
 							 (delete-char +1))	;   delimiters.
-							((eq ?\; (char-after))
-							 (paredit-forward-delete-comment-start))
+							
 							((eq (char-syntax (char-after)) ?\) )
 							 (if (paredit-handle-sexp-errors
 									 (save-excursion (forward-char) (backward-sexp) t)
@@ -213,6 +217,7 @@ ENDP and DELIM."
 							   (progn
 								 (message "Deleting spurious closing delimiter.")
 								 (delete-char +1))))
+							
 							;; Just delete a single character, if it's not a closing
 							;; delimiter.  (The character literal case is already handled
 							;; by now.)
