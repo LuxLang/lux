@@ -349,7 +349,7 @@ Called by `imenu--generic-function'."
 		   (revRE (literal (concat "\\." natural)))
 		   (specialRE (let (;; Control
 							(control//flow (altRE "case" "exec" "let" "if" "cond" "loop" "recur" "do" "be"))
-							(control//pattern-matching (altRE "\\^" "\\^or" "\\^slots"
+							(control//pattern-matching (altRE "\\^" "\\^or"
 															  "\\^multi" "\\^@" "\\^template"
 															  "\\^open" "\\^|>" "\\^code"
 															  "\\^sequence&" "\\^regex"))
