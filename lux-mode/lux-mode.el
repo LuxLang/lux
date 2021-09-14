@@ -429,7 +429,7 @@ Called by `imenu--generic-function'."
 							definition
 							;;;;;;;;;;;;;;;;;;;;;;;;
 							"with_expansions"
-							"undefined" "name_of" "static"
+							"undefined" "symbol" "static"
 							"for"
 							"io"
 							"infix"
