@@ -6,10 +6,26 @@
             (lux.analyser [base :as &&]
                           [module :as &&module])))
 
+(defn head_slot [slot0]
+  (|do [[module name] (&&/resolved-ident slot0)
+        _exported?&type&slots&_index (fn [lux]
+                                       (|case ((&&module/find-slot module name) lux)
+                                         (&/$Left error)
+                                         (&/$Right (&/T [lux &/$None]))
+                                         
+                                         (&/$Right [lux* output])
+                                         (&/$Right (&/T [lux* (&/$Some output)]))))]
+    (return (|case _exported?&type&slots&_index
+              (&/$Some [_exported? type slots _index])
+              (&/$Some (&/T [module slots type]))
+
+              (&/$None)
+              &/$None))))
+
 ;; [Exports]
 (defn order-record
   "(-> (List Syntax) (Lux (Maybe (List Syntax))))"
-  [pairs]
+  [pattern_matching? pairs]
   (if (even? (&/|length pairs))
     (let [pairs (&/|as-pairs pairs)]
       (|do [module&slot-group&slot-type (|case pairs
@@ -18,20 +34,20 @@
                                             (return (&/$Some (&/T [module &/$End &type/Any]))))
                                           
                                           (&/$Item [[_ (&/$Identifier slot0)] _] _)
-                                          (|do [[module name] (&&/resolved-ident slot0)
-                                                _exported?&type&slots&_index (fn [lux]
-                                                                               (|case ((&&module/find-slot module name) lux)
-                                                                                 (&/$Left error)
-                                                                                 (&/$Right (&/T [lux &/$None]))
-                                                                                 
-                                                                                 (&/$Right [lux* output])
-                                                                                 (&/$Right (&/T [lux* (&/$Some output)]))))]
-                                            (|case _exported?&type&slots&_index
-                                              (&/$Some [_exported? type slots _index])
-                                              (return (&/$Some (&/T [module slots type])))
+                                          (|case slot0
+                                            ["" short0]
+                                            (if pattern_matching?
+                                              (return &/$None)
+                                              (|do [local? (&&module/find_local short0)]
+                                                (|case local?
+                                                  (&/$None)
+                                                  (head_slot slot0)
 
-                                              (&/$None)
-                                              (return &/$None)))
+                                                  (&/$Some [local _inner _outer])
+                                                  (return &/$None))))
+                                            
+                                            [module0 short0]
+                                            (head_slot slot0))
 
                                           _
                                           (return &/$None))]

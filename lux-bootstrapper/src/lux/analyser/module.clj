@@ -520,3 +520,19 @@
 
     _
     (&/fail-with-loc "[Analyser Error] Incorrect import syntax.")))
+
+(defn find_local [name]
+  (fn [state]
+    (|let [stack (&/get$ &/$scopes state)
+           no-binding? #(and (->> % (&/get$ &/$locals)  (&/get$ &/$mappings) (&/|contains? name) not)
+                             (->> % (&/get$ &/$captured) (&/get$ &/$mappings) (&/|contains? name) not))
+           [inner outer] (&/|split-with no-binding? stack)]
+      (|case outer
+        (&/$End)
+        (return* state &/$None)
+
+        (&/$Item bottom-outer _)
+        (let [local (&/|second (or (->> bottom-outer (&/get$ &/$locals)  (&/get$ &/$mappings) (&/|get name))
+                                   (->> bottom-outer (&/get$ &/$captured) (&/get$ &/$mappings) (&/|get name))))]
+          (return* state (&/$Some (&/T [local (&/|reverse inner) outer]))))
+        ))))

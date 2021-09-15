@@ -265,7 +265,7 @@
         (analyse-variant analyse (&/$Right exo-type) idx is-last? values)))))
 
 (defn analyse-record [analyse exo-type ?elems]
-  (|do [rec-members&rec-type (&&record/order-record ?elems)]
+  (|do [rec-members&rec-type (&&record/order-record false ?elems)]
     (|case rec-members&rec-type
       (&/$Some [rec-members rec-type])
       (|case exo-type
@@ -296,38 +296,30 @@
                                (&&/$def (&/T [r-module r-name])))))))
 
 (defn ^:private analyse-local [analyse exo-type name]
-  (fn [state]
-    (|let [stack (&/get$ &/$scopes state)
-           no-binding? #(and (->> % (&/get$ &/$locals)  (&/get$ &/$mappings) (&/|contains? name) not)
-                             (->> % (&/get$ &/$captured) (&/get$ &/$mappings) (&/|contains? name) not))
-           [inner outer] (&/|split-with no-binding? stack)]
-      (|case outer
-        (&/$End)
-        (&/run-state (|do [module-name &/get-module-name]
-                       (analyse-global analyse exo-type module-name name))
-                     state)
-
-        (&/$Item bottom-outer _)
-        (|let [scopes (&/|map #(&/get$ &/$name %) (&/|reverse inner))
-               [=local inner*] (&/fold2 (fn [register+new-inner frame in-scope]
-                                          (|let [[register new-inner] register+new-inner
-                                                 [register* frame*] (&&function/close-over in-scope name register frame)]
-                                            (&/T [register* (&/$Item frame* new-inner)])))
-                                        (&/T [(&/|second (or (->> bottom-outer (&/get$ &/$locals)  (&/get$ &/$mappings) (&/|get name))
-                                                             (->> bottom-outer (&/get$ &/$captured) (&/get$ &/$mappings) (&/|get name))))
-                                              &/$End])
-                                        (&/|reverse inner) scopes)]
+  (|do [local? (&&module/find_local name)]
+    (|case local?
+      (&/$None)
+      (|do [module-name &/get-module-name]
+        (analyse-global analyse exo-type module-name name))
+      
+      (&/$Some [local inner outer])
+      (|let [scopes (&/|map #(&/get$ &/$name %) inner)
+             [=local inner*] (&/fold2 (fn [register+new-inner frame in-scope]
+                                        (|let [[register new-inner] register+new-inner
+                                               [register* frame*] (&&function/close-over in-scope name register frame)]
+                                          (&/T [register* (&/$Item frame* new-inner)])))
+                                      (&/T [local &/$End])
+                                      inner scopes)]
+        (fn [state]
           ((|do [_ (&type/check exo-type (&&/expr-type* =local))]
              (return (&/|list =local)))
-           (&/set$ &/$scopes (&/|++ inner* outer) state)))
-        ))))
+           (&/set$ &/$scopes (&/|++ inner* outer) state)))))))
 
 (defn analyse-identifier [analyse exo-type ident]
   (|do [:let [[?module ?name] ident]]
     (if (= "" ?module)
       (analyse-local analyse exo-type ?name)
-      (analyse-global analyse exo-type ?module ?name))
-    ))
+      (analyse-global analyse exo-type ?module ?name))))
 
 (defn ^:private analyse-apply* [analyse exo-type fun-type ?args]
   (|case ?args

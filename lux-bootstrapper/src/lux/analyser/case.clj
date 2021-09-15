@@ -336,7 +336,7 @@
       (analyse-pattern var?? value-type ?member kont)
 
       (&/$Tuple ?members)
-      (|do [rec-members&rec-type (&&record/order-record ?members)]
+      (|do [rec-members&rec-type (&&record/order-record true ?members)]
         (|case rec-members&rec-type
           (&/$Some [rec-members rec-type])
           (|do [must-infer? (&type/unknown? value-type)

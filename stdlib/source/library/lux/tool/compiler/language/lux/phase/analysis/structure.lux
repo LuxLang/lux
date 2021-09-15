@@ -11,7 +11,7 @@
      ["[0]" state]]
     [data
      ["[0]" product]
-     [text
+     ["[0]" text ("[1]#[0]" equivalence)
       ["%" format {"+" format}]]
      [collection
       ["[0]" list ("[1]#[0]" monad)]
@@ -322,55 +322,76 @@
       _
       (# ///.monad in {.#None}))))
 
+(def: (local_binding? name)
+  (-> Text (Meta Bit))
+  (# meta.monad each
+     (list.any? (list.any? (|>> product.left (text#= name))))
+     meta.locals))
+
 ... Lux already possesses the means to analyse tuples, so
 ... re-implementing the same functionality for records makes no sense.
 ... Records, thus, get transformed into tuples by ordering the elements.
-(def: .public (order record)
-  (-> (List [Symbol Code]) (Operation (Maybe [Nat (List Code) Type])))
+(def: (order' head_k record)
+  (-> Symbol (List [Symbol Code]) (Operation (Maybe [Nat (List Code) Type])))
+  (do [! ///.monad]
+    [slotH' (///extension.lifted
+             (do meta.monad
+               [head_k (meta.normal head_k)]
+               (meta.try (meta.slot head_k))))]
+    (case slotH'
+      {try.#Success [_ slot_set recordT]}
+      (do !
+        [.let [size_record (list.size record)
+               size_ts (list.size slot_set)]
+         _ (if (n.= size_ts size_record)
+             (in [])
+             (/.except ..record_size_mismatch [size_ts size_record recordT record]))
+         .let [tuple_range (list.indices size_ts)
+               tag->idx (dictionary.of_list symbol.hash (list.zipped/2 slot_set tuple_range))]
+         idx->val (monad.mix !
+                             (function (_ [key val] idx->val)
+                               (do !
+                                 [key (///extension.lifted (meta.normal key))]
+                                 (case (dictionary.value key tag->idx)
+                                   {.#Some idx}
+                                   (if (dictionary.key? idx->val idx)
+                                     (/.except ..cannot_repeat_slot [key record])
+                                     (in (dictionary.has idx val idx->val)))
+
+                                   {.#None}
+                                   (/.except ..slot_does_not_belong_to_record [key recordT]))))
+                             (: (Dictionary Nat Code)
+                                (dictionary.empty n.hash))
+                             record)
+         .let [ordered_tuple (list#each (function (_ idx)
+                                          (maybe.trusted (dictionary.value idx idx->val)))
+                                        tuple_range)]]
+        (in {.#Some [size_ts ordered_tuple recordT]}))
+
+      {try.#Failure error}
+      (in {.#None}))))
+
+(def: .public (order pattern_matching? record)
+  (-> Bit (List [Symbol Code]) (Operation (Maybe [Nat (List Code) Type])))
   (case record
     ... empty_record = empty_tuple = unit/any = []
     {.#End}
     (# ///.monad in {.#Some [0 (list) Any]})
 
     {.#Item [head_k head_v] _}
-    (do [! ///.monad]
-      [slotH' (///extension.lifted
-               (do meta.monad
-                 [head_k (meta.normal head_k)]
-                 (meta.try (meta.slot head_k))))]
-      (case slotH'
-        {try.#Success [_ slot_set recordT]}
-        (do !
-          [.let [size_record (list.size record)
-                 size_ts (list.size slot_set)]
-           _ (if (n.= size_ts size_record)
-               (in [])
-               (/.except ..record_size_mismatch [size_ts size_record recordT record]))
-           .let [tuple_range (list.indices size_ts)
-                 tag->idx (dictionary.of_list symbol.hash (list.zipped/2 slot_set tuple_range))]
-           idx->val (monad.mix !
-                               (function (_ [key val] idx->val)
-                                 (do !
-                                   [key (///extension.lifted (meta.normal key))]
-                                   (case (dictionary.value key tag->idx)
-                                     {.#Some idx}
-                                     (if (dictionary.key? idx->val idx)
-                                       (/.except ..cannot_repeat_slot [key record])
-                                       (in (dictionary.has idx val idx->val)))
-
-                                     {.#None}
-                                     (/.except ..slot_does_not_belong_to_record [key recordT]))))
-                               (: (Dictionary Nat Code)
-                                  (dictionary.empty n.hash))
-                               record)
-           .let [ordered_tuple (list#each (function (_ idx)
-                                            (maybe.trusted (dictionary.value idx idx->val)))
-                                          tuple_range)]]
-          (in {.#Some [size_ts ordered_tuple recordT]}))
-
-        {try.#Failure error}
-        (in {.#None})))
-    ))
+    (case head_k
+      ["" head_k']
+      (if pattern_matching?
+        (# ///.monad in {.#None})
+        (do ///.monad
+          [local_binding? (///extension.lifted
+                           (local_binding? head_k'))]
+          (if local_binding?
+            (order' head_k record)
+            (in {.#None}))))
+      
+      _
+      (order' head_k record))))
 
 (def: .public (record archive analyse members)
   (-> Archive Phase (List Code) (Operation Analysis))
@@ -403,7 +424,7 @@
 
         {.#Some slots}
         (do !
-          [record_size,membersC,recordT (..order slots)]
+          [record_size,membersC,recordT (..order false slots)]
           (case record_size,membersC,recordT
             {.#None}
             (..product archive analyse members)
