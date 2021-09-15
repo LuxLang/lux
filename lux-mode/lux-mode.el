@@ -342,20 +342,19 @@ Called by `imenu--generic-function'."
   (concat "[" characters "]"))
 
 (defun -class (characters)
-  (altRE "^" (concat "[^" characters "]")))
+  (concat "[^" characters "]"))
 
+;; https://www.emacswiki.org/emacs/RegularExpression
 (defconst lux-font-lock-keywords
   (eval-when-compile
 	(let* ((natural "[0-9][0-9,]*")
 		   (identifier_h|label "#")
-		   (identifier_h|type "A-Z")
-		   (identifier_h (concat identifier_h|type
-								 identifier_h|label
-								 "a-zA-Z-\\+_=!@\\$%\\^&\\*<>;,/\\\\\\|':~\\?"))
-		   (identifier_t (altRE identifier_h
-								"0-9"))
+		   (identifier_h|type "[:upper:]")
+		   ;; https://www.gnu.org/software/emacs/manual/html_node/elisp/Regexp-Special.html
+		   (identifier_t "][)(}{.\"[:space:]")
+		   (identifier_h (concat identifier_t "0-9"))
 		   (sign (altRE "-" "\\+"))
-		   (identifier (concat (+class identifier_h) (+class identifier_t) "*"))
+		   (identifier (concat (-class identifier_h) (-class identifier_t) "*"))
 		   (integer (concat sign natural))
 		   (bitRE (literal (altRE "#0" "#1")))
 		   (natRE (literal natural))
@@ -432,7 +431,7 @@ Called by `imenu--generic-function'."
 							type
 							data
 							code
-							;;;;;;;;;;;;;;;;;;;;;;;;
+							;; ;;;;;;;;;;;;;;;;;;;;;;
 							actor
 							jvm-host
 							alternative-format
@@ -441,7 +440,7 @@ Called by `imenu--generic-function'."
 							function-definition
 							remember
 							definition
-							;;;;;;;;;;;;;;;;;;;;;;;;
+							;; ;;;;;;;;;;;;;;;;;;;;;;
 							"with_expansions"
 							"undefined" "symbol" "static"
 							"for"
@@ -455,14 +454,14 @@ Called by `imenu--generic-function'."
 		   (in-current-module (concat separator separator))
 		   (in-module (concat identifier separator))
 		   ;; (in-local "")
-		   (in-local (altRE (+class "()")
-							(-class identifier_t)))
+		   (in-local (altRE "^"
+							(+class identifier_t)))
 		   (global_prefix (altRE in-prelude
 								 in-current-module
 								 in-module
 								 in-local))
-		   (typeRE (concat global_prefix (+class identifier_h|type) (+class identifier_t) "*"))
-		   (labelRE (concat global_prefix (+class identifier_h|label) (+class identifier_t) "*"))
+		   (typeRE (concat global_prefix (+class identifier_h|type) (-class identifier_t) "*"))
+		   (labelRE (concat global_prefix (+class identifier_h|label) (-class identifier_t) "*"))
 		   (literalRE (altRE bitRE ;; Bit literals
 							 natRE ;; Nat literals
 							 int&fracRE ;; Int literals && Frac literals
@@ -556,7 +555,7 @@ This function also returns nil meaning don't specify the indentation."
                               (split-string (substring-no-properties function) "\\.")))))
         (setq method (get (intern-soft function-tail) 'lux-indent-function))
         (cond ((member (char-after open-paren) '(?\[ ;; ?\{
-													 ))
+												 ))
                (goto-char open-paren)
                (1+ (current-column)))
               ((or (eq method 'defun)
