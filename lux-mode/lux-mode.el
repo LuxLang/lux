@@ -365,7 +365,7 @@ Called by `imenu--generic-function'."
 							(control//pattern-matching (altRE "\\^" "\\^or"
 															  "\\^multi" "\\^@" "\\^template"
 															  "\\^open" "\\^|>" "\\^code"
-															  "\\^sequence&" "\\^regex"))
+															  "\\^stream&" "\\^regex"))
 							(control//logic (altRE "and" "or"))
 							(control//contract (altRE "pre" "post"))
 							;; Type
