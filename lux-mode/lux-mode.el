@@ -399,7 +399,7 @@ Called by `imenu--generic-function'."
 							(function-application (altRE "|>" "<|" "_\\$" "\\$_"))
 							(function-definition (altRE "function" "|>>" "<<|" "||>"))
 							(remember (altRE "remember" "to_do" "fix_me"))
-							(definition (altRE "\\.module:"
+							(definition (altRE "\\.using"
 											   "def:" "type:" "program:"
 											   "implementation:"
 											   "macro:" "syntax:"
