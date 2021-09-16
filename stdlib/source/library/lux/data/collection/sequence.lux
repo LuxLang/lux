@@ -82,11 +82,11 @@
   (All (_ a) (-> Any (Hierarchy a)))
   (array.empty ..full_node_size))
 
-(def: (tail_off row_size)
+(def: (tail_off sequence_size)
   (-> Nat Nat)
-  (if (n.< full_node_size row_size)
+  (if (n.< full_node_size sequence_size)
     0
-    (|> (-- row_size)
+    (|> (-- sequence_size)
         (i64.right_shifted branching_exponent)
         (i64.left_shifted branching_exponent))))
 
@@ -189,7 +189,7 @@
                     (list#composite (node#list sub) acc))
                   {.#End}))))
 
-(type: .public (Row a)
+(type: .public (Sequence a)
   (Record
    [#level Level
     #size Nat
@@ -197,68 +197,68 @@
     #tail (Base a)]))
 
 (def: .public empty
-  Row
+  Sequence
   [#level (level_up root_level)
    #size 0
    #root (empty_hierarchy [])
    #tail (array.empty 0)])
 
-(def: .public (size row)
-  (All (_ a) (-> (Row a) Nat))
-  (value@ #size row))
+(def: .public (size sequence)
+  (All (_ a) (-> (Sequence a) Nat))
+  (value@ #size sequence))
 
-(def: .public (suffix val row)
-  (All (_ a) (-> a (Row a) (Row a)))
+(def: .public (suffix val sequence)
+  (All (_ a) (-> a (Sequence a) (Sequence a)))
   ... Check if there is room in the tail.
-  (let [row_size (value@ #size row)]
-    (if (|> row_size (n.- (tail_off row_size)) (n.< full_node_size))
+  (let [sequence_size (value@ #size sequence)]
+    (if (|> sequence_size (n.- (tail_off sequence_size)) (n.< full_node_size))
       ... If so, append to it.
-      (|> row
+      (|> sequence
           (revised@ #size ++)
           (revised@ #tail (..expanded_tail val)))
       ... Otherwise, push tail into the tree
       ... --------------------------------------------------------
       ... Will the root experience an overflow with this addition?
-      (|> (if (n.> (i64.left_shifted (value@ #level row) 1)
-                   (i64.right_shifted branching_exponent row_size))
+      (|> (if (n.> (i64.left_shifted (value@ #level sequence) 1)
+                   (i64.right_shifted branching_exponent sequence_size))
             ... If so, a brand-new root must be established, that is
             ... 1-level taller.
-            (|> row
+            (|> sequence
                 (with@ #root (|> (for [@.old
                                        (: (Hierarchy (:parameter 0))
                                           (empty_hierarchy []))]
                                       (empty_hierarchy []))
-                                 (array.write! 0 {#Hierarchy (value@ #root row)})
-                                 (array.write! 1 (..path (value@ #level row) (value@ #tail row)))))
+                                 (array.write! 0 {#Hierarchy (value@ #root sequence)})
+                                 (array.write! 1 (..path (value@ #level sequence) (value@ #tail sequence)))))
                 (revised@ #level level_up))
             ... Otherwise, just push the current tail onto the root.
-            (|> row
-                (revised@ #root (..with_tail row_size (value@ #level row) (value@ #tail row)))))
-          ... Finally, update the size of the row and grow a new
+            (|> sequence
+                (revised@ #root (..with_tail sequence_size (value@ #level sequence) (value@ #tail sequence)))))
+          ... Finally, update the size of the sequence and grow a new
           ... tail with the new element as it's sole member.
           (revised@ #size ++)
           (with@ #tail (..tail val)))
       )))
 
-(exception: incorrect_row_structure)
+(exception: incorrect_sequence_structure)
 
-(exception: .public [a] (index_out_of_bounds [row (Row a)
+(exception: .public [a] (index_out_of_bounds [sequence (Sequence a)
                                               index Nat])
-  (exception.report ["Size" (# n.decimal encoded (value@ #size row))]
+  (exception.report ["Size" (# n.decimal encoded (value@ #size sequence))]
                     ["Index" (# n.decimal encoded index)]))
 
 (exception: base_was_not_found)
 
-(def: .public (within_bounds? row idx)
-  (All (_ a) (-> (Row a) Nat Bit))
-  (n.< (value@ #size row) idx))
+(def: .public (within_bounds? sequence idx)
+  (All (_ a) (-> (Sequence a) Nat Bit))
+  (n.< (value@ #size sequence) idx))
 
-(def: (base_for idx row)
-  (All (_ a) (-> Index (Row a) (Try (Base a))))
-  (if (within_bounds? row idx)
-    (if (n.< (tail_off (value@ #size row)) idx)
-      (loop [level (value@ #level row)
-             hierarchy (value@ #root row)]
+(def: (base_for idx sequence)
+  (All (_ a) (-> Index (Sequence a) (Try (Base a))))
+  (if (within_bounds? sequence idx)
+    (if (n.< (tail_off (value@ #size sequence)) idx)
+      (loop [level (value@ #level sequence)
+             hierarchy (value@ #root sequence)]
         (case [(n.> branching_exponent level)
                (array.read! (branch_idx (i64.right_shifted level idx)) hierarchy)]
           [#1 {.#Some {#Hierarchy sub}}]
@@ -271,65 +271,65 @@
           (exception.except ..base_was_not_found [])
 
           _
-          (exception.except ..incorrect_row_structure [])))
-      {try.#Success (value@ #tail row)})
-    (exception.except ..index_out_of_bounds [row idx])))
+          (exception.except ..incorrect_sequence_structure [])))
+      {try.#Success (value@ #tail sequence)})
+    (exception.except ..index_out_of_bounds [sequence idx])))
 
-(def: .public (item idx row)
-  (All (_ a) (-> Nat (Row a) (Try a)))
+(def: .public (item idx sequence)
+  (All (_ a) (-> Nat (Sequence a) (Try a)))
   (do try.monad
-    [base (base_for idx row)]
+    [base (base_for idx sequence)]
     (case (array.read! (branch_idx idx) base)
       {.#Some value}
       {try.#Success value}
       
       {.#None}
-      (exception.except ..incorrect_row_structure []))))
+      (exception.except ..incorrect_sequence_structure []))))
 
-(def: .public (has idx val row)
-  (All (_ a) (-> Nat a (Row a) (Try (Row a))))
-  (let [row_size (value@ #size row)]
-    (if (within_bounds? row idx)
-      {try.#Success (if (n.< (tail_off row_size) idx)
-                      (revised@ #root (hierarchy#has (value@ #level row) idx val)
-                                row)
+(def: .public (has idx val sequence)
+  (All (_ a) (-> Nat a (Sequence a) (Try (Sequence a))))
+  (let [sequence_size (value@ #size sequence)]
+    (if (within_bounds? sequence idx)
+      {try.#Success (if (n.< (tail_off sequence_size) idx)
+                      (revised@ #root (hierarchy#has (value@ #level sequence) idx val)
+                                sequence)
                       (revised@ #tail (for [@.old
                                             (: (-> (Base (:parameter 0)) (Base (:parameter 0)))
                                                (|>> array.clone (array.write! (branch_idx idx) val)))]
                                            (|>> array.clone (array.write! (branch_idx idx) val)))
-                                row))}
-      (exception.except ..index_out_of_bounds [row idx]))))
+                                sequence))}
+      (exception.except ..index_out_of_bounds [sequence idx]))))
 
-(def: .public (revised idx f row)
-  (All (_ a) (-> Nat (-> a a) (Row a) (Try (Row a))))
+(def: .public (revised idx f sequence)
+  (All (_ a) (-> Nat (-> a a) (Sequence a) (Try (Sequence a))))
   (do try.monad
-    [val (..item idx row)]
-    (..has idx (f val) row)))
+    [val (..item idx sequence)]
+    (..has idx (f val) sequence)))
 
-(def: .public (prefix row)
-  (All (_ a) (-> (Row a) (Row a)))
-  (case (value@ #size row)
+(def: .public (prefix sequence)
+  (All (_ a) (-> (Sequence a) (Sequence a)))
+  (case (value@ #size sequence)
     0
     empty
 
     1
     empty
 
-    row_size
-    (if (|> row_size (n.- (tail_off row_size)) (n.> 1))
-      (let [old_tail (value@ #tail row)
+    sequence_size
+    (if (|> sequence_size (n.- (tail_off sequence_size)) (n.> 1))
+      (let [old_tail (value@ #tail sequence)
             new_tail_size (-- (array.size old_tail))]
-        (|> row
+        (|> sequence
             (revised@ #size --)
             (with@ #tail (|> (array.empty new_tail_size)
                              (array.copy! new_tail_size 0 old_tail 0)))))
       (maybe.trusted
        (do maybe.monad
-         [new_tail (base_for (n.- 2 row_size) row)
-          .let [[level' root'] (let [init_level (value@ #level row)]
+         [new_tail (base_for (n.- 2 sequence_size) sequence)
+          .let [[level' root'] (let [init_level (value@ #level sequence)]
                                  (loop [level init_level
                                         root (maybe.else (empty_hierarchy [])
-                                                         (without_tail row_size init_level (value@ #root row)))]
+                                                         (without_tail sequence_size init_level (value@ #root sequence)))]
                                    (if (n.> branching_exponent level)
                                      (case [(array.read! 1 root) (array.read! 0 root)]
                                        [{.#None} {.#Some {#Hierarchy sub_node}}]
@@ -341,31 +341,31 @@
                                        _
                                        [level root])
                                      [level root])))]]
-         (in (|> row
+         (in (|> sequence
                  (revised@ #size --)
                  (with@ #level level')
                  (with@ #root root')
                  (with@ #tail new_tail))))))
     ))
 
-(def: .public (list row)
-  (All (_ a) (-> (Row a) (List a)))
-  (list#composite (node#list {#Hierarchy (value@ #root row)})
-                  (node#list {#Base (value@ #tail row)})))
+(def: .public (list sequence)
+  (All (_ a) (-> (Sequence a) (List a)))
+  (list#composite (node#list {#Hierarchy (value@ #root sequence)})
+                  (node#list {#Base (value@ #tail sequence)})))
 
 (def: .public of_list
-  (All (_ a) (-> (List a) (Row a)))
+  (All (_ a) (-> (List a) (Sequence a)))
   (list#mix ..suffix ..empty))
 
-(def: .public (member? equivalence row val)
-  (All (_ a) (-> (Equivalence a) (Row a) a Bit))
-  (list.member? equivalence (list row) val))
+(def: .public (member? equivalence sequence val)
+  (All (_ a) (-> (Equivalence a) (Sequence a) a Bit))
+  (list.member? equivalence (list sequence) val))
 
 (def: .public empty?
-  (All (_ a) (-> (Row a) Bit))
+  (All (_ a) (-> (Sequence a) Bit))
   (|>> (value@ #size) (n.= 0)))
 
-(syntax: .public (row [elems (<>.some <code>.any)])
+(syntax: .public (sequence [elems (<>.some <code>.any)])
   (in (.list (` (..of_list (.list (~+ elems)))))))
 
 (implementation: (node_equivalence Equivalence<a>)
@@ -383,7 +383,7 @@
       #0)))
 
 (implementation: .public (equivalence Equivalence<a>)
-  (All (_ a) (-> (Equivalence a) (Equivalence (Row a))))
+  (All (_ a) (-> (Equivalence a) (Equivalence (Sequence a))))
   
   (def: (= v1 v2)
     (and (n.= (value@ #size v1) (value@ #size v2))
@@ -407,7 +407,7 @@
                  hierarchy))))
 
 (implementation: .public mix
-  (Mix Row)
+  (Mix Sequence)
   
   (def: (mix f init xs)
     (let [(^open "[0]") node_mix]
@@ -418,7 +418,7 @@
            {#Base (value@ #tail xs)}))))
 
 (implementation: .public monoid
-  (All (_ a) (Monoid (Row a)))
+  (All (_ a) (Monoid (Sequence a)))
   
   (def: identity ..empty)
   
@@ -437,7 +437,7 @@
       {#Hierarchy (array#each (each f) hierarchy)})))
 
 (implementation: .public functor
-  (Functor Row)
+  (Functor Sequence)
   
   (def: (each f xs)
     [#level (value@ #level xs)
@@ -446,7 +446,7 @@
      #tail (|> xs (value@ #tail) (array#each f))]))
 
 (implementation: .public apply
-  (Apply Row)
+  (Apply Sequence)
   
   (def: &functor ..functor)
 
@@ -459,12 +459,12 @@
       (mix composite identity results))))
 
 (implementation: .public monad
-  (Monad Row)
+  (Monad Sequence)
   
   (def: &functor ..functor)
 
   (def: in
-    (|>> row))
+    (|>> sequence))
 
   (def: conjoint
     (let [(^open "[0]") ..mix
@@ -472,7 +472,7 @@
       (mix (function (_ post pre) (composite pre post)) identity))))
 
 (def: .public reversed
-  (All (_ a) (-> (Row a) (Row a)))
+  (All (_ a) (-> (Sequence a) (Sequence a)))
   (|>> ..list
        list.reversed
        (list#mix suffix ..empty)))
@@ -480,7 +480,7 @@
 (template [<name> <array> <init> <op>]
   [(def: .public <name>
      (All (_ a)
-       (-> (Predicate a) (Row a) Bit))
+       (-> (Predicate a) (Sequence a) Bit))
      (let [help (: (All (_ a)
                      (-> (Predicate a) (Node a) Bit))
                    (function (help predicate node)
@@ -490,8 +490,8 @@
 
                        {#Hierarchy hierarchy}
                        (<array> (help predicate) hierarchy))))]
-       (function (<name> predicate row)
-         (let [(^open "_[0]") row]
+       (function (<name> predicate sequence)
+         (let [(^open "_[0]") sequence]
            (<op> (help predicate {#Hierarchy _#root})
                  (help predicate {#Base _#tail}))))))]
 

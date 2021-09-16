@@ -386,7 +386,7 @@ Called by `imenu--generic-function'."
 							(data//record (altRE "value@" "with@" "revised@"))
 							(data//interface (altRE "open:" "implementation" "#"))
 							(data//implicit (altRE "implicit:" "##"))
-							(data//collection (altRE "list" "list&" "row" "tree"))
+							(data//collection (altRE "list" "list&" "sequence" "tree"))
 							;; Code
 							(code//quotation (altRE "`" "`'" "'" "~" "~\\+" "~!" "~'"))
 							(code//super-quotation (altRE "``" "~~"))
