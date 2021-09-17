@@ -20,7 +20,7 @@
                         ["snapshots" {:url ~sonatype-snapshots :creds :gpg}]]
   
   :plugins [[com.github.luxlang/lein-luxc ~version]]
-  :dependencies [[com.github.luxlang/luxc-jvm ~version]
+  :dependencies [[com.github.luxlang/lux-bootstrapper ~version]
                  [com.github.luxlang/stdlib ~version]
                  [net.sandius.rembulan/rembulan-runtime "0.1-SNAPSHOT"]
                  [net.sandius.rembulan/rembulan-stdlib "0.1-SNAPSHOT"]
