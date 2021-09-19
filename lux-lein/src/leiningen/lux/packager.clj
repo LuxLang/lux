@@ -131,11 +131,10 @@
         ))))
 
 (def default-manifest-file (str "." java.io.File/separator "AndroidManifest.xml"))
-(def jar-exclusions ["com/github/luxlang/luxc-jvm"
+(def jar-exclusions ["com/github/luxlang/lux-bootstrapper"
                      "org/clojure/clojure"
                      "org/clojure/core.match"
-                     ;; "org/ow2/asm/asm-all"
-                     ])
+                     "org/ow2/asm/asm-all"])
 
 ;; [Resources]
 (defn ^:private package-jvm

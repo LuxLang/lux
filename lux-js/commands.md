@@ -20,6 +20,7 @@ cd ~/lux/lux-js/ \
 && mv target/program.jar jvm_based_compiler.jar
 
 ## Use JVM-based compiler to produce a JS/Node-based compiler.
+## @ library/lux/data/text TODO: Comment/turn-off when generating a JS compiler using a JVM-based compiler because Nashorn's implementation of "replaceAll" is incorrect. 
 cd ~/lux/lux-js/ \
 && lein clean \
 && time java -jar jvm_based_compiler.jar build --source ~/lux/lux-js/source --target ~/lux/lux-js/target --module program \

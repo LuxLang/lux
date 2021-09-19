@@ -58,10 +58,35 @@ cd ~/lux/stdlib/ \
 && lux clean \
 && lux with jvm with scriptum auto test
 
+### JVM
 cd ~/lux/stdlib/ \
 && lux clean \
 && lux with jvm with scriptum build \
-&& java -jar target/program.jar > ~/documentation.md
+&& java -jar target/program.jar > ~/lux/documentation/library/standard/jvm.md
+
+### JS
+cd ~/lux/stdlib/ \
+&& lux clean \
+&& lux with js with scriptum build \
+&& node ~/lux/stdlib/target/program.js > ~/lux/documentation/library/standard/js.md
+
+### Python
+cd ~/lux/stdlib/ \
+&& lux clean \
+&& lux with python with scriptum build \
+&& python3 ~/lux/stdlib/target/program.py > ~/lux/documentation/library/standard/python.md
+
+### Lua
+cd ~/lux/stdlib/ \
+&& lux clean \
+&& lux with lua with scriptum build \
+&& ~/lua-5.4.2/install/bin/lua ~/lux/stdlib/target/program.lua > ~/lux/documentation/library/standard/lua.md
+
+### Ruby
+cd ~/lux/stdlib/ \
+&& lux clean \
+&& lux with ruby with scriptum build \
+&& RUBY_THREAD_VM_STACK_SIZE=15700000 ruby ~/lux/stdlib/target/program.rb | tee ~/lux/documentation/library/standard/ruby.md
 ```
 
 ---

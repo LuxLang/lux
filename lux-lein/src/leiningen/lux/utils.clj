@@ -69,9 +69,6 @@
       (.contains path (sanitize-path compiler-path))
       (.contains path (sanitize-path jvm-compiler-path))))
 
-(defn ^:private filter-compiler-dependencies [jar-paths]
-  (filter compiler-dependency? jar-paths))
-
 (defn ^:private java-command [project]
   (str (get project :java-cmd "java")
        ;; " " (->> (get project :jvm-opts) (interpose " ") (reduce str ""))
