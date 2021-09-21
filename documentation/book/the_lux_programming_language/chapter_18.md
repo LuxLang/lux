@@ -85,37 +85,37 @@ And so, Lux provides 4 different types of extensions.
 The first type of extension we'll see is the `Analysis` extension:
 
 ```clojure
-(.module:
-  [library
-   [lux "*"
-    [extension {"+" [analysis: synthesis: generation:]}]
-    ["@" target
-     ["." jvm]
-     ["." js]
-     ["." python]
-     ["." lua]
-     ["." ruby]]
-    [abstract
-     ["." monad {"+" [do]}]]
-    [control
-     ["<>" parser
-      ["<.>" code]
-      ["<.>" analysis]
-      ["<.>" synthesis]]]
-    [data
-     [collection
-      ["." row]]]
-    [tool
-     [compiler
-      ["." phase]
-      [language
-       [lux
-        ["." analysis]
-        ["." synthesis]
-        ["." directive]
-        [phase
-         [analysis
-          ["." type]]]]]]]]])
+(.using
+ [library
+  [lux "*"
+   [extension {"+" [analysis: synthesis: generation:]}]
+   ["@" target
+    ["[0]" jvm]
+    ["[0]" js]
+    ["[0]" python]
+    ["[0]" lua]
+    ["[0]" ruby]]
+   [abstract
+    ["[0]" monad {"+" [do]}]]
+   [control
+    ["<>" parser
+     ["<[0]>" code]
+     ["<[0]>" analysis]
+     ["<[0]>" synthesis]]]
+   [data
+    [collection
+     ["[0]" sequence]]]
+   [tool
+    [compiler
+     ["[0]" phase]
+     [language
+      [lux
+       ["[0]" analysis]
+       ["[0]" synthesis]
+       ["[0]" directive]
+       [phase
+        [analysis
+         ["[0]" type]]]]]]]]])
 
 (analysis: ("my triple" self phase archive [elementC <code>.any])
   (do phase.monad
@@ -135,7 +135,7 @@ Each type of extension takes a different type of input, and produces a different
 
 In the case of `Analysis` extensions, they take `(List Code)` as an input, and produce a single `Analysis` node as output.
 
-	By the way, _"analysis"_ is the name Lux gives to the process of type-checking.
+	By the way, _"analysis"_ is the name Lux gives to the process of type-checking and verifying program correctness.
 
 Here, we've got a _trivial_ extension where we take a single value, and we produce a triple of the same value.
 
@@ -152,7 +152,7 @@ Since you are in total control of the type-checking that is happening, it is ent
 
 It is **very important** to be **careful**, when _implementing extensions_, that the output of those extensions is **correct in every situation**; because, _unlike with normal Lux code_, the compiler **cannot verify** that _your extension_ is not doing something that it shouldn't.
 
-I have gifted you _Pandora's box_.
+I have gifted you _promethean fire_.
 
 **DO NOT MAKE ME REGRET IT** ;)
 
@@ -165,6 +165,13 @@ Also, you might have noticed that, besides the input code we're parsing, our ext
 ---
 
 ```clojure
+(analysis: ("my quadruple" self phase archive [elementC <code>.any])
+  (do phase.monad
+    [[type elementA] (type.with_inference
+                       (phase archive elementC))
+     _ (type.infer (.Tuple type type type type))]
+    (in {analysis.#Extension self (list elementA)})))
+
 (synthesis: ("my quadruple" self phase archive [elementA <analysis>.any])
   (do phase.monad
     [elementS (phase archive elementA)]
@@ -177,10 +184,6 @@ The `Synthesis` phase is where we do optimizations.
 
 Currently, the optimization infrastructure Lux provides is not very sophisticated, and much of it has yet to be properly exposed to programmers, so you'll probably not be working too much in this layer for now.
 
-However, I'd like to use this opportunity to point out that when Lux encounters a usage of an extension during any phase, and it does not know this extension, it just proceeds to process the parameters to the extension, and then hands over the extension call, with the processed parameters, to the next phase.
-
-As a consequence, we can write a `Synthesis` extension without having to write the preceeding `Analysis` extension, because we can trust Lux to handle things reasonably and then use our `Synthesis` extension when its turn comes up.
-
 ---
 
 ```clojure
@@ -189,7 +192,7 @@ As a consequence, we can write a `Synthesis` extension without having to write t
     [[type elementA] (type.with_inference
                        (phase archive elementC))
      _ (type.infer (.Tuple type type type type type))]
-    (in (#analysis.Extension self (list elementA)))))
+    (in {analysis.#Extension self (list elementA)})))
 
 (generation: ("my quintuple" self phase archive [elementS <synthesis>.any])
   (do phase.monad
@@ -209,6 +212,8 @@ As a consequence, we can write a `Synthesis` extension without having to write t
 Now, let's talk about the star of the show: _generation extensions_.
 
 	_Generation_ is just a short way of saying _code-generation_, and it's the part of the compiler that generates the actual output that you eventually execute as a program.
+	Also, I'd like to use this opportunity to point out that when Lux encounters a usage of an extension during any phase, and it does not know this extension, it just proceeds to process the parameters to the extension, and then hands over the extension call, with the processed parameters, to the next phase.
+	As a consequence, we can write a generation extension without having to write the preceeding `Synthesis` extension, because we can trust Lux to handle things reasonably and then use our generation extension when its turn comes up.
 
 Generation extensions take a `(List Synthesis)` as input, and produce _suitable code_ as output.
 

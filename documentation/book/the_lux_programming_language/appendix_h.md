@@ -139,10 +139,10 @@ Now that we have seen the available commands, it would be useful to see an annot
                          ... "organization" ["name" "Lux Foundation"
                          ...                 "url" "http://example.com/lux_foundation"]
                          ]]
-          ... #contributors [["name" "Eduardo Julian"
-          ...                 "url" "https://github.com/eduardoejp"
-          ...                 "organization" ["name" "Lux Foundation"
-          ...                                 "url" "http://example.com/lux_foundation"]]]
+          ... "contributors" [["name" "Eduardo Julian"
+          ...                  "url" "https://github.com/eduardoejp"
+          ...                  "organization" ["name" "Lux Foundation"
+          ...                                  "url" "http://example.com/lux_foundation"]]]
           ]
 
   ... An optional list of repositories you can deploy to, given aliases so they're easy to refer to with the "deploy" command.
@@ -198,11 +198,12 @@ Now that we have seen the available commands, it would be useful to see an annot
   ]
 
  "bibliotheca"
- ["info" ["description" "Standard library for the Lux programming language."]
+ ["info" ["description" "Standard Library for the Lux programming language."]
   "test" "test/lux"]
 
- "documentation"
- ["program" "documentation/lux"
+ "scriptum"
+ ["info" ["description" "Documentation for the Standard Library for the Lux programming language."]
+  "program" "documentation/lux"
   "test" "documentation/lux"]
 
  "aedifex"

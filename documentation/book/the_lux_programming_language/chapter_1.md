@@ -20,8 +20,11 @@ The instructions for how to install it are at the link and it won't take much ti
 ## Question #2: How do I build Lux programs?
 
 Lux uses a custom-made build tool named _Aedifex_ which is configured using a declarative Lux-based syntax.
+
 To install Aedifex, go to https://github.com/LuxLang/lux/tree/master/shell and download either `lux.bat` or `lux.sh` depending on whether you're on Windows or Linux/Mac.
+
 Also download the `aedifex.jar` file, and place it (along with either of the scripts you downloaded) somewhere in your `PATH`.
+
 Now, you'll have access to the `lux` command, which allows you to run Aedifex to build and test Lux projects.
 
 ## Question #3: How do I use Aedifex?
@@ -35,36 +38,36 @@ These are the steps:
 3. Add this to the project file:
 
 ```clojure
-{#identity ["my.group" "my_project" "0.1.0-SNAPSHOT"]
- #repositories ["https://oss.sonatype.org/content/repositories/snapshots/"
-                "https://oss.sonatype.org/service/local/staging/deploy/maven2/"]
- 
- #dependencies [["com.github.luxlang" "stdlib" "0.6.0" "tar"]]
- #compiler ["com.github.luxlang" "lux-jvm" "0.6.0" "jar"]
+[""
+ ["identity" ["my.group" "my_project" "0.1.0-SNAPSHOT"]
+  "repositories" ["https://oss.sonatype.org/content/repositories/snapshots/"
+                  "https://oss.sonatype.org/service/local/staging/deploy/maven2/"]
+  
+  "dependencies" [["com.github.luxlang" "stdlib" "0.6.0" "tar"]]
+  "compiler" ["com.github.luxlang" "lux-jvm" "0.6.0" "jar"]
 
- #program "main"}
+  "program" "main"]]
 
-## By default, Aedifex uses the "source" directory for finding your source-code.
-## The file containing our program will be my_project/source/main.lux.
-
+... By default, Aedifex uses the "source" directory for finding your source-code.
+... The file containing our program will be my_project/source/main.lux.
 ```
 
 4. Create `my_project/source/main.lux` and add this code to it:
 
 ```clojure
-(.module:
-  [library
-   [lux #*
-    [program (#+ program:)]
-    ["." debug]
-    [control
-     ["." io]]]])
+(.using
+ [library
+  [lux "*"
+   [program {"+" program:}]
+   ["[0]" debug]
+   [control
+    ["[0]" io]]]])
 
 (program: args
   (io.io (debug.log! "Hello, world!")))
 
-## As you can see, this is nothing more than a very simple "Hello, world!" program to test things out.
-## Everything will be explained later in the rest of the book.
+... As you can see, this is nothing more than a very simple "Hello, world!" program to test things out.
+... Everything will be explained later in the rest of the book.
 ```
 
 5. In your terminal, go to `my_project`, and execute `lux build`.
@@ -87,7 +90,8 @@ A directory named `target` will have been created, containing everything that wa
 
 ## Question #4: Where can I find documentation for Lux?
 
-A specially useful source of information is [the documentation for the standard library](https://luxlang.github.io/lux/).
+A specially useful source of information is [the documentation for the standard library](https://github.com/LuxLang/lux/tree/master/documentation/library/standard).
+
 You can also explore [the Lux repository on GitHub](https://github.com/LuxLang/lux) for more information.
 
 ## Question #5: Where do I talk about Lux?

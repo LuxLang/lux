@@ -18,9 +18,10 @@ That means an n-tuple is (_roughly_) an n-array.
 	The reason why I say _"roughly"_ will be explained shortly.
 
 Variants, on the other hand, are 3-arrays.
-The first element is the int value of its associated tag.
-The second element is a kind of boolean flag used internally by the Lux run-time infrastructure.
-The third element contains the variant's value.
+
+* The first element is the int value of its associated tag.
+* The second element is a kind of boolean flag used internally by the Lux run-time infrastructure.
+* The third element contains the variant's value.
 
 Finally, functions produce custom classes, and function values are just objects of those classes.
 
@@ -49,6 +50,7 @@ But, as I said in [Chapter 6](chapter_6.md), Lux treats both the same.
 _How does that work?_
 
 Well, Lux knows how to work with both flat and nested tuples and it can do so efficiently; so ultimately it doesn't matter.
+
 It will all be transparent to you.
 
 When it comes to variants, the situation is similar in some ways, but different in others.
@@ -86,18 +88,18 @@ Here are some examples from the `library/lux/ffi` module, where I have some type
 ```clojure
 (type: .public Privacy
   (Variant
-   #PublicP
-   #PrivateP
-   #ProtectedP
-   #DefaultP))
+   {#PublicP}
+   {#PrivateP}
+   {#ProtectedP}
+   {#DefaultP}))
 
 (def: privacy_modifier^
   (Parser Privacy)
-  (let [(^open ".") <>.monad]
+  (let [(^open "[0]") <>.monad]
     ($_ <>.or
-        (<code>.this! (' #public))
-        (<code>.this! (' #private))
-        (<code>.this! (' #protected))
+        (<code>.this! (' "public"))
+        (<code>.this! (' "private"))
+        (<code>.this! (' "protected"))
         (in []))))
 ```
 
@@ -121,11 +123,11 @@ Here's an example of `<>.and` in action:
 ... From library/lux/ffi
 (def: (argument^ type_vars)
   (-> (List (Type Var)) (Parser Argument))
-  (<code>.record (<>.and <code>.local_identifier
-                         (..type^ type_vars))))
+  (<code>.tuple (<>.and <code>.local_symbol
+                        (..type^ type_vars))))
 ```
 
-The cool thing is that these combinators show up not just in syntax parsers, but also in command-line argument parsing, lexing, concurrency/asynchrony operations, error-handling and in many other contexts.
+The cool thing is that these combinators show up not just in syntax parsers, but also in command-line argument parsing, lexing, concurrenct/asynchronous operations, error-handling and in many other contexts.
 
 The nested/composable semantics of Lux entities provide a flexibility that enables powerful features (such as this) to be built on top.
 

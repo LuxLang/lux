@@ -32,47 +32,47 @@ It's all done with the help of the `import:` macro:
 ... Allows importing JVM classes, and using them as types.
 ... Their methods, fields and enum options can also be imported.
 (import: java/lang/Object
-  ["#::."
+  ["[1]::[0]"
    (new [])
    (equals [java/lang/Object] boolean)
-   (wait [int] #io #try void)])
+   (wait [int] "io" "try" void)])
 
 ... Special options can also be given for the return values.
-... #? means that the values will be returned inside a Maybe type. That way, null becomes #.None.
-... #try means that the computation might throw an exception, and the return value will be wrapped by the Try type.
-... #io means the computation has side effects, and will be wrapped by the IO type.
-... These options must show up in the following order [#io #try #?] (although, each option can be used independently).
+... "?" means that the values will be returned inside a Maybe type. That way, null becomes .#None.
+... "try" means that the computation might throw an exception, and the return value will be wrapped inside the Try type.
+... "io" means the computation has side effects, and will be wrapped inside the IO type.
+... These options must show up in the following order ["io" "try" "?"] (although, each option can be used independently).
 (import: java/lang/String
-  ["#::."
+  ["[1]::[0]"
    (new [[byte]])
-   (#static valueOf [char] java/lang/String)
-   (#static valueOf #as int_valueOf [int] java/lang/String)])
+   ("static" valueOf [char] java/lang/String)
+   ("static" valueOf "as" int_valueOf [int] java/lang/String)])
 
 (import: (java/util/List e)
-  ["#::."
+  ["[1]::[0]"
    (size [] int)
    (get [int] e)])
 
 (import: (java/util/ArrayList a)
-  ["#::."
+  ["[1]::[0]"
    ([T] toArray [[T]] [T])])
 
 ... The class-type that is generated is of the fully-qualified name.
 ... This avoids a clash between the java.util.List type, and Lux's own List type.
 ... All enum options to be imported must be specified.
 (import: java/lang/Character$UnicodeScript
-  ["#::."
-   (#enum ARABIC CYRILLIC LATIN)])
+  ["[1]::[0]"
+   ("enum" ARABIC CYRILLIC LATIN)])
 
-... It should also be noted, the only types that may show up in method arguments or return values may be Java classes, arrays, primitives, void or type-vars.
-... Lux types, such as Maybe cannot be named (otherwise, they'd be confused for Java classes).
+... It should also be noted, the types that show up in method arguments or return values may only be Java classes, arrays, primitives, void or type-vars.
+... Lux types, such as Maybe cannot be used (otherwise, they'd be confused for Java classes).
 (import: (lux/concurrency/async/JvmAsync A)
-  ["#::."
+  ["[1]::[0]"
    (resolve [A] boolean)
    (poll [] A)
    (wasResolved [] boolean)
    (waitOn [lux/Function] void)
-   (#static [A] make [A] (lux/concurrency/async/JvmAsync A))])
+   ("static" [A] make [A] (lux/concurrency/async/JvmAsync A))])
 
 ... Also, the names of the imported members will look like Class::member
 (java/lang/Object::new [])
@@ -81,12 +81,14 @@ It's all done with the help of the `import:` macro:
 
 (java/util/List::size [] my_list)
 
-java/lang/Character$UnicodeScript::LATIN
+(java/lang/Character$UnicodeScript::LATIN)
 ```
 
 This will be the tool you use the most when working with the JVM.
 
-As you have noticed, it works by creating functions (and constant values) for all the class members you need. It also creates Lux type definitions matching the classes you import, so that you may easily refer to them when you write your own types later in regular Lux code.
+As you have noticed, it works by creating functions for all the class members you need.
+
+It also creates Lux type definitions matching the classes you import, so that you may easily refer to them when you write your own types later in regular Lux code.
 
 	It must be noted that `import:` requires that you only import methods and fields from their original declaring classes/interfaces.
 
@@ -99,24 +101,24 @@ Normally, you'd use the `class:` macro:
 ```clojure
 ... Allows defining JVM classes in Lux code.
 ... For example:
-(class: #final (TestClass A) [Runnable]
+(class: "final" (TestClass A) [Runnable]
   ... Fields
-  (#private foo boolean)
-  (#private bar A)
-  (#private baz java/lang/Object)
+  ("private" foo boolean)
+  ("private" bar A)
+  ("private" baz java/lang/Object)
   ... Methods
-  (#public [] (new [value A]) []
-           (exec
-             (:= ::foo #1)
-             (:= ::bar value)
-             (:= ::baz "")
-             []))
-  (#public (virtual) java/lang/Object
-           "")
-  (#public #static (static) java/lang/Object
-           "")
+  ("public" [] (new [value A]) []
+    (exec
+      (:= ::foo #1)
+      (:= ::bar value)
+      (:= ::baz "")
+      []))
+  ("public" (virtual) java/lang/Object
+    "")
+  ("public" "static" (static) java/lang/Object
+    "")
   (Runnable [] (run) void
-            [])
+    [])
   )
 
 ... The tuple corresponds to parent interfaces.
@@ -140,9 +142,9 @@ And, for anonymous classes, you'd use `object`:
 (object [] [Runnable]
   []
   (Runnable [] (run self) void
-            (exec
-              (do_something some_value)
-              [])))
+    (exec
+      (do_something some_value)
+      [])))
 ```
 
 ## Special features
@@ -160,8 +162,8 @@ And, for anonymous classes, you'd use `object`:
 ... Checks whether an object is an instance of a particular class.
 ... Caveat emptor: Can't check for polymorphism, so avoid using parameterized classes.
 (case (check java/lang/String "YOLO")
-  (#.Some value_as_string)
-  #.None)
+  {.#Some value_as_string}
+  {.#None})
 ```
 
 * Synchronizing threads.
@@ -169,10 +171,10 @@ And, for anonymous classes, you'd use `object`:
 ```clojure
 ... Evaluates body, while holding a lock on a given object.
 (synchronized object-to-be-locked
-(exec
-  (do something)
-  (do something else)
-  (finish the computation)))
+  (exec
+    (do something)
+    (do something else)
+    (finish the computation)))
 ```
 
 Calling multiple methods consecutively
@@ -187,7 +189,7 @@ Calling multiple methods consecutively
 	`do_to` is inspired by Clojure's own doto macro.
 	The difference is that, whereas Clojure's version pipes the object as the first argument to the method, Lux's pipes it at the end (which is where method functions take their object values).
 
-The `library/lux/ffi` module offers much more, but you'll have to discover it yourself by heading over to the documentation for the Standard Library.
+The `library/lux/ffi` module offers much more, but you'll have to discover it yourself by heading over to [the documentation for the Standard Library](https://github.com/LuxLang/lux/tree/master/documentation/library/standard).
 
 ---
 

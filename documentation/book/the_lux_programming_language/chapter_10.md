@@ -11,6 +11,7 @@ There's a macro for _this_ and a macro for _that_.
 You use macros for defining stuff, for making types and functions and lists, for doing pattern-matching, and for control-flow.
 
 There's a macro for everything.
+
 Yet, I haven't even shown a macro being defined yet.
 
 Quiet your mind, young grasshopper. You're about to be enlightened.
@@ -24,6 +25,7 @@ The word **AST** stands for _Abstract Syntax Tree_.
 An AST is a representation of the syntax of a programming language, and compilers use them for the sake of analyzing the source-code (like, by type-checking it), and then generating the binary/byte-code output.
 
 You might think that's none of your business.
+
 Only compiler writers have to worry about that stuff, right?
 
 Oh, you have much to learn, young grasshopper.
@@ -34,7 +36,7 @@ Macros allow you to implement your own features in the language and to have them
 
 I mean, beyond the native syntax for writing numbers, text, variants, tuples and records, every single thing you have written so far has been macros.
 
-Module statements? _Yep, macros_.
+`.using` import statements? _Yep, macros_.
 
 Definition statements? _Yep, macros_.
 
@@ -49,29 +51,31 @@ But macros work with the Lux _AST_, so that's the first thing you need to master
 Check it out:
 
 ```clojure
-(type: #export Location
-  {#module Text
-   #line   Nat
-   #column Nat})
+(type: .public Location
+  (Record
+   [#module Text
+    #line   Nat
+    #column Nat]))
 
-(type: #export (Ann m v)
-  {#meta  m
-   #datum v})
+(type: .public (Ann m v)
+  (Record
+   [#meta  m
+    #datum v]))
 
-(type: #export (Code' w)
-  (#Bit Bit)
-  (#Nat Nat)
-  (#Int Int)
-  (#Rev Rev)
-  (#Frac Frac)
-  (#Text Text)
-  (#Identifier Name)
-  (#Tag Name)
-  (#Form (List (w (Code' w))))
-  (#Tuple (List (w (Code' w))))
-  (#Record (List [(w (Code' w)) (w (Code' w))])))
+(type: .public (Code' w)
+  (Variant
+   {#Bit Bit}
+   {#Nat Nat}
+   {#Int Int}
+   {#Rev Rev}
+   {#Frac Frac}
+   {#Text Text}
+   {#Symbol Symbol}
+   {#Form (List (w (Code' w)))}
+   {#Variant (List (w (Code' w)))}
+   {#Tuple (List (w (Code' w)))}))
 
-(type: #export Code
+(type: .public Code
   (Ann Location (Code' (Ann Location))))
 ```
 
@@ -79,13 +83,15 @@ The `Code` type is the one you'll be interacting with, but all it does is wrap (
 
 The real magic is in the `Code'` type, where you can see all the alternative syntactic elements.
 
-The `Name` type (from the `library/lux` module), is just a `[Text Text]` type.
-The first part holds the module/prefix of the identifier/tag, and the second part holds the name itself. So `library/lux/data/collection/list.reversed` becomes `["library/lux/data/collection/list" "reversed"]`, and `map` becomes `["" "map"]`.
+The `Symbol` type (from the `library/lux` module), is just a `[Text Text]` type.
+
+The first part holds the module/prefix of the identifier/symbol, and the second part holds the name itself.
+
+So `library/lux/data/collection/list.reversed` becomes `["library/lux/data/collection/list" "reversed"]`, and `each` becomes `["" "each"]`.
 
 	`list.reversed` would become `["library/lux/data/collection/list" "reversed"]` anyway, because aliases get resolved prior to analysis and macro expansion.
 
-Forms are `(syntactic structures delimited by parentheses)`, and tuples are `[syntactic structures delimited by brackets]`.
-Records `{#have lists #of pairs}` of `Code`s instead of single `Code`s, because everything must come in key-value pairs.
+Forms are `(syntactic structures delimited by parentheses)`, variants are `{syntactic structures delimited by braces}`, and tuples are `[syntactic structures delimited by brackets]`.
 
 ## Quotations
 
@@ -97,12 +103,13 @@ That sounds... exhausting.
 
 Well, we don't have to. There are actually many nice tools for making our lives easier.
 
-One nice resource within our reach is the `library/lux/macro/code` module, which contains a variety of functions for building `Code` values, so we don't have to worry about cursors and variants and all that stuff.
+One nice resource within our reach is the `library/lux/macro/code` module, which contains a variety of functions for building `Code` values, so we don't have to worry about locations and tags and all that stuff.
 
 But, even with that, things would get tedious.
+
 Imagine having to generate an entire function definition (or something even larger), by having to call a bunch of functions for every small thing you want.
 
-Well, don't fret. The Lux Standard Library already comes with a powerful mechanism for easily generating any code you want and you don't even need to import it (i.e. it's in the `library/lux` module).
+Well, don't fret. [The Lux Standard Library](https://github.com/LuxLang/lux/tree/master/documentation/library/standard) already comes with a powerful mechanism for easily generating any code you want and you don't even need to import it (i.e. it's in the `library/lux` module).
 
 ```clojure
 ... Quotation as a macro.
@@ -113,7 +120,8 @@ Quotation is a mechanism that allows you to write the code you want to generate,
 
 The `'` macro is the simplest version, which does exactly what I just described.
 
-This would turn the text `"YOLO"` into `[{#.module "" #.line 0 #.column 0} (#.Text "YOLO")]`.
+This would turn the text `"YOLO"` into `[[.#module "" .#line 0 .#column 0] {.#Text "YOLO"}]`.
+
 If you want to know what that would look like with the tools at `library/lux/macro/code`, it would be: `(text "YOLO")`.
 
 The beautiful thing is that `(' (you can use the "'" #macro [to generate {arbitrary code} without] worrying (about the "complexity")))`.
@@ -121,7 +129,7 @@ The beautiful thing is that `(' (you can use the "'" #macro [to generate {arbitr
 ```clojure
 ... Hygienic quasi-quotation as a macro.
 ... Unquote (~) and unquote-splice (~+) must also be used as forms.
-... All unprefixed identifiers will receive their parent module's prefix if imported; otherwise will receive the prefix of the module on which the quasi-quote is being used.
+... All unprefixed symbols will receive their parent module's prefix if imported; otherwise will receive the prefix of the module on which the quasi-quote is being used.
 (` (def: (~ name)
      (function ((~ name) (~+ args))
        (~ body))))
@@ -167,13 +175,16 @@ First, let's check the type of macros:
 ```
 
 That does not look particularly useful.
+
 What the hell is a `"#Macro"`?
 
 Fundamentally, all macros are functions.
+
 However, the compiler cannot treat them as normal functions because they must be applied to code at compile-time, rather than run-time.
 
 For this reason, the Lux compiler must have some way to identify macros as distinct from functions.
-It does so by labelling (_type-wise_) with this funky type.
+
+It does so by labelling macros (_type-wise_) with this funky type.
 
 There is, however, another type which elucidates what is going on with macros.
 
@@ -183,67 +194,53 @@ There is, however, another type which elucidates what is going on with macros.
 ```
 
 You might remember from the previous chapter that you can only access the `Lux` compiler state inside of macros.
+
 Now, you can see how everything connects.
 
 You define macros by using the `macro:` macro (_so meta..._):
 
 ```clojure
-(macro: .public (name_of tokens)
-  {#.doc (doc "Given an identifier or a tag, gives back a 2 tuple with the module and name parts, both as Text."
-              (name_of #.doc)
-              "=>"
-              ["library/lux" "doc"])}
+(macro: .public (symbol tokens)
   (case tokens
-    (^template [<tag>]
-      [(^ (list [_ (<tag> [module name])]))
-       (\ meta.monad in (list (` [(~ (code.text module)) (~ (code.text name))])))])
-    ([#Identifier] [#Tag])
+    (^ (list [_ (.#Symbol [module name])]))
+    (# meta.monad in (list (` [(~ (code.text module)) (~ (code.text name))])))
     
     _
-    (meta.failure "Wrong syntax for 'name_of'.")))
+    (meta.failure "Wrong syntax for 'symbol'.")))
 ```
 
 Here's another example:
 
 ```clojure
 (macro: .public (else tokens state)
-  {#.doc (doc "Allows you to provide a default value that will be used"
-              "if a (Maybe x) value turns out to be #.None."
-              "Note: the expression for the default value will not be computed if the base computation succeeds."
-              (else +20 (#.Some +10))
-              "=>"
-              +10
-              --------------------------
-              (else +20 #.None)
-              "=>"
-              +20)}
   (case tokens
     (^ (.list else maybe))
-    (let [g!temp (macro.gensym "")]
-      (#.Right [state (.list (` (case (~ maybe)
-                                  (#.Some (~ g!temp))
+    (let [g!temp (macro.symbol "")]
+      (.#Right [state (.list (` (case (~ maybe)
+                                  {.#Some (~ g!temp)}
                                   (~ g!temp)
 
-                                  #.None
+                                  {.#None}
                                   (~ else))))]))
 
     _
-    (#.Left "Wrong syntax for else")))
+    (.#Left "Wrong syntax for else")))
 ```
 
 	You may want to read [Appendix C](appendix_c.md) to learn about the pattern-matching macros used in these examples.
 
 As you can see, I'm using both quotation and the functions from the `library/lux/macro/code` module to generate code here.
 
-I'm also using the `gensym` function from `library/lux/macro`, which generates unique identifiers for usage within code templates in order to avoid collision with any code provided by the user of the macro.
+I'm also using the `symbol` function from `library/lux/macro`, which generates unique symbols for usage within code templates in order to avoid collision with any code provided by the user of the macro.
 
-The macro receives the raw `List` of `Code` tokens and must process them manually to extract any information it needs for code generation.
+A macro receives the raw `List` of `Code` tokens and must process them manually to extract any information it needs for code generation.
+
 After that, a new `List` of `Code` tokens must be generated.
 
-If there are any macros in the output, they will be _expanded_ further until only primitive/native syntax remains that the Lux compiler can then analyze and compile.
+If any macros are used in the output, they will be _expanded_ further until only primitive/native syntax remains that the Lux compiler can then analyze and compile.
 
 	You may be wondering what is the relationship between the `Macro` and `Macro'` types.
-	When you define a macro, you define it as a function, which is to say a `Macro'` type.
+	When you define a macro, you define it as a function, which is to say, a `Macro'` type.
 	But once it has been defined, it gets re-labelled as a `Macro`, so that way the Lux compiler can distinguish it from other functions.
 	This is all done for you by the `macro:` macro, so there's no need to worry about it.
 
@@ -258,6 +255,7 @@ I mean, if I have to pattern-match against the code I receive; what happens when
 Clearly, analyzing the input code is far more difficult than generating it with the quoting macros.
 
 Don't worry about it.
+
 Because in the next chapter, you will learn a more sophisticated method of macro definition that will make writing complex macros a breeze.
 
 See you in [the next chapter](chapter_11.md)!

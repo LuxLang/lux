@@ -27,7 +27,7 @@ A good example of text parsers being used is the `library/lux/data/format/json` 
 
 ---
 
-However, programmers coming from other programming languages may be familiar with a different approach to test processing that has been very popular for a number of years now: regular expressions.
+However, programmers coming from other programming languages may be familiar with a different approach to text processing that has been very popular for a number of years now: regular expressions.
 
 Regular expressions offer a short syntax to building text parsers that is great for writing quick text-processing tools.
 
@@ -35,7 +35,7 @@ Lux also offers support for this style in its `library/lux/data/text/regex` modu
 
 The `regex` macro, in turn, compiles the given syntax into a text parser, which means you can combine both approaches, for maximum flexibility.
 
-Here are some samples for regular expressions:
+Here are some examples of regular expressions:
 
 ```clojure
 ... Literals

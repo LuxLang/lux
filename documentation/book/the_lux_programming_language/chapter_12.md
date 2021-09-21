@@ -22,7 +22,7 @@ Everything, in one way or another, revolves around _I/O_, and it is a pervasive 
 
 Most programming languages you may be familiar with subscribe to this idea (either by choice of the language designer(s) or by simply following standard practice).
 
-Here, we see operations which have side-effects (such as printing to standard output, or reading files, or connecting to another computer over the network) be treated like operations which lack them (like adding two numbers), with the side-effects being seen as some kind of magical property exhibited by those operations, which neither the language nor its libraries are obligated to handle in any special way.
+Here, we see operations which have side-effects (such as printing to standard output, or reading files, or connecting to another computer over the network) be treated like operations which lack them (like adding two numbers), with the side-effects being seen as some kind of magical property exhibited by those operations, which neither the language nor its libraries are obligated to handle or track in any special way.
 
 Side-effects tend to be mentioned in documentation, but the lack of separation means that programmers must be wary of what they're using if the want to avoid the unfortunate consequences of careless coding.
 
@@ -52,7 +52,7 @@ Lux chooses explicit _I/O_ as its underlying model.
 
 	It may seem odd that I have to justify the choice of explicit _I/O_ in Lux; but, at the time of this writing, implicit _I/O_ is the industry standard, with many even doubting the benefits of an alternative approach.
 
-	The only _major_ language which also adopts this model is Haskell (from which Lux takes _heavy_ inspiration), in its efforts to maintain theoretical purity.
+	The only _major_ language which also adopts this model is Haskell (from which Lux takes _much inspiration_), in its efforts to maintain theoretical purity.
 
 ## How does explicit _I/O_ work?
 

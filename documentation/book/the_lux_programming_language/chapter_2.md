@@ -16,9 +16,11 @@ Modules contain a single _module statement_, various definitions and a few other
 
 Definitions are the top-level or global values that are declared within a module.
 
-They may be of different types, such as constant values or functions, or even fancier things like types, signatures or structures (more on those in later chapters).
+They may be of different types, such as constant values or functions, or even fancier things like types, interfaces or implementations (more on those in later chapters).
 
-Also, definitions may be private to a module, or exported so other modules can refer to them. By default, all definitions are private.
+Also, definitions may be private to a module, or exported so other modules can refer to them.
+
+By default, all definitions are private.
 
 ## Values
 
@@ -41,13 +43,13 @@ Lux supports a variety of basic and composite values:
 
 ## Types
 
-Types are descriptions of values that the compiler uses to make sure that programs are correct and invalid operations (such as multiplying two bits) are never performed.
+Types are descriptions of values that the compiler uses to make sure that programs are correct, and invalid operations (such as multiplying two texts) are never performed.
 
 The thing that makes Lux types special is that they are first-class values, the same as bits and ints (albeit, a little more complex).
 
 They are data-structures, and they even have a type... named `Type` (_I know, it's **so** meta_). 
 
-We'll talk more about that in later chapters.
+We'll talk more about types in later chapters.
 
 ## Macros
 
@@ -60,8 +62,8 @@ We'll also explore macros further in later chapters.
 ## Comments
 
 ```clojure
-## They look like this.
-## They all start with 2 continuous # characters and go on until the end of the line.
+... They look like this.
+... They all start with 3 contiguous . characters and go on until the end of the line.
 ```
 
 ## Expressions
@@ -72,13 +74,13 @@ Data literals (like int, tuple or function literals) are expressions, but so are
 
 Macro calls can also be involved if the macro in question generates code that constitutes an expression.
 
-## Statements
+## Directives
 
-Statements looks similar to expressions, except that their purpose is not to produce a value, but to communicate something to the compiler.
+Directives looks similar to expressions, except that their purpose is not to produce a value, but to communicate something to the compiler.
 
 This is a bit of a fuzzy line, since some things which also communicate stuff to the compiler are actually expressions (for example, type annotations, which we'll see in next chapter).
 
-Examples of statements are module statements and definitions of all kinds (such as program definitions).
+Examples of directives are `.using` declarations at the top of modules, and definitions of all kinds (such as program definitions).
 
 ## Programs
 
@@ -92,7 +94,7 @@ That action must be of type `(IO Any)`, which just means it is a synchronous pro
 
 Lux programs can have graphical user interfaces, and in the future they may run in various environments with much different means of interfacing with users, or other programs.
 
-But as a bare minimum, the Lux standard library provides the means to implement command-line interfaces, through the functionality in the `lux/control/parser/cli` module.
+But as a bare minimum, the Lux standard library provides the means to implement command-line interfaces, through the functionality in the `library/lux/control/parser/cli` module.
 
 That module implements a variety of parsers for implementing rich command-line argument processing, and you should definitely take a look at it once you're ready to write your first serious Lux program.
 
@@ -109,28 +111,28 @@ Now, let's talk a bit more about the program we saw last time.
 In the previous chapter we compiled and ran a Lux program, but nothing has been explained yet. Let's review the code and see in detail what was done.
 
 ```clojure
-(.module:
-  {#.doc "This will be our program's main module."}
-  [library
-   [lux #*
-    [program (#+ program:)]
-    ["." debug]
-    [control
-     ["." io]]]])
+... This will be our program's main module.
+(.using
+ [library
+  [lux "*"
+   [program {"+" program:}]
+   ["[0]" debug]
+   [control
+    ["[0]" io]]]])
 
 (program: args
   (io.io (debug.log! "Hello, world!")))
 ```
 
-The first part of this program is the module declaration.
+The first part of this program specifies which dependencies we're `using`.
 
-All Lux modules automatically import the `library/lux` module, but they don't locally import every single definition, so everything would have to be accessed by using the `lux.` prefix or the `;` (short-cut) prefix.
+All Lux modules automatically import the `library/lux` module, but they don't locally import every single definition, so everything would have to be accessed by using the `library/lux.` prefix or the `.` (short-cut) prefix.
 
 To avoid that, we import the `library/lux` module in a plain way.
 
-	By the way, what I just explained about the `library/lux` module is the reason why we couldn't just use the module macro as `module:`.
+	By the way, what I just explained about the `library/lux` module is the reason why we couldn't just use the `.using` macro as `using`.
 
-Then we import the `library/lux/control/io` module. We're giving this module an alias, using that `"."` syntax. The way aliasing works here is that it replaces the period/dot with the short name of the import, and so `.` becomes `io`, and that is the alias given to the import. The same process happens when we import the `library/lux/debug` module. This might seems weird and sort of useless, but the aliasing syntax has some more features and flexibility, enabling you to have your own naming convention when importing modules.
+Then we import the `library/lux/control/io` module. We're giving this module an alias, using that `"[0]"` syntax. The way aliasing works here is that it replaces the `[0]` with the short name of the import, and so `[0]` becomes `io`, and that is the alias given to the import. The same process happens when we import the `library/lux/debug` module. This might seems weird and sort of useless, but the aliasing syntax has some more features and flexibility, enabling you to have your own naming convention when importing modules.
 
 Notice how we express nested modules (up to arbitrary depths) by simply nesting in brackets.
 
@@ -144,7 +146,7 @@ We're defining the entry point of our program (what in many other languages is r
 
 Suffice it to say that the `debug.log!` function will produce a value of type `Any` after printing/logging our `"Hello, world!"` text, and the `io.io` macro will wrap that in the `IO` type.
 
-That `(IO Any)` value will then be run by the system at run-time, giving us the result we want.
+That `(IO Any)` value will then be _run_ by the system at run-time, giving us the result we want.
 
 ---
 

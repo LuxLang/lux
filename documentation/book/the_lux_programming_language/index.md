@@ -18,7 +18,7 @@
 * [Chapter 8: Functors and monads](chapter_8.md)
 	_Where I will try to explain something really confusing, and you'll pretend you understand to avoid hurting my feelings._
 * [Chapter 9: Meta-programming](chapter_9.md)
-	_Where we go meta. For real._
+	_Where we take a peek behind the curtains of the compiler._
 * [Chapter 10: Code and macros](chapter_10.md)
 	_Where magic turns into science._
 * [Chapter 11: Syntax macros](chapter_11.md)
@@ -34,7 +34,7 @@
 * [Chapter 16: Testing](chapter_16.md)
 	_Where you will learn how to avoid annoying bug reports._
 * [Chapter 17: Cross-platform Lux](chapter_17.md)
-	_Where you will sail to exotic foreign platforms on the S.S. Lux._
+	_Where you will sail to exotic foreign platforms aboard the S.S. Lux._
 * [Chapter 18: Extensions](chapter_18.md)
 	_Where you will teach new tricks to an old compiler._
 * [Conclusion](conclusion.md)

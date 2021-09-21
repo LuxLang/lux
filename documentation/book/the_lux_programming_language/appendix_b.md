@@ -13,21 +13,33 @@ Whereas other programming languages often overload the math operators `+`, `-`, 
 The differences may look trivial, but since the numeric types are treated differently in Lux, you must be aware of which function-set you're using when working with your data.
 
 However, this is not the biggest difference in Lux's math operators in comparison to other languages.
+
 The difference that takes the crown is the ordering of the arguments.
 
 What do I mean?
 
 In most languages you'd write `4 - 7`.
+
 In other lisps you'd write `(- 4 7)`.
+
 But in Lux, you'd write `(- 7 4)`.
+
+	This even applies to ordering operators.
+	In most languages you'd write `4 < 7`.
+	In other lisps you'd write `(< 4 7)`.
+	But in Lux, you'd write `(< 7 4)`.
 
 _What is going on!? This is so bizarre!_
 
 Calm down.
+
 Everything is going to be fine.
 
 What's going on is that in functional programming, there is this convention of putting the most significant argument to a function as the last one.
-In the case of math functions, this would be the argument on which you're operating. I call it the _"subject"_ of the function.
+
+In the case of math functions, this would be the argument on which you're operating.
+
+I call it the _"subject"_ of the function.
 
 In the case of the subtraction operation, it would be the 4, since you're subtracting 7 from it.
 
@@ -78,6 +90,7 @@ Note that `infix` doesn't enforce any grouping rules, since you can actually use
 The rule is simple, the argument to the right of the operator will be taken first, and then the argument to the left.
 
 So `[3.0 pow 2.0]` becomes `(pow 2.0 3.0)`, and `[5.0 * 8.0]` becomes `(* 8.0 5.0)`.
+
 Thus, the infix syntax is transformed into Lux's prefix variation.
 
 ---

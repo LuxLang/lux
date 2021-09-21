@@ -1,14 +1,15 @@
 # Chapter 17: Cross-platform Lux
 
-_Where you will sail to exotic foreign platforms on the S.S. Lux._
+_Where you will sail to exotic foreign platforms aboard the S.S. Lux._
 
-It was always my desire for Lux to be a language that could be used to write software in multiple platforms.
+It was always my desire for Lux to be a language that could be used to write software for multiple platforms.
 
-I've always found it annoying to write a piece of software on one language, and then if it became necessary to run the software under different circumstances, a rewrite had to be done because the language in which the software was written was not capable of adapting to the new requirements.
+I've always found it annoying to write a piece of software in one language, and then if it became necessary to run the software under different circumstances, a rewrite had to be done because the language in which the software was written was not capable of adapting to the new requirements.
 
 In theory, programming languages are universal.
-Logic is logic, no matter the language in which it is expressed.
-Instructions are instructions, no matter who executes them.
+
+* Logic is logic, no matter the language in which it is expressed.
+* Instructions are instructions, no matter who executes them.
 
 And yet, in practice, you need JavaScript for the browser, and Swift for the IPhone (to give you some examples).
 
@@ -16,10 +17,12 @@ Granted, with the advent of WebAssembly, it has now become possible to have any 
 
 But there is still another type of constraint that is probably not going away any time soon.
 
-If a programmer or a company write a piece of software on some language, they have made a very significant investment.
-If tomorrow, they realize that another language might be a better fit for what they need, it might be too costly for them to rewrite their software on the new language.
+If a programmer or a company write a piece of software in some language, they have made a very significant investment.
+
+If tomorrow, they realize that another language might be a better fit for what they need, it might be too costly for them to rewrite their software in a new language.
 
 Cross-platform support for Lux is not just about accessing as many devices as possible, but also about being able to inter-operate with as many languages as possible.
+
 Being able to interact with and extend a Python server, or a Lua script.
 
 Ideally, I would like Lux to be able to inter-operate with every programming language that exists, thereby giving Lux programmers the capacity to write any program they want for any device; and the capacity to extend any codebase without being forcefully tied to any legacy language or implementation.
@@ -50,10 +53,13 @@ The problem with this approach is that libraries written for one platform might 
 This approach would allow Lux programmers to target different platforms, but it would make sharing code between them impossible at worst, and risky at best.
 
 Instead, I've designed the semantics and the feature set of Lux to be independent of any host platform.
+
 When the feature-set of a platform fits well with the feature-set of Lux, I use the platform's resources to implement Lux's functionality.
+
 And when Lux needs something the platform does not offer, but does not disallow either, I emulate the feature in other to ensure a consistent experience.
 
-This means all of Lux's integers and naturals are 64-bit, on the JVM (which supports them), and even on JavaScript (where they are emulated).
+This means all of Lux's naturals and integers are 64-bit, on the JVM (which supports them), and even on JavaScript (where they are emulated).
+
 And this also means that Lux's concurrency mechanisms work as expected on the JVM (which allows multi-core processing), and on JavaScript/Python/Lua/Ruby (which don't).
 
 ---
@@ -72,6 +78,7 @@ Here are the compilers for the alternative platforms:
 * For Ruby: `["com.github.luxlang" "lux-ruby" "0.6.0" "jar"]`
 
 You don't need to use any special command on Aedifex in order to compile Lux to any alternative platform.
+
 Just set the compiler, and build/test your program as usual.
 
 	For a thorough specification of what Aedifex can do, please refer to [Appendix H](appendix_h.md).
@@ -95,8 +102,8 @@ First, let's go with the smaller mechanism:
 ```clojure
 (def: js "JavaScript")
 
-(for {"JVM" (do jvm stuff)
-      ..js (do js stuff)}
+(for ["JVM" (do jvm stuff)
+      ..js (do js stuff)]
      (do default stuff))
 ```
 
@@ -124,18 +131,18 @@ To give you an example of `for` in action, here is a definition from the `librar
 ```clojure
 (def: .public (replaced pattern replacement template)
   (-> Text Text Text Text)
-  (for {@.old
+  (for [@.old
         (:as Text
              ("jvm invokevirtual:java.lang.String:replace:java.lang.CharSequence,java.lang.CharSequence"
-              (:as (primitive "java.lang.String") template)
-              (:as (primitive "java.lang.CharSequence") pattern)
-              (:as (primitive "java.lang.CharSequence") replacement)))
+              (:as (Primitive "java.lang.String") template)
+              (:as (Primitive "java.lang.CharSequence") pattern)
+              (:as (Primitive "java.lang.CharSequence") replacement)))
         @.jvm
         (:as Text
              ("jvm member invoke virtual" [] "java.lang.String" "replace" []
-              (:as (primitive "java.lang.String") template)
-              ["Ljava/lang/CharSequence;" (:as (primitive "java.lang.CharSequence") pattern)]
-              ["Ljava/lang/CharSequence;" (:as (primitive "java.lang.CharSequence") replacement)]))
+              (:as (Primitive "java.lang.String") template)
+              ["Ljava/lang/CharSequence;" (:as (Primitive "java.lang.CharSequence") pattern)]
+              ["Ljava/lang/CharSequence;" (:as (Primitive "java.lang.CharSequence") replacement)]))
         ... TODO: Comment/turn-off when generating a JS compiler using a JVM-based compiler because Nashorn's implementation of "replaceAll" is incorrect. 
         @.js
         (:as Text
@@ -154,15 +161,15 @@ To give you an example of `for` in action, here is a definition from the `librar
         ... TODO @.scheme
         ... TODO @.common_lisp
         ... TODO @.r
-        }
+        ]
        ... Inefficient default
        (loop [left ""
               right template]
          (case (..split_by pattern right)
-           (#.Some [pre post])
-           (recur ($_ "lux text concat" left pre replacement) post)
+           {.#Some [pre post]}
+           (again ($_ "lux text concat" left pre replacement) post)
 
-           #.None
+           {.#None}
            ("lux text concat" left right)))))
 ```
 
@@ -233,6 +240,7 @@ Other extensions are _host_-specific, and are only meant to be around for a spec
 Either way, Lux uses the same mechanism for all of them: the humble _extension_.
 
 You want to know what's the coolest thing about extensions?
+
 _**You can write your own**_, and by doing so you can teach the compiler how to type-check, optimize and even generate code for your own new types of expressions.
 
 Sounds cool?

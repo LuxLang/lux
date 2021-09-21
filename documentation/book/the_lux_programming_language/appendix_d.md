@@ -14,7 +14,7 @@ I try to figure out ways to get my code to be more pipe-sensitive, to see how fa
 
 ## Piping macros in the standard library
 
-Anyhow, after looking at some of the innovations in Clojure on the piping department, I decided to come up with my own tricks to try to get Lux to become a piping superpower.
+Anyhow, after looking at some of the innovations of Clojure in the piping department, I decided to come up with my own tricks to try to get Lux to become a piping superpower.
 
 I added the `library/lux/control/pipe` module, which contains several macros meant to be used within the `|>` macro, and which extend it with awesome capabilities.
 
@@ -75,7 +75,7 @@ Useful in certain kinds of situations.
     (let> @ (+ @ @)))
 ```
 
-`let>` binds the current value piped into it so you can refer to it multiple times within it's body.
+`let>` binds the current value piped into it so you can refer to it multiple times within its body.
 
 Pretty nifty, huh?
 
@@ -108,7 +108,7 @@ You'll thank me later.
 
 ```clojure
 ... Monadic pipes.
-... Each steps in the monadic computation is a pipe and must be given inside a tuple.
+... Each step in the monadic computation is a pipe and must be given inside a tuple.
 (|> 5
     (do> identity.monad
          [(i.* 3)]
@@ -118,7 +118,7 @@ You'll thank me later.
 
 And just to show you I'm serious, I did the unthinkable.
 
-Piped macro expressions!
+Piped monadic expressions!
 
 ## How to make your own piping macros
 
@@ -146,10 +146,10 @@ These macros can keep you in the flow while you're writing complex code, so you 
 
 Oh... and did I mention the `|>>` macro?
 
-It generates for you a single-argument function that will immediately pipe its argument through all the steps you give it?
+It generates for you a single-argument function that will immediately pipe its argument through all the steps you give it.
 
 ```clojure
-(only (|>> (member? forbidden-definitions)
+(only (|>> (member? forbidden_definitions)
            not)
       all_definitions)
 ```

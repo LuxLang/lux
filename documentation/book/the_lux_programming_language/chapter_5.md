@@ -16,7 +16,9 @@ But before we head into that, let's first see 2 weaker mechanisms for branching 
 
 ### If
 
-We've already met the humble `if` expression in the previous chapter. As explained there, the expression takes the following form:
+We've already met the humble `if` expression in the previous chapter.
+
+As explained there, the expression takes the following form:
 
 ```clojure
 (if test
@@ -42,7 +44,7 @@ Here is an example:
   "Aw, hell naw!")
 ```
 
-So, both branches must produce the same type for the type-checker to let it pass.
+So, both branches must produce values of the same type for the type-checker to let it pass.
 
 ### Cond
 
@@ -67,8 +69,7 @@ And, in terms of types, it looks like this:
            (: Bit test-2) (: X then-2)
            ...
            (: Bit test-n) (: X then-n)
-           (: X else)
-           ))
+           (: X else)))
 ```
 
 Here is an example:
@@ -76,17 +77,17 @@ Here is an example:
 ```clojure
 (cond (n.even? num) "even"
       (n.odd? num)  "odd"
-      ## else-branch
+      ... else-branch
       "???")
 ```
 
-So, it's easy to intuit how `cond` would desugar into several nested `if` expressions.
+So, it's easy to intuit how `cond` would de-sugar into several nested `if` expressions.
 
 Also, I'd like to point out that both `if` and `cond` are macros, instead of native Lux syntax.
 
 The reason for that is simply that they can both be implemented in terms of pattern-matching.
 
-## Pattern-Matching
+## Pattern-matching
 
 Some of you may not be familiar with the concept of pattern-matching if you come from non-functional programming languages, or from FP languages that lack pattern-matching (e.g. _Clojure_).
 
@@ -103,13 +104,17 @@ For instance, the `factorial'` function you saw in the previous chapter could ha
   (-> Nat Nat Nat)
   (case n
     0 acc
-    _ (factorial' (n.* n acc) (dec n))
+    _ (factorial' (n.* n acc) (-- n))
     ))
 ```
 
-As you may imagine, `case` is the pattern-matching macro. It takes the data you want to pattern-match against (in this case, the `n` variable), and then tests it against several patterns until it finds a match, in which case it executes its branch.
+As you may imagine, `case` is the pattern-matching macro.
 
-Here, we test if `n` equals `0`. If it does, we just return the `acc` value. Otherwise, we have a _default_ branch with a pattern that doesn't test anything called `_`. That will handle the case where the input is greater than 0.
+It takes the data you want to pattern-match against (in this case, the `n` variable), and then tests it against several patterns until it finds a match, in which case it executes its branch.
+
+Here, we test if `n` equals `0`. If it does, we just return the `acc` value.
+
+Otherwise, we have a _default_ branch with a pattern that doesn't test anything called `_`. That will handle the case where the input is greater than 0.
 
 The _"default"_ branch works because we're binding the value of `n` onto a variable called `_`, and binding always succeeds, which is why we can use that branch as a default.
 
@@ -120,7 +125,7 @@ However, since it is binding a variable, that means we could have used `_` inste
   (-> Nat Nat Nat)
   (case n
     0 acc
-    _ (factorial' (n.* _ acc) (dec _))
+    _ (factorial' (n.* _ acc) (-- _))
     ))
 ```
 
@@ -144,17 +149,20 @@ Here are a couple more examples so you can see the possibilities.
 
 ```clojure
 (case (list 1 2 3)
-  (#.Item x (#.Item y (#.Item z #.End)))
-  (#.Some (n.+ x (n.* y z)))
+  {.#Item x {.#Item y {.#Item z {.#End}}}}
+  {.#Some (n.+ x (n.* y z))}
 
   _
-  #.None)
+  {.#None})
 ```
 
-In the first example, you'll notice that we have rewritten the prior `if` example in terms of pattern-matching. Also, you'll notice the introduction of a new macro, called `let`.
+In the first example, you'll notice that we have rewritten the prior `if` example in terms of pattern-matching.
+
+Also, you'll notice the introduction of a new macro, called `let`.
 
 `let` is a simple way to create local-variables in Lux.
-It's syntax looks like this:
+
+Its syntax looks like this:
 
 ```clojure
 (: X (let [var-1 expr-1
@@ -176,25 +184,31 @@ The `List` type is defined like this:
 
 ```clojure
 (type: (List a)
-  #End
-  (#Item a (List a)))
+  {#End}
+  {#Item a (List a)})
 ```
 
-#.End represents the empty list, while #.Item constructs a list by prepending an element to the beginning of another list.
+`.#End` represents the empty list, while `.#Item` constructs a list by prepending an element to the beginning of another list.
 
 With pattern-matching, we're opening our list up to 3 levels in order to extract its 3 items and do a simple math calculation.
 
-If the match succeeds, we produce a value of type `(Maybe Int)` by wrapping our result with the `#.Some` tag, from the `Maybe` type. If the match fails, we just produce nothing, by using the `#.None` tag, also from the `Maybe` type.
+If the match succeeds, we produce a value of type `(Maybe Int)` by wrapping our result with the `.#Some` tag, from the `Maybe` type.
+
+If the match fails, we just produce nothing, by using the `.#None` tag, also from the `Maybe` type.
 
 While `List` allows you to group an arbitrary number of values into a single structure, `Maybe` is for values you may or may not have.
 
 Also, you may have noticed how different (and uncomfortable!) it is to pattern-match against a `List`, since you have to use its real syntax, with its tags; whereas to build the list we can just piggy-back on the `list` macro.
 
-Don't worry too much about it, because there's a better way to do it that also allows us to use the `list` macro. If you're curious about it, head over to [Appendix C](appendix_c.md) to learn more about pattern-matching macros.
+Don't worry too much about it, because there's a better way to do it that also allows us to use the `list` macro. If you're curious about it, head over to [Appendix C](appendix_c.md) to learn more about **pattern-matching macros**.
 
 ## Looping
 
-Alright. So, we know several ways to branch, and also how to bind variables. But we know life isn't just about making decisions. Sometimes, you just have to do your work over and over again until you're done.
+Alright. So, we know several ways to branch, and also how to bind variables.
+
+But we know life isn't just about making decisions.
+
+Sometimes, you just have to do your work over and over again until you're done.
 
 That's what _looping_ is for!
 
@@ -202,21 +216,23 @@ That's what _looping_ is for!
 
 In functional programming, _recursion_ is the main mechanism for looping in your code.
 
-Recursion is nothing more than the capacity for a function to call itself (often with different parameters than the initial call). It's not hard to see how this mechanism can be used to loop in any way you want, and we've already seen examples of recursion in action.
+Recursion is nothing more than the capacity for a function to call itself (often with different parameters than the initial call).
+
+It's not hard to see how this mechanism can be used to loop in any way you want, and we've already seen examples of recursion in action.
 
 ```clojure
 (def: (factorial' acc n)
   (-> Nat Nat Nat)
   (if (n.= 0 n)
     acc
-    (factorial' (n.* n acc) (dec n))))
+    (factorial' (n.* n acc) (-- n))))
 ```
 
 The `factorial'` function calls itself with an ever increasing accumulator (that will hold the eventual result), and an ever decreasing input value.
 
-Recursion in many languages is seen as a potentially dangerous operation, since programming languages have what are called `"stacks"`, which are structures holding the parameters to functions and the return addresses for where to send the results once the functions are done.
+Recursion in many languages is seen as a risky operation, since programming languages have what are called `"stacks"`, which are structures holding the parameters to functions and the return addresses for where to send the results once the functions are done.
 
-Every function call you issue puts a new frame onto the stack, and if enough frames are pushed, eventually the stack _"overflows"_ its capacity, causing the program to fail.
+Every function call you issue pushes a new frame onto the stack, and if enough frames are pushed, eventually the stack _"overflows"_ its capacity, causing the program to fail.
 
 However, an old trick that has been employed for a long time in programming languages is called _tail-call optimization_, and it allows you to optimize recursive calls that are in a _"tail position"_; that is, a position where the result of the call can just be returned immediately, instead of needing any further processing.
 
@@ -229,7 +245,7 @@ This alternative doesn't:
   (-> Nat Nat Nat)
   (if (n.= 0 n)
     acc
-    (n.+ 0 (factorial' (n.* n acc) (dec n)))))
+    (n.+ 0 (factorial' (n.* n acc) (-- n)))))
 ```
 
 Can you spot the difference?
@@ -259,12 +275,14 @@ To see it in action, let's rewrite (once more!) our `factorial` function:
          n n]
     (if (n.= +0 n)
       acc
-      (recur (n.* n acc) (dec n)))))
+      (again (n.* n acc) (-- n)))))
 ```
 
-We have eliminated our dependency on the factorial' function.
+We have eliminated our dependency on the `factorial'` function.
 
-Just like with `let`, we're creating some local variables, but these are going to change on each iteration. Then, in the body, we perform the usual `if` test, and if the number is not 0, then I use the `recur` operator (which only works inside of loop) to update the values of my variables for the next iteration.
+Just like with `let`, we're creating some local variables, but these are going to change on each iteration.
+
+Then, in the body, we perform the usual `if` test, and if the number is not `0`, then I use the `again` operator (which only works inside of loop) to update the values of my variables for the next iteration.
 
 ## Piping
 
@@ -276,34 +294,38 @@ Here is a simple example to see how it works:
 
 ```clojure
 (|> elems
-    (map to_text)
-    (interpose " ")
-    (fold append_text ""))
+    (each to_text)
+    (interposed " ")
+    (mix append_text ""))
 
-## =>
-## (fold append_text ""
-##       (interpose " "
-##                  (map to_text elems)))
+... =>
+... (mix append_text ""
+...      (interposed " "
+...                  (each to_text elems)))
 ```
 
 If you read carefully, you'll see that each element (from left to right) gets lodged at the end of the next expression and the pattern continues until everything has been nested.
 
-A good convention to follow in functional programming (and especially in Lux), is that the most important argument to a function (or its _subject_) ought to be the last argument the function takes. One of the really cool benefits of this convention is that your code becomes very amenable to piping, as the nesting is only done in one way.
+A good convention to follow in functional programming (and especially in Lux), is that the most important argument to a function (or its _subject_) ought to be the last argument the function takes.
+
+One of the really cool benefits of this convention is that your code becomes very amenable to piping, as the nesting is only done in one way.
 
 It's not hard to see how much easier to read and understand the piped version is, compared to the resulting code.
 
-Also, you might be interested to know that piping can also be extended in really cool ways (similarly to how pattern-matching can be extended). The way is to use piping macros (you may be noticing a theme here).
+Also, you might be interested to know that piping can also be extended in really cool ways (similarly to how pattern-matching can be extended).
+
+The way is to use **piping macros** (you may be noticing a theme here).
 
 If you want to know more about those, feel free to check out [Appendix D](appendix_d.md), where I review them in detail.
 
 Oh, and before I forget, there is also a macro for doing reverse piping (which can be very useful in some situations).
 
-Out previous example would look like this:
+Our previous example would look like this:
 
 ```clojure
-(<| (fold append_text "")
-    (interpose " ")
-    (map to_text)
+(<| (mix append_text "")
+    (interposed " ")
+    (each to_text)
     elems)
 ```
 
@@ -313,7 +335,11 @@ I can't finish this chapter without talking about one of the coolest features in
 
 So far, we have seen several control-flow mechanisms that could potentially exist in any language/paradigm, but now we'll talk about something native to the FP landscape.
 
-You already know that in the world of functional programming, functions are _first-class values_. That just means functions can be treated like other values (such as `Int`s, `Bit`s and `Text`s). You can create new functions at run-time, you can pass functions around as arguments to other functions and you can combine functions in arbitrary ways.
+You already know that in the world of functional programming, functions are _first-class values_.
+
+That just means functions can be treated like other values (such as `Int`s, `Bit`s and `Text`s).
+
+You can create new functions at run-time, you can pass functions around as arguments to other functions and you can combine functions in arbitrary ways.
 
 Well, we haven't really seen that in action yet.
 
@@ -321,24 +347,32 @@ It's time to put that theory into practice... with an example:
 
 ```clojure
 (def: (iterate_list f list)
-  (All [a b] (-> (-> a b) (List a) (List b)))
+  (All (_ a b) (-> (-> a b) (List a) (List b)))
   (case list
-    #.End
-    #.End
+    {.#End}
+    {.#End}
 
-    (#.Item head tail)
-    (#.Item (f head) (iterate_list f tail))))
+    {.#Item head tail}
+    {.#Item (f head) (iterate_list f tail)}))
 ```
 
 This is a function that allows you to transform lists in arbitrary ways.
 
-However, you may notice that we're seeing many new things. For instance, what is that `All` thingie over there, and what does it do? Is it even a type?
+However, you may notice that we're seeing many new things.
 
-Well, it's not a type. It's actually a macro for creating types (in the same way that `->` is a macro that creates types). The difference is that `All` allows you to create _universally-quantified types_. That's just a fancy way of saying that your types are not fixed to working in a particular way, but are flexible enough to allow some variability.
+For instance, what is that `All` thingie over there, and what does it do? Is it even a type?
+
+Well, it's not _technically_ a type.
+
+It's actually a macro for creating types (in the same way that `->` is a macro that creates types).
+
+The difference is that `All` allows you to create _universally-quantified types_.
+
+That's just a fancy way of saying that your types are not fixed to working in a particular way, but are flexible enough to allow some variability.
 
 Here, it's being used to make a function that can takes lists with elements of any type (denoted by the _type variable_ `a`), and can produce lists with elements of any other type (denoted by the _type variable_ `b`), so long as you give it a function `f`, that transforms values of type `a` into values of type `b`.
 
-That... is... mind-blowing!
+That... is... _mind-blowing_!
 
 In other programming languages, whenever you want to process the elements of a sequence (say, an array) you have to write something like a _for loop_ with some index variable, some condition... and then the code for actually _working with the data_.
 
@@ -349,14 +383,16 @@ You could use it like this:
 ```clojure
 (iterate_list (n.* 5) (list 0 1 2 3 4 5 6 7 8 9))
 
-## => (list 0 5 10 15 20 25 30 35 40 45)
+... => (list 0 5 10 15 20 25 30 35 40 45)
 ```
 
 Pretty cool, huh!
 
 But this is just scratching the surface of what's possible.
 
-As it turns out, higher-order functions (that is, functions which take or produce other functions) are at the foundation of many advanced techniques in functional programming. Mastering this little trick will prove invaluable to you as you delve deeper into the mysteries of functional programming.
+As it turns out, higher-order functions (that is, functions which take or produce other functions) are at the foundation of many advanced techniques in functional programming.
+
+Mastering this little trick will prove invaluable to you as you delve deeper into the mysteries of functional programming.
 
 ---
 

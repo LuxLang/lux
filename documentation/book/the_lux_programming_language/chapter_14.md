@@ -22,7 +22,7 @@ And watch out, because the amount of concurrency models may increase with future
 
 Anyhow, let's quit the chit-chat and dive in!
 
-## Asynchronous computation
+## Asynchronous computations
 
 This is my favorite one, because it can be used for almost anything, whereas I see the other modules as more specialized tools for certain use cases.
 
@@ -38,7 +38,7 @@ I pretty much came to the conclusion that, for all intents and purposes, their s
 
 So, I just fused them.
 
-And so, Lux implements promises in the `library/lux/control/concurrency/async` module, by means of the `Async` type.
+And so, Lux implements futures/promises in the `library/lux/control/concurrency/async` module, by means of the `Async` type.
 
 You can run `IO` computations concurrently using the `future` function (which returns an `Async` that will contain the result of the computation).
 
@@ -52,7 +52,7 @@ If you're curious about how that looks, take a peek:
 
 ```clojure
 (def: .public (and left right)
-  (All [a b] (-> (Async a) (Async b) (Async [a b])))
+  (All (_ a b) (-> (Async a) (Async b) (Async [a b])))
   (do monad
     [a left
      b right]
@@ -61,7 +61,9 @@ If you're curious about how that looks, take a peek:
 
 	Oh, and did I mention there are _combinators_ in that module?
 
-If you didn't know there was some magic going on in the `Async` type, you wouldn't have suspected this was concurrent code. It looks just like any other old synchronous code you might have use with any other monad.
+If you didn't know there was some magic going on in the `Async` type, you wouldn't have suspected this was concurrent code.
+
+It looks just like any other old synchronous code you might have use with any other monad.
 
 Pretty neat, huh?
 
@@ -70,10 +72,12 @@ Pretty neat, huh?
 FRP is based on the idea of _values that change over time_, and structuring your programs to dynamically respond to those changes in a **reactive** way.
 
 The way its implemented in Lux is through the `Channel` type in `library/lux/control/concurrency/frp` (itself implemented on top of `Async`).
+
 `Channel` instances are (potentially infinite) sequences of values that you can process in various ways as new values come into being.
+
 `Channel` instances can be closed, but they may also go on forever if you'd like them to.
 
-The `library/lux/control/concurrency/frp` module offers various functions for processing channels in various them (some of them generating new channels), and the `Channel` type also happens to be a monad, so you can write fairly complex and powerful code with it.
+The `library/lux/control/concurrency/frp` module offers various functions for processing channels in various ways (some of them generating new channels), and the `Channel` type also happens to be a monad, so you can write fairly complex and powerful code with it.
 
 ## Software Transactional Memory
 
@@ -92,13 +96,16 @@ Let's break down those last 3 terms:
 For those of you familiar with relational databases, this might remind you of their _ACID_ properties (with the caveat that Lux's STM is non-durable, as it works entirely in memory).
 
 The way it works is by running multiple transactions concurrently, and then committing their results to the affected variables.
+
 If 2 transactions modify any common variables, the first one to commit wins, and the second one would be re-calculated to take into account the changes to those variables.
-This implies that transactions are sensitive to some "version" of the variables they involve and that is correct.
-That is the mechanism use to avoid collisions and ensure no inconsistencies ever arise.
+
+This implies that transactions are sensitive to some "version" of the variables they involve.
+
+That is the mechanism used to avoid collisions and ensure no inconsistencies ever arise.
 
 The relevant types are `Var`, which corresponds to the variables, and `STM` which are computations which transform transactions in some way and yield results.
 
-Like `IO` and unlike `Async`, just writing `STM` computations doesn't actually run them, and you must call the `commit!` function to actually schedule the system to execute them (receiving a `Async` value for the result of the transaction).
+Like `IO` and unlike `Async`, just writing `STM` computations doesn't actually run them, and you must call the `commit!` function to actually schedule the system to execute them (receiving an `Async` value for the result of the transaction).
 
 You may also `follow!` variables to get `Channel`s of their values if you're interesting in tracking them.
 
@@ -130,8 +137,9 @@ To create an actor, you must first specify its `Behavior`:
 
 ```clojure
 (type: .public (Behavior o s)
-  {#on_init (-> o s)
-   #on_mail (-> (Mail s) s (Actor s) (Async (Try s)))})
+  (Record
+   [#on_init (-> o s)
+    #on_mail (-> (Mail s) s (Actor s) (Async (Try s)))]))
 ```
 
 These functions know how to initialize an actor, and how to react to incoming mail.
@@ -144,8 +152,6 @@ But writing complex actors with multiple options for its messages can be messy w
 ... Defines a named actor, with its behavior and internal state.
 ... Messages for the actor must be defined after the on_mail handler.
 (actor: .public (stack a)
-  {}
-
   (List a)
 
   ((on_mail mail state self)
@@ -155,30 +161,30 @@ But writing complex actors with multiple options for its messages can be messy w
       .let [_ (debug.log! "AFTER")]]
      (in output)))
 
-  (message: .public (push {value a} state self)
+  (message: .public (push [value a] state self)
     Nat
-    (let [state' (#.Item value state)]
-      (async.resolved (#try.Success [state' (list.size state')])))))
+    (let [state' {.#Item value state}]
+      (async.resolved {try.#Success [state' (list.size state')]}))))
 
 (actor: .public counter
-  {}
-
   Nat
 
-  (message: .public (count! {increment Nat} state self)
+  (message: .public (count! [increment Nat] state self)
     Any
     (let [state' (n.+ increment state)]
-      (async.resolved (#try.Success [state' []]))))
+      (async.resolved {try.#Success [state' []]})))
 
-  (message: .public (read! state self)
+  (message: .public (read! [] state self)
     Nat
-    (async.resolved (#try.Success [state state]))))
+    (async.resolved {try.#Success [state state]})))
 ```
 
-For every method you define, a function will be defined in your module with the same name, and taking the same arguments, plus the actor.
+For every message type you define, a function will be defined in your module with the same name, and taking the same arguments, plus the actor.
+
 That function will always take the actor itself as its last argument, and will return an `Async` of the return type.
 
-You can either die with a `#librarylux/control/try.Failure` value, or continue on to the next message with a `#librarylux/control/try.Success` containing an updated _actor state_, and a _return value_ for the method.
+You can either die with a `librarylux/control/try.#Failure` value, or continue on to the next message with a `librarylux/control/try.#Success` containing an updated _actor state_, and a _return value_ for the method.
+
 The type of the return value must match the type following the method signature.
 
 ---
