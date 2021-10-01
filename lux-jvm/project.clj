@@ -1,4 +1,4 @@
-(def version "0.6.0-SNAPSHOT")
+(def version "0.6.0")
 (def repo "https://github.com/LuxLang/lux")
 (def sonatype "https://oss.sonatype.org")
 (def sonatype-releases (str sonatype "/service/local/staging/deploy/maven2/"))
@@ -15,8 +15,7 @@
   :pom-addition [:developers [:developer
                               [:name "Eduardo Julian"]
                               [:url "https://github.com/eduardoejp"]]]
-  :repositories [["releases" ~sonatype-releases]
-                 ["snapshots" ~sonatype-snapshots]]
+  :repositories [["snapshots" ~sonatype-snapshots]]
   :scm {:name "git"
         :url ~(str repo ".git")}
 

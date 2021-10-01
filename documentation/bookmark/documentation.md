@@ -55,7 +55,7 @@
 
 1. [Architecture decision record (ADR)](https://github.com/joelparkerhenderson/architecture_decision_record)
 1. [Seamless API Specification](https://github.com/seamlessapis/seamless/tree/master/domain)
-1. https://docs.racket-lang.org/pollen/
+1. [Pollen: the book is a program](https://docs.racket-lang.org/pollen/)
 1. [Documenting the Clojure/Script Ecosystem – Martin Klepsch](https://www.youtube.com/watch?v=mWrvd6SE7Vg)
 1. http://apistylebook.com/
 1. https://docusaurus.io/
@@ -70,7 +70,6 @@
 1. https://groups.google.com/forum/#!msg/scala-internals/r2GnzCFc3TY/x3PmIq4cAgAJ
 1. http://naildrivin5.com/blog/2016/12/08/learn-graphviz-and-up-your-diagramming-game.html
 1. https://idyll-lang.github.io/
-1. http://docs.racket-lang.org/pollen/
 1. https://opensource.com/article/17/9/modular-documentation
 1. https://clojurecademy.github.io/dsl-documentation/#
 1. https://www.asyncapi.com/

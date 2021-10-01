@@ -1,3 +1,7 @@
+# Dynamic binding
+
+1. [Programming with Implicit Values, Functions, and Control (or, Implicit Functions: Dynamic Binding with Lexical Scoping)](https://www.microsoft.com/en-us/research/publication/programming-with-implicit-values-functions-and-control-or-implicit-functions-dynamic-binding-with-lexical-scoping/)
+
 # Construct
 
 1. [Fundamental Constructs in Programming Languages](https://arxiv.org/abs/2107.10545)

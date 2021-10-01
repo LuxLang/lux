@@ -1,6 +1,6 @@
-(defproject com.github.luxlang/lux-bootstrapper "0.6.0-SNAPSHOT"
+(defproject com.github.luxlang/lux-bootstrapper "0.6.0"
   :min-lein-version  "2.1.0" ;; 2.1.0 introduced jar classifiers
-  :description "The JVM compiler for the Lux programming language."
+  :description "The JVM (bootstrapping) compiler for the Lux programming language."
   :url "https://github.com/LuxLang/lux"
   :license {:name "Lux License v0.1.1"
             :url "https://github.com/LuxLang/lux/blob/master/license.txt"}
@@ -24,8 +24,7 @@
                  [org.ow2.asm/asm-util "7.3.1"]
                  ]
   :warn-on-reflection true
-  :repositories [["snapshots" "https://oss.sonatype.org/content/repositories/snapshots/"]
-                 ["releases" "https://oss.sonatype.org/service/local/staging/deploy/maven2/"]]
+  :repositories [["snapshots" "https://oss.sonatype.org/content/repositories/snapshots/"]]
   :source-paths ["src"]
 
   :scm {:name "git"

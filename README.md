@@ -2,11 +2,11 @@
 
 Lux is a new programming language in the making.
 
-It's meant to be a functional, statically-typed Lisp that will run on several platforms, such as the Java Virtual Machine and JavaScript interpreters.
+It's meant to be a functional, statically-typed Lisp that will run on several platforms, such as the Java Virtual Machine and JavaScript, Python, Lua, or Ruby interpreters.
 
 ### What's the current version?
 
-0.5.0
+0.6.0
 
 ### How far ahead is the project?
 
@@ -14,34 +14,17 @@ Lux is in the **beta** stage.
 
 The JVM compiler is pretty stable and the standard library has grown to a respectable size.
 
-Also, new experimental support for Android has been added.
-
-### How can I use it?
-
-You should use the Leiningen plugin for Lux to compile your programs and manage your dependencies.
-
-You can find it here: https://github.com/LuxLang/lux/tree/master/lux-lein
-
-After compiling your program, this will generate a directory named "target" and put all the .class files there.
-
-Then, you can run the program like this:
-
-	java -jar target/jvm/program.jar
-
-### Sample
-
-To take a look at sample Lux projects, check these repositories:
-
-* https://github.com/LuxLang/tutorial1
-* https://github.com/LuxLang/lux/tree/master/luxdoc
-
-The `luxdoc` program was actually used to generate the documentation for the standard library (located here: https://luxlang.github.io/lux/)
+Also, new experimental support for JavaScript, Python, Lua, and Ruby has been added.
 
 ### What's the license?
 
 [Custom License](license.txt)
 
 Read carefully before using this project, as the license disallows commercial use, and has other conditions which may be undesirable for some.
+
+However, commercial use is allowed for patrons under the terms of the [Patron License](PATRON_LICENSE.md).
+
+You can become a patron by supporting Lux through [Patreon](https://www.patreon.com/lux_programming_language).
 
 ## What's interesting about the language?
 
@@ -83,7 +66,7 @@ Additionally, by hosting the module system on top of records, which are regular 
 
 You can also write functions that take and return structures (as _functors_ do in ML), and you can generate structures on the fly.
 
-> Also, Lux now offers a mechanism for easy polymorphism, just like Haskell's type-classes, but built upon it's module system, thanks to the `lux/type/auto` module and its `:::` macro.
+> Also, Lux now offers a mechanism for easy polymorphism, just like Haskell's type-classes, but built upon it's module system, thanks to the `library/lux/type/auto` module and its `##` macro.
 
 > You can learn more about that by reading the book and the documentation.
 
@@ -95,7 +78,7 @@ Functions are curried and partial application is as simple as just applying a fu
 
 e.g.
 
-	(map (i.+ 1) (list 1 2 3 4 5))
+	(map (n.+ 1) (list 1 2 3 4 5))
 
 ### Macros
 
@@ -116,35 +99,36 @@ Custom pattern-matching basically means that you can use macros to provide custo
 For instance, the **list** and **list&** macros are used to build lists.
 But you can also use them to destructure lists inside pattern-matching:
 
-	(case (: (List Int) (list 1 2 3))
-	  (#Cons x (#Cons y (#Cons z #Nil)))
-	  (#Some ($_ i.* x y z))
+	(case (: (List Nat) (list 1 2 3))
+	  {#Item x {#Item y {#Item z {#End}}}}
+	  {#Some ($_ n.* x y z)}
 
 	  _
-	  #None)
+	  {#None})
 
-	(case (: (List Int) (list 1 2 3))
+	(case (: (List Nat) (list 1 2 3))
 	  (^ (list x y z))
-	  (#Some ($_ i.* x y z))
+	  {#Some ($_ n.* x y z)}
 
 	  _
-	  #None)
+	  {#None})
 
 There is also the special **^or** macro, which introduces *or patterns*:
 
 	(type: Weekday
-	  #Monday
-	  #Tuesday
-	  #Wednesday
-	  #Thursday
-	  #Friday
-	  #Saturday
-	  #Sunday))
+	  (Variant
+	    {#Monday}
+	    {#Tuesday}
+	    {#Wednesday}
+	    {#Thursday}
+	    {#Friday}
+	    {#Saturday}
+	    {#Sunday})))
 
 	(def: (weekend? day)
-	  (-> Weekday Bool)
+	  (-> Weekday Bit)
 	  (case day
-	    (^or #Saturday #Sunday)
+	    (^or {#Saturday} {#Sunday})
 	    true
 
 	    _
@@ -164,11 +148,11 @@ Check out the Emacs plugin for it: https://github.com/LuxLang/lux/tree/master/lu
 
 ### Where do I learn Lux?
 
-The main resource is the book: https://luxlang.gitbooks.io/the-lux-programming-language/content/
+The main resource is [the book](documentation/book/the_lux_programming_language/index.md).
 
 It will always be up-to-date with the latest stable version of the language.
 
-Also, you can check out the documentation for the currently available modules: https://luxlang.github.io/lux/
+Also, you can check out [the documentation for the currently available modules](documentation/library/standard/jvm.md).
 
 ### How can I contribute?
 
