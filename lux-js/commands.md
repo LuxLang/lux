@@ -8,6 +8,11 @@ cd ~/lux/lux-js/ && lein clean && lein lux auto test
 # Build
 
 ```
+cd ~/lux/lux-js/ \
+&& lux clean \
+&& lux with js build \
+&& mv target/program.js lux.js
+
 ## Develop
 cd ~/lux/lux-js/ \
 && lein clean \
@@ -47,6 +52,6 @@ cd ~/lux/stdlib/ \
 
 ```
 cd ~/lux/lux-js/ \
-&& mvn install:install-file -Dfile=lux.js -DgroupId=com.github.luxlang -DartifactId=lux-js -Dversion=0.6.0-SNAPSHOT -Dpackaging=js
+&& mvn install:install-file -Dfile=lux.js -DgroupId=com.github.luxlang -DartifactId=lux-js -Dversion=0.7.0-SNAPSHOT -Dpackaging=js
 ```
 

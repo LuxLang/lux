@@ -101,6 +101,11 @@ cd ~/lux/stdlib/ \
 && lein with-profile aedifex lux auto build
 
 cd ~/lux/stdlib/ \
+&& lein clean \
+&& lein with-profile aedifex lux build \
+&& mv target/program.jar aedifex.jar
+
+cd ~/lux/stdlib/ \
 && lux clean \
 && lux with jvm with aedifex auto build
 

@@ -1,3 +1,7 @@
+# Restraint | Sand-boxing
+
+1. [JavaScript Restrictor](https://polcak.github.io/jsrestrictor/)
+
 # Memory
 
 1. [Provably Safe Pointers for a Parallel World](https://www.youtube.com/watch?v=ugf58HNd7Rg)

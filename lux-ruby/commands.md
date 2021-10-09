@@ -34,6 +34,6 @@ cd ~/lux/stdlib/ \
 
 ```
 cd ~/lux/lux-ruby/ \
-&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-ruby -Dversion=0.6.0-SNAPSHOT -Dpackaging=jar
+&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-ruby -Dversion=0.7.0-SNAPSHOT -Dpackaging=jar
 ```
 

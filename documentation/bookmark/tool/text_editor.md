@@ -55,6 +55,7 @@
 
 # Reference
 
+1. [Deft for Emacs](https://jblevins.org/projects/deft/)
 1. [Text Editing Hates You Too](https://lord.io/text-editing-hates-you-too/)
 1. [Build Your Own Text Editor](https://viewsourcecode.org/snaptoken/kilo/index.html)
 1. [On the design of text editors](https://arxiv.org/abs/2008.06030)

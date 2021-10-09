@@ -96,6 +96,7 @@
 
 # Reference
 
+1. [How to Make an RPG](https://howtomakeanrpg.com/)
 1. https://mod.io/
 1. https://www.amazon.com/Game-Engine-Black-Book-Wolfenstein/dp/1539692876
 1. http://shaderbits.com/blog/octahedral-impostors/

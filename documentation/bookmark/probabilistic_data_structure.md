@@ -30,6 +30,8 @@
 
 ## Bloom filter
 
+1. [Word-aligned Bloom filters](https://lemire.me/blog/2021/10/03/word-aligned-bloom-filters/)
+1. [Bloom Filters by Example](https://llimllib.github.io/bloomfilter-tutorial/)
 1. [Bloom Filters - Much, much more than a space efficient hashmap!](https://boyter.org/posts/bloom-filter/)
 1. [Teaching Bloom Filters new tricks](https://toao.com/blog/teaching-bloom-filters-new-tricks)
 1. http://www.partow.net/programming/bloomfilter/idx.html

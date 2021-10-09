@@ -1,5 +1,6 @@
-# Half-precision
+# Precision
 
+1. [Accuracy of Mathematical Functions in Single, Double, Double Extended, and Quadruple Precision](https://members.loria.fr/PZimmermann/papers/accuracy.pdf)
 1. [Supporting half-precision floats is really annoying](https://futhark-lang.org/blog/2021-08-05-half-precision-floats.html)
 
 # Debugging

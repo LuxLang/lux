@@ -1,5 +1,6 @@
 # Ray Tracing
 
+1. [Ray Tracing in One Weekend - The Book Series](https://raytracing.github.io/)
 1. [Ray Tracing Gems II Available Today as Free Digital Download](https://developer.nvidia.com/blog/ray-tracing-gems-ii-available-today-as-free-digital-download/)
 1. [Ray Tracing Gems II](https://link.springer.com/book/10.1007/978-1-4842-7185-8)
 
