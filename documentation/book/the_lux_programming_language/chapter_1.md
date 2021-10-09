@@ -83,7 +83,7 @@ Duration: +15s26ms
 
 A directory named `target` will have been created, containing everything that was compiled, alongside an executable JAR file.
 
-6. Run the program with this command: `java -jar target/jvm/program.jar`
+6. Run the program with this command: `java -jar target/program.jar`
 7. Smile :)
 
 	For a thorough specification of what Aedifex can do, please refer to [Appendix H](appendix_h.md).
