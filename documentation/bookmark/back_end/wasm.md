@@ -1,5 +1,6 @@
 # Platform
 
+1. [Wasmer Java](https://github.com/wasmerio/wasmer-java)
 1. [WAVM: WAVM is a WebAssembly virtual machine, designed for use in non-web applications.](https://wavm.github.io/)
 
 # Exemplar

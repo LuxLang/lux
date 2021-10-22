@@ -197,6 +197,7 @@
 
 ## Graph
 
+1. ["Asami: Turn your JSON into a Graph in 2 Lines" by Paula Gearon](https://www.youtube.com/watch?v=-XegX_K6w-o)
 1. https://github.com/hugegraph/hugegraph
 1. https://github.com/Microsoft/GraphEngine
 1. https://redislabs.com/blog/release-redisgraph-v1-0-preview/

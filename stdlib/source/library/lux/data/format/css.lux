@@ -1,26 +1,28 @@
 (.using
-  [library
-   [lux {"-" and}
-    [control
-     ["[0]" maybe]]
-    [data
-     [number
-      ["[0]" nat]]
-     ["[0]" text
-      ["%" format {"+" format}]
-      ["[0]" encoding {"+" Encoding}]]
-     [collection
-      ["[0]" list ("[1]#[0]" functor)]]]
-    [type
-     abstract]
-    [world
-     [net {"+" URL}]]]]
-  ["[0]" / "_"
-   ["[1][0]" selector {"+" Selector Combinator}]
-   ["[1][0]" value {"+" Value Animation Percentage}]
-   ["[1][0]" font {"+" Font}]
-   ["[1][0]" style {"+" Style}]
-   ["[1][0]" query {"+" Query}]])
+ [library
+  [lux {"-" and}
+   [control
+    ["[0]" maybe]]
+   [data
+    ["[0]" text
+     ["%" format {"+" format}]
+     ["[0]" encoding {"+" Encoding}]]
+    [collection
+     ["[0]" list ("[1]#[0]" functor)]]]
+   [math
+    [number
+     ["[0]" nat]]]
+   [type
+    [abstract {"-" Frame}]]
+   [world
+    [net {"+" URL}]]]]
+ ["[0]" / "_"
+  ["[1][0]" selector {"+" Selector Combinator Specializer Generic}]
+  ["[1][0]" value {"+" Value Animation Percentage}]
+  ["[1][0]" property {"+" Property}]
+  ["[1][0]" font {"+" Font}]
+  ["[1][0]" style]
+  ["[1][0]" query {"+" Query}]])
 
 (abstract: .public Common Any)
 (abstract: .public Special Any)
@@ -33,12 +35,15 @@
     (|>> :representation))
 
   (def: .public empty
-    (CSS Common)
+    (CSS Any)
     (:abstraction ""))
+
+  (type: .public Style
+    (List (Ex (_ brand) [(Property brand) (Value brand)])))
 
   (def: .public (rule selector style)
     (-> (Selector Any) Style (CSS Common))
-    (:abstraction (format (/selector.selector selector) "{" (/style.inline style) "}")))
+    (:abstraction (format (/selector.selector selector) "{" (/style.inline (/style.style style)) "}")))
 
   (def: .public char_set
     (-> Encoding (CSS Special))
@@ -65,7 +70,7 @@
                  with_unicode)
           (list#each (function (_ [property value])
                        (format property ": " value ";")))
-          (text.interposed /style.separator)
+          text.together
           (text.enclosed ["{" "}"])
           (format "@font-face")
           :abstraction)))
@@ -81,12 +86,12 @@
                             "")
                           ";")))
 
-  (def: css_separator
+  (def: separator
     text.new_line)
 
   (type: .public Frame
     (Record
-     [#when Percentage
+     [#when (Value Percentage)
       #what Style]))
 
   (def: .public (key_frames animation frames)
@@ -94,33 +99,38 @@
     (:abstraction (format "@keyframes " (/value.value animation) " {"
                           (|> frames
                               (list#each (function (_ frame)
-                                           (format (/value.percentage (value@ #when frame)) " {"
-                                                   (/style.inline (value@ #what frame))
+                                           (format (/value.value (value@ #when frame)) " {"
+                                                   (/style.inline (/style.style (value@ #what frame)))
                                                    "}")))
-                              (text.interposed ..css_separator))
+                              (text.interposed ..separator))
                           "}")))
 
   (template: (!composite <pre> <post>)
-    (:abstraction (format (:representation <pre>) ..css_separator
-                          (:representation <post>))))
+    [(:abstraction
+      (format (:representation <pre>)
+              ..separator
+              (:representation <post>)))])
   
   (def: .public (and pre post)
-    (-> (CSS Any) (CSS Any) (CSS Any))
+    (All (_ kind) (-> (CSS kind) (CSS kind) (CSS kind)))
     (!composite pre post))
 
-  (def: .public (alter combinator selector css)
+  (def: .public (in_context combinator selector css)
     (-> Combinator (Selector Any) (CSS Common) (CSS Common))
     (|> css
         :representation
-        (text.all_split_by ..css_separator)
-        (list#each (|>> (format (/selector.selector (|> selector (combinator (/selector.tag "")))))))
-        (text.interposed ..css_separator)
+        (text.all_split_by ..separator)
+        (list#each (let [prefix (|> selector
+                                    (combinator (/selector.tag ""))
+                                    /selector.selector)]
+                     (|>> (format prefix))))
+        (text.interposed ..separator)
         :abstraction))
 
   (def: .public (dependent combinator selector style inner)
     (-> Combinator (Selector Any) Style (CSS Common) (CSS Common))
     (!composite (..rule selector style)
-                (..alter combinator selector inner)))
+                (..in_context combinator selector inner)))
 
   (template [<name> <combinator>]
     [(def: .public <name>
@@ -129,5 +139,34 @@
 
     [with_descendants /selector.in]
     [with_children /selector.sub]
+    )
+
+  (def: .public (in_case specializer selector css)
+    (All (_ kind)
+      (-> (Specializer kind) (Selector (Generic Any)) (CSS Common) (CSS Common)))
+    (|> css
+        :representation
+        (text.all_split_by ..separator)
+        (list#each (let [prefix (|> selector
+                                    (specializer (:expected (/selector.tag "")))
+                                    /selector.selector)]
+                     (|>> (format prefix))))
+        (text.interposed ..separator)
+        :abstraction))
+
+  (def: .public (specialized combinator selector style inner)
+    (All (_ kind)
+      (-> (Specializer kind) (Selector (Generic Any)) Style (CSS Common) (CSS Common)))
+    (!composite (..rule selector style)
+                (..in_case combinator selector inner)))
+
+  (template [<name> <combinator>]
+    [(def: .public <name>
+       (-> (Selector (Generic Any)) Style (CSS Common) (CSS Common))
+       (..specialized <combinator>))]
+
+    [with_case /selector.and]
+    [with_part /selector.at]
+    [with_element /selector.for]
     )
   )

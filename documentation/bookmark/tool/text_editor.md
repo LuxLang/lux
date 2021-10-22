@@ -1,3 +1,7 @@
+# Code navigation
+
+1. ["Incremental, zero-config Code Nav using stack graphs" by Douglas Creager](https://www.youtube.com/watch?v=l2R1PTGcwrE)
+
 # Rendering
 
 1. [Text Rendering Hates You](https://gankra.github.io/blah/text-hates-you/)

@@ -96,6 +96,7 @@
 
 # Reference
 
+1. ["Game Development in Eight Bits" by Kevin Zurawel](https://www.youtube.com/watch?v=TPbroUDHG0s)
 1. [How to Make an RPG](https://howtomakeanrpg.com/)
 1. https://mod.io/
 1. https://www.amazon.com/Game-Engine-Black-Book-Wolfenstein/dp/1539692876

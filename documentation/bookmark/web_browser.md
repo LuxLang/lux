@@ -36,6 +36,7 @@
 
 # Reference
 
+1. [Web Browser Engineering](https://browser.engineering/)
 1. [Public Suffix List](https://publicsuffix.org/)
 1. [Public Suffix List Problems](https://github.com/sleevi/psl-problems)
 1. https://www.opera.com/gx

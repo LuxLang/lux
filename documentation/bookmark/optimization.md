@@ -8,6 +8,7 @@
 
 # Compilation
 
+1. [CompilerGym: Making compiler optimizations accessible to all](https://ai.facebook.com/blog/compilergym-making-compiler-optimizations-accessible-to-all)
 1. [Future Directions for Optimizing Compilers](https://arxiv.org/abs/1809.02161)
 
 # Pre-fetching
@@ -24,7 +25,10 @@
 
 # Reference
 
-1. [CompilerGym: Making compiler optimizations accessible to all](https://ai.facebook.com/blog/compilergym-making-compiler-optimizations-accessible-to-all)
+1. [Refterm Lecture Part 1 - Philosophies of Optimization](https://www.youtube.com/watch?v=pgoetgxecw8)
+1. [Optimizations enabled by -ffast-math](https://kristerw.github.io/2021/10/19/fast-math/)
+1. [Simple Code, High Performance](https://www.youtube.com/watch?v=Ge3aKEmZcqY)
+1. [Negotiating with Compilers](https://en.algorithmica.org/hpc/analyzing-performance/compilation/)
 1. [Do Low-level Optimizations Matter?](https://cantrip.org/sortfast.html)
 1. [Inline caching](https://bernsteinbear.com/blog/inline-caching/)
 1. [Weird and Wonderful Division Tricks](https://saml98.github.io/jekyll/update/2020/02/21/weird-division.htmls)

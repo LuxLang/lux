@@ -1,3 +1,11 @@
+# Anti-Debugging
+
+1. [JavaScript AntiDebugging Tricks](https://x-c3ll.github.io/posts/javascript-antidebugging/)
+
+# Supply chain
+
+1. [chainguard](https://chainguard.dev/)
+
 # Restraint | Sand-boxing
 
 1. [JavaScript Restrictor](https://polcak.github.io/jsrestrictor/)
@@ -83,6 +91,7 @@
 
 # Reference
 
+1. [Secure By Design](https://www.amazon.com/Secure-Design-Daniel-Deogun/dp/1617294357)
 1. [Intro to Just-In-Time Access](https://compliance.dev/2021/04/29/introduction-to-just-in-time-access/)
 1. https://www.nomoreransom.org/en/index.html
 1. [Open Source Security Foundation (OpenSSF)](https://openssf.org/)

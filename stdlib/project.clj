@@ -3,7 +3,7 @@
 (def sonatype-releases "https://oss.sonatype.org/service/local/staging/deploy/maven2/")
 (def sonatype-snapshots "https://oss.sonatype.org/content/repositories/snapshots/")
 
-(defproject com.github.luxlang/stdlib #=(identity version)
+(defproject com.github.luxlang/stdlib "0.6.3-SNAPSHOT" ;; #=(identity version)
   :description "Standard library for the Lux programming language."
   
   :url ~repo

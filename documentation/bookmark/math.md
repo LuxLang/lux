@@ -1,3 +1,7 @@
+# Logarithm
+
+1. [Logarithm: The Complete Guide (Theory & Applications)](https://mathvault.ca/logarithm-theory/)
+
 # Ball arithmetic
 
 1. [Ball arithmetic](http://www.texmacs.org/joris/ball/ball.html)
