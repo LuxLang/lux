@@ -3,7 +3,7 @@
 (def sonatype-releases "https://oss.sonatype.org/service/local/staging/deploy/maven2/")
 (def sonatype-snapshots "https://oss.sonatype.org/content/repositories/snapshots/")
 
-(defproject com.github.luxlang/lux-lua #=(identity version)
+(defproject com.github.luxlang/lux-lua "0.6.3-SNAPSHOT" ;; #=(identity version)
   :description "A Lua compiler for Lux."
   :url ~repo
   :license {:name "Lux License v0.1.2"
@@ -21,9 +21,9 @@
   :plugins [[com.github.luxlang/lein-luxc ~version]]
   :dependencies [[com.github.luxlang/lux-bootstrapper ~version]
                  [com.github.luxlang/stdlib ~version]
-                 [net.sandius.rembulan/rembulan-runtime "0.1-SNAPSHOT"]
-                 [net.sandius.rembulan/rembulan-stdlib "0.1-SNAPSHOT"]
-                 [net.sandius.rembulan/rembulan-compiler "0.1-SNAPSHOT"]]
+                 [com.github.luxlang/rembulan-runtime "0.1"]
+                 [com.github.luxlang/rembulan-stdlib "0.1"]
+                 [com.github.luxlang/rembulan-compiler "0.1"]]
 
   :manifest {"lux" ~version}
   :source-paths ["source"]
