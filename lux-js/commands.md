@@ -56,6 +56,6 @@ cd ~/lux/stdlib/ \
 
 ```
 cd ~/lux/lux-js/ \
-&& mvn install:install-file -Dfile=target/program.js -DgroupId=com.github.luxlang -DartifactId=lux-js -Dversion=0.6.3-SNAPSHOT -Dpackaging=js
+&& mvn install:install-file -Dfile=target/program.js -DgroupId=com.github.luxlang -DartifactId=lux-js -Dversion=0.6.3 -Dpackaging=js
 ```
 

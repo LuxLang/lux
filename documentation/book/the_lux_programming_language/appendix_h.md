@@ -43,9 +43,9 @@ lux deps
 
 =>
 
-[?] Fetching com.github.luxlang:lux-jvm-0.6.2 from "~/.m2/repository"
-[O] Found com.github.luxlang:lux-jvm-0.6.2 at "~/.m2/repository"
- Local successes: 0: "com.github.luxlang:lux-jvm-0.6.2"
+[?] Fetching com.github.luxlang:lux-jvm-0.6.3 from "~/.m2/repository"
+[O] Found com.github.luxlang:lux-jvm-0.6.3 at "~/.m2/repository"
+ Local successes: 0: "com.github.luxlang:lux-jvm-0.6.3"
   Local failures: 
 Remote successes: 
  Remote failures:
@@ -124,7 +124,7 @@ Now that we have seen the available commands, it would be useful to see an annot
  [... An optional identity for the project.
   ... It can also be specified or overriden in a non-default profile.
   ... This will be the name given to the project when installed/deployed as a dependency.
-  "identity" ["com.github.luxlang" "stdlib" "0.6.2"]
+  "identity" ["com.github.luxlang" "stdlib" "0.6.3"]
 
   ... Every piece of information, and the whole "info" bundle, are optional.
   "info" ["url" "https://github.com/LuxLang/lux"
@@ -163,36 +163,36 @@ Now that we have seen the available commands, it would be useful to see an annot
  ... The following are alternative profiles to use in various situations.
  "jvm"
  [... "compiler" specifies the dependency to fetch and use as the compiler.
-  "compiler" ["com.github.luxlang" "lux-jvm" "0.6.2" "jar"]
+  "compiler" ["com.github.luxlang" "lux-jvm" "0.6.3" "jar"]
   ... "dependencies" is an optional list of dependencies to fetch.
   ... The dependencies have the same shape as when specifying the compiler.
   ... When omitting the packaging format of the dependency, "tar" will be assumed.
   ... "dependencies" [["org.ow2.asm" "asm-all" "5.0.3" "jar"]
-  ...                 ["com.github.luxlang" "stdlib" "0.6.2"]]
+  ...                 ["com.github.luxlang" "stdlib" "0.6.3"]]
   ... The OS command to use when running JVM tests. The default is described below.
   ... "java" ["java" "-jar"]
   ]
 
  "js"
- ["compiler" ["com.github.luxlang" "lux-js" "0.6.2" "js"]
+ ["compiler" ["com.github.luxlang" "lux-js" "0.6.3" "js"]
   ... The OS command to use when running JS tests. The default is described below.
   ... "js" ["node" "--stack_size=8192"]
   ]
 
  "python"
- ["compiler" ["com.github.luxlang" "lux-python" "0.6.2" "jar"]
+ ["compiler" ["com.github.luxlang" "lux-python" "0.6.3" "jar"]
   ... The OS command to use when running Python tests. The default is described below.
   ... "python" ["python3"]
   ]
 
  "lua"
- ["compiler" ["com.github.luxlang" "lux-lua" "0.6.2" "jar"]
+ ["compiler" ["com.github.luxlang" "lux-lua" "0.6.3" "jar"]
   ... The OS command to use when running Lua tests. The default is described below.
   ... "lua" ["lua"]
   ]
 
  "ruby"
- ["compiler" ["com.github.luxlang" "lux-ruby" "0.6.2" "jar"]
+ ["compiler" ["com.github.luxlang" "lux-ruby" "0.6.3" "jar"]
   ... The OS command to use when running Ruby tests. The default is described below.
   ... "ruby" ["ruby"]
   ]

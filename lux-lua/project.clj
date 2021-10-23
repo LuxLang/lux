@@ -1,9 +1,12 @@
-(def version "0.6.2")
+(def version "0.6.3")
 (def repo "https://github.com/LuxLang/lux")
 (def sonatype-releases "https://oss.sonatype.org/service/local/staging/deploy/maven2/")
 (def sonatype-snapshots "https://oss.sonatype.org/content/repositories/snapshots/")
 
-(defproject com.github.luxlang/lux-lua "0.6.3-SNAPSHOT" ;; #=(identity version)
+(def asm_version "5.0.4")
+(def rembulan_version "0.1")
+
+(defproject com.github.luxlang/lux-lua #=(identity version)
   :description "A Lua compiler for Lux."
   :url ~repo
   :license {:name "Lux License v0.1.2"
@@ -20,10 +23,17 @@
   
   :plugins [[com.github.luxlang/lein-luxc ~version]]
   :dependencies [[com.github.luxlang/lux-bootstrapper ~version]
-                 [com.github.luxlang/stdlib ~version]
-                 [com.github.luxlang/rembulan-runtime "0.1"]
-                 [com.github.luxlang/rembulan-stdlib "0.1"]
-                 [com.github.luxlang/rembulan-compiler "0.1"]]
+                 ;; [com.github.luxlang/stdlib ~version]
+                 
+                 [org.ow2.asm/asm ~asm_version]
+                 [org.ow2.asm/asm-commons ~asm_version]
+                 [org.ow2.asm/asm-analysis ~asm_version]
+                 [org.ow2.asm/asm-tree ~asm_version]
+                 [org.ow2.asm/asm-util ~asm_version]
+                 
+                 [com.github.luxlang/rembulan-runtime ~rembulan_version]
+                 [com.github.luxlang/rembulan-stdlib ~rembulan_version]
+                 [com.github.luxlang/rembulan-compiler ~rembulan_version]]
 
   :manifest {"lux" ~version}
   :source-paths ["source"]

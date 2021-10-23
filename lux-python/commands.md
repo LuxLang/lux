@@ -28,6 +28,6 @@ cd ~/lux/stdlib/ \
 
 ```
 cd ~/lux/lux-python/ \
-&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-python -Dversion=0.7.0-SNAPSHOT -Dpackaging=jar
+&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-python -Dversion=0.6.3 -Dpackaging=jar
 ```
 

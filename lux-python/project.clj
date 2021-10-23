@@ -1,4 +1,4 @@
-(def version "0.6.2")
+(def version "0.6.3")
 (def repo "https://github.com/LuxLang/lux")
 (def sonatype-releases "https://oss.sonatype.org/service/local/staging/deploy/maven2/")
 (def sonatype-snapshots "https://oss.sonatype.org/content/repositories/snapshots/")
@@ -20,7 +20,8 @@
   
   :plugins [[com.github.luxlang/lein-luxc ~version]]
   :dependencies [[com.github.luxlang/lux-bootstrapper ~version]
-                 [com.github.luxlang/stdlib ~version]
+                 ;; [com.github.luxlang/stdlib ~version]
+                 
                  [org.python/jython-standalone "2.7.2"]]
 
   :manifest {"lux" ~version}

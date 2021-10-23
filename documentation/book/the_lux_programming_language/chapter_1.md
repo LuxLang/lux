@@ -43,8 +43,8 @@ These are the steps:
   "repositories" ["https://oss.sonatype.org/content/repositories/snapshots/"
                   "https://oss.sonatype.org/service/local/staging/deploy/maven2/"]
   
-  "dependencies" [["com.github.luxlang" "stdlib" "0.6.2" "tar"]]
-  "compiler" ["com.github.luxlang" "lux-jvm" "0.6.2" "jar"]
+  "dependencies" [["com.github.luxlang" "stdlib" "0.6.3" "tar"]]
+  "compiler" ["com.github.luxlang" "lux-jvm" "0.6.3" "jar"]
 
   "program" "main"]]
 

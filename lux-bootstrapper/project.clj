@@ -1,4 +1,4 @@
-(defproject com.github.luxlang/lux-bootstrapper "0.6.2"
+(defproject com.github.luxlang/lux-bootstrapper "0.6.3"
   :min-lein-version  "2.1.0" ;; 2.1.0 introduced jar classifiers
   :description "The JVM (bootstrapping) compiler for the Lux programming language."
   :url "https://github.com/LuxLang/lux"
@@ -13,13 +13,7 @@
                               [:url "https://github.com/eduardoejp"]]]
   :dependencies [[org.clojure/clojure "1.6.0"]
                  [org.clojure/core.match "0.2.1"]
-                 ;; Prefer when building Lua compiler.
-                 ;; [org.ow2.asm/asm "5.0.3"]
-                 ;; [org.ow2.asm/asm-commons "5.0.3"]
-                 ;; [org.ow2.asm/asm-analysis "5.0.3"]
-                 ;; [org.ow2.asm/asm-tree "5.0.3"]
-                 ;; [org.ow2.asm/asm-util "5.0.3"]
-
+                 
                  ;; Prefer when building JS compiler.
                  [org.ow2.asm/asm "7.3.1"]
                  [org.ow2.asm/asm-commons "7.3.1"]

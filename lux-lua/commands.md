@@ -33,6 +33,6 @@ cd ~/lux/stdlib/ \
 
 ```
 cd ~/lux/lux-lua/ \
-&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-lua -Dversion=0.6.0-SNAPSHOT -Dpackaging=jar
+&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-lua -Dversion=0.6.3 -Dpackaging=jar
 ```
 

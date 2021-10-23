@@ -1,6 +1,6 @@
-(defproject com.github.luxlang/lein-luxc "0.6.2"
+(defproject com.github.luxlang/lein-luxc "0.6.3"
   :description "The Leiningen plugin for the Lux programming language."
-  :url "https://github.com/LuxLang/lein-luxc"
+  :url "https://github.com/LuxLang/lux"
   :license {:name "Lux License v0.1.2"
             :url "https://github.com/LuxLang/lux/blob/master/license.txt"}
   :dependencies [[org.clojure/clojure "1.6.0"]]
