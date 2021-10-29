@@ -6,7 +6,7 @@ It's meant to be a functional, statically-typed Lisp that will run on several pl
 
 ### What's the current version?
 
-0.6.0
+0.6.3
 
 ### How far ahead is the project?
 
@@ -32,11 +32,9 @@ You can become a patron by supporting Lux through [Patreon](https://www.patreon.
 
 The language is mostly inspired by the following 3 languages:
 
-* Haskell (functional programming)
 * Clojure (syntax, overall look & feel)
-* ML (module system)
-
-The compiler is even implemented in Clojure.
+* Haskell (functional programming)
+* Standard ML (module system)
 
 ### Types
 
@@ -46,13 +44,13 @@ That means it's actually possible to generate types via functions and macros.
 
 ### Module system
 
-The module system is heavily inspired by ML, and both signatures and structures are supported.
+The module system is heavily inspired by Standard ML.
 
-The main difference between Lux and ML is that ML separates signatures and structures from the rest of the language, whereas Lux implements them on top of the base language.
+The main difference between Lux and Standard ML is that Standard ML separates interfaces/signatures and implementations/structures from the rest of the language, whereas Lux implements them on top of the base language.
 
 How?
 
-By implementing signatures as record-types and structures as actual records.
+By implementing interfaces/signatures as record-types and implementations/structures as actual records.
 
 ##### But, why not just use type-classes?
 
@@ -60,13 +58,13 @@ Haskell's type-class system forces the user to only specify 1 instance for any g
 
 If there are more than 1 possible valid instances (as is the case for Monoid of Int), you have to resort to _newtype hacks_ to be able to provide alternative implementations.
 
-By using a system like ML's, that problem is averted.
+By using a system like Standard ML's, that problem is averted.
 
 Additionally, by hosting the module system on top of records, which are regular values, you get the further benefit that structures can be parameterized at run-time just like any other value.
 
-You can also write functions that take and return structures (as _functors_ do in ML), and you can generate structures on the fly.
+You can also write functions that take and return structures (as _functors_ do in Standard ML), and you can generate structures on the fly.
 
-> Also, Lux now offers a mechanism for easy polymorphism, just like Haskell's type-classes, but built upon it's module system, thanks to the `library/lux/type/auto` module and its `##` macro.
+> Also, Lux now offers a mechanism for easy polymorphism, just like Haskell's type-classes, but built upon its module system, thanks to the `library/lux/type/auto` module and its `##` macro.
 
 > You can learn more about that by reading the book and the documentation.
 
@@ -78,17 +76,20 @@ Functions are curried and partial application is as simple as just applying a fu
 
 e.g.
 
-	(map (n.+ 1) (list 1 2 3 4 5))
+```
+... Add 1 to each number in the list.
+(each (+ 1) (list 1 2 3 4 5))
+```
 
 ### Macros
 
 Unlike in most other lisps, Lux macros are monadic.
 
-The **(Lux a)** type is the one responsible for the magic by threading **Compiler** instances through macros.
+The `(Meta a)` type is the one responsible for the magic by threading `Lux` compiler-state instances through macros.
 
-You can use **macro:** to define these monadic macros.
+You can use `macro:` to define these monadic macros.
 
-Alternatively, you can use the **syntax:** macro, which also offers monadic parsing of Code tokens for convenience.
+Alternatively, you can use the `syntax:` macro, which also offers monadic parsing of Code tokens for convenience.
 
 ### Custom pattern-matching
 
@@ -96,45 +97,57 @@ Alternatively, you can use the **syntax:** macro, which also offers monadic pars
 
 Custom pattern-matching basically means that you can use macros to provide custom syntax and features on top of the pattern-matching macro `case`.
 
-For instance, the **list** and **list&** macros are used to build lists.
+For instance, the `list` and `list&` macros are used to build lists.
+
 But you can also use them to destructure lists inside pattern-matching:
 
-	(case (: (List Nat) (list 1 2 3))
-	  {#Item x {#Item y {#Item z {#End}}}}
-	  {#Some ($_ n.* x y z)}
+```
+... Try to pattern-match against a list, extract its elements and multiply them.
+(: (Maybe Nat)
+   (case (: (List Nat)
+            (list 2 3))
+     {#Item x {#Item y {#End}}}
+     {#Some (* x y)}
 
-	  _
-	  {#None})
+     _
+     {#None}))
 
-	(case (: (List Nat) (list 1 2 3))
-	  (^ (list x y z))
-	  {#Some ($_ n.* x y z)}
-
-	  _
-	  {#None})
+(: (Maybe Nat)
+   (case (: (List Nat)
+            (list 2 3))
+     (^ (list x y))
+     {#Some (* x y)}
+   
+     _
+     {#None}))
+```
 
 There is also the special **^or** macro, which introduces *or patterns*:
 
-	(type: Weekday
-	  (Variant
-	    {#Monday}
-	    {#Tuesday}
-	    {#Wednesday}
-	    {#Thursday}
-	    {#Friday}
-	    {#Saturday}
-	    {#Sunday})))
+```
+(type: Weekday
+  (Variant
+    {#Monday}
+    {#Tuesday}
+    {#Wednesday}
+    {#Thursday}
+    {#Friday}
+    {#Saturday}
+    {#Sunday})))
 
-	(def: (weekend? day)
-	  (-> Weekday Bit)
-	  (case day
-	    (^or {#Saturday} {#Sunday})
-	    true
+... Returns TRUE if it's either Saturday OR Sunday.
+(def: (weekend? day)
+  (-> Weekday Bit)
+  (case day
+    (^or {#Saturday}
+         {#Sunday})
+    true
 
-	    _
-	    false))
+    _
+    false))
+```
 
-> Please note: ^ and ^or are just macros like any other and anyone can implement them.
+> Please note that `^` and `^or` are just macros like any other and anyone can implement them.
 
 ### Is there a community for this?
 
@@ -156,7 +169,7 @@ Also, you can check out [the documentation for the currently available modules](
 
 ### How can I contribute?
 
-For starters, you can check out the Trello board for Lux development: https://trello.com/b/VRQhvXjs/lux-jvm-compiler
+For starters, you can check out the [Trello board](https://trello.com/b/VRQhvXjs/lux-jvm-compiler) for Lux development.
 
 I'll be putting there tasks that people can contribute to; both in the compiler and outside (like plugins for editors).
 
