@@ -384,6 +384,54 @@
             ... else
             {try.#Success []}))
 
+    (exception: .public (cannot_overwrite_extension [extension extension.Name])
+      (exception.report
+       ["Extension" (%.text extension)]))
+
+    (def: (with_extensions from to)
+      (All (_ state input output)
+        (-> (extension.Bundle state input output)
+            (extension.Bundle state input output)
+            (Try (extension.Bundle state input output))))
+      (monad.mix try.monad
+                 (function (_ [extension expected] output)
+                   (with_expansions [<inherited> (dictionary.has extension expected output)]
+                     (case (dictionary.value extension output)
+                       {.#None}
+                       {try.#Success <inherited>}
+                       
+                       {.#Some actual}
+                       (if (same? expected actual)
+                         {try.#Success <inherited>}
+                         (exception.except ..cannot_overwrite_extension [extension])))))
+                 to
+                 ... TODO: Come up with something better. This is not an ideal solution because it can mask overwrites happening across multiple imported modules.
+                 (list.only (|>> product.left (dictionary.key? to) not)
+                            (dictionary.entries from))))
+
+    (template [<name> <path>]
+      [(def: (<name> from state)
+         (All (_ <type_vars>)
+           (-> <State+> <State+> (Try <State+>)))
+         (do try.monad
+           [inherited (with_extensions (value@ <path> from) (value@ <path> state))]
+           (in (with@ <path> inherited state))))]
+
+      [with_analysis_extensions [extension.#state ///directive.#analysis ///directive.#state extension.#bundle]]
+      [with_synthesis_extensions [extension.#state ///directive.#synthesis ///directive.#state extension.#bundle]]
+      [with_generation_extensions [extension.#state ///directive.#generation ///directive.#state extension.#bundle]]
+      [with_directive_extensions [extension.#bundle]]
+      )
+
+    (def: (with_all_extensions from state)
+      (All (_ <type_vars>)
+        (-> <State+> <State+> (Try <State+>)))
+      (do try.monad
+        [state (with_analysis_extensions from state)
+         state (with_synthesis_extensions from state)
+         state (with_generation_extensions from state)]
+        (with_directive_extensions from state)))
+    
     (with_expansions [<Context> (as_is [Archive <State+>])
                       <Result> (as_is (Try <Context>))
                       <Return> (as_is (Async <Result>))
@@ -481,15 +529,14 @@
                                                                                       [(archive.merged resulting_archive archive)
                                                                                        state])
                                                                                     current)]
-                                                (in {try.#Success [merged_archive resulting_state]}))))
-                        _ (async.future (resolver result))]
-                       (in [])))]
+                                                (in {try.#Success [merged_archive resulting_state]}))))]
+                       (async.future (resolver result))))]
                 return)))))
 
       ... TODO: Find a better way, as this only works for the Lux compiler.
-      (def: (updated_state archive state)
+      (def: (updated_state archive extended_states state)
         (All (_ <type_vars>)
-          (-> Archive <State+> (Try <State+>)))
+          (-> Archive (List <State+>) <State+> (Try <State+>)))
         (do [! try.monad]
           [modules (monad.each ! (function (_ module)
                                    (do !
@@ -499,22 +546,25 @@
                                (archive.archived archive))
            .let [additions (|> modules
                                (list#each product.left)
-                               (set.of_list text.hash))]]
-          (in (revised@ [extension.#state
-                         ///directive.#analysis
-                         ///directive.#state
-                         extension.#state]
-                        (function (_ analysis_state)
-                          (|> analysis_state
-                              (:as .Lux)
-                              (revised@ .#modules (function (_ current)
-                                                    (list#composite (list.only (|>> product.left
-                                                                                    (set.member? additions)
-                                                                                    not)
-                                                                               current)
-                                                                    modules)))
-                              :expected))
-                        state))))
+                               (set.of_list text.hash))
+                 with_modules (: (All (_ <type_vars>)
+                                   (-> <State+> <State+>))
+                                 (revised@ [extension.#state
+                                            ///directive.#analysis
+                                            ///directive.#state
+                                            extension.#state]
+                                           (function (_ analysis_state)
+                                             (|> analysis_state
+                                                 (:as .Lux)
+                                                 (revised@ .#modules (function (_ current)
+                                                                       (list#composite (list.only (|>> product.left
+                                                                                                       (set.member? additions)
+                                                                                                       not)
+                                                                                                  current)
+                                                                                       modules)))
+                                                 :expected))))]
+           state (monad.mix ! with_all_extensions state extended_states)]
+          (in (with_modules state))))
 
       (def: (set_current_module module state)
         (All (_ <type_vars>)
@@ -588,7 +638,9 @@
                                                                           (list#each product.left)
                                                                           (list#mix archive.merged archive))]]
                                                        (in [archive (try.trusted
-                                                                     (..updated_state archive state))])))
+                                                                     (..updated_state archive
+                                                                                      (list#each product.right archive,document+)
+                                                                                      state))])))
                                                    (async#in (exception.except ..cannot_import_twice [module duplicates])))]
                                 (case ((value@ ///.#process compilation)
                                        ... TODO: The "///directive.set_current_module" below shouldn't be necessary. Remove it ASAP.
