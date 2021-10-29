@@ -1,3 +1,5 @@
+[![Gitter](https://badges.gitter.im/LuxProgrammingLanguage/community.svg)](https://gitter.im/LuxProgrammingLanguage/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
+
 ## What is Lux?
 
 Lux is a new programming language in the making.
@@ -151,9 +153,11 @@ There is also the special **^or** macro, which introduces *or patterns*:
 
 ### Is there a community for this?
 
-Come join the forum at: http://luxlang.freeforums.net/
+Say hi at Gitter: https://gitter.im/LuxProgrammingLanguage/community
 
-If you want to communicate with me directly, just email me at luxlisp@gmail.com
+Come join the forum: http://luxlang.freeforums.net/
+
+If you want to communicate with me directly, just email: luxlisp@gmail.com
 
 ### How can I edit Lux code?
 
