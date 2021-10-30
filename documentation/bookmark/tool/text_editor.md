@@ -227,6 +227,7 @@
 
 ## Structured editing
 
+1. [The Animated Guide to Symex](https://countvajhula.com/2021/09/25/the-animated-guide-to-symex/)
 1. [Leo](https://www.leoeditor.com/)
 1. [Inspiring a future Clojure editor with forgotten Lisp UX - Shaun Lebron](https://www.youtube.com/watch?v=K0Tsa3smr1w)
 1. [Dion Systems - The How And Why Of Reinventing The Wheel](https://vimeo.com/485177664)

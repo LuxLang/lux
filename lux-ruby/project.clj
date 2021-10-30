@@ -3,7 +3,7 @@
 (def sonatype-releases "https://oss.sonatype.org/service/local/staging/deploy/maven2/")
 (def sonatype-snapshots "https://oss.sonatype.org/content/repositories/snapshots/")
 
-(defproject com.github.luxlang/lux-ruby #=(identity version)
+(defproject com.github.luxlang/lux-ruby "0.6.4-SNAPSHOT" ;; #=(identity version)
   :description "A Ruby compiler for Lux."
   :url ~repo
   :license {:name "Lux License v0.1.2"

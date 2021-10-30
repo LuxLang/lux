@@ -574,103 +574,127 @@
             try.trusted
             product.left))
 
+      ... TODO: Come up with a less hacky way to prevent duplicate imports.
+      ... This currently assumes that all imports will be specified once in a single .using form.
+      ... This might not be the case in the future.
+      (def: (with_new_dependencies new_dependencies all_dependencies)
+        (-> (List Module) (Set Module) [(Set Module) (Set Module)])
+        (let [[all_dependencies duplicates _] (: [(Set Module) (Set Module) Bit]
+                                                 (list#mix (function (_ new [all duplicates seen_prelude?])
+                                                             (if (set.member? all new)
+                                                               (if (text#= .prelude_module new)
+                                                                 (if seen_prelude?
+                                                                   [all (set.has new duplicates) seen_prelude?]
+                                                                   [all duplicates true])
+                                                                 [all (set.has new duplicates) seen_prelude?])
+                                                               [(set.has new all) duplicates seen_prelude?]))
+                                                           (: [(Set Module) (Set Module) Bit]
+                                                              [all_dependencies ..empty (set.empty? all_dependencies)])
+                                                           new_dependencies))]
+          [all_dependencies duplicates]))
+
+      (def: (after_imports import! module duplicates new_dependencies [archive state])
+        (All (_ <type_vars>)
+          (-> <Importer> Module (Set Module) (List Module) <Context> <Return>))
+        (do [! (try.with async.monad)]
+          []
+          (if (set.empty? duplicates)
+            (case new_dependencies
+              {.#End}
+              (in [archive state])
+
+              {.#Item _}
+              (do !
+                [archive,document+ (|> new_dependencies
+                                       (list#each (import! module))
+                                       (monad.all ..monad))
+                 .let [archive (|> archive,document+
+                                   (list#each product.left)
+                                   (list#mix archive.merged archive))]]
+                (in [archive (try.trusted
+                              (..updated_state archive
+                                               (list#each product.right archive,document+)
+                                               state))])))
+            (async#in (exception.except ..cannot_import_twice [module duplicates])))))
+
+      (def: (next_compilation module [archive state] compilation)
+        (All (_ <type_vars>)
+          (-> Module <Context> (///.Compilation <State+> .Module Any)
+              (Try [<State+> (Either (///.Compilation <State+> .Module Any)
+                                     [Descriptor (Document .Module) Output])])))
+        ((value@ ///.#process compilation)
+         ... TODO: The "///directive.set_current_module" below shouldn't be necessary. Remove it ASAP.
+         ... TODO: The context shouldn't need to be re-set either.
+         (|> (///directive.set_current_module module)
+             (///phase.result' state)
+             try.trusted
+             product.left)
+         archive))
+
+      (def: (compiler phase_wrapper expander platform)
+        (All (_ <type_vars>)
+          (-> ///phase.Wrapper Expander <Platform>
+              (///.Compiler <State+> .Module Any)))
+        (let [instancer (//init.compiler phase_wrapper expander syntax.prelude (value@ #write platform))]
+          (instancer $.key (list))))
+
+      (def: (serial_compiler import static platform compilation_sources compiler)
+        (All (_ <type_vars>)
+          (-> Import Static <Platform> (List Context) (///.Compiler <State+> .Module Any)
+              <Compiler>))
+        (function (_ importer import! module_id [archive state] module)
+          (do [! (try.with async.monad)]
+            [input (context.read (value@ #&file_system platform)
+                                 importer
+                                 import
+                                 compilation_sources
+                                 (value@ static.#host_module_extension static)
+                                 module)]
+            (loop [[archive state] [archive (..set_current_module module state)]
+                   compilation (compiler input)
+                   all_dependencies (: (Set Module)
+                                       (set.of_list text.hash (list)))]
+              (do !
+                [.let [new_dependencies (value@ ///.#dependencies compilation)
+                       [all_dependencies duplicates] (with_new_dependencies new_dependencies all_dependencies)]
+                 [archive state] (after_imports import! module duplicates new_dependencies [archive state])]
+                (case (next_compilation module [archive state] compilation)
+                  {try.#Success [state more|done]}
+                  (case more|done
+                    {.#Left more}
+                    (let [continue! (:sharing [<type_vars>]
+                                              <Platform>
+                                              platform
+                                              
+                                              (-> <Context> (///.Compilation <State+> .Module Any) (Set Module)
+                                                  (Action [Archive <State+>]))
+                                              (:expected again))]
+                      (continue! [archive state] more all_dependencies))
+
+                    {.#Right [descriptor document output]}
+                    (do !
+                      [.let [_ (debug.log! (..module_compilation_log module state))
+                             descriptor (with@ descriptor.#references all_dependencies descriptor)]
+                       _ (..cache_module static platform module_id [descriptor document output])]
+                      (case (archive.has module [descriptor document output] archive)
+                        {try.#Success archive}
+                        (in [archive
+                             (..with_reset_log state)])
+                        
+                        {try.#Failure error}
+                        (async#in {try.#Failure error}))))
+
+                  {try.#Failure error}
+                  (do !
+                    [_ (ioW.freeze (value@ #&file_system platform) static archive)]
+                    (async#in {try.#Failure error}))))))))
+
       (def: .public (compile phase_wrapper import static expander platform compilation context)
         (All (_ <type_vars>)
           (-> ///phase.Wrapper Import Static Expander <Platform> Compilation <Context> <Return>))
-        (let [[compilation_sources compilation_host_dependencies compilation_libraries compilation_target compilation_module] compilation
-              base_compiler (:sharing [<type_vars>]
-                                      <Context>
-                                      context
-                                      
-                                      (///.Compiler <State+> .Module Any)
-                                      (:expected
-                                       ((//init.compiler phase_wrapper expander syntax.prelude (value@ #write platform)) $.key (list))))
-              compiler (..parallel
-                        context
-                        (function (_ importer import! module_id [archive state] module)
-                          (do [! (try.with async.monad)]
-                            [.let [state (..set_current_module module state)]
-                             input (context.read (value@ #&file_system platform)
-                                                 importer
-                                                 import
-                                                 compilation_sources
-                                                 (value@ static.#host_module_extension static)
-                                                 module)]
-                            (loop [[archive state] [archive state]
-                                   compilation (base_compiler (:as ///.Input input))
-                                   all_dependencies (: (Set Module)
-                                                       (set.of_list text.hash (list)))]
-                              (do !
-                                [.let [new_dependencies (value@ ///.#dependencies compilation)
-                                       continue! (:sharing [<type_vars>]
-                                                           <Platform>
-                                                           platform
-                                                           
-                                                           (-> <Context> (///.Compilation <State+> .Module Any) (Set Module)
-                                                               (Action [Archive <State+>]))
-                                                           (:expected again))
-                                       ... TODO: Come up with a less hacky way to prevent duplicate imports.
-                                       ... This currently assumes that all imports will be specified once in a single .using form.
-                                       ... This might not be the case in the future.
-                                       [all_dependencies duplicates _] (: [(Set Module) (Set Module) Bit]
-                                                                          (list#mix (function (_ new [all duplicates seen_prelude?])
-                                                                                      (if (set.member? all new)
-                                                                                        (if (text#= .prelude_module new)
-                                                                                          (if seen_prelude?
-                                                                                            [all (set.has new duplicates) seen_prelude?]
-                                                                                            [all duplicates true])
-                                                                                          [all (set.has new duplicates) seen_prelude?])
-                                                                                        [(set.has new all) duplicates seen_prelude?]))
-                                                                                    (: [(Set Module) (Set Module) Bit]
-                                                                                       [all_dependencies ..empty (set.empty? all_dependencies)])
-                                                                                    new_dependencies))]
-                                 [archive state] (if (set.empty? duplicates)
-                                                   (case new_dependencies
-                                                     {.#End}
-                                                     (in [archive state])
-
-                                                     {.#Item _}
-                                                     (do !
-                                                       [archive,document+ (|> new_dependencies
-                                                                              (list#each (import! module))
-                                                                              (monad.all ..monad))
-                                                        .let [archive (|> archive,document+
-                                                                          (list#each product.left)
-                                                                          (list#mix archive.merged archive))]]
-                                                       (in [archive (try.trusted
-                                                                     (..updated_state archive
-                                                                                      (list#each product.right archive,document+)
-                                                                                      state))])))
-                                                   (async#in (exception.except ..cannot_import_twice [module duplicates])))]
-                                (case ((value@ ///.#process compilation)
-                                       ... TODO: The "///directive.set_current_module" below shouldn't be necessary. Remove it ASAP.
-                                       ... TODO: The context shouldn't need to be re-set either.
-                                       (|> (///directive.set_current_module module)
-                                           (///phase.result' state)
-                                           try.trusted
-                                           product.left)
-                                       archive)
-                                  {try.#Success [state more|done]}
-                                  (case more|done
-                                    {.#Left more}
-                                    (continue! [archive state] more all_dependencies)
-
-                                    {.#Right [descriptor document output]}
-                                    (do !
-                                      [.let [_ (debug.log! (..module_compilation_log module state))
-                                             descriptor (with@ descriptor.#references all_dependencies descriptor)]
-                                       _ (..cache_module static platform module_id [descriptor document output])]
-                                      (case (archive.has module [descriptor document output] archive)
-                                        {try.#Success archive}
-                                        (in [archive
-                                             (..with_reset_log state)])
-                                        
-                                        {try.#Failure error}
-                                        (async#in {try.#Failure error}))))
-
-                                  {try.#Failure error}
-                                  (do !
-                                    [_ (ioW.freeze (value@ #&file_system platform) static archive)]
-                                    (async#in {try.#Failure error}))))))))]
-          (compiler archive.runtime_module compilation_module)))
+        (let [[sources host_dependencies libraries target module] compilation
+              compiler (|> (..compiler phase_wrapper expander platform)
+                           (serial_compiler import static platform sources)
+                           (..parallel context))]
+          (compiler archive.runtime_module module)))
       )))
