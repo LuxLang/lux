@@ -25,6 +25,8 @@
     [collection
      ["[0]" sequence]
      ["[0]" list ("[1]#[0]" functor)]]]
+   [macro
+    ["[0]" template]]
    [math
     ["[0]" random]
     [number
@@ -36,6 +38,7 @@
       [lux
        ["[0]" analysis]
        ["[0]" synthesis]
+       ["[0]" generation]
        ["[0]" directive]
        [phase
         [analysis
@@ -44,11 +47,18 @@
  [\\library
   ["[0]" / {"+" analysis: synthesis: generation: directive:}]])
 
-(def: my_analysis "my analysis")
-(def: my_synthesis "my synthesis")
-(def: my_generation "my generation")
 (def: dummy_generation "dummy generation")
-(def: my_directive "my directive")
+
+(template [<name>]
+  [(def: <name>
+     Text
+     (`` (%.symbol (symbol (~~ (template.symbol [.._ <name>]))))))]
+
+  [analysis]
+  [synthesis]
+  [generation]
+  [directive]
+  )
 
 ... Generation
 (for [@.old
@@ -62,33 +72,33 @@
            (as_is))
       
       ... Analysis
-      (analysis: (..my_analysis self phase archive [pass_through <code>.any])
+      (analysis: (..analysis self phase archive [pass_through <code>.any])
         (phase archive pass_through))
 
       ... Synthesis
-      (analysis: (..my_synthesis self phase archive [parameters (<>.some <code>.any)])
+      (analysis: (..synthesis self phase archive [parameters (<>.some <code>.any)])
         (let [! phase.monad]
           (|> parameters
               (monad.each ! (phase archive))
               (# ! each (|>> {analysis.#Extension self})))))
 
-      (synthesis: (..my_synthesis self phase archive [pass_through <analysis>.any])
+      (synthesis: (..synthesis self phase archive [pass_through <analysis>.any])
         (phase archive pass_through))
 
       ... Generation
-      (analysis: (..my_generation self phase archive [parameters (<>.some <code>.any)])
+      (analysis: (..generation self phase archive [parameters (<>.some <code>.any)])
         (let [! phase.monad]
           (|> parameters
               (monad.each ! (phase archive))
               (# ! each (|>> {analysis.#Extension self})))))
 
-      (synthesis: (..my_generation self phase archive [parameters (<>.some <analysis>.any)])
+      (synthesis: (..generation self phase archive [parameters (<>.some <analysis>.any)])
         (let [! phase.monad]
           (|> parameters
               (monad.each ! (phase archive))
               (# ! each (|>> {synthesis.#Extension self})))))
 
-      (generation: (..my_generation self phase archive [pass_through <synthesis>.any])
+      (generation: (..generation self phase archive [pass_through <synthesis>.any])
         (for [@.jvm
               (# phase.monad each (|>> {jvm.#Embedded} sequence.sequence)
                  (phase archive pass_through))]
@@ -113,12 +123,35 @@
                  @.scheme (scheme.string self)])))
 
       ... Directive
-      (directive: (..my_directive self phase archive [parameters (<>.some <code>.any)])
-        (do phase.monad
-          [.let [_ (debug.log! (format "Successfully installed directive " (%.text self) "!"))]]
+      (directive: (..directive self phase archive [expression <code>.any])
+        (do [! phase.monad]
+          [analysis_phase directive.analysis
+           expressionA (directive.lifted_analysis
+                        (type.with_type .Any
+                          (analysis_phase archive expression)))
+
+           synthesis_phase directive.synthesis
+           expressionS (directive.lifted_synthesis
+                        (synthesis_phase archive expressionA))
+
+           generation_phase directive.generation
+           expressionG (directive.lifted_generation
+                        (generation_phase archive expressionS))
+           
+           _ (directive.lifted_generation
+              (generation.with_new_context archive
+                (do !
+                  [[module_id artifact_id] (generation.context archive)
+                   .let [commentary (format "Successfully installed directive " (%.text self) "!")]
+                   _ (generation.save! artifact_id {.#None}
+                                       (for [@.js (js.comment commentary
+                                                    (js.statement (js.string commentary)))
+                                             @.ruby (ruby.comment commentary
+                                                      (ruby.statement (ruby.string commentary)))]))]
+                  (generation.log! commentary))))]
           (in directive.no_requirements)))
 
-      (`` ((~~ (static ..my_directive))))
+      (`` ((~~ (static ..directive)) (n.* 2 3)))
       ))
 
 (def: .public test
@@ -134,13 +167,13 @@
                                      (n.= expected
                                           (`` ((~~ (static <extension>)) expected)))))]
 
-                      [/.analysis: ..my_analysis]
-                      [/.synthesis: ..my_synthesis]))
+                      [/.analysis: ..analysis]
+                      [/.synthesis: ..synthesis]))
                 (_.cover [/.generation:]
                          (for [@.old
                                false]
                               (and (n.= expected
-                                        (`` ((~~ (static ..my_generation)) expected)))
+                                        (`` ((~~ (static ..generation)) expected)))
                                    (text#= ..dummy_generation
                                            (`` ((~~ (static ..dummy_generation))))))))
                 (_.cover [/.directive:]

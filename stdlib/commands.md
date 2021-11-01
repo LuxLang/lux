@@ -17,11 +17,11 @@ cd ~/lux/stdlib/ \
 
 cd ~/lux/stdlib/ \
 && lux clean \
-&& lux with python with bibliotheca auto test
+&& lux with lua with bibliotheca auto test
 
 cd ~/lux/stdlib/ \
 && lux clean \
-&& lux with lua with bibliotheca auto test
+&& lux with python with bibliotheca auto test
 
 cd ~/lux/stdlib/ \
 && lux clean \
@@ -70,17 +70,17 @@ cd ~/lux/stdlib/ \
 && lux with js with scriptum build \
 && node ~/lux/stdlib/target/program.js > ~/lux/documentation/library/standard/js.md
 
-### Python
-cd ~/lux/stdlib/ \
-&& lux clean \
-&& lux with python with scriptum build \
-&& python3 ~/lux/stdlib/target/program.py > ~/lux/documentation/library/standard/python.md
-
 ### Lua
 cd ~/lux/stdlib/ \
 && lux clean \
 && lux with lua with scriptum build \
 && ~/lua-5.4.2/install/bin/lua ~/lux/stdlib/target/program.lua > ~/lux/documentation/library/standard/lua.md
+
+### Python
+cd ~/lux/stdlib/ \
+&& lux clean \
+&& lux with python with scriptum build \
+&& python3 ~/lux/stdlib/target/program.py > ~/lux/documentation/library/standard/python.md
 
 ### Ruby
 cd ~/lux/stdlib/ \
