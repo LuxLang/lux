@@ -1,4 +1,4 @@
-(defproject com.github.luxlang/lux-bootstrapper "0.6.3"
+(defproject com.github.luxlang/lux-bootstrapper "0.6.4"
   :min-lein-version  "2.1.0" ;; 2.1.0 introduced jar classifiers
   :description "The JVM (bootstrapping) compiler for the Lux programming language."
   :url "https://github.com/LuxLang/lux"
