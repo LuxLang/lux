@@ -8,7 +8,7 @@ It's meant to be a functional, statically-typed Lisp that will run on several pl
 
 ### What's the current version?
 
-0.6.3
+0.6.4
 
 ### How far ahead is the project?
 
@@ -155,7 +155,9 @@ There is also the special **^or** macro, which introduces *or patterns*:
 
 Say hi at Gitter: https://gitter.im/LuxProgrammingLanguage/community
 
-Come join the forum: http://luxlang.freeforums.net/
+Come join the forum: https://lux.hedgewit.ch/forum/
+
+> There is also an older forum at: http://luxlang.freeforums.net/
 
 If you want to communicate with me directly, just email: luxlisp@gmail.com
 

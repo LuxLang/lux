@@ -14,7 +14,7 @@ My mission with Lux has been (and continues to be) to create a language that max
 
 Lux is still in its adolescence.
 
-What you have learned is Lux version 0.6.3.
+What you have learned is Lux version 0.6.4.
 
 In future releases, much more power will be added to the language, more platforms will be within reach of Lux programmers, and better performance will be achieved, with little to no effort on the side of programmers.
 

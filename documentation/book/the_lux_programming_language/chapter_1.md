@@ -23,7 +23,7 @@ Lux uses a custom-made build tool named _Aedifex_ which is configured using a de
 
 To install Aedifex, go to https://github.com/LuxLang/lux/tree/master/shell and download either `lux.bat` or `lux.sh` depending on whether you're on Windows or Linux/Mac.
 
-Also [download the aedifex.jar file](https://github.com/LuxLang/lux/releases/download/0.6.2/aedifex.jar), and place it (along with either of the scripts you downloaded) somewhere in your `PATH`.
+Also [download the aedifex.jar file](https://github.com/LuxLang/lux/releases/download/0.6.4/aedifex.jar), and place it (along with either of the scripts you downloaded) somewhere in your `PATH`.
 
 Now, you'll have access to the `lux` command, which allows you to run Aedifex to build and test Lux projects.
 
@@ -43,8 +43,8 @@ These are the steps:
   "repositories" ["https://oss.sonatype.org/content/repositories/snapshots/"
                   "https://oss.sonatype.org/service/local/staging/deploy/maven2/"]
   
-  "dependencies" [["com.github.luxlang" "stdlib" "0.6.3" "tar"]]
-  "compiler" ["com.github.luxlang" "lux-jvm" "0.6.3" "jar"]
+  "dependencies" [["com.github.luxlang" "stdlib" "0.6.4" "tar"]]
+  "compiler" ["com.github.luxlang" "lux-jvm" "0.6.4" "jar"]
 
   "program" "main"]]
 
