@@ -1,30 +1,30 @@
 (.using
-  [library
-   [lux {"-" Location Code static int if cond function or and not comment local global symbol}
-    ["@" target]
-    [abstract
-     [equivalence {"+" Equivalence}]
-     [hash {"+" Hash}]
-     ["[0]" enum]]
-    [control
-     [pipe {"+" case> cond> new>}]
-     [parser
-      ["<[0]>" code]]]
-    [data
-     ["[0]" text
-      ["%" format {"+" format}]]
-     [collection
-      ["[0]" list ("[1]#[0]" functor mix)]]]
-    [macro
-     [syntax {"+" syntax:}]
-     ["[0]" template]
-     ["[0]" code]]
-    [math
-     [number
-      ["n" nat]
-      ["f" frac]]]
-    [type
-     abstract]]])
+ [library
+  [lux {"-" Location Code static int if cond function or and not comment local global symbol}
+   ["@" target]
+   [abstract
+    [equivalence {"+" Equivalence}]
+    [hash {"+" Hash}]
+    ["[0]" enum]]
+   [control
+    [pipe {"+" case> cond> new>}]
+    [parser
+     ["<[0]>" code]]]
+   [data
+    ["[0]" text
+     ["%" format {"+" format}]]
+    [collection
+     ["[0]" list ("[1]#[0]" functor mix)]]]
+   [macro
+    [syntax {"+" syntax:}]
+    ["[0]" template]
+    ["[0]" code]]
+   [math
+    [number
+     ["n" nat]
+     ["f" frac]]]
+   [type
+    abstract]]])
 
 (def: input_separator ", ")
 (def: statement_suffix ";")
@@ -211,14 +211,35 @@
          (text.enclosed ["{" "}"])
          :abstraction))
 
-  (def: .public (apply/* args func)
-    (-> (List Expression) Expression Computation)
-    (|> args
-        (list#each (|>> :representation))
-        (text.interposed ..input_separator)
-        (text.enclosed ["(" ")"])
-        (format (:representation func))
-        :abstraction))
+  (type: .public Input
+    (Variant
+     {#Arguments (List Expression)}
+     {#Block Statement}))
+
+  (def: (control_structure content)
+    (-> Text Text)
+    (format content
+            text.new_line "end" ..statement_suffix))
+
+  (def: .public (apply/* input func)
+    (-> Input Expression Computation)
+    (case input
+      {#Arguments args}
+      (|> args
+          (list#each (|>> :representation))
+          (text.interposed ..input_separator)
+          (text.enclosed ["(" ")"])
+          (format (:representation func))
+          :abstraction)
+      
+      {#Block body!}
+      (|> body!
+          :representation
+          ..nested
+          (format "do")
+          ..control_structure
+          (format (:representation func) " ")
+          :abstraction)))
 
   (def: .public (the field object)
     (-> Text Expression Access)
@@ -260,26 +281,21 @@
                  (text.interposed ..input_separator))
              " = " (:representation value) ..statement_suffix)))
 
-  (def: (block content)
-    (-> Text Text)
-    (format content
-            text.new_line "end" ..statement_suffix))
-
   (def: .public (if test then! else!)
     (-> Expression Statement Statement Statement)
     (<| :abstraction
-        ..block
+        ..control_structure
         (format "if " (:representation test)
                 (..nested (:representation then!))
                 text.new_line "else"
                 (..nested (:representation else!)))))
 
-  (template [<name> <block>]
+  (template [<name> <control_structure>]
     [(def: .public (<name> test then!)
        (-> Expression Statement Statement)
        (<| :abstraction
-           ..block
-           (format <block> " " (:representation test)
+           ..control_structure
+           (format <control_structure> " " (:representation test)
                    (..nested (:representation then!)))))]
 
     [when "if"]
@@ -289,7 +305,7 @@
   (def: .public (for_in var array iteration!)
     (-> LVar Expression Statement Statement)
     (<| :abstraction
-        ..block
+        ..control_structure
         (format "for " (:representation var)
                 " in " (:representation array)
                 " do "
@@ -304,7 +320,7 @@
   (def: .public (begin body! rescues)
     (-> Statement (List Rescue) Statement)
     (<| :abstraction
-        ..block
+        ..control_structure
         (format "begin" (..nested (:representation body!))
                 (|> rescues
                     (list#each (.function (_ [classes exception rescue])
@@ -316,7 +332,7 @@
   (def: .public (catch expectation body!)
     (-> Expression Statement Statement)
     (<| :abstraction
-        ..block
+        ..control_structure
         (format "catch(" (:representation expectation) ") do"
                 (..nested (:representation body!)))))
 
@@ -343,7 +359,7 @@
   (def: .public (function name args body!)
     (-> LVar (List LVar) Statement Statement)
     (<| :abstraction
-        ..block
+        ..control_structure
         (format "def " (:representation name)
                 (|> args
                     (list#each (|>> :representation))
@@ -412,13 +428,13 @@
                           (:representation on))))
   )
 
-(def: .public (do method args object)
-  (-> Text (List Expression) Expression Computation)
-  (|> object (..the method) (..apply/* args)))
+(def: .public (do method input object)
+  (-> Text Input Expression Computation)
+  (|> object (..the method) (..apply/* input)))
 
 (def: .public (apply_lambda/* args lambda)
   (-> (List Expression) Expression Computation)
-  (..do "call" args lambda))
+  (..do "call" {#Arguments args} lambda))
 
 (def: .public (cond clauses else!)
   (-> (List [Expression Statement]) Statement Statement)
@@ -444,7 +460,7 @@
                      <definitions> (template.spliced <function>+)]
      (def: .public (<apply> function <inputs>)
        (-> Expression <types> Computation)
-       (..apply/* (.list <inputs>) function))
+       (..apply/* {#Arguments (.list <inputs>)} function))
 
      (template [<function>]
        [(`` (def: .public (~~ (template.symbol [<function> "/" <arity>]))
@@ -454,10 +470,13 @@
 
   [1
    [["print"]
-    ["require"]]]
+    ["include"]
+    ["require"]
+    ["defined?"]]]
 
   [2
-   [["print"]]]
+   [["print"]
+    ["alias_method"]]]
 
   [3
    [["print"]]]
