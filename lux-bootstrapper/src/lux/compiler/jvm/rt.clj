@@ -32,45 +32,47 @@
 
 ;; [Resources]
 ;; Functions
-;; (def compile-Function-class
-;;   (|do [_ (return nil)
-;;         :let [super-class "java/lang/Object"
-;;               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-;;                        (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER
-;;                                                          Opcodes/ACC_ABSTRACT
-;;                                                          ;; Opcodes/ACC_INTERFACE
-;;                                                          )
-;;                                &&/function-class nil super-class (into-array String []))
-;;                        (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL) &&/partials-field "I" nil nil)
-;;                            (doto (.visitEnd))))
-;;               =init-method (doto (.visitMethod =class Opcodes/ACC_PUBLIC init-method "(I)V" nil nil)
-;;                              (.visitCode)
-;;                              (.visitVarInsn Opcodes/ALOAD 0)
-;;                              (.visitMethodInsn Opcodes/INVOKESPECIAL super-class init-method "()V")
-;;                              (.visitVarInsn Opcodes/ALOAD 0)
-;;                              (.visitVarInsn Opcodes/ILOAD 1)
-;;                              (.visitFieldInsn Opcodes/PUTFIELD &&/function-class &&/partials-field "I")
-;;                              (.visitInsn Opcodes/RETURN)
-;;                              (.visitMaxs 0 0)
-;;                              (.visitEnd))
-;;               _ (dotimes [arity* &&/num-apply-variants]
-;;                   (let [arity (inc arity*)]
-;;                     (if (= 1 arity)
-;;                       (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_ABSTRACT) &&/apply-method (&&/apply-signature arity) nil nil)
-;;                         (.visitEnd))
-;;                       (doto (.visitMethod =class Opcodes/ACC_PUBLIC &&/apply-method (&&/apply-signature arity) nil nil)
-;;                         (.visitCode)
-;;                         (-> (.visitVarInsn Opcodes/ALOAD idx)
-;;                             (->> (dotimes [idx arity])))
-;;                         (.visitMethodInsn Opcodes/INVOKEVIRTUAL &&/function-class &&/apply-method (&&/apply-signature (dec arity)))
-;;                         (.visitTypeInsn Opcodes/CHECKCAST &&/function-class)
-;;                         (.visitVarInsn Opcodes/ALOAD arity)
-;;                         (.visitMethodInsn Opcodes/INVOKEVIRTUAL &&/function-class &&/apply-method (&&/apply-signature 1))
-;;                         (.visitInsn Opcodes/ARETURN)
-;;                         (.visitMaxs 0 0)
-;;                         (.visitEnd)))))]]
-;;     (&&/save-class! (-> &&/function-class (string/split #"/") (nth 2))
-;;                     (.toByteArray (doto =class .visitEnd)))))
+;; NOT BEING USED ANYMORE...
+;; But keeping it here just in case...
+(def compile-Function-class
+  (|do [_ (return nil)
+        :let [super-class "java/lang/Object"
+              =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                       (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER
+                                                         Opcodes/ACC_ABSTRACT
+                                                         ;; Opcodes/ACC_INTERFACE
+                                                         )
+                               &&/function-class nil super-class (into-array String []))
+                       (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL) &&/partials-field "I" nil nil)
+                           (doto (.visitEnd))))
+              =init-method (doto (.visitMethod =class Opcodes/ACC_PUBLIC init-method "(I)V" nil nil)
+                             (.visitCode)
+                             (.visitVarInsn Opcodes/ALOAD 0)
+                             (.visitMethodInsn Opcodes/INVOKESPECIAL super-class init-method "()V")
+                             (.visitVarInsn Opcodes/ALOAD 0)
+                             (.visitVarInsn Opcodes/ILOAD 1)
+                             (.visitFieldInsn Opcodes/PUTFIELD &&/function-class &&/partials-field "I")
+                             (.visitInsn Opcodes/RETURN)
+                             (.visitMaxs 0 0)
+                             (.visitEnd))
+              _ (dotimes [arity* &&/num-apply-variants]
+                  (let [arity (inc arity*)]
+                    (if (= 1 arity)
+                      (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_ABSTRACT) &&/apply-method (&&/apply-signature arity) nil nil)
+                        (.visitEnd))
+                      (doto (.visitMethod =class Opcodes/ACC_PUBLIC &&/apply-method (&&/apply-signature arity) nil nil)
+                        (.visitCode)
+                        (-> (.visitVarInsn Opcodes/ALOAD idx)
+                            (->> (dotimes [idx arity])))
+                        (.visitMethodInsn Opcodes/INVOKEVIRTUAL &&/function-class &&/apply-method (&&/apply-signature (dec arity)))
+                        (.visitTypeInsn Opcodes/CHECKCAST &&/function-class)
+                        (.visitVarInsn Opcodes/ALOAD arity)
+                        (.visitMethodInsn Opcodes/INVOKEVIRTUAL &&/function-class &&/apply-method (&&/apply-signature 1))
+                        (.visitInsn Opcodes/ARETURN)
+                        (.visitMaxs 0 0)
+                        (.visitEnd)))))]]
+    (&&/save-class! (-> &&/function-class (string/split #"/") (nth 2))
+                    (.toByteArray (doto =class .visitEnd)))))
 
 (defmacro <bytecode> [& instructions]
   `(fn [^MethodVisitor writer#]

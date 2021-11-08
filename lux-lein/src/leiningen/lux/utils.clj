@@ -132,6 +132,7 @@
   repl-path    "repl"
   )
 
+;; DEPRECATED
 (defn build-jvm [project module]
   (let [raw-paths (project-jars project)]
     (when-let [compiler-path (find-jvm-compiler-path raw-paths)]
