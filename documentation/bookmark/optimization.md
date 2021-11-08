@@ -8,6 +8,7 @@
 
 # Compilation
 
+1. ["Outperforming Imperative with Pure Functional Languages" by Richard Feldman](https://www.youtube.com/watch?v=vzfy4EKwG_Y)
 1. [CompilerGym: Making compiler optimizations accessible to all](https://ai.facebook.com/blog/compilergym-making-compiler-optimizations-accessible-to-all)
 1. [Future Directions for Optimizing Compilers](https://arxiv.org/abs/1809.02161)
 

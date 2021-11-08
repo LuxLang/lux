@@ -1193,7 +1193,7 @@
                                           (assoc output index (rem raw 10))
                                           (int (/ raw 10))))
                                  output)))]
-  ;; Based on the LuxRT.encode_rev method
+  ;; Based on the Runtime.encode_rev method
   (defn encode-rev [input]
     (if (= 0 input)
       ".0"
@@ -1211,7 +1211,7 @@
               (.split "0*$")
               (aget 0))))))
 
-  ;; Based on the LuxRT.decode_rev method
+  ;; Based on the Runtime.decode_rev method
   (defn decode-rev [^String input]
     (if (and (.startsWith input ".")
              (<= (.length input) (inc rev-bits)))

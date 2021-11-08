@@ -114,21 +114,21 @@
                     #(doto ^MethodVisitor %
                        (.visitInsn Opcodes/AALOAD))
                     #(doto ^MethodVisitor %
-                       (.visitMethodInsn Opcodes/INVOKESTATIC &rt/rt-class "tuple_left" "([Ljava/lang/Object;I)Ljava/lang/Object;")))]
+                       (.visitMethodInsn Opcodes/INVOKESTATIC &rt/runtime-class "tuple_left" "([Ljava/lang/Object;I)Ljava/lang/Object;")))]
       (doto writer
         stack-peek
         (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
         (.visitLdcInsn (int lefts))
         accessI
-        (.visitMethodInsn Opcodes/INVOKESTATIC &rt/rt-class "pm_stack_push" "([Ljava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")))
+        (.visitMethodInsn Opcodes/INVOKESTATIC &rt/runtime-class "pm_stack_push" "([Ljava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")))
 
     (&o/$TuplePM (&/$Right _idx))
     (doto writer
       stack-peek
       (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
       (.visitLdcInsn (int (dec _idx)))
-      (.visitMethodInsn Opcodes/INVOKESTATIC &rt/rt-class "tuple_right" "([Ljava/lang/Object;I)Ljava/lang/Object;")
-      (.visitMethodInsn Opcodes/INVOKESTATIC &rt/rt-class "pm_stack_push" "([Ljava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;"))
+      (.visitMethodInsn Opcodes/INVOKESTATIC &rt/runtime-class "tuple_right" "([Ljava/lang/Object;I)Ljava/lang/Object;")
+      (.visitMethodInsn Opcodes/INVOKESTATIC &rt/runtime-class "pm_stack_push" "([Ljava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;"))
 
     (&o/$VariantPM _idx+)
     (|let [$success (new Label)
@@ -147,7 +147,7 @@
                (.visitLdcInsn writer "")
                (.visitInsn writer Opcodes/ACONST_NULL))]
       (doto writer
-        (.visitMethodInsn Opcodes/INVOKESTATIC &rt/rt-class "sum_get" "([Ljava/lang/Object;ILjava/lang/Object;)Ljava/lang/Object;")
+        (.visitMethodInsn Opcodes/INVOKESTATIC &rt/runtime-class "sum_get" "([Ljava/lang/Object;ILjava/lang/Object;)Ljava/lang/Object;")
         (.visitInsn Opcodes/DUP)
         (.visitJumpInsn Opcodes/IFNULL $fail)
         (.visitJumpInsn Opcodes/GOTO $success)
@@ -155,7 +155,7 @@
         (.visitInsn Opcodes/POP)
         (.visitJumpInsn Opcodes/GOTO $else)
         (.visitLabel $success)
-        (.visitMethodInsn Opcodes/INVOKESTATIC &rt/rt-class "pm_stack_push" "([Ljava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")))
+        (.visitMethodInsn Opcodes/INVOKESTATIC &rt/runtime-class "pm_stack_push" "([Ljava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")))
 
     (&o/$SeqPM _left-pm _right-pm)
     (doto writer
@@ -178,7 +178,7 @@
       (compile-pattern* bodies 1 $else pm)
       (.visitLabel $else)
       (.visitInsn Opcodes/POP)
-      (.visitMethodInsn Opcodes/INVOKESTATIC &rt/rt-class "pm_fail" "()V")
+      (.visitMethodInsn Opcodes/INVOKESTATIC &rt/runtime-class "pm_fail" "()V")
       (.visitInsn Opcodes/ACONST_NULL)
       (.visitJumpInsn Opcodes/GOTO $end))))
 
@@ -200,7 +200,7 @@
                   (.visitInsn Opcodes/ACONST_NULL))]
         _ (compile ?value)
         :let [_ (doto *writer*
-                  (.visitMethodInsn Opcodes/INVOKESTATIC &rt/rt-class "pm_stack_push" "([Ljava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;"))
+                  (.visitMethodInsn Opcodes/INVOKESTATIC &rt/runtime-class "pm_stack_push" "([Ljava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;"))
               _ (compile-pattern *writer* bodies-labels ?pm $end)]
         _ (compile-bodies *writer* compile bodies-labels ?bodies $end)
         :let [_ (.visitLabel *writer* $end)]]

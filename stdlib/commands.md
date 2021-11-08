@@ -40,7 +40,7 @@ cd ~/lux/stdlib/ && mvn deploy:deploy-file \
 -Dfile=target/library.tar \
 -DgroupId=com.github.luxlang \
 -DartifactId=stdlib \
--Dversion=0.6.0-SNAPSHOT \
+-Dversion=0.6.5-SNAPSHOT \
 -Dpackaging=tar
 
 cd ~/lux/stdlib/ \

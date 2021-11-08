@@ -38,7 +38,7 @@
   (str "(" (apply str (repeat n "Ljava/lang/Object;")) ")Ljava/lang/Object;"))
 (def ^:const num-apply-variants 8)
 (def ^:const arity-field "_arity_")
-(def ^:const partials-field "_partials_")
+(def ^:const partials-field "partials")
 
 ;; [Utils]
 (defn ^:private write-output [module name data]

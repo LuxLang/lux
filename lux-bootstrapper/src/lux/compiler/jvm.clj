@@ -189,8 +189,8 @@
                                                    module-class-name nil "java/lang/Object" nil)
                                            (.visitSource file-name nil))]
                             _ (if (= &/prelude name)
-                                (|do [_ &&rt/compile-Function-class
-                                      _ &&rt/compile-LuxRT-class]
+                                (|do [;; _ &&rt/compile-Function-class
+                                      _ &&rt/compile-Runtime-class]
                                   (return nil))
                                 (return nil))
                             :let [compiler-step (&analyser/analyse &optimizer/optimize eval! compile-module!! all-compilers)]]

@@ -26,11 +26,14 @@
 (defn ^String internal [^String external]
   (.replace external class-name-separator class-separator))
 
+(defn ^String fundamental-class [^String name]
+  (str (external &/prelude) class-name-separator name))
+
 (def ^:const ^String function-class
-  (str (external &/prelude) class-name-separator "Function"))
+  (fundamental-class "Function"))
 
 (def ^:const ^String lux-utils-class
-  (str (external &/prelude) class-name-separator "LuxRT"))
+  (fundamental-class "Runtime"))
 
 ;; [Resources]
 (defn ^String ->module-class [old]

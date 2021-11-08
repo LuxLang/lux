@@ -21,7 +21,7 @@
                               MethodVisitor
                               AnnotationVisitor)))
 
-(def ^:const ^String rt-class
+(def ^:const ^String runtime-class
   &&/lux-utils-class)
 
 (def ^:const ^String function-class
@@ -32,45 +32,45 @@
 
 ;; [Resources]
 ;; Functions
-(def compile-Function-class
-  (|do [_ (return nil)
-        :let [super-class "java/lang/Object"
-              =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                       (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER
-                                                         Opcodes/ACC_ABSTRACT
-                                                         ;; Opcodes/ACC_INTERFACE
-                                                         )
-                               &&/function-class nil super-class (into-array String []))
-                       (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL) &&/partials-field "I" nil nil)
-                           (doto (.visitEnd))))
-              =init-method (doto (.visitMethod =class Opcodes/ACC_PUBLIC init-method "(I)V" nil nil)
-                             (.visitCode)
-                             (.visitVarInsn Opcodes/ALOAD 0)
-                             (.visitMethodInsn Opcodes/INVOKESPECIAL super-class init-method "()V")
-                             (.visitVarInsn Opcodes/ALOAD 0)
-                             (.visitVarInsn Opcodes/ILOAD 1)
-                             (.visitFieldInsn Opcodes/PUTFIELD &&/function-class &&/partials-field "I")
-                             (.visitInsn Opcodes/RETURN)
-                             (.visitMaxs 0 0)
-                             (.visitEnd))
-              _ (dotimes [arity* &&/num-apply-variants]
-                  (let [arity (inc arity*)]
-                    (if (= 1 arity)
-                      (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_ABSTRACT) &&/apply-method (&&/apply-signature arity) nil nil)
-                        (.visitEnd))
-                      (doto (.visitMethod =class Opcodes/ACC_PUBLIC &&/apply-method (&&/apply-signature arity) nil nil)
-                        (.visitCode)
-                        (-> (.visitVarInsn Opcodes/ALOAD idx)
-                            (->> (dotimes [idx arity])))
-                        (.visitMethodInsn Opcodes/INVOKEVIRTUAL &&/function-class &&/apply-method (&&/apply-signature (dec arity)))
-                        (.visitTypeInsn Opcodes/CHECKCAST &&/function-class)
-                        (.visitVarInsn Opcodes/ALOAD arity)
-                        (.visitMethodInsn Opcodes/INVOKEVIRTUAL &&/function-class &&/apply-method (&&/apply-signature 1))
-                        (.visitInsn Opcodes/ARETURN)
-                        (.visitMaxs 0 0)
-                        (.visitEnd)))))]]
-    (&&/save-class! (-> &&/function-class (string/split #"/") (nth 2))
-                    (.toByteArray (doto =class .visitEnd)))))
+;; (def compile-Function-class
+;;   (|do [_ (return nil)
+;;         :let [super-class "java/lang/Object"
+;;               =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+;;                        (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER
+;;                                                          Opcodes/ACC_ABSTRACT
+;;                                                          ;; Opcodes/ACC_INTERFACE
+;;                                                          )
+;;                                &&/function-class nil super-class (into-array String []))
+;;                        (-> (.visitField (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL) &&/partials-field "I" nil nil)
+;;                            (doto (.visitEnd))))
+;;               =init-method (doto (.visitMethod =class Opcodes/ACC_PUBLIC init-method "(I)V" nil nil)
+;;                              (.visitCode)
+;;                              (.visitVarInsn Opcodes/ALOAD 0)
+;;                              (.visitMethodInsn Opcodes/INVOKESPECIAL super-class init-method "()V")
+;;                              (.visitVarInsn Opcodes/ALOAD 0)
+;;                              (.visitVarInsn Opcodes/ILOAD 1)
+;;                              (.visitFieldInsn Opcodes/PUTFIELD &&/function-class &&/partials-field "I")
+;;                              (.visitInsn Opcodes/RETURN)
+;;                              (.visitMaxs 0 0)
+;;                              (.visitEnd))
+;;               _ (dotimes [arity* &&/num-apply-variants]
+;;                   (let [arity (inc arity*)]
+;;                     (if (= 1 arity)
+;;                       (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_ABSTRACT) &&/apply-method (&&/apply-signature arity) nil nil)
+;;                         (.visitEnd))
+;;                       (doto (.visitMethod =class Opcodes/ACC_PUBLIC &&/apply-method (&&/apply-signature arity) nil nil)
+;;                         (.visitCode)
+;;                         (-> (.visitVarInsn Opcodes/ALOAD idx)
+;;                             (->> (dotimes [idx arity])))
+;;                         (.visitMethodInsn Opcodes/INVOKEVIRTUAL &&/function-class &&/apply-method (&&/apply-signature (dec arity)))
+;;                         (.visitTypeInsn Opcodes/CHECKCAST &&/function-class)
+;;                         (.visitVarInsn Opcodes/ALOAD arity)
+;;                         (.visitMethodInsn Opcodes/INVOKEVIRTUAL &&/function-class &&/apply-method (&&/apply-signature 1))
+;;                         (.visitInsn Opcodes/ARETURN)
+;;                         (.visitMaxs 0 0)
+;;                         (.visitEnd)))))]]
+;;     (&&/save-class! (-> &&/function-class (string/split #"/") (nth 2))
+;;                     (.toByteArray (doto =class .visitEnd)))))
 
 (defmacro <bytecode> [& instructions]
   `(fn [^MethodVisitor writer#]
@@ -78,7 +78,7 @@
        ~@instructions)))
 
 ;; Runtime infrastructure
-(defn ^:private compile-LuxRT-adt-methods [^ClassWriter =class]
+(defn ^:private compile-Runtime-adt-methods [^ClassWriter =class]
   (|let [lefts #(doto ^MethodVisitor %
                   (.visitVarInsn Opcodes/ILOAD 1))
          tuple-size #(doto ^MethodVisitor %
@@ -178,7 +178,7 @@
                  super-nested (<bytecode> super-nested-lefts ;; super-lefts
                                           !variant <>right? ;; super-lefts, super-right?
                                           !variant <>value ;; super-lefts, super-right?, super-value
-                                          (.visitMethodInsn Opcodes/INVOKESTATIC rt-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;"))
+                                          (.visitMethodInsn Opcodes/INVOKESTATIC runtime-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;"))
 
                  update-!variant (<bytecode> !variant <>value
                                              (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
@@ -271,18 +271,18 @@
             (.visitVarInsn Opcodes/ALOAD 0)
             (.visitMethodInsn Opcodes/INVOKESTATIC <class> <parse-method> <signature>)
             <wrapper>
-            (.visitMethodInsn Opcodes/INVOKESTATIC rt-class "make_some" "(Ljava/lang/Object;)[Ljava/lang/Object;")
+            (.visitMethodInsn Opcodes/INVOKESTATIC runtime-class "make_some" "(Ljava/lang/Object;)[Ljava/lang/Object;")
             (.visitInsn Opcodes/ARETURN)
             (.visitLabel $to)
             (.visitLabel $handler)
-            (.visitMethodInsn Opcodes/INVOKESTATIC rt-class "make_none" "()[Ljava/lang/Object;")
+            (.visitMethodInsn Opcodes/INVOKESTATIC runtime-class "make_none" "()[Ljava/lang/Object;")
             (.visitInsn Opcodes/ARETURN)
             (.visitMaxs 0 0)
             (.visitEnd)))
       nil))
 
-  ^:private compile-LuxRT-int-methods  "decode_int"  "java/lang/Long"   "parseLong"   "(Ljava/lang/String;)J" &&/wrap-long
-  ^:private compile-LuxRT-frac-methods "decode_frac" "java/lang/Double" "parseDouble" "(Ljava/lang/String;)D" &&/wrap-double
+  ^:private compile-Runtime-int-methods  "decode_int"  "java/lang/Long"   "parseLong"   "(Ljava/lang/String;)J" &&/wrap-long
+  ^:private compile-Runtime-frac-methods "decode_frac" "java/lang/Double" "parseDouble" "(Ljava/lang/String;)D" &&/wrap-double
   )
 
 (defn peekI [^MethodVisitor writer]
@@ -296,7 +296,7 @@
     (.visitInsn Opcodes/AALOAD)
     (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")))
 
-(defn ^:private compile-LuxRT-pm-methods [^ClassWriter =class]
+(defn ^:private compile-Runtime-pm-methods [^ClassWriter =class]
   (|let [_ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "pm_fail" "()V" nil nil)
              (.visitCode)
              (.visitTypeInsn Opcodes/NEW "java/lang/IllegalStateException")
@@ -323,7 +323,7 @@
              (.visitEnd))]
     nil))
 
-(def compile-LuxRT-class
+(def compile-Runtime-class
   (|do [_ (return nil)
         :let [full-name &&/lux-utils-class
               super-class (&host-generics/->bytecode-class-name "java.lang.Object")
@@ -357,7 +357,7 @@
                   (.visitLdcInsn (->> #'&/$None meta ::&/lefts int)) ;; I
                   (.visitInsn Opcodes/ACONST_NULL) ;; I?
                   (.visitLdcInsn &/unit-tag) ;; I?U
-                  (.visitMethodInsn Opcodes/INVOKESTATIC rt-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
+                  (.visitMethodInsn Opcodes/INVOKESTATIC runtime-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
                   (.visitInsn Opcodes/ARETURN)
                   (.visitMaxs 0 0)
                   (.visitEnd))
@@ -366,7 +366,7 @@
                   (.visitLdcInsn (->> #'&/$Some meta ::&/lefts int)) ;; I
                   (.visitLdcInsn "") ;; I?
                   (.visitVarInsn Opcodes/ALOAD 0) ;; I?O
-                  (.visitMethodInsn Opcodes/INVOKESTATIC rt-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
+                  (.visitMethodInsn Opcodes/INVOKESTATIC runtime-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
                   (.visitInsn Opcodes/ARETURN)
                   (.visitMaxs 0 0)
                   (.visitEnd))
@@ -406,7 +406,7 @@
                     (.visitVarInsn Opcodes/ALOAD 0)
                     (.visitInsn Opcodes/ACONST_NULL)
                     (.visitMethodInsn Opcodes/INVOKEVIRTUAL function-class &&/apply-method (&&/apply-signature 1))
-                    (.visitMethodInsn Opcodes/INVOKESTATIC rt-class "make_some" "(Ljava/lang/Object;)[Ljava/lang/Object;")
+                    (.visitMethodInsn Opcodes/INVOKESTATIC runtime-class "make_some" "(Ljava/lang/Object;)[Ljava/lang/Object;")
                     (.visitInsn Opcodes/ARETURN)
                     (.visitLabel $to)
                     (.visitLabel $handler) ;; T
@@ -419,14 +419,14 @@
                     (.visitLdcInsn (->> #'&/$Left meta ::&/lefts int)) ;; SI
                     (.visitInsn Opcodes/ACONST_NULL) ;; SI?
                     swap2x1 ;; I?S
-                    (.visitMethodInsn Opcodes/INVOKESTATIC rt-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
+                    (.visitMethodInsn Opcodes/INVOKESTATIC runtime-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
                     (.visitInsn Opcodes/ARETURN)
                     (.visitMaxs 0 0)
                     (.visitEnd)))
               _ (doto =class
-                  (compile-LuxRT-pm-methods)
-                  (compile-LuxRT-adt-methods)
-                  (compile-LuxRT-int-methods)
-                  (compile-LuxRT-frac-methods))]]
+                  (compile-Runtime-pm-methods)
+                  (compile-Runtime-adt-methods)
+                  (compile-Runtime-int-methods)
+                  (compile-Runtime-frac-methods))]]
     (&&/save-class! (-> &&/lux-utils-class (string/split #"/") (nth 2))
                     (.toByteArray (doto =class .visitEnd)))))

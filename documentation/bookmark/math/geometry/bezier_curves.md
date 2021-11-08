@@ -1,5 +1,6 @@
 # Reference
 
+1. [Curves and Surfaces](https://ciechanow.ski/curves-and-surfaces/)
 1. [The Beauty of Bézier Curves](https://www.youtube.com/watch?v=aVwxzDHniEw)
 1. [Circles and lines vs. polynomial splines](https://wordsandbuttons.online/circles_and_lines_vs_polynomial_splines.html)
 1. https://cormullion.github.io/blog/2018/06/21/bezier.html

@@ -1,3 +1,7 @@
+# Modal editing
+
+1. [Beyond Vim and Emacs: A Scalable UI Paradigm](https://emacsconf.org/2020/talks/07/)
+
 # Code navigation
 
 1. ["Incremental, zero-config Code Nav using stack graphs" by Douglas Creager](https://www.youtube.com/watch?v=l2R1PTGcwrE)

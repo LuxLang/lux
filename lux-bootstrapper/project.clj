@@ -1,4 +1,6 @@
-(defproject com.github.luxlang/lux-bootstrapper "0.6.4"
+(def version "0.6.5-SNAPSHOT")
+
+(defproject com.github.luxlang/lux-bootstrapper #=(identity version)
   :min-lein-version  "2.1.0" ;; 2.1.0 introduced jar classifiers
   :description "The JVM (bootstrapping) compiler for the Lux programming language."
   :url "https://github.com/LuxLang/lux"
@@ -13,6 +15,8 @@
                               [:url "https://github.com/eduardoejp"]]]
   :dependencies [[org.clojure/clojure "1.6.0"]
                  [org.clojure/core.match "0.2.1"]
+
+                 [com.github.luxlang/lux-jvm-function ~version]
                  
                  ;; Prefer when building JS compiler.
                  [org.ow2.asm/asm "7.3.1"]

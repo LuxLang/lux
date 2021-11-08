@@ -82,7 +82,7 @@
                   (.visitLdcInsn *writer* "")
                   (.visitInsn *writer* Opcodes/ACONST_NULL))]
         _ (compile value)
-        :let [_ (.visitMethodInsn *writer* Opcodes/INVOKESTATIC &rt/rt-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")]]
+        :let [_ (.visitMethodInsn *writer* Opcodes/INVOKESTATIC &rt/runtime-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")]]
     (return nil)))
 
 (defn compile-local [compile ?idx]
@@ -211,7 +211,7 @@
                               (.visitLdcInsn (int (if tail?
                                                     (dec idx)
                                                     idx)))
-                              (.visitMethodInsn Opcodes/INVOKESTATIC &rt/rt-class
+                              (.visitMethodInsn Opcodes/INVOKESTATIC &rt/runtime-class
                                                 (if tail? "tuple_right" "tuple_left")
                                                 "([Ljava/lang/Object;I)Ljava/lang/Object;"))))
                         _path)]]
@@ -347,7 +347,7 @@
                       (.visitLdcInsn (->> #'&/$End meta ::&/lefts int)) ;; I
                       (.visitInsn Opcodes/ACONST_NULL) ;; I?
                       (.visitLdcInsn &/unit-tag) ;; I?U
-                      (.visitMethodInsn Opcodes/INVOKESTATIC &rt/rt-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;") ;; V
+                      (.visitMethodInsn Opcodes/INVOKESTATIC &rt/runtime-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;") ;; V
                       ;; Tail: End
                       ;; Size: Begin
                       (.visitVarInsn Opcodes/ALOAD 0) ;; VA
@@ -387,7 +387,7 @@
                       (.visitLdcInsn "") ;; I2I?
                       (.visitInsn Opcodes/DUP2_X1) ;; II?2I?
                       (.visitInsn Opcodes/POP2) ;; II?2
-                      (.visitMethodInsn Opcodes/INVOKESTATIC &rt/rt-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;") ;; IV
+                      (.visitMethodInsn Opcodes/INVOKESTATIC &rt/runtime-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;") ;; IV
                       ;; Item: End
                       (.visitInsn Opcodes/SWAP) ;; VI
                       (.visitJumpInsn Opcodes/GOTO $loop)

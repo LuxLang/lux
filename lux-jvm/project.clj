@@ -1,4 +1,4 @@
-(def version "0.6.4")
+(def version "0.6.5-SNAPSHOT")
 (def repo "https://github.com/LuxLang/lux")
 (def sonatype "https://oss.sonatype.org")
 (def sonatype-releases (str sonatype "/service/local/staging/deploy/maven2/"))
@@ -20,6 +20,8 @@
         :url ~(str repo ".git")}
 
   :dependencies [[com.github.luxlang/lux-bootstrapper ~version]
+                 [com.github.luxlang/lux-jvm-function ~version]
+                 
                  ;; [com.github.luxlang/stdlib ~version]
                  ;; JVM Bytecode (TODO: Remove ASAP)
                  [org.ow2.asm/asm "7.3.1"]

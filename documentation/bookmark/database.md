@@ -24,6 +24,7 @@
 
 # Query
 
+1. ["Morel, a functional query language" by Julian Hyde](https://www.youtube.com/watch?v=smUm3C5q2IM)
 1. [Comprehending Ringads](http://lambda-the-ultimate.org/node/5525)
 1. [Reasons why SELECT * is bad for SQL performance](https://tanelpoder.com/posts/reasons-why-select-star-is-bad-for-sql-performance/)
 1. [A Short Story About SQL’s Biggest Rival](https://www.holistics.io/blog/quel-vs-sql/)

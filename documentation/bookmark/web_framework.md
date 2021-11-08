@@ -28,6 +28,7 @@
 
 # Exemplar
 
+1. ["Janus: Easy Complex UI with Declarative FRP" by Issa Tseng](https://www.youtube.com/watch?v=7S57O3VwIyQ)
 1. https://github.com/alpinejs/alpine
 1. [Mint: The programming language for writing single page applications.](https://www.mint-lang.com/)
 1. [root: A recursive UI resolver](https://github.com/den1k/root)
