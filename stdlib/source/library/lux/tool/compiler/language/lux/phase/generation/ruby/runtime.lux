@@ -1,6 +1,6 @@
 (.using
   [library
-   [lux "*"
+   [lux {"-" i64}
     ["[0]" meta]
     [abstract
      ["[0]" monad {"+" do}]]
@@ -250,76 +250,245 @@
       @lux//program_args
       ))
 
-(def: i64//+limit (_.manual "+0x7FFFFFFFFFFFFFFF"))
-(def: i64//-limit (_.manual "-0x8000000000000000"))
-(def: i64//+iteration (_.manual "+0x10000000000000000"))
-(def: i64//-iteration (_.manual "-0x10000000000000000"))
-(def: i64//+cap (_.manual "+0x8000000000000000"))
-(def: i64//-cap (_.manual "-0x8000000000000001"))
+... (def: i64##+limit (_.manual "+0x7FFFFFFFFFFFFFFF"))
+... (def: i64##-limit (_.manual "-0x8000000000000000"))
+... (def: i64##+iteration (_.manual "+0x10000000000000000"))
+... (def: i64##-iteration (_.manual "-0x10000000000000000"))
+... (def: i64##+cap (_.manual "+0x8000000000000000"))
+... (def: i64##-cap (_.manual "-0x8000000000000001"))
 
-(runtime: (i64//64 input)
-  (with_vars [temp]
-    (`` (<| (~~ (template [<scenario> <iteration> <cap> <entrance>]
-                  [(_.if (|> input <scenario>)
-                     ($_ _.then
-                         (_.set (list temp) (_.% <iteration> input))
-                         (_.return (_.? (|> temp <scenario>)
-                                        (|> temp (_.- <cap>) (_.+ <entrance>))
-                                        temp))))]
+... (runtime: (i64##64 input)
+...   (with_vars [temp]
+...     (`` (<| (~~ (template [<scenario> <iteration> <cap> <entrance>]
+...                   [(_.if (|> input <scenario>)
+...                      ($_ _.then
+...                          (_.set (list temp) (_.% <iteration> input))
+...                          (_.return (_.? (|> temp <scenario>)
+...                                         (|> temp (_.- <cap>) (_.+ <entrance>))
+...                                         temp))))]
 
-                  [(_.> ..i64//+limit) ..i64//+iteration ..i64//+cap ..i64//-limit]
-                  [(_.< ..i64//-limit) ..i64//-iteration ..i64//-cap ..i64//+limit]
-                  ))
-            (_.return input)))))
+...                   [(_.> ..i64##+limit) ..i64##+iteration ..i64##+cap ..i64##-limit]
+...                   [(_.< ..i64##-limit) ..i64##-iteration ..i64##-cap ..i64##+limit]
+...                   ))
+...             (_.return input)))))
 
-(runtime: i64//nat_top
-  (|> (_.int +1)
-      (_.bit_shl (_.int +64))
-      (_.- (_.int +1))))
+(def: i32##low
+  (|>> (_.bit_and (_.manual "+0xFFFFFFFF"))))
 
-(def: as_nat
-  (_.% (_.manual "0x10000000000000000")))
+(def: i32##high
+  (|>> (_.bit_shr (_.int +32))
+       ..i32##low))
 
-(runtime: (i64//left_shifted param subject)
-  (_.return (|> subject
-                (_.bit_shl (_.% (_.int +64) param))
-                ..i64//64)))
+(def: i32##positive?
+  (|>> (_.bit_and (_.manual "+0x80000000"))
+       (_.= (_.int +0))))
 
-(runtime: (i64//right_shifted param subject)
-  ($_ _.then
-      (_.set (list param) (_.% (_.int +64) param))
-      (_.return (_.? (_.= (_.int +0) param)
-                     subject
-                     (|> subject
-                         ..as_nat
-                         (_.bit_shr param))))))
+(template: (i64 @high @low)
+  [(|> (_.? (i32##positive? @high)
+            @high
+            (|> (_.manual "+0xFFFFFFFF")
+                (_.- @high)
+                _.bit_not))
+       (_.bit_shl (_.int +32))
+       (_.bit_or @low))])
 
 (template [<runtime> <host>]
   [(runtime: (<runtime> left right)
-     (_.return (..i64//64 (<host> (..as_nat left) (..as_nat right)))))]
+     (with_vars [high low]
+       ($_ _.then
+           (_.set (list high) (<host> (i32##high left) (..i32##high right)))
+           (_.set (list low) (<host> (i32##low left) (..i32##low right)))
+           (_.return (..i64 high low)))))]
 
-  [i64//and _.bit_and]
-  [i64//or _.bit_or]
-  [i64//xor _.bit_xor]
+  [i64##and _.bit_and]
+  [i64##or _.bit_or]
+  [i64##xor _.bit_xor]
   )
 
-(runtime: (i64//division parameter subject)
+(def: (cap_shift! shift)
+  (-> LVar Statement)
+  (_.set (list shift) (|> shift (_.bit_and (_.int +63)))))
+
+(def: (handle_no_shift! shift input)
+  (-> LVar LVar (-> Statement Statement))
+  (_.if (|> shift (_.= (_.int +0)))
+    (_.return input)))
+
+(def: small_shift?
+  (-> LVar Expression)
+  (|>> (_.< (_.int +32))))
+
+(runtime: (i64##left_shifted shift input)
+  (with_vars [high low]
+    ($_ _.then
+        (..cap_shift! shift)
+        (<| (..handle_no_shift! shift input)
+            (_.if (..small_shift? shift)
+              ($_ _.then
+                  (_.set (list high) (_.bit_or (|> input i32##high (_.bit_shl shift))
+                                               (|> input i32##low (_.bit_shr (_.- shift (_.int +32))))))
+                  (_.set (list low) (|> input i32##low (_.bit_shl shift)))
+                  (_.return (..i64 (i32##low high)
+                                   (i32##low low)))))
+            ($_ _.then
+                (_.set (list high) (|> input i32##low (_.bit_shl (_.- (_.int +32) shift))))
+                (_.return (..i64 (i32##low high)
+                                 (_.int +0)))))
+        )))
+
+(runtime: (i64##right_shifted shift input)
+  (with_vars [high low]
+    ($_ _.then
+        (..cap_shift! shift)
+        (<| (..handle_no_shift! shift input)
+            (_.if (..small_shift? shift)
+              ($_ _.then
+                  (_.set (list high) (|> input i32##high (_.bit_shr shift)))
+                  (_.set (list low) (|> input i32##low (_.bit_shr shift)
+                                        (_.bit_or (|> input i32##high (_.bit_shl (_.- shift (_.int +32)))))))
+                  (_.return (..i64 high low))))
+            ($_ _.then
+                (_.set (list low) (_.? (|> shift (_.= (_.int +32)))
+                                       (i32##high input)
+                                       (|> input i32##high (_.bit_shr (_.- (_.int +32) shift)))))
+                (_.return (..i64 (_.int +0) low)))))))
+
+(runtime: (i64##/ parameter subject)
   (let [extra (_.do "remainder" (list parameter) {.#None} subject)]
     (_.return (|> subject
                   (_.- extra)
                   (_./ parameter)))))
 
+(def: i16##high
+  (_.bit_shr (_.int +16)))
+
+(def: i16##low
+  (_.bit_and (_.manual "+0xFFFF")))
+
+(def: i16##up
+  (_.bit_shl (_.int +16)))
+
+(runtime: (i64##+ parameter subject)
+  ... (_.return (i64##64 (_.+ parameter subject)))
+  (let [hh (|>> i32##high i16##high)
+        hl (|>> i32##high i16##low)
+        lh (|>> i32##low i16##high)
+        ll (|>> i32##low i16##low)]
+    (with_vars [l48 l32 l16 l00
+                r48 r32 r16 r00
+                x48 x32 x16 x00
+                high low]
+      ($_ _.then
+          (_.set (list l48) (hh subject))
+          (_.set (list l32) (hl subject))
+          (_.set (list l16) (lh subject))
+          (_.set (list l00) (ll subject))
+
+          (_.set (list r48) (hh parameter))
+          (_.set (list r32) (hl parameter))
+          (_.set (list r16) (lh parameter))
+          (_.set (list r00) (ll parameter))
+
+          (_.set (list x00) (_.+ l00 r00))
+          
+          (_.set (list x16) (|> (i16##high x00)
+                                (_.+ l16)
+                                (_.+ r16)))
+          (_.set (list x00) (i16##low x00))
+          
+          (_.set (list x32) (|> (i16##high x16)
+                                (_.+ l32)
+                                (_.+ r32)))
+          (_.set (list x16) (i16##low x16))
+          
+          (_.set (list x48) (|> (i16##high x32)
+                                (_.+ l48)
+                                (_.+ r48)
+                                i16##low))
+          (_.set (list x32) (i16##low x32))
+
+          (_.set (list high) (_.bit_or (i16##up x48) x32))
+          (_.set (list low) (_.bit_or (i16##up x16) x00))
+          (_.return (..i64 high low))
+          )))
+  )
+
+(def: i64##min
+  (_.manual "-0x8000000000000000"))
+
+(def: (i64##opposite value)
+  (_.? (_.= i64##min value)
+       i64##min
+       (i64##+ (_.int +1) (_.bit_not value))))
+
+(runtime: (i64##- parameter subject)
+  ... (_.return (i64##64 (_.- parameter subject)))
+  (_.return (i64##+ (i64##opposite parameter) subject))
+  )
+
+(runtime: (i64##* parameter subject)
+  ... (_.return (i64##64 (_.* parameter subject)))
+  (let [hh (|>> i32##high i16##high)
+        hl (|>> i32##high i16##low)
+        lh (|>> i32##low i16##high)
+        ll (|>> i32##low i16##low)]
+    (with_vars [l48 l32 l16 l00
+                r48 r32 r16 r00
+                x48 x32 x16 x00
+                high low]
+      ($_ _.then
+          (_.set (list l48) (hh subject))
+          (_.set (list l32) (hl subject))
+          (_.set (list l16) (lh subject))
+          (_.set (list l00) (ll subject))
+
+          (_.set (list r48) (hh parameter))
+          (_.set (list r32) (hl parameter))
+          (_.set (list r16) (lh parameter))
+          (_.set (list r00) (ll parameter))
+
+          (_.set (list x00) (_.* l00 r00))
+          (_.set (list x16) (i16##high x00))
+          (_.set (list x00) (i16##low x00))
+          
+          (_.set (list x16) (|> x16 (_.+ (_.* l16 r00))))
+          (_.set (list x32) (i16##high x16)) (_.set (list x16) (i16##low x16))
+          (_.set (list x16) (|> x16 (_.+ (_.* l00 r16))))
+          (_.set (list x32) (|> x32 (_.+ (i16##high x16)))) (_.set (list x16) (i16##low x16))
+
+          (_.set (list x32) (|> x32 (_.+ (_.* l32 r00))))
+          (_.set (list x48) (i16##high x32)) (_.set (list x32) (i16##low x32))
+          (_.set (list x32) (|> x32 (_.+ (_.* l16 r16))))
+          (_.set (list x48) (|> x48 (_.+ (i16##high x32)))) (_.set (list x32) (i16##low x32))
+          (_.set (list x32) (|> x32 (_.+ (_.* l00 r32))))
+          (_.set (list x48) (|> x48 (_.+ (i16##high x32)))) (_.set (list x32) (i16##low x32))
+          
+          (_.set (list x48) (|> x48
+                                (_.+ (_.* l48 r00))
+                                (_.+ (_.* l32 r16))
+                                (_.+ (_.* l16 r32))
+                                (_.+ (_.* l00 r48))
+                                i16##low))
+
+          (_.set (list high) (_.bit_or (i16##up x48) x32))
+          (_.set (list low) (_.bit_or (i16##up x16) x00))
+          (_.return (..i64 high low))
+          )))
+  )
+
 (def: runtime//i64
   Statement
   ($_ _.then
-      @i64//64
-      @i64//nat_top
-      @i64//left_shifted
-      @i64//right_shifted
-      @i64//and
-      @i64//or
-      @i64//xor
-      @i64//division
+      ... @i64##64
+      @i64##left_shifted
+      @i64##right_shifted
+      @i64##and
+      @i64##or
+      @i64##xor
+      @i64##+
+      @i64##-
+      @i64##*
+      @i64##/
       ))
 
 (runtime: (f64//decode inputG)
@@ -392,10 +561,10 @@
                        (_.local "Numeric")))
               ... We're in DragonRuby territory.
               (_.statement
-               (_.do "class_eval" (list) {.#Some (_.lambda {.#None} (list (_.local "_"))
-                                                           (_.statement
-                                                            (_.alias_method/2 (_.string "remainder")
-                                                                              (_.string "remainder_of_divide"))))}
+               (_.do "class_eval" (list) {.#Some [(list (_.local "_"))
+                                                  (_.statement
+                                                   (_.alias_method/2 (_.string "remainder")
+                                                                     (_.string "remainder_of_divide")))]}
                  (_.local "Numeric"))))
       runtime//adt
       runtime//lux
