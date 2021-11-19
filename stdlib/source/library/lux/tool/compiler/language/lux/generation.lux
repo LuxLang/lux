@@ -1,35 +1,38 @@
 (.using
-  [library
-   [lux {"-" Module symbol}
-    [abstract
-     [monad {"+" do}]]
-    [control
-     ["[0]" try {"+" Try}]
-     ["[0]" exception {"+" exception:}]
-     ["[0]" function]]
-    [data
-     [binary {"+" Binary}]
-     ["[0]" product]
-     ["[0]" text ("[1]#[0]" equivalence)
-      ["%" format {"+" format}]]
-     [collection
-      ["[0]" sequence {"+" Sequence}]
-      ["[0]" list ("[1]#[0]" functor)]]]
-    [math
-     [number
-      ["n" nat]]]
-    [meta
-     ["[0]" symbol]]]]
-  [//
-   [synthesis {"+" Synthesis}]
-   [phase
-    ["[0]" extension]]
-   [///
-    ["[0]" phase]
-    [meta
-     ["[0]" archive {"+" Archive}
-      ["[0]" descriptor {"+" Module}]
-      ["[0]" artifact]]]]])
+ [library
+  [lux {"-" Module symbol}
+   [abstract
+    [monad {"+" do}]]
+   [control
+    ["[0]" try {"+" Try}]
+    ["[0]" exception {"+" exception:}]
+    ["[0]" function]]
+   [data
+    [binary {"+" Binary}]
+    ["[0]" product]
+    ["[0]" text ("[1]#[0]" equivalence)
+     ["%" format {"+" format}]]
+    [collection
+     ["[0]" sequence {"+" Sequence}]
+     ["[0]" list ("[1]#[0]" functor mix)]
+     ["[0]" set {"+" Set}]]]
+   [macro
+    ["[0]" template]]
+   [math
+    [number
+     ["n" nat]]]
+   [meta
+    ["[0]" symbol]]]]
+ [//
+  [synthesis {"+" Synthesis}]
+  [phase
+   ["[0]" extension]]
+  [///
+   ["[0]" phase]
+   [meta
+    ["[0]" archive {"+" Archive}
+     ["[0]" descriptor {"+" Module}]
+     ["[0]" artifact]]]]])
 
 (type: .public Context
   [archive.ID artifact.ID])
@@ -75,7 +78,8 @@
     #registry artifact.Registry
     #counter Nat
     #context (Maybe artifact.ID)
-    #log (Sequence Text)]))
+    #log (Sequence Text)
+    #interim_artifacts (List artifact.ID)]))
 
 (template [<special> <general>]
   [(type: .public (<special> anchor expression directive)
@@ -101,7 +105,8 @@
    #registry artifact.empty
    #counter 0
    #context {.#None}
-   #log sequence.empty])
+   #log sequence.empty
+   #interim_artifacts (list)])
 
 (def: .public empty_buffer
   Buffer
@@ -241,21 +246,21 @@
       {.#None}
       (phase.except ..no_buffer_for_saving_code [artifact_id]))))
 
-(template [<name> <artifact>]
-  [(def: .public (<name> name)
-     (All (_ anchor expression directive)
-       (-> Text (Operation anchor expression directive artifact.ID)))
-     (function (_ (^@ stateE [bundle state]))
-       (let [[id registry'] (<artifact> name (value@ #registry state))]
-         {try.#Success [[bundle (with@ #registry registry' state)]
-                        id]})))]
+(template [<mandatory?> <inputs> <input_types> <name> <artifact>]
+  [(`` (def: .public (<name> name (~~ (template.spliced <inputs>)) dependencies)
+         (All (_ anchor expression directive)
+           (-> Text (~~ (template.spliced <input_types>)) (Set artifact.Dependency) (Operation anchor expression directive artifact.ID)))
+         (function (_ (^@ stateE [bundle state]))
+           (let [[id registry'] (<artifact> name <mandatory?> dependencies (value@ #registry state))]
+             {try.#Success [[bundle (with@ #registry registry' state)]
+                            id]}))))]
 
-  [learn artifact.definition]
-  [learn_custom artifact.custom]
-  [learn_analyser artifact.analyser]
-  [learn_synthesizer artifact.synthesizer]
-  [learn_generator artifact.generator]
-  [learn_directive artifact.directive]
+  [mandatory? [mandatory?] [Bit] learn artifact.definition]
+  [#1 [] [] learn_custom artifact.custom]
+  [#0 [] [] learn_analyser artifact.analyser]
+  [#0 [] [] learn_synthesizer artifact.synthesizer]
+  [#0 [] [] learn_generator artifact.generator]
+  [#0 [] [] learn_directive artifact.directive]
   )
 
 (exception: .public (unknown_definition [name Symbol
@@ -318,16 +323,17 @@
       (in [[bundle' (with@ #context (value@ #context state) state')]
            output]))))
 
-(def: .public (with_new_context archive body)
+(def: .public (with_new_context archive dependencies body)
   (All (_ anchor expression directive a)
-    (-> Archive (Operation anchor expression directive a)
+    (-> Archive (Set artifact.Dependency) (Operation anchor expression directive a)
         (Operation anchor expression directive [Context a])))
   (function (_ (^@ stateE [bundle state]))
-    (let [[id registry'] (artifact.resource (value@ #registry state))]
+    (let [[id registry'] (artifact.resource false dependencies (value@ #registry state))]
       (do try.monad
         [[[bundle' state'] output] (body [bundle (|> state
                                                      (with@ #registry registry')
-                                                     (with@ #context {.#Some id}))])
+                                                     (with@ #context {.#Some id})
+                                                     (revised@ #interim_artifacts (|>> {.#Item id})))])
          module_id (archive.id (value@ #module state) archive)]
         (in [[bundle' (with@ #context (value@ #context state) state')]
              [[module_id id]
@@ -340,3 +346,21 @@
     {try.#Success [[bundle
                     (revised@ #log (sequence.suffix message) state)]
                    []]}))
+
+(def: .public (with_interim_artifacts archive body)
+  (All (_ anchor expression directive a)
+    (-> Archive (Operation anchor expression directive a)
+        (Operation anchor expression directive [(Set Context) a])))
+  (do phase.monad
+    [module (extension.read (value@ #module))]
+    (function (_ state+)
+      (do try.monad
+        [module_id (archive.id module archive)
+         [[bundle' state'] output] (body state+)]
+        (in [[bundle'
+              (with@ #interim_artifacts (list) state')]
+             [(list#mix (function (_ artifact_id dependencies)
+                          (set.has [module_id artifact_id] dependencies))
+                        artifact.no_dependencies
+                        (value@ #interim_artifacts state'))
+              output]])))))

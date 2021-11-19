@@ -33,7 +33,8 @@
   [//
    ["[0]" archive {"+" Output}
     ["[0]" descriptor {"+" Module}]
-    ["[0]" artifact]]
+    ["[0]" artifact]
+    ["tree_shaking" dependency]]
    [cache
     ["[0]" dependency]]
    ["[0]" io "_"
@@ -151,14 +152,17 @@
             (java/io/Flushable::flush)
             (java/util/zip/ZipOutputStream::closeEntry))))))
 
-(def: (write_module static [module output] sink)
-  (-> Static [archive.ID Output] java/util/jar/JarOutputStream
+(def: (write_module static necessary_dependencies [module output] sink)
+  (-> Static (Set Context) [archive.ID Output] java/util/jar/JarOutputStream
       (Try java/util/jar/JarOutputStream))
-  (monad.mix try.monad
-             (function (_ [artifact custom content] sink)
-               (..write_class static module artifact custom content sink))
-             sink
-             (sequence.list output)))
+  (let [! try.monad]
+    (monad.mix try.monad
+               (function (_ [artifact custom content] sink)
+                 (if (set.member? necessary_dependencies [module artifact])
+                   (..write_class static module artifact custom content sink)
+                   (# ! in sink)))
+               sink
+               (sequence.list output))))
 
 (def: (read_jar_entry_with_unknown_size input)
   (-> java/util/jar/JarInputStream [Nat Binary])
@@ -248,12 +252,13 @@
   (-> Static Packager)
   (function (_ host_dependencies archive program)
     (do [! try.monad]
-      [order (dependency.load_order $.key archive)
+      [.let [necessary_dependencies (tree_shaking.necessary_dependencies archive)]
+       order (dependency.load_order $.key archive)
        .let [buffer (java/io/ByteArrayOutputStream::new (.int ..mebi_byte))]
        sink (|> order
                 (list#each (function (_ [module [module_id [descriptor document output]]])
                              [module_id output]))
-                (monad.mix ! (..write_module static)
+                (monad.mix ! (..write_module static necessary_dependencies)
                            (java/util/jar/JarOutputStream::new buffer (..manifest program))))
        [entries duplicates sink] (|> host_dependencies
                                      dictionary.values

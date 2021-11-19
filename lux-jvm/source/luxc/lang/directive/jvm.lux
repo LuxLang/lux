@@ -20,7 +20,8 @@
       [array {"+" Array}]
       ["[0]" list ("[1]#[0]" mix functor monoid)]
       ["[0]" dictionary {"+" Dictionary}]
-      ["[0]" sequence {"+" Sequence} ("[1]#[0]" functor mix)]]]
+      ["[0]" sequence {"+" Sequence} ("[1]#[0]" functor mix)]
+      ["[0]" set {"+" Set}]]]
     [math
      [number
       ["[0]" nat]]]
@@ -28,7 +29,7 @@
      ["/" jvm
       [encoding
        ["[0]" name {"+" External}]]
-      ["[1][0]" type {"+" Type Constraint}
+      ["[1][0]" type {"+" Type Typed Constraint}
        [category {"+" Void Value Return Primitive Object Class Var Parameter}]
        ["[0]" parser]
        ["[0]T" lux]
@@ -54,7 +55,9 @@
           [directive
            ["[0]/" lux]]]]]]
       [meta
-       [archive {"+" Archive}]]]]]]
+       [archive {"+" Archive}
+        ["[0]" artifact]
+        ["[0]" dependency]]]]]]]
   [///
    [host
     ["[0]" jvm {"+" Inst}
@@ -692,7 +695,7 @@
 
 (type: (Constructor a)
   [Privacy Bit (List Annotation) (List (Type Var)) (List (Type Class))
-   Text (List Argument) (List [(Type Value) a])
+   Text (List Argument) (List (Typed a))
    a])
 
 (type: (Override a)
@@ -721,6 +724,35 @@
    {#Virtual (Virtual a)}
    {#Static (Static a)}
    {#Abstract Abstract}))
+
+(def: (method_dependencies archive method)
+  (-> Archive (Method Synthesis)
+      (generation.Operation jvm.Anchor jvm.Inst jvm.Definition
+                            (Set artifact.Dependency)))
+  (case method
+    {#Constructor [privacy strict_floating_point? annotations variables exceptions
+                   self arguments constructor_arguments
+                   body]}
+    (do [! phase.monad]
+      [all_super_ctor_dependencies (monad.each ! (|>> product.right (dependency.dependencies archive))
+                                               constructor_arguments)
+       body_dependencies (dependency.dependencies archive body)]
+      (in (dependency.all (list& body_dependencies all_super_ctor_dependencies))))
+    
+    
+    (^or {#Override [[parent_name parent_variables] name strict_floating_point? annotations variables
+                     self arguments return exceptions
+                     body]}
+         {#Virtual [name privacy final? strict_floating_point? annotations variables
+                    self arguments return exceptions
+                    body]}
+         {#Static [name privacy strict_floating_point? annotations variables
+                   arguments return exceptions
+                   body]})
+    (dependency.dependencies archive body)
+    
+    {#Abstract _}
+    (# phase.monad in artifact.no_dependencies)))
 
 (def: constructor
   (Parser (Constructor Code))
@@ -1434,6 +1466,10 @@
          methodsA (monad.each ! (method_analysis archive declaration supers) methodsC)
          methodsS (monad.each ! (method_synthesis archive) methodsA)
          methodsG (monad.each ! (method_generation archive super_class) methodsS)
+         all_dependencies (|> methodsS
+                              (monad.each ! (method_dependencies archive))
+                              (# ! each dependency.all)
+                              directive.lifted_generation)
          .let [directive [class_name
                           (def.class {jvm.#V1_6} {jvm.#Public} jvm.noneC class_name
                                      (list#each ..constraint type_variables)
@@ -1443,7 +1479,7 @@
                                                                methodsG)))]]]
         (directive.lifted_generation
          (do !
-           [artifact_id (generation.learn_custom class_name)
+           [artifact_id (generation.learn_custom class_name all_dependencies)
             _ (generation.execute! directive)
             _ (generation.save! artifact_id {.#Some class_name} directive)
             _ (generation.log! (format "JVM Class " (%.text class_name)))]
@@ -1470,7 +1506,7 @@
                                              def.fuse))]]]
         (directive.lifted_generation
          (do !
-           [artifact_id (generation.learn_custom class_name)
+           [artifact_id (generation.learn_custom class_name artifact.no_dependencies)
             _ (generation.execute! directive)
             _ (generation.save! artifact_id {.#Some class_name} directive)
             _ (generation.log! (format "JVM Interface " (%.text class_name)))]

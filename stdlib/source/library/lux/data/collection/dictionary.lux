@@ -534,29 +534,34 @@
     (array.size colls)
     ))
 
-(def: (node#entries node)
-  (All (_ k v) (-> (Node k v) (List [k v])))
+(def: (node#mix f init node)
+  (All (_ k v a) (-> (-> [k v] a a) a (Node k v) a))
   (case node
     {#Hierarchy _size hierarchy}
-    (array#mix (function (_ sub_node tail) (list#composite (node#entries sub_node) tail))
-               {.#End}
+    (array#mix (function (_ sub_node current)
+                 (node#mix f current sub_node))
+               init
                hierarchy)
 
     {#Base bitmap base}
-    (array#mix (function (_ branch tail)
+    (array#mix (function (_ branch current)
                  (case branch
                    {.#Left sub_node}
-                   (list#composite (node#entries sub_node) tail)
+                   (node#mix f current sub_node)
 
-                   {.#Right [key' val']}
-                   {.#Item [key' val'] tail}))
-               {.#End}
+                   {.#Right kv}
+                   (f kv current)))
+               init
                base)
     
     {#Collisions hash colls}
-    (array#mix (function (_ [key' val'] tail) {.#Item [key' val'] tail})
-               {.#End}
-               colls)))
+    (array#mix f init colls)))
+
+(def: node#entries
+  (All (_ k v) (-> (Node k v) (List [k v])))
+  (node#mix (function (_ head tail)
+              {.#Item head tail})
+            {.#End}))
 
 (type: .public (Dictionary k v)
   (Record
@@ -619,7 +624,7 @@
 
 (def: .public size
   (All (_ k v) (-> (Dictionary k v) Nat))
-  (|>> product.right ..node#size))
+  (|>> (value@ #root) ..node#size))
 
 (def: .public empty?
   (All (_ k v) (-> (Dictionary k v) Bit))
@@ -627,7 +632,7 @@
 
 (def: .public entries
   (All (_ k v) (-> (Dictionary k v) (List [k v])))
-  (|>> product.right ..node#entries))
+  (|>> (value@ #root) ..node#entries))
 
 (def: .public (of_list key_hash kvs)
   (All (_ k v) (-> (Hash k) (List [k v]) (Dictionary k v)))
@@ -639,8 +644,8 @@
 (template [<side> <name>]
   [(def: .public <name>
      (All (_ k v) (-> (Dictionary k v) (List <side>)))
-     (|>> ..entries
-          (list#mix (function (_ [k v] bundle)
+     (|>> (value@ #root)
+          (node#mix (function (_ [k v] bundle)
                       {.#Item <side> bundle})
                     {.#End})))]
 
@@ -650,13 +655,14 @@
 
 (def: .public (merged dict2 dict1)
   (All (_ k v) (-> (Dictionary k v) (Dictionary k v) (Dictionary k v)))
-  (list#mix (function (_ [key val] dict) (has key val dict))
+  (node#mix (function (_ [key val] dict)
+              (has key val dict))
             dict1
-            (entries dict2)))
+            (value@ #root dict2)))
 
 (def: .public (merged_with f dict2 dict1)
   (All (_ k v) (-> (-> v v v) (Dictionary k v) (Dictionary k v) (Dictionary k v)))
-  (list#mix (function (_ [key val2] dict)
+  (node#mix (function (_ [key val2] dict)
               (case (value key dict)
                 {.#None}
                 (has key val2 dict)
@@ -664,7 +670,7 @@
                 {.#Some val1}
                 (has key (f val2 val1) dict)))
             dict1
-            (entries dict2)))
+            (value@ #root dict2)))
 
 (def: .public (re_bound from_key to_key dict)
   (All (_ k v) (-> k k (Dictionary k v) (Dictionary k v)))

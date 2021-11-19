@@ -169,6 +169,7 @@
 
 ## General
 
+1. https://texteditors.org/cgi-bin/wiki.pl?EditorIndex
 1. [Slate: A completely customizable framework for building rich text editors.](https://github.com/ianstormtaylor/slate)
 1. [Trix: A rich text editor for everyday writing.](https://trix-editor.org/)
 1. [Left](https://100r.co/site/left.html)
