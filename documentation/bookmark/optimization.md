@@ -1,3 +1,7 @@
+# Inlining
+
+1. [Defunctionalization](https://en.wikipedia.org/wiki/Defunctionalization)
+
 # Hashing
 
 1. [Fibonacci Hashing: The Optimization that the World Forgot (or: a Better Alternative to Integer Modulo)](https://probablydance.com/2018/06/16/fibonacci-hashing-the-optimization-that-the-world-forgot-or-a-better-alternative-to-integer-modulo/)

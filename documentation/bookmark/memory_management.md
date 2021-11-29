@@ -22,6 +22,7 @@
 
 # Garbage collection
 
+1. [Deconstructing the Garbage-First Collector](https://users.cecs.anu.edu.au/~steveb/pubs/papers/g1-vee-2020.pdf)
 1. [The Garbage Collection Handbook](http://gchandbook.org/)
 1. [Baby's First Garbage Collector](http://journal.stuffwithstuff.com/2013/12/08/babys-first-garbage-collector/)
 

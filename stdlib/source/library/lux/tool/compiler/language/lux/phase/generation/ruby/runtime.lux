@@ -1,43 +1,43 @@
 (.using
-  [library
-   [lux {"-" i64}
-    ["[0]" meta]
-    [abstract
-     ["[0]" monad {"+" do}]]
-    [control
-     ["[0]" function]
-     ["<>" parser
-      ["<[0]>" code]]]
-    [data
-     ["[0]" product]
-     ["[0]" text ("[1]#[0]" hash)
-      ["%" format {"+" format}]
-      [encoding
-       ["[0]" utf8]]]
-     [collection
-      ["[0]" list ("[1]#[0]" functor)]
-      ["[0]" sequence]]]
-    ["[0]" macro
-     [syntax {"+" syntax:}]
-     ["[0]" code]]
-    [math
-     [number {"+" hex}
-      ["[0]" i64]]]
-    ["@" target
-     ["_" ruby {"+" Expression LVar Computation Literal Statement}]]]]
-  ["[0]" /// "_"
-   ["[1][0]" reference]
-   ["//[1]" /// "_"
-    ["$" version]
-    ["[1][0]" synthesis {"+" Synthesis}]
-    ["[1][0]" generation]
-    ["//[1]" ///
-     ["[1][0]" phase]
-     [reference
-      [variable {"+" Register}]]
-     [meta
-      [archive {"+" Output Archive}
-       ["[0]" artifact {"+" Registry}]]]]]])
+ [library
+  [lux {"-" i64}
+   ["[0]" meta]
+   [abstract
+    ["[0]" monad {"+" do}]]
+   [control
+    ["[0]" function]
+    ["<>" parser
+     ["<[0]>" code]]]
+   [data
+    ["[0]" product]
+    ["[0]" text ("[1]#[0]" hash)
+     ["%" format {"+" format}]
+     [encoding
+      ["[0]" utf8]]]
+    [collection
+     ["[0]" list ("[1]#[0]" functor mix)]
+     ["[0]" sequence]]]
+   ["[0]" macro
+    [syntax {"+" syntax:}]
+    ["[0]" code]]
+   [math
+    [number {"+" hex}
+     ["[0]" i64]]]
+   ["@" target
+    ["_" ruby {"+" Expression LVar Computation Literal Statement}]]]]
+ ["[0]" /// "_"
+  ["[1][0]" reference]
+  ["//[1]" /// "_"
+   ["$" version]
+   ["[1][0]" synthesis {"+" Synthesis}]
+   ["[1][0]" generation]
+   ["//[1]" ///
+    ["[1][0]" phase]
+    [reference
+     [variable {"+" Register}]]
+    [meta
+     [archive {"+" Output Archive}
+      ["[0]" artifact {"+" Registry}]]]]]])
 
 (template [<name> <base>]
   [(type: .public <name>
@@ -67,10 +67,6 @@
     ..unit
     _.nil))
 
-(def: (feature name definition)
-  (-> LVar (-> LVar Statement) Statement)
-  (definition name))
-
 (syntax: .public (with_vars [vars (<code>.tuple (<>.some <code>.local_symbol))
                              body <code>.any])
   (do [! meta.monad]
@@ -86,44 +82,68 @@
 (def: module_id
   0)
 
+(def: mruby?
+  _.Expression
+  (_.and (_.not (_.do "method_defined?" (list (_.string "remainder")) {.#None}
+                  (_.local "Numeric")))
+         (_.do "method_defined?" (list (_.string "remainder_of_divide")) {.#None}
+           (_.local "Numeric"))))
+
+(def: normal_ruby?
+  _.Expression
+  (_.not ..mruby?)
+  ... (|> (_.local "Object")
+  ...     (_.do "const_defined?" (list (_.string "Encoding")) {.#None}))
+  )
+
 (syntax: (runtime: [declaration (<>.or <code>.local_symbol
                                        (<code>.form (<>.and <code>.local_symbol
                                                             (<>.some <code>.local_symbol))))
-                    code <code>.any])
+                    conditional_implementations (<>.some (<code>.tuple (<>.and <code>.any <code>.any)))
+                    default_implementation <code>.any])
   (do meta.monad
     [runtime_id meta.seed]
     (macro.with_symbols [g!_]
-      (let [runtime (code.local_symbol (///reference.artifact [..module_id runtime_id]))
-            runtime_name (` (_.local (~ (code.text (%.code runtime)))))]
-        (case declaration
-          {.#Left name}
-          (macro.with_symbols [g!_]
-            (let [g!name (code.local_symbol name)]
-              (in (list (` (def: .public (~ g!name) LVar (~ runtime_name)))
-                        (` (def: (~ (code.local_symbol (format "@" name)))
-                             Statement
-                             (..feature (~ runtime_name)
-                                        (function ((~ g!_) (~ g!name))
-                                          (_.set (list (~ g!name)) (~ code))))))))))
-          
-          {.#Right [name inputs]}
-          (macro.with_symbols [g!_]
-            (let [g!name (code.local_symbol name)
-                  inputsC (list#each code.local_symbol inputs)
-                  inputs_typesC (list#each (function.constant (` _.Expression))
-                                           inputs)]
-              (in (list (` (def: .public ((~ g!name) (~+ inputsC))
-                             (-> (~+ inputs_typesC) Computation)
-                             (_.apply/* (list (~+ inputsC)) {.#None}
-                                        (~ runtime_name))))
-                        
-                        (` (def: (~ (code.local_symbol (format "@" name)))
-                             Statement
-                             (..feature (~ runtime_name)
-                                        (function ((~ g!_) (~ g!_))
-                                          (..with_vars [(~+ inputsC)]
-                                            (_.function (~ g!_) (list (~+ inputsC))
-                                              (~ code))))))))))))))))
+      (case declaration
+        {.#Left name}
+        (macro.with_symbols [g!_]
+          (let [runtime (code.local_symbol (format "C" (///reference.artifact [..module_id runtime_id])))
+                runtime_name (` (_.local (~ (code.text (%.code runtime)))))
+                g!name (code.local_symbol name)]
+            (in (list (` (def: .public (~ g!name) LVar (~ runtime_name)))
+                      (` (def: (~ (code.local_symbol (format "@" name)))
+                           Statement
+                           (~ (list#mix (function (_ [when then] else)
+                                          (` (_.if (~ when)
+                                               (_.set (list (~ runtime_name)) (~ then))
+                                               (~ else))))
+                                        (` (_.set (list (~ runtime_name)) (~ default_implementation)))
+                                        conditional_implementations))))))))
+        
+        {.#Right [name inputs]}
+        (macro.with_symbols [g!_]
+          (let [runtime (code.local_symbol (///reference.artifact [..module_id runtime_id]))
+                runtime_name (` (_.local (~ (code.text (%.code runtime)))))
+                g!name (code.local_symbol name)
+                inputsC (list#each code.local_symbol inputs)
+                inputs_typesC (list#each (function.constant (` _.Expression))
+                                         inputs)]
+            (in (list (` (def: .public ((~ g!name) (~+ inputsC))
+                           (-> (~+ inputs_typesC) Computation)
+                           (_.apply/* (list (~+ inputsC)) {.#None}
+                                      (~ runtime_name))))
+                      
+                      (` (def: (~ (code.local_symbol (format "@" name)))
+                           Statement
+                           (..with_vars [(~+ inputsC)]
+                             (~ (list#mix (function (_ [when then] else)
+                                            (` (_.if (~ when)
+                                                 (_.function (~ runtime_name) (list (~+ inputsC))
+                                                   (~ then))
+                                                 (~ else))))
+                                          (` (_.function (~ runtime_name) (list (~+ inputsC))
+                                               (~ default_implementation)))
+                                          conditional_implementations)))))))))))))
 
 (def: tuple_size
   (_.the "length"))
@@ -250,27 +270,29 @@
       @lux//program_args
       ))
 
-... (def: i64##+limit (_.manual "+0x7FFFFFFFFFFFFFFF"))
-... (def: i64##-limit (_.manual "-0x8000000000000000"))
-... (def: i64##+iteration (_.manual "+0x10000000000000000"))
-... (def: i64##-iteration (_.manual "-0x10000000000000000"))
-... (def: i64##+cap (_.manual "+0x8000000000000000"))
-... (def: i64##-cap (_.manual "-0x8000000000000001"))
+(def: i64##+limit (_.manual "+0x7FFFFFFFFFFFFFFF"))
+(def: i64##-limit (_.manual "-0x8000000000000000"))
+(def: i64##+cap (_.manual "+0x8000000000000000"))
+(def: i64##-cap (_.manual "-0x8000000000000001"))
 
-... (runtime: (i64##64 input)
-...   (with_vars [temp]
-...     (`` (<| (~~ (template [<scenario> <iteration> <cap> <entrance>]
-...                   [(_.if (|> input <scenario>)
-...                      ($_ _.then
-...                          (_.set (list temp) (_.% <iteration> input))
-...                          (_.return (_.? (|> temp <scenario>)
-...                                         (|> temp (_.- <cap>) (_.+ <entrance>))
-...                                         temp))))]
+(runtime: i64##+iteration (_.manual "(+1<<64)"))
+(runtime: i64##-iteration (_.manual "(-1<<64)"))
 
-...                   [(_.> ..i64##+limit) ..i64##+iteration ..i64##+cap ..i64##-limit]
-...                   [(_.< ..i64##-limit) ..i64##-iteration ..i64##-cap ..i64##+limit]
-...                   ))
-...             (_.return input)))))
+(runtime: (i64##i64 input)
+  [..mruby? (_.return input)]
+  (with_vars [temp]
+    (`` (<| (~~ (template [<scenario> <iteration> <cap> <entrance>]
+                  [(_.if (|> input <scenario>)
+                     ($_ _.then
+                         (_.set (list temp) (_.% <iteration> input))
+                         (_.return (_.? (|> temp <scenario>)
+                                        (|> temp (_.- <cap>) (_.+ <entrance>))
+                                        temp))))]
+
+                  [(_.> ..i64##+limit) ..i64##+iteration ..i64##+cap ..i64##-limit]
+                  [(_.< ..i64##-limit) ..i64##-iteration ..i64##-cap ..i64##+limit]
+                  ))
+            (_.return input)))))
 
 (def: i32##low
   (|>> (_.bit_and (_.manual "+0xFFFFFFFF"))))
@@ -295,8 +317,12 @@
        i32##up
        (_.bit_or @low))])
 
+(def: as_nat
+  (_.% ..i64##+iteration))
+
 (template [<runtime> <host>]
   [(runtime: (<runtime> left right)
+     [..normal_ruby? (_.return (..i64##i64 (<host> (..as_nat left) (..as_nat right))))]
      (with_vars [high low]
        ($_ _.then
            (_.set (list high) (<host> (i32##high left) (..i32##high right)))
@@ -322,6 +348,9 @@
   (|>> (_.< (_.int +32))))
 
 (runtime: (i64##left_shifted shift input)
+  [..normal_ruby? (_.return (|> input
+                                (_.bit_shl (_.% (_.int +64) shift))
+                                ..i64##i64))]
   (with_vars [high low]
     ($_ _.then
         (..cap_shift! shift)
@@ -340,6 +369,13 @@
         )))
 
 (runtime: (i64##right_shifted shift input)
+  [..normal_ruby? ($_ _.then
+                      (_.set (list shift) (_.% (_.int +64) shift))
+                      (_.return (_.? (_.= (_.int +0) shift)
+                                     input
+                                     (|> input
+                                         ..as_nat
+                                         (_.bit_shr shift)))))]
   (with_vars [high low]
     ($_ _.then
         (..cap_shift! shift)
@@ -370,7 +406,7 @@
   (_.bit_shl (_.int +16)))
 
 (runtime: (i64##+ parameter subject)
-  ... (_.return (i64##64 (_.+ parameter subject)))
+  [..normal_ruby? (_.return (i64##i64 (_.+ parameter subject)))]
   (let [hh (|>> i32##high i16##high)
         hl (|>> i32##high i16##low)
         lh (|>> i32##low i16##high)
@@ -423,12 +459,11 @@
        (i64##+ (_.int +1) (_.bit_not value))))
 
 (runtime: (i64##- parameter subject)
-  ... (_.return (i64##64 (_.- parameter subject)))
-  (_.return (i64##+ (i64##opposite parameter) subject))
-  )
+  [..normal_ruby? (_.return (i64##i64 (_.- parameter subject)))]
+  (_.return (i64##+ (i64##opposite parameter) subject)))
 
 (runtime: (i64##* parameter subject)
-  ... (_.return (i64##64 (_.* parameter subject)))
+  [..normal_ruby? (_.return (i64##i64 (_.* parameter subject)))]
   (let [hh (|>> i32##high i16##high)
         hl (|>> i32##high i16##low)
         lh (|>> i32##low i16##high)
@@ -477,10 +512,16 @@
           )))
   )
 
+(runtime: (i64##char subject)
+  [..mruby? (_.return (_.do "chr" (list) {.#None} subject))]
+  (_.return (_.do "chr" (list (_.string "UTF-8")) {.#None} subject)))
+
 (def: runtime//i64
   Statement
   ($_ _.then
-      ... @i64##64
+      @i64##+iteration
+      @i64##-iteration
+      @i64##i64
       @i64##left_shifted
       @i64##right_shifted
       @i64##and
@@ -490,6 +531,7 @@
       @i64##-
       @i64##*
       @i64##/
+      @i64##char
       ))
 
 (runtime: (f64//decode inputG)
@@ -556,10 +598,7 @@
 (def: runtime
   Statement
   ($_ _.then
-      (_.when (_.and (_.not (_.do "method_defined?" (list (_.string "remainder")) {.#None}
-                              (_.local "Numeric")))
-                     (_.do "method_defined?" (list (_.string "remainder_of_divide")) {.#None}
-                       (_.local "Numeric")))
+      (_.when ..mruby?
               ... We're in DragonRuby territory.
               (_.statement
                (_.do "class_eval" (list) {.#Some [(list (_.local "_"))
