@@ -1,45 +1,50 @@
 (.using
-  [library
-   [lux "*"
-    [type {"+" :sharing}]
-    [abstract
-     ["[0]" monad {"+" Monad do}]]
-    [control
-     ["[0]" try {"+" Try}]]
-    [data
-     [binary {"+" Binary}]
-     ["[0]" product]
-     [text
-      ["%" format {"+" format}]
-      [encoding 
-       ["[0]" utf8]]]
-     [collection
-      ["[0]" sequence]
-      ["[0]" list ("[1]#[0]" functor)]]]]]
-  [program
-   [compositor
-    ["[0]" static {"+" Static}]]]
-  ["[0]" // {"+" Packager}
+ [library
+  [lux "*"
+   [type {"+" :sharing}]
+   [abstract
+    ["[0]" monad {"+" Monad do}]]
+   [control
+    ["[0]" try {"+" Try}]]
+   [data
+    [binary {"+" Binary}]
+    ["[0]" product]
+    [text
+     ["%" format {"+" format}]
+     [encoding 
+      ["[0]" utf8]]]
+    [collection
+     ["[0]" sequence]
+     ["[0]" set {"+" Set}]
+     ["[0]" list ("[1]#[0]" functor)]]]]]
+ [program
+  [compositor
+   ["[0]" static {"+" Static}]]]
+ ["[0]" // {"+" Packager}
+  [//
+   ["[0]" archive {"+" Output}
+    ["[0]" descriptor]
+    ["[0]" artifact]
+    ["tree_shaking" dependency]]
+   [cache
+    ["[0]" dependency]]
+   ["[0]" io "_"
+    ["[1]" archive]]
    [//
-    ["[0]" archive {"+" Output}
-     ["[0]" descriptor]
-     ["[0]" artifact]]
-    [cache
-     ["[0]" dependency]]
-    ["[0]" io "_"
-     ["[1]" archive]]
-    [//
-     [language
-      ["$" lux
-       [generation {"+" Context}]]]]]])
+    [language
+     ["$" lux
+      [generation {"+" Context}]]]]]])
 
-(def: (write_module sequence [module output] so_far)
+(def: (write_module necessary_dependencies sequence [module_id output] so_far)
   (All (_ directive)
-    (-> (-> directive directive directive) [archive.ID Output] directive
+    (-> (Set Context) (-> directive directive directive) [archive.ID Output] directive
         (Try directive)))
   (|> output
       sequence.list
-      (list#each (|>> product.right product.right))
+      (list.all (function (_ [artifact_id custom content])
+                  (if (set.member? necessary_dependencies [module_id artifact_id])
+                    {.#Some content}
+                    {.#None})))
       (monad.mix try.monad
                  (function (_ content so_far)
                    (|> content
@@ -63,9 +68,13 @@
         Packager))
   (function (package host_dependencies archive program)
     (do [! try.monad]
-      [order (dependency.load_order $.key archive)]
+      [.let [necessary_dependencies (tree_shaking.necessary_dependencies archive)]
+       order (dependency.load_order $.key archive)]
       (|> order
           (list#each (function (_ [module [module_id [descriptor document output]]])
                        [module_id output]))
-          (monad.mix ! (..write_module sequence) header)
-          (# ! each (|>> scope code (# utf8.codec encoded)))))))
+          (monad.mix ! (..write_module necessary_dependencies sequence) header)
+          (# ! each (|>> scope
+                         code
+                         (# utf8.codec encoded)
+                         {.#Left}))))))
