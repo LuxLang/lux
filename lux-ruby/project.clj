@@ -1,4 +1,4 @@
-(def version "0.6.4")
+(def version "0.6.5")
 (def repo "https://github.com/LuxLang/lux")
 (def sonatype-releases "https://oss.sonatype.org/service/local/staging/deploy/maven2/")
 (def sonatype-snapshots "https://oss.sonatype.org/content/repositories/snapshots/")
@@ -14,8 +14,7 @@
                               [:name "Eduardo Julian"]
                               [:url "https://github.com/eduardoejp"]]]
   
-  :repositories [["releases" ~sonatype-releases]
-                 ["snapshots" ~sonatype-snapshots]]
+  :repositories [["snapshots" ~sonatype-snapshots]]
   :deploy-repositories [["releases" {:url ~sonatype-releases :creds :gpg}]
                         ["snapshots" {:url ~sonatype-snapshots :creds :gpg}]]
   

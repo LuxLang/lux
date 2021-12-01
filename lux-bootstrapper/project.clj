@@ -1,4 +1,4 @@
-(def version "0.6.5-SNAPSHOT")
+(def version "0.6.5")
 
 (defproject com.github.luxlang/lux-bootstrapper #=(identity version)
   :min-lein-version  "2.1.0" ;; 2.1.0 introduced jar classifiers

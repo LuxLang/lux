@@ -48,7 +48,7 @@ cd ~/lux/lux-js/ \
 ## Compile Lux's Standard Library's tests using a JS/Node-based compiler.
 cd ~/lux/stdlib/ \
 && lein clean \
-&& node --stack_size=8192 ~/lux/lux-js/lux.js build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux \
+&& node --stack_size=8192 ~/lux/lux-js/target/program.js build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux \
 && node ~/lux/stdlib/target/program.js
 ```
 
