@@ -68,14 +68,14 @@ In order to compile a Lux program to any of these alternative platforms, you mus
 
 An Aedifex `project.lux` file allows for a `"compiler"` option to specify (as a dependency) the compiler you wish to use.
 
-This option can be omitted, in which case it will pick, as a default value: `["com.github.luxlang" "lux-jvm" "0.6.4" "jar"]`.
+This option can be omitted, in which case it will pick, as a default value: `["com.github.luxlang" "lux-jvm" "0.6.5" "jar"]`.
 
 Here are the compilers for the alternative platforms:
 
-* For JavaScript: `["com.github.luxlang" "lux-js" "0.6.4" "js"]`
-* For Python: `["com.github.luxlang" "lux-python" "0.6.4" "jar"]`
-* For Lua: `["com.github.luxlang" "lux-lua" "0.6.4" "jar"]`
-* For Ruby: `["com.github.luxlang" "lux-ruby" "0.6.4" "jar"]`
+* For JavaScript: `["com.github.luxlang" "lux-js" "0.6.5" "js"]`
+* For Python: `["com.github.luxlang" "lux-python" "0.6.5" "jar"]`
+* For Lua: `["com.github.luxlang" "lux-lua" "0.6.5" "jar"]`
+* For Ruby: `["com.github.luxlang" "lux-ruby" "0.6.5" "jar"]`
 
 You don't need to use any special command on Aedifex in order to compile Lux to any alternative platform.
 
@@ -193,7 +193,7 @@ However, it is possible to specify that a file contains code that is only meant 
 * For Lua: `foo.lua.lux`
 * For Ruby: `foo.rb.lux`
 
-If you're using, let's say, the JavaScript compiler for Lux (i.e. `["com.github.luxlang" "lux-js" "0.6.4" "js"]`), whenever you import a module as a dependency, the compiler will first look for a file with the `.js.lux` extension, and if it fails to find one, it will look for a file with the plain `.lux` extension.
+If you're using, let's say, the JavaScript compiler for Lux (i.e. `["com.github.luxlang" "lux-js" "0.6.5" "js"]`), whenever you import a module as a dependency, the compiler will first look for a file with the `.js.lux` extension, and if it fails to find one, it will look for a file with the plain `.lux` extension.
 
 _What happens if I do not have a `.js.lux` file, but I do have files with the other special extensions?_
 

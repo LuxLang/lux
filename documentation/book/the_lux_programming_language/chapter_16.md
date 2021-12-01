@@ -22,7 +22,7 @@ Let's take a look at the `project.lux` file for the Lux standard library itself.
 
 ```clojure
 [""
- ["identity" ["com.github.luxlang" "stdlib" "0.6.4"]
+ ["identity" ["com.github.luxlang" "stdlib" "0.6.5"]
 
   "deploy_repositories" ["snapshots" "https://oss.sonatype.org/content/repositories/snapshots/"
                          "releases" "https://oss.sonatype.org/service/local/staging/deploy/maven2/"]
@@ -31,7 +31,7 @@ Let's take a look at the `project.lux` file for the Lux standard library itself.
                   "https://oss.sonatype.org/service/local/staging/deploy/maven2/"]]
 
  "jvm"
- ["compiler" ["com.github.luxlang" "lux-jvm" "0.6.4" "jar"]]
+ ["compiler" ["com.github.luxlang" "lux-jvm" "0.6.5" "jar"]]
 
  "bibliotheca"
  ["info" ["description" "Standard Library for the Lux programming language."]
