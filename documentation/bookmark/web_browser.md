@@ -1,5 +1,6 @@
 # Exemplar
 
+1. [Nyxt](https://nyxt.atlas.engineer/)
 1. [Stack](https://stackbrowser.com/)
 1. [Flow: The super fast, multithreaded HTML5 browser from Ekioh](https://www.ekioh.com/flow-browser/)
 1. https://refresh.study/
@@ -36,6 +37,7 @@
 
 # Reference
 
+1. [Emacs with Nyxt: extend your editor with the power of a Lisp browser](https://nyxt.atlas.engineer/article/emacs-conf.org)
 1. [Web Browser Engineering](https://browser.engineering/)
 1. [Public Suffix List](https://publicsuffix.org/)
 1. [Public Suffix List Problems](https://github.com/sleevi/psl-problems)

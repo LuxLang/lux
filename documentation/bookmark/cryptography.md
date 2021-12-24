@@ -18,6 +18,7 @@
 
 # Library
 
+0. [Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API)
 0. [Crypto++ Library](https://cryptopp.com/)
 0. [aykxt/crypto](https://github.com/aykxt/crypto)
 0. [zinc: Introduce minimal cryptography library](https://git.kernel.org/pub/scm/linux/kernel/git/zx2c4/linux.git/commit/?h=zinc)

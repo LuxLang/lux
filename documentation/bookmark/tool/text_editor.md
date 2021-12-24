@@ -1,256 +1,257 @@
 # Modal editing
 
-1. [Beyond Vim and Emacs: A Scalable UI Paradigm](https://emacsconf.org/2020/talks/07/)
+0. [Beyond Vim and Emacs: A Scalable UI Paradigm](https://emacsconf.org/2020/talks/07/)
 
 # Code navigation
 
-1. ["Incremental, zero-config Code Nav using stack graphs" by Douglas Creager](https://www.youtube.com/watch?v=l2R1PTGcwrE)
+0. [Introducing stack graphs](https://github.blog/2021-12-09-introducing-stack-graphs/)
+0. ["Incremental, zero-config Code Nav using stack graphs" by Douglas Creager](https://www.youtube.com/watch?v=l2R1PTGcwrE)
 
 # Rendering
 
-1. [Text Rendering Hates You](https://gankra.github.io/blah/text-hates-you/)
-1. [Graphics for JVM](https://tonsky.me/blog/skija/)
-1. https://github.com/JetBrains/skija/
-1. https://github.com/JetBrains/skiko/
-1. https://github.com/JetBrains/compose-jb
+0. [Text Rendering Hates You](https://gankra.github.io/blah/text-hates-you/)
+0. [Graphics for JVM](https://tonsky.me/blog/skija/)
+0. https://github.com/JetBrains/skija/
+0. https://github.com/JetBrains/skiko/
+0. https://github.com/JetBrains/compose-jb
 
 # Font
 
-1. [Google Noto Fonts: Beautiful and free fonts for all languages](https://www.google.com/get/noto/)
+0. [Google Noto Fonts: Beautiful and free fonts for all languages](https://www.google.com/get/noto/)
 
 # Residential programming
 
-1. [Residential Programming without Mutable State - Thomas Getgood](https://www.youtube.com/watch?v=Kgw9fblSOx4)
+0. [Residential Programming without Mutable State - Thomas Getgood](https://www.youtube.com/watch?v=Kgw9fblSOx4)
 
 # Good Ideas
 
-1. https://medium.com/@NikitaVoloboev/write-once-never-write-again-c2fa1f6c4e8
-1. [Inline: Efficient Source Code Editing and Manipulation with Code Portals](https://www.youtube.com/watch?v=NQ5h2Ibw6ck)
-1. https://devclass.com/2019/02/15/atlassian-make-jira-invisible-target-developers-ides/
-1. http://lispm.de/genera-concepts
-1. Hovering/selecting an input to a function inside a function-call should display the name of the input in the function declaration. This would help understand the purpose of the value while in the function call without needing Lux/the-language to have named inputs as a feature.
-1. https://www.emacswiki.org/emacs/UndoTree
-1. https://jameshfisher.com/2014/05/11/your-syntax-highlighter-is-wrong/
-1. https://medium.com/@evnbr/coding-in-color-3a6db2743a1e
+0. https://medium.com/@NikitaVoloboev/write-once-never-write-again-c2fa1f6c4e8
+0. [Inline: Efficient Source Code Editing and Manipulation with Code Portals](https://www.youtube.com/watch?v=NQ5h2Ibw6ck)
+0. https://devclass.com/2019/02/15/atlassian-make-jira-invisible-target-developers-ides/
+0. http://lispm.de/genera-concepts
+0. Hovering/selecting an input to a function inside a function-call should display the name of the input in the function declaration. This would help understand the purpose of the value while in the function call without needing Lux/the-language to have named inputs as a feature.
+0. https://www.emacswiki.org/emacs/UndoTree
+0. https://jameshfisher.com/2014/05/11/your-syntax-highlighter-is-wrong/
+0. https://medium.com/@evnbr/coding-in-color-3a6db2743a1e
 
 # Voice
 
-1. [Speaking in code: how to program by voice](https://www.nature.com/articles/d41586-018-05588-x)
+0. [Speaking in code: how to program by voice](https://www.nature.com/articles/d41586-018-05588-x)
 
 # Refactoring
 
-1. https://medium.com/zoosk-engineering/refactoring-at-scale-with-abstract-syntax-trees-a3f989ec8524
-1. https://about.sourcegraph.com/
+0. https://medium.com/zoosk-engineering/refactoring-at-scale-with-abstract-syntax-trees-a3f989ec8524
+0. https://about.sourcegraph.com/
 
 # Visual programming
 
-1. https://github.com/ivanreese/visual-programming-codex
-1. [Lambda Days 2018 - Piotr Moczurad - Visual-textual functional programming with Luna](https://www.youtube.com/watch?v=6xUOuzafmO0)
-1. https://www.luna-lang.org/
-1. https://github.com/hoodiecrow/Tclook
-1. https://blog.sourcerer.io/build-interactive-diagrams-with-storm-react-diagrams-f172ae26af9d
-1. https://www.jointjs.com/opensource
-1. https://github.com/jagenjo/litegraph.js
-1. https://github.com/retejs/rete
-1. http://mikehadlow.blogspot.com/2018/10/visual-programming-why-its-bad-idea.html
-1. https://ncase.me/joy/
-1. https://www.jointjs.com/
-1. [Lambda World 2018 - Diagrammatic Execution Models for Functional Languages - Keynote](https://www.youtube.com/watch?v=sgmpVedCsNM)
-1. http://joshuahhh.com/projects/pane/
-1. [PANE: Programming with visible data](https://www.youtube.com/watch?v=fIEcXAHy6bU)
-1. https://blog.statebox.org/why-visual-programming-doesnt-suck-2c1ece2a414e
-1. https://nodered.org/
+0. https://github.com/ivanreese/visual-programming-codex
+0. [Lambda Days 2018 - Piotr Moczurad - Visual-textual functional programming with Luna](https://www.youtube.com/watch?v=6xUOuzafmO0)
+0. https://www.luna-lang.org/
+0. https://github.com/hoodiecrow/Tclook
+0. https://blog.sourcerer.io/build-interactive-diagrams-with-storm-react-diagrams-f172ae26af9d
+0. https://www.jointjs.com/opensource
+0. https://github.com/jagenjo/litegraph.js
+0. https://github.com/retejs/rete
+0. http://mikehadlow.blogspot.com/2018/10/visual-programming-why-its-bad-idea.html
+0. https://ncase.me/joy/
+0. https://www.jointjs.com/
+0. [Lambda World 2018 - Diagrammatic Execution Models for Functional Languages - Keynote](https://www.youtube.com/watch?v=sgmpVedCsNM)
+0. http://joshuahhh.com/projects/pane/
+0. [PANE: Programming with visible data](https://www.youtube.com/watch?v=fIEcXAHy6bU)
+0. https://blog.statebox.org/why-visual-programming-doesnt-suck-2c1ece2a414e
+0. https://nodered.org/
 
 # Reference
 
-1. [Deft for Emacs](https://jblevins.org/projects/deft/)
-1. [Text Editing Hates You Too](https://lord.io/text-editing-hates-you-too/)
-1. [Build Your Own Text Editor](https://viewsourcecode.org/snaptoken/kilo/index.html)
-1. [On the design of text editors](https://arxiv.org/abs/2008.06030)
-1. [The Piece Table - the Unsung Hero of Your Text Editor](https://darrenburns.net/posts/piece-table/)
-1. [Build Your Own Text Editor](https://viewsourcecode.org/snaptoken/kilo/)
-1. [It’s 2019. Why don’t we have good code editors?](https://thoughts.thorlaksson.com/2019/09/27/its-2019-why-dont-we-have-good-code-editors/)
-1. [Text Editing Hates You Too](https://lord.io/blog/2019/text-editing-hates-you-too/)
-1. [Why ContentEditable is Terrible](https://medium.engineering/why-contenteditable-is-terrible-122d8a40e480)
-1. [Broot: A better way to navigate directories](https://github.com/Canop/broot)
-1. https://www.simplethread.com/editor-plugins-belong-in-lock-file/
-1. [How to Design an IDE-Friendly Language with Peter Gromov @donnerpeter](https://www.youtube.com/watch?v=lubc8udiP_8)
-1. https://shaunlebron.github.io/parinfer/
-1. https://www.reddit.com/r/emacs/comments/6ztnj9/what_are_the_things_that_you_do_not_like_in_emacs/?st=j7kdafu2&sh=af9ca25d
-1. http://xenodium.com/#emacs-utilities-for-your-os
-1. https://techcrunch.com/2017/02/19/why-is-android-studio-still-such-a-gruesome-embarrassment/
-1. http://emacslife.com/
-1. http://tinyletter.com/Flowsheets/letters/flowsheets-visualizations
-1. http://www.averylaird.com/programming/editor/2017/09/30/the-piece-table/
-1. [Gallery of Programmer Interfaces](https://docs.google.com/presentation/d/1MD-CgzODFWzdpnYXr8bEgysfDmb8PDV6iCAjH5JIvaI/preview?slide=id.g1da0625f1b_0_56)
-1. https://spacevim.org/2017/02/11/use-vim-as-a-java-ide.html
-1. https://github.com/p-e-w/envy
-1. https://enotuniq.org/python_as_a_dsl.html
-1. [Lambda World 2018 - What FP can learn from Smalltalk by Aditya Siram](https://www.youtube.com/watch?v=baxtyeFVn3w)
-1. https://chris-martin.org/2017/loc
+0. [Deft for Emacs](https://jblevins.org/projects/deft/)
+0. [Text Editing Hates You Too](https://lord.io/text-editing-hates-you-too/)
+0. [Build Your Own Text Editor](https://viewsourcecode.org/snaptoken/kilo/index.html)
+0. [On the design of text editors](https://arxiv.org/abs/2008.06030)
+0. [The Piece Table - the Unsung Hero of Your Text Editor](https://darrenburns.net/posts/piece-table/)
+0. [Build Your Own Text Editor](https://viewsourcecode.org/snaptoken/kilo/)
+0. [It’s 2019. Why don’t we have good code editors?](https://thoughts.thorlaksson.com/2019/09/27/its-2019-why-dont-we-have-good-code-editors/)
+0. [Text Editing Hates You Too](https://lord.io/blog/2019/text-editing-hates-you-too/)
+0. [Why ContentEditable is Terrible](https://medium.engineering/why-contenteditable-is-terrible-122d8a40e480)
+0. [Broot: A better way to navigate directories](https://github.com/Canop/broot)
+0. https://www.simplethread.com/editor-plugins-belong-in-lock-file/
+0. [How to Design an IDE-Friendly Language with Peter Gromov @donnerpeter](https://www.youtube.com/watch?v=lubc8udiP_8)
+0. https://shaunlebron.github.io/parinfer/
+0. https://www.reddit.com/r/emacs/comments/6ztnj9/what_are_the_things_that_you_do_not_like_in_emacs/?st=j7kdafu2&sh=af9ca25d
+0. http://xenodium.com/#emacs-utilities-for-your-os
+0. https://techcrunch.com/2017/02/19/why-is-android-studio-still-such-a-gruesome-embarrassment/
+0. http://emacslife.com/
+0. http://tinyletter.com/Flowsheets/letters/flowsheets-visualizations
+0. http://www.averylaird.com/programming/editor/2017/09/30/the-piece-table/
+0. [Gallery of Programmer Interfaces](https://docs.google.com/presentation/d/1MD-CgzODFWzdpnYXr8bEgysfDmb8PDV6iCAjH5JIvaI/preview?slide=id.g1da0625f1b_0_56)
+0. https://spacevim.org/2017/02/11/use-vim-as-a-java-ide.html
+0. https://github.com/p-e-w/envy
+0. https://enotuniq.org/python_as_a_dsl.html
+0. [Lambda World 2018 - What FP can learn from Smalltalk by Aditya Siram](https://www.youtube.com/watch?v=baxtyeFVn3w)
+0. https://chris-martin.org/2017/loc
 
 # Syntax Highlighting
 
-1. [Syntax highlighting is backwards](https://www.benkuhn.net/syntax)
-1. [Coding in color](https://medium.com/@evnbr/coding-in-color-3a6db2743a1e)
-1. https://code.visualstudio.com/blogs/2017/02/08/syntax-highlighting-optimizations
-1. https://github.com/alecthomas/chroma
-1. https://www.crockford.com/contextcoloring.html
+0. [Syntax highlighting is backwards](https://www.benkuhn.net/syntax)
+0. [Coding in color](https://medium.com/@evnbr/coding-in-color-3a6db2743a1e)
+0. https://code.visualstudio.com/blogs/2017/02/08/syntax-highlighting-optimizations
+0. https://github.com/alecthomas/chroma
+0. https://www.crockford.com/contextcoloring.html
 
 # Music
 
-1. https://www.hooktheory.com/hookpad/app
+0. https://www.hooktheory.com/hookpad/app
 
 # Data-Structures
 
-1. [Data Structures for Text Sequences](https://www.cs.unm.edu/~crowley/papers/sds.pdf)
+0. [Data Structures for Text Sequences](https://www.cs.unm.edu/~crowley/papers/sds.pdf)
 
 # Shell
 
-1. https://masteringemacs.org/article/complete-guide-mastering-eshell
-1. https://medium.com/readcomiccode/behold-z-the-unsung-jewel-that-rethinks-shell-navigation-dae262bb6bdc
-1. https://gitlab.com/emacsomancer/equake
-1. https://github.com/c-bata/go-prompt
+0. https://masteringemacs.org/article/complete-guide-mastering-eshell
+0. https://medium.com/readcomiccode/behold-z-the-unsung-jewel-that-rethinks-shell-navigation-dae262bb6bdc
+0. https://gitlab.com/emacsomancer/equake
+0. https://github.com/c-bata/go-prompt
 
 # Language Server Protocol
 
-1. https://tomassetti.me/language-server-dot-visual-studio/
-1. https://github.com/Microsoft/language-server-protocol/blob/master/README.md
-1. https://www.ncameron.org/blog/what-the-rls-can-do/
+0. https://tomassetti.me/language-server-dot-visual-studio/
+0. https://github.com/Microsoft/language-server-protocol/blob/master/README.md
+0. https://www.ncameron.org/blog/what-the-rls-can-do/
 
 # Semantic-oriented programming
 
-1. https://en.wikipedia.org/wiki/Semantic-oriented_programming
-1. https://prezi.com/gp6u1jpgkxej/what-are-soplets/
-1. http://symade.tigris.org/
+0. https://en.wikipedia.org/wiki/Semantic-oriented_programming
+0. https://prezi.com/gp6u1jpgkxej/what-are-soplets/
+0. http://symade.tigris.org/
 
 # Integrated Development Environment (IDE)
 
-1. [Theia 1.0 - Finally a Good Browser IDE](https://dev.to/svenefftinge/theia-1-0-finally-a-good-browser-ide-3ok0)
-1. https://www.eclipse.org/che/
+0. [Theia 1.0 - Finally a Good Browser IDE](https://dev.to/svenefftinge/theia-1-0-finally-a-good-browser-ide-3ok0)
+0. https://www.eclipse.org/che/
 
 # Advanced AST/source-code manipulation tools
 
-1. https://caseywatts.com/2018/08/23/codemods.html
-1. https://vimeo.com/189514610
-1. https://github.com/facebook/jscodeshift
-1. http://astexplorer.net/
-1. https://github.com/avajs/ava-codemods
+0. https://caseywatts.com/2018/08/23/codemods.html
+0. https://vimeo.com/189514610
+0. https://github.com/facebook/jscodeshift
+0. http://astexplorer.net/
+0. https://github.com/avajs/ava-codemods
 
 # Extensibility
 
-1. [The Spoofax Language Workbench](https://metaborg.github.io/spoofax/)
-1. [A Language Independent Task Engine for Incremental Name and Type Analysis](https://www.researchgate.net/publication/290110229_A_Language_Independent_Task_Engine_for_Incremental_Name_and_Type_Analysis)
-1. [Extensible Type-Directed Editing](http://cattheory.com/extensibleTypeDirectedEditing.pdf)
+0. [The Spoofax Language Workbench](https://metaborg.github.io/spoofax/)
+0. [A Language Independent Task Engine for Incremental Name and Type Analysis](https://www.researchgate.net/publication/290110229_A_Language_Independent_Task_Engine_for_Incremental_Name_and_Type_Analysis)
+0. [Extensible Type-Directed Editing](http://cattheory.com/extensibleTypeDirectedEditing.pdf)
 
 # Parsing
 
-1. [tree-sitter](http://tree-sitter.github.io/tree-sitter/)
-1. [tree-sitter: An incremental parsing system for programming tools](https://github.com/tree-sitter/tree-sitter)
-1. https://blog.github.com/2018-10-31-atoms-new-parsing-system/
-1. ["Tree-sitter - a new parsing system for programming tools" by Max Brunsfeld](https://www.youtube.com/watch?v=Jes3bD6P0To)
+0. [tree-sitter](http://tree-sitter.github.io/tree-sitter/)
+0. [tree-sitter: An incremental parsing system for programming tools](https://github.com/tree-sitter/tree-sitter)
+0. https://blog.github.com/2018-10-31-atoms-new-parsing-system/
+0. ["Tree-sitter - a new parsing system for programming tools" by Max Brunsfeld](https://www.youtube.com/watch?v=Jes3bD6P0To)
 
 # Notebook
 
-1. https://tiddlywiki.com/
+0. https://tiddlywiki.com/
 
 # Extension
 
-1. https://github.com/Pext/Pext
+0. https://github.com/Pext/Pext
 
 # Collaborative editing
 
-1. https://github.com/gsilvamartin/RTCode
-1. https://hackernoon.com/building-conclave-a-decentralized-real-time-collaborative-text-editor-a6ab438fe79f
-1. https://github.com/xi-editor/xi-editor/issues/1187
-1. [Chronofold: a data structure for versioned text](https://arxiv.org/abs/2002.09511)
+0. https://github.com/gsilvamartin/RTCode
+0. https://hackernoon.com/building-conclave-a-decentralized-real-time-collaborative-text-editor-a6ab438fe79f
+0. https://github.com/xi-editor/xi-editor/issues/1187
+0. [Chronofold: a data structure for versioned text](https://arxiv.org/abs/2002.09511)
 
 # Exemplar
 
 ## General
 
-1. https://texteditors.org/cgi-bin/wiki.pl?EditorIndex
-1. [Slate: A completely customizable framework for building rich text editors.](https://github.com/ianstormtaylor/slate)
-1. [Trix: A rich text editor for everyday writing.](https://trix-editor.org/)
-1. [Left](https://100r.co/site/left.html)
-1. https://howl.io/
-1. [The Whole Code Catalog](https://futureofcoding.org/catalog/)
-1. http://substance.io/
-1. https://www.querystorm.com/
-1. http://recursivedrawing.com/
-1. http://doc.cat-v.org/bell_labs/sam_lang_tutorial/sam_tut.pdf
-1. https://github.com/typeintandem/tandem
-1. https://github.com/atom/xray
-1. http://strlen.com/treesheets/
-1. https://sekao.net/nightlight/
-1. http://cirru.org/
-1. http://www.sublimetext.com/
-1. https://atom.io/
-1. http://lighttable.com/
-1. https://www.visualstudio.com/vs/whatsnew/
-1. http://www.prototypingtools.co/
-1. https://nexttexteditor.com/
-1. https://medium.com/cirru-project/stack-editor-programming-by-functions-a961f1d9555c
-1. https://github.com/Cirru/stack-editor
-1. https://kclpure.kcl.ac.uk/portal/files/71018111/Frame_based_editing.pdf
-1. http://reactide.io/
-1. http://jumpfm.org/
-1. https://isomorf.io/#!/
-1. http://granthika.co/
-1. https://portacle.github.io/
-1. https://quokkajs.com/
-1. https://github.com/jaredly/treed
-1. https://github.com/raxod502/el-patch
-1. http://www.jgrasp.org/tutorials200/jGRASP_00_Overview.pdf
-1. http://codiad.com/
-1. https://github.com/sahilm/fuzzy
-1. https://lively-next.org/
-1. http://www.expressionsofchange.org/
-1. https://github.com/onivim/oni
-1. http://wiki.xxiivv.com/ronin
-1. https://github.com/google/xi-editor
-1. https://teletype.atom.io/
-1. https://github.com/martanne/vis
-1. http://www.graspjs.com/
-1. http://kakoune.org/
-1. https://github.com/argimenes/standoff-properties-editor
-1. https://www.conyedit.com/
-1. https://developer.mozilla.org/en-US/docs/Web/API/Document/execCommand
-1. [YOW! Lambda Jam 2018 - Colin Fleming - Developing an IDE for Clojure code](https://www.youtube.com/watch?v=2sPYiGxU4kA)
-1. https://github.com/shaunlebron/history-of-lisp-parens/blob/master/editors.md
-1. https://www.leoeditor.com/
-1. https://storybook.js.org/
-1. https://grapesjs.com/
-1. https://two-wrongs.com/why-you-should-buy-into-the-emacs-platform
-1. https://docs.slatejs.org/
-1. https://github.com/pel-daniel/mind-bicyles
-1. https://github.com/metaseed/metaGo
-1. https://github.com/argimenes/standoff-properties-editor
-1. https://github.com/JeffreyBenjaminBrown/hode
-1. https://tratt.net/laurie/blog/entries/an_editor_for_composed_programs.html
-1. [Hjalfi makes smalltalk (in Javascript)](https://www.youtube.com/watch?v=JDunc6Cr7YQ)
+0. https://texteditors.org/cgi-bin/wiki.pl?EditorIndex
+0. [Slate: A completely customizable framework for building rich text editors.](https://github.com/ianstormtaylor/slate)
+0. [Trix: A rich text editor for everyday writing.](https://trix-editor.org/)
+0. [Left](https://100r.co/site/left.html)
+0. https://howl.io/
+0. [The Whole Code Catalog](https://futureofcoding.org/catalog/)
+0. http://substance.io/
+0. https://www.querystorm.com/
+0. http://recursivedrawing.com/
+0. http://doc.cat-v.org/bell_labs/sam_lang_tutorial/sam_tut.pdf
+0. https://github.com/typeintandem/tandem
+0. https://github.com/atom/xray
+0. http://strlen.com/treesheets/
+0. https://sekao.net/nightlight/
+0. http://cirru.org/
+0. http://www.sublimetext.com/
+0. https://atom.io/
+0. http://lighttable.com/
+0. https://www.visualstudio.com/vs/whatsnew/
+0. http://www.prototypingtools.co/
+0. https://nexttexteditor.com/
+0. https://medium.com/cirru-project/stack-editor-programming-by-functions-a961f1d9555c
+0. https://github.com/Cirru/stack-editor
+0. https://kclpure.kcl.ac.uk/portal/files/71018111/Frame_based_editing.pdf
+0. http://reactide.io/
+0. http://jumpfm.org/
+0. https://isomorf.io/#!/
+0. http://granthika.co/
+0. https://portacle.github.io/
+0. https://quokkajs.com/
+0. https://github.com/jaredly/treed
+0. https://github.com/raxod502/el-patch
+0. http://www.jgrasp.org/tutorials200/jGRASP_00_Overview.pdf
+0. http://codiad.com/
+0. https://github.com/sahilm/fuzzy
+0. https://lively-next.org/
+0. http://www.expressionsofchange.org/
+0. https://github.com/onivim/oni
+0. http://wiki.xxiivv.com/ronin
+0. https://github.com/google/xi-editor
+0. https://teletype.atom.io/
+0. https://github.com/martanne/vis
+0. http://www.graspjs.com/
+0. http://kakoune.org/
+0. https://github.com/argimenes/standoff-properties-editor
+0. https://www.conyedit.com/
+0. https://developer.mozilla.org/en-US/docs/Web/API/Document/execCommand
+0. [YOW! Lambda Jam 2018 - Colin Fleming - Developing an IDE for Clojure code](https://www.youtube.com/watch?v=2sPYiGxU4kA)
+0. https://github.com/shaunlebron/history-of-lisp-parens/blob/master/editors.md
+0. https://www.leoeditor.com/
+0. https://storybook.js.org/
+0. https://grapesjs.com/
+0. https://two-wrongs.com/why-you-should-buy-into-the-emacs-platform
+0. https://docs.slatejs.org/
+0. https://github.com/pel-daniel/mind-bicyles
+0. https://github.com/metaseed/metaGo
+0. https://github.com/argimenes/standoff-properties-editor
+0. https://github.com/JeffreyBenjaminBrown/hode
+0. https://tratt.net/laurie/blog/entries/an_editor_for_composed_programs.html
+0. [Hjalfi makes smalltalk (in Javascript)](https://www.youtube.com/watch?v=JDunc6Cr7YQ)
 
 ## Structured editing
 
-1. [The Animated Guide to Symex](https://countvajhula.com/2021/09/25/the-animated-guide-to-symex/)
-1. [Leo](https://www.leoeditor.com/)
-1. [Inspiring a future Clojure editor with forgotten Lisp UX - Shaun Lebron](https://www.youtube.com/watch?v=K0Tsa3smr1w)
-1. [Dion Systems - The How And Why Of Reinventing The Wheel](https://vimeo.com/485177664)
-1. [Towards Tactic Metaprogramming in Haskell](https://reasonablypolymorphic.com/blog/towards-tactics/index.html)
-1. https://github.com/Raathigesh/waypoint
-1. [Going beyond regular expressions with structural code search](https://about.sourcegraph.com/blog/going-beyond-regular-expressions-with-structural-code-search)
-1. [俺のlisp](https://github.com/illiichi/orenolisp)
-1. [豆腐 (Tofu): meaningful code editing](https://gregoor.github.io/tofu/)
-1. [Tiled Text](http://www.tiledtext.com/projects/tiledtext)
-1. [Deuce: A Lightweight User Interface for Structured Editing](https://arxiv.org/abs/1707.00015)
-1. ["Structured Editing for Elm* in Elm" by Ravi Chugh](https://www.youtube.com/watch?v=-TFL6E1uSHE)
-1. [The TeXmacs user interface and structured text editing](https://www.youtube.com/watch?v=Sc55nOSN0kQ)
+0. [The Animated Guide to Symex](https://countvajhula.com/2021/09/25/the-animated-guide-to-symex/)
+0. [Leo](https://www.leoeditor.com/)
+0. [Inspiring a future Clojure editor with forgotten Lisp UX - Shaun Lebron](https://www.youtube.com/watch?v=K0Tsa3smr1w)
+0. [Dion Systems - The How And Why Of Reinventing The Wheel](https://vimeo.com/485177664)
+0. [Towards Tactic Metaprogramming in Haskell](https://reasonablypolymorphic.com/blog/towards-tactics/index.html)
+0. https://github.com/Raathigesh/waypoint
+0. [Going beyond regular expressions with structural code search](https://about.sourcegraph.com/blog/going-beyond-regular-expressions-with-structural-code-search)
+0. [俺のlisp](https://github.com/illiichi/orenolisp)
+0. [豆腐 (Tofu): meaningful code editing](https://gregoor.github.io/tofu/)
+0. [Tiled Text](http://www.tiledtext.com/projects/tiledtext)
+0. [Deuce: A Lightweight User Interface for Structured Editing](https://arxiv.org/abs/1707.00015)
+0. ["Structured Editing for Elm* in Elm" by Ravi Chugh](https://www.youtube.com/watch?v=-TFL6E1uSHE)
+0. [The TeXmacs user interface and structured text editing](https://www.youtube.com/watch?v=Sc55nOSN0kQ)
 
 ## Tree editor
 
-1. http://justinpombrio.net/tree-editors/survey.html
+0. http://justinpombrio.net/tree-editors/survey.html
 
 ## Image editor
 
-1. https://www.ludigraphix.org/
+0. https://www.ludigraphix.org/
 
