@@ -419,8 +419,7 @@
         (do-analyse-apply analyse exo-type =fn ?args)))
     
     _
-    (do-analyse-apply analyse exo-type =fn ?args))
-  )
+    (do-analyse-apply analyse exo-type =fn ?args)))
 
 (defn analyse-case [analyse exo-type ?value ?branches]
   (|do [_ (&/assert! (> (&/|length ?branches) 0)

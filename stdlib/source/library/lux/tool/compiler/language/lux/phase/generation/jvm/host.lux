@@ -1,55 +1,64 @@
 (.using
-  [library
-   [lux {"-" Definition}
-    ["[0]" ffi {"+" import: do_to object}]
-    [abstract
-     [monad {"+" do}]]
-    [control
-     pipe
-     ["[0]" try {"+" Try}]
-     ["[0]" exception {"+" exception:}]
-     ["[0]" io {"+" IO io}]
-     [concurrency
-      ["[0]" atom {"+" Atom atom}]]]
-    [data
-     [binary {"+" Binary}]
-     ["[0]" product]
-     ["[0]" text ("[1]#[0]" hash)
-      ["%" format {"+" format}]]
-     [collection
-      ["[0]" array]
-      ["[0]" dictionary {"+" Dictionary}]
-      ["[0]" sequence]]
-     ["[0]" format "_"
-      ["[1]" binary]]]
-    [target
-     [jvm
-      ["[0]" loader {"+" Library}]
-      ["_" bytecode {"+" Bytecode}]
-      ["[0]" modifier {"+" Modifier} ("[1]#[0]" monoid)]
-      ["[0]" field {"+" Field}]
-      ["[0]" method {"+" Method}]
-      ["[0]" version]
-      ["[0]" class {"+" Class}]
-      ["[0]" encoding "_"
-       ["[1]/[0]" name]]
-      ["[0]" type
-       ["[0]" descriptor]]]]
-    [tool
-     [compiler
-      ["[0]" name]]]]]
-  ["[0]" // "_"
-   ["[1][0]" runtime {"+" Definition}]]
-  )
+ [library
+  [lux {"-" Definition}
+   ["[0]" ffi {"+" import: do_to object}]
+   [abstract
+    [monad {"+" do}]]
+   [control
+    pipe
+    ["[0]" maybe]
+    ["[0]" try {"+" Try}]
+    ["[0]" exception {"+" exception:}]
+    ["[0]" io {"+" IO io}]
+    [concurrency
+     ["[0]" atom {"+" Atom atom}]]]
+   [data
+    [binary {"+" Binary}]
+    ["[0]" product]
+    ["[0]" text ("[1]#[0]" hash)
+     ["%" format {"+" format}]]
+    [collection
+     ["[0]" array]
+     ["[0]" dictionary {"+" Dictionary}]
+     ["[0]" sequence]]
+    ["[0]" format "_"
+     ["[1]" binary]]]
+   [target
+    [jvm
+     ["_" bytecode {"+" Bytecode}]
+     ["[0]" loader {"+" Library}]
+     ["[0]" modifier {"+" Modifier} ("[1]#[0]" monoid)]
+     ["[0]" field {"+" Field}]
+     ["[0]" method {"+" Method}]
+     ["[0]" version]
+     ["[0]" class {"+" Class}]
+     ["[0]" encoding "_"
+      ["[1]/[0]" name]]
+     ["[0]" type
+      ["[0]" descriptor]]]]
+   [tool
+    [compiler
+     [language
+      [lux
+       [version {"+" version}]
+       [generation {"+" Context}]]]
+     [meta
+      [io {"+" lux_context}]]]]]]
+ ["[0]" // "_"
+  ["[1][0]" runtime {"+" Definition}]]
+ )
 
 (import: java/lang/reflect/Field
-  (get ["?" java/lang/Object] "try" "?" java/lang/Object))
+  ["[1]::[0]"
+   (get ["?" java/lang/Object] "try" "?" java/lang/Object)])
 
 (import: (java/lang/Class a)
-  (getField [java/lang/String] "try" java/lang/reflect/Field))
+  ["[1]::[0]"
+   (getField [java/lang/String] "try" java/lang/reflect/Field)])
 
 (import: java/lang/Object
-  (getClass [] (java/lang/Class java/lang/Object)))
+  ["[1]::[0]"
+   (getClass [] (java/lang/Class java/lang/Object))])
 
 (import: java/lang/ClassLoader)
 
@@ -57,7 +66,7 @@
 (def: value::type (type.class "java.lang.Object" (list)))
 (def: value::modifier ($_ modifier#composite field.public field.final field.static))
 
-(def: init::type (type.method [(list) type.void (list)]))
+(def: init::type (type.method [(list) (list) type.void (list)]))
 (def: init::modifier ($_ modifier#composite method.public method.static method.strict))
 
 (exception: .public (cannot_load [class Text
@@ -100,6 +109,13 @@
 (def: class_path_separator
   ".")
 
+(def: .public (class_name [module_id artifact_id])
+  (-> Context Text)
+  (format lux_context
+          ..class_path_separator (%.nat version)
+          ..class_path_separator (%.nat module_id)
+          ..class_path_separator (%.nat artifact_id)))
+
 (def: (evaluate! library loader eval_class valueG)
   (-> Library java/lang/ClassLoader Text (Bytecode Any) (Try [Any Definition]))
   (let [bytecode_name (text.replaced class_path_separator .module_separator eval_class)
@@ -125,8 +141,8 @@
                (in [value
                     [eval_class bytecode]])))))
 
-(def: (execute! library loader temp_label [class_name class_bytecode])
-  (-> Library java/lang/ClassLoader Text Definition (Try Any))
+(def: (execute! library loader [class_name class_bytecode])
+  (-> Library java/lang/ClassLoader Definition (Try Any))
   (io.run! (do (try.with io.monad)
              [existing_class? (|> (atom.read! library)
                                   (# io.monad each (function (_ library)
@@ -138,28 +154,43 @@
                   (loader.store class_name class_bytecode library))]
              (loader.load class_name loader))))
 
-(def: (define! library loader [module name] valueG)
-  (-> Library java/lang/ClassLoader Symbol (Bytecode Any) (Try [Text Any Definition]))
-  (let [class_name (format (text.replaced .module_separator class_path_separator module)
-                           class_path_separator (name.normal name)
-                           "___" (%.nat (text#hash name)))]
+(def: (define! library loader context custom valueG)
+  (-> Library java/lang/ClassLoader Context (Maybe Text) (Bytecode Any) (Try [Text Any Definition]))
+  (let [class_name (maybe.else (..class_name context)
+                               custom)]
     (do try.monad
       [[value definition] (evaluate! library loader class_name valueG)]
       (in [class_name value definition]))))
 
 (def: .public host
-  (IO //runtime.Host)
+  (IO [java/lang/ClassLoader //runtime.Host])
   (io (let [library (loader.new_library [])
             loader (loader.memory library)]
-        (: //runtime.Host
-           (implementation
-            (def: (evaluate! temp_label valueG)
-              (let [eval_class (|> temp_label name.normal (text.replaced " " "$"))]
-                (# try.monad each product.left
-                   (..evaluate! library loader eval_class valueG))))
-            
-            (def: execute!
-              (..execute! library loader))
-            
-            (def: define!
-              (..define! library loader)))))))
+        [loader
+         (: //runtime.Host
+            (implementation
+             (def: (evaluate context valueG)
+               (# try.monad each product.left
+                  (..evaluate! library loader (class_name context) valueG)))
+             
+             (def: execute
+               (..execute! library loader))
+             
+             (def: define
+               (..define! library loader))
+
+             (def: (ingest context bytecode)
+               [(..class_name context) bytecode])
+
+             (def: (re_learn context custom [_ bytecode])
+               (io.run! (loader.store (maybe.else (..class_name context) custom) bytecode library)))
+             
+             (def: (re_load context custom [directive_name bytecode])
+               (io.run!
+                (do (try.with io.monad)
+                  [.let [class_name (maybe.else (..class_name context)
+                                                custom)]
+                   _ (loader.store class_name bytecode library)
+                   class (loader.load class_name loader)]
+                  (# io.monad in (..class_value class_name class)))))
+             ))])))

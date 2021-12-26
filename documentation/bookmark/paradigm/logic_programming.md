@@ -12,6 +12,7 @@
 
 # Reference
 
+0. [PrologHub](https://prologhub.com/)
 0. https://book.simply-logical.space/
 0. [Higher-Order Logic Programming](https://www.lix.polytechnique.fr/~dale/papers/Handbook_Logic_AI_LP.pdf)
 0. [HiLog: A foundation for higher-order logic programming](http://www.sciencedirect.com/science/article/pii/074310669390039J)

@@ -1,63 +1,65 @@
 (.using
-  [library
-   [lux {"-" Type Definition Label case false true try}
-    [abstract
-     ["[0]" monad {"+" do}]
-     ["[0]" enum]]
-    [control
-     ["[0]" try]]
-    [data
-     [binary {"+" Binary}]
-     [collection
-      ["[0]" list ("[1]#[0]" functor)]
-      ["[0]" sequence]]
-     ["[0]" format "_"
-      ["[1]" binary]]
-     [text
-      ["%" format {"+" format}]]]
-    [math
-     [number
-      ["n" nat]
-      ["[0]" i32]
-      ["[0]" i64]]]
-    [target
-     ["[0]" jvm "_"
-      ["_" bytecode {"+" Label Bytecode}]
-      ["[0]" modifier {"+" Modifier} ("[1]#[0]" monoid)]
-      ["[0]" field {"+" Field}]
-      ["[0]" method {"+" Method}]
-      ["[1]/[0]" version]
-      ["[0]" class {"+" Class}]
-      ["[0]" constant
-       [pool {"+" Resource}]]
-      [encoding
-       ["[0]" name]]
-      ["[0]" type {"+" Type}
-       ["[0]" category {"+" Return' Value'}]
-       ["[0]" reflection]]]]]]
-  ["[0]" // "_"
-   ["[1][0]" type]
-   ["[1][0]" value]
-   ["[1][0]" function "_"
-    ["[1]" abstract]
-    [field
-     [constant
-      ["[1]/[0]" arity]]
-     [variable
-      ["[1]/[0]" count]]]]
-   ["//[1]" /// "_"
-    [//
-     ["[0]" version]
-     ["[0]" synthesis]
-     ["[0]" generation]
-     [///
-      ["[1]" phase]
-      [arity {"+" Arity}]
-      [reference
-       [variable {"+" Register}]]
-      [meta
-       [io {"+" lux_context}]
-       [archive {"+" Archive}]]]]]])
+ [library
+  [lux {"-" Type Definition Label case false true try}
+   [abstract
+    ["[0]" monad {"+" do}]
+    ["[0]" enum]]
+   [control
+    ["[0]" try]]
+   [data
+    [binary {"+" Binary}]
+    ["[0]" product]
+    [collection
+     ["[0]" list ("[1]#[0]" functor)]
+     ["[0]" sequence]]
+    ["[0]" format "_"
+     ["[1]" binary]]
+    [text
+     ["%" format {"+" format}]]]
+   [math
+    [number
+     ["n" nat]
+     ["[0]" i32]
+     ["[0]" i64]]]
+   [target
+    ["[0]" jvm "_"
+     ["_" bytecode {"+" Label Bytecode}]
+     ["[0]" modifier {"+" Modifier} ("[1]#[0]" monoid)]
+     ["[0]" field {"+" Field}]
+     ["[0]" method {"+" Method}]
+     ["[1]/[0]" version]
+     ["[0]" class {"+" Class}]
+     ["[0]" constant
+      [pool {"+" Resource}]]
+     [encoding
+      ["[0]" name]]
+     ["[0]" type {"+" Type}
+      ["[0]" category {"+" Return' Value'}]
+      ["[0]" reflection]]]]]]
+ ["[0]" // "_"
+  ["[1][0]" type]
+  ["[1][0]" value]
+  ["[1][0]" function "_"
+   ["[1]" abstract]
+   [field
+    [constant
+     ["[1]/[0]" arity]]
+    [variable
+     ["[1]/[0]" count]]]]
+  ["//[1]" /// "_"
+   [//
+    ["[0]" version]
+    ["[0]" synthesis]
+    ["[0]" generation]
+    [///
+     ["[1]" phase]
+     [arity {"+" Arity}]
+     [reference
+      [variable {"+" Register}]]
+     [meta
+      [io {"+" lux_context}]
+      [archive {"+" Output Archive}
+       ["[0]" artifact {"+" Registry}]]]]]]])
 
 (type: .public Byte_Code
   Binary)
@@ -76,6 +78,7 @@
   [Phase generation.Phase]
   [Handler generation.Handler]
   [Bundle generation.Bundle]
+  [Extender generation.Extender]
   )
 
 (type: .public (Generator i)
@@ -511,7 +514,7 @@
 (def: ^Object (type.class "java.lang.Object" (list)))
 
 (def: generate_runtime
-  (Operation Any)
+  (Operation [artifact.ID (Maybe Text) Binary])
   (let [class (..reflection ..class)
         modifier (: (Modifier Class)
                     ($_ modifier#composite
@@ -538,8 +541,9 @@
                                           ..try::method))
                                   (sequence.sequence)))]
     (do ////.monad
-      [_ (generation.execute! [class bytecode])]
-      (generation.save! ..artifact_id {.#None} [class bytecode]))))
+      [_ (generation.execute! [class bytecode])
+       _ (generation.save! ..artifact_id {.#None} [class bytecode])]
+      (in [..artifact_id {.#None} bytecode]))))
 
 (def: generate_function
   (Operation Any)
@@ -599,10 +603,20 @@
       (generation.save! //function.artifact_id {.#None} [class bytecode]))))
 
 (def: .public generate
-  (Operation Any)
+  (Operation [Registry Output])
   (do ////.monad
-    [_ ..generate_runtime]
-    ..generate_function))
+    [runtime_payload ..generate_runtime
+     ... _ ..generate_function
+     ]
+    (in [(|> artifact.empty
+             (artifact.resource .true artifact.no_dependencies)
+             product.right
+             ... (artifact.resource .true artifact.no_dependencies)
+             ... product.right
+             )
+         (sequence.sequence runtime_payload
+                            ... function_payload
+                            )])))
 
 (def: .public forge_label
   (Operation Label)
