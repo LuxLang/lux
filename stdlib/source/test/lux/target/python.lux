@@ -1,0 +1,323 @@
+(.using
+ [library
+  [lux "*"
+   ["_" test {"+" Test}]
+   ["[0]" ffi]
+   [abstract
+    [monad {"+" do}]
+    ["[0]" predicate]]
+   [control
+    ["[0]" maybe ("[1]#[0]" functor)]
+    ["[0]" try {"+" Try} ("[1]#[0]" functor)]]
+   [data
+    ["[0]" bit ("[1]#[0]" equivalence)]
+    ["[0]" text {"+" \n} ("[1]#[0]" equivalence)
+     ["%" format {"+" format}]]
+    [collection
+     ["[0]" list ("[1]#[0]" functor)]]]
+   ["[0]" math
+    ["[0]" random {"+" Random} ("[1]#[0]" monad)]
+    [number
+     ["n" nat]
+     ["i" int]
+     ["f" frac]
+     ["[0]" i64]]]]]
+ [\\library
+  ["[0]" /]])
+
+(ffi.import: (eval [Text] "try" "?" Any))
+
+(def: (expression ??? it)
+  (-> (-> Any Bit) (/.Expression Any) Bit)
+  ... (case (|> it /.code ..eval)
+  ...   {try.#Success it}
+  ...   (|> it
+  ...       (maybe#each ???)
+  ...       (maybe.else false))
+  
+  ...   {try.#Failure error}
+  ...   (exec
+  ...     ("lux io log" "try.#Failure")
+  ...     ("lux io log" error)
+  ...     ("lux io log" (|> it /.code))
+  ...     false))
+  (|> it
+      /.code
+      ..eval
+      (try#each (|>> (maybe#each ???)
+                     (maybe.else false)))
+      (try.else false))
+  )
+
+(def: test|literal
+  Test
+  (do [! random.monad]
+    [bool random.bit
+     float random.frac
+     int random.int
+     string (random.ascii/upper 5)]
+    ($_ _.and
+        (_.cover [/.none]
+                 (|> /.none
+                     /.code
+                     ..eval
+                     (try#each (function (_ it)
+                                 (case it
+                                   {.#None} true
+                                   {.#Some _} true)))
+                     (try.else false)))
+        (_.cover [/.bool]
+                 (expression (|>> (:as Bit) (bit#= bool))
+                             (/.bool bool)))
+        (_.cover [/.int]
+                 (expression (|>> (:as Int) (i.= int))
+                             (/.int int)))
+        ... (_.cover [/.long]
+        ...          (expression (|>> (:as Int) (i.= int))
+        ...                      (/.long int)))
+        (_.cover [/.float]
+                 (expression (|>> (:as Frac) (f.= float))
+                             (/.float float)))
+        (_.cover [/.string]
+                 (expression (|>> (:as Text) (text#= string))
+                             (/.string string)))
+        (_.cover [/.unicode]
+                 (expression (|>> (:as Text) (text#= string))
+                             (/.unicode string)))
+        )))
+
+(def: test|bool
+  Test
+  (do [! random.monad]
+    [left random.bit
+     right random.bit]
+    (`` ($_ _.and
+            (~~ (template [</> <lux>]
+                  [(_.cover [</>]
+                            (let [expected (<lux> left right)]
+                              (expression (|>> (:as Bit) (bit#= expected))
+                                          (</> (/.bool left) (/.bool right)))))]
+
+                  [/.or .or]
+                  [/.and .and]
+                  ))
+            (_.cover [/.not]
+                     (expression (|>> (:as Bit) (bit#= (not left)))
+                                 (/.not (/.bool left))))
+            ))))
+
+(def: test|float
+  Test
+  (do [! random.monad]
+    [parameter (random.only (|>> (f.= +0.0) not)
+                            random.safe_frac)
+     subject random.safe_frac]
+    (`` ($_ _.and
+            (~~ (template [</> <lux> <pre>]
+                  [(_.cover [</>]
+                            (let [expected (<lux> (<pre> parameter) (<pre> subject))]
+                              (expression (|>> (:as Frac) (f.= expected))
+                                          (</> (/.float (<pre> parameter)) (/.float (<pre> subject))))))]
+
+                  [/.+ f.+ |>]
+                  [/.- f.- |>]
+                  [/.* f.* |>]
+                  [/./ f./ |>]
+                  [/.% f.mod |>]
+                  [/.** math.pow f.abs]
+                  ))
+            (~~ (template [</> <lux>]
+                  [(_.cover [</>]
+                            (let [expected (<lux> parameter subject)]
+                              (expression (|>> (:as Bit) (bit#= expected))
+                                          (</> (/.float parameter) (/.float subject)))))]
+
+                  [/.<  f.<]
+                  [/.<= f.<=]
+                  [/.>  f.>]
+                  [/.>= f.>=]
+                  [/.=  f.=]
+                  ))
+            ))))
+
+(def: int/16
+  (-> Int Int)
+  (i64.and (-- (i64.left_shifted 15 1))))
+
+(def: test|int
+  Test
+  (do [! random.monad]
+    [left random.int
+     right random.int
+
+     i16 (# ! each ..int/16 random.int)
+     shift (# ! each (n.% 16) random.nat)]
+    (`` ($_ _.and
+            (~~ (template [</> <lux>]
+                  [(_.cover [</>]
+                            (let [expected (<lux> left right)]
+                              (expression (|>> (:as Frac) f.int (i.= expected))
+                                          (</> (/.int left) (/.int right)))))]
+
+                  [/.bit_or i64.or]
+                  [/.bit_xor i64.xor]
+                  [/.bit_and i64.and]
+                  ))
+            (_.cover [/.opposite]
+                     (expression (|>> (:as Int) (i.= (i.* -1 left)))
+                                 (/.opposite (/.int left))))
+            (_.cover [/.bit_shl]
+                     (let [expected (i64.left_shifted shift i16)]
+                       (expression (|>> (:as Frac) f.int (i.= expected))
+                                   (/.bit_shl (/.int (.int shift))
+                                              (/.int i16)))))
+            (_.cover [/.bit_shr]
+                     (let [expected (i.right_shifted shift i16)]
+                       (expression (|>> (:as Frac) f.int (i.= expected))
+                                   (/.bit_shr (/.int (.int shift))
+                                              (/.int i16)))))
+            ))))
+
+(def: test|array
+  Test
+  (do [! random.monad]
+    [size (# ! each (|>> (n.% 10) ++) random.nat)
+     index (# ! each (n.% size) random.nat)
+     items (random.list size random.safe_frac)
+     .let [expected (|> items
+                        (list.item index)
+                        (maybe.else f.not_a_number))]
+     from (# ! each (n.% size) random.nat)
+     plus (# ! each (n.% (n.- from size)) random.nat)
+     .let [slice_from|size (n.- from size)
+           to (/.int (.int (n.+ plus from)))
+           from (/.int (.int from))]]
+    ($_ _.and
+        (_.cover [/.list /.item]
+                 (expression (|>> (:as Frac) (f.= expected))
+                             (/.item (/.int (.int index))
+                                     (/.list (list#each /.float items)))))
+        (_.cover [/.tuple /.item]
+                 (expression (|>> (:as Frac) (f.= expected))
+                             (/.item (/.int (.int index))
+                                     (/.tuple (list#each /.float items)))))
+        (_.cover [/.slice /.len/1]
+                 (expression (|>> (:as Int) (i.= (.int plus)))
+                             (|> (/.list (list#each /.float items))
+                                 (/.slice from to)
+                                 /.len/1)))
+        (_.cover [/.slice_from]
+                 (expression (|>> (:as Int) (i.= (.int slice_from|size)))
+                             (|> (/.list (list#each /.float items))
+                                 (/.slice_from from)
+                                 /.len/1)))
+        )))
+
+(def: test|dict
+  Test
+  (do [! random.monad]
+    [expected random.safe_frac
+     field (random.ascii/upper 5)
+     dummy (random.only (|>> (text#= field) not)
+                        (random.ascii/upper 5))
+     .let [field (/.string field)
+           dummy (/.string dummy)]]
+    ($_ _.and
+        (_.cover [/.dict]
+                 (expression (|>> (:as Frac) (f.= expected))
+                             (/.item field (/.dict (list [field (/.float expected)])))))
+        )))
+
+(def: test|computation
+  Test
+  (do [! random.monad]
+    [test random.bit
+     then random.safe_frac
+     else random.safe_frac
+
+     bool random.bit
+     float random.frac
+     string (random.ascii/upper 5)
+
+     comment (random.ascii/upper 10)]
+    ($_ _.and
+        ..test|bool
+        ..test|float
+        ..test|int
+        ..test|array
+        ..test|dict
+        (_.cover [/.?]
+                 (let [expected (if test then else)]
+                   (expression (|>> (:as Frac) (f.= expected))
+                               (/.? (/.bool test)
+                                    (/.float then)
+                                    (/.float else)))))
+        (_.cover [/.comment]
+                 (expression (|>> (:as Frac) (f.= then))
+                             (/.comment comment
+                               (/.float then))))
+        )))
+
+(def: test|function
+  Test
+  (do [! random.monad]
+    [float/0 random.safe_frac
+     float/1 random.safe_frac
+     float/2 random.safe_frac
+     $arg/0 (# ! each /.var (random.ascii/lower 10))
+     $arg/1 (# ! each /.var (random.ascii/lower 11))
+     $arg/2 (# ! each /.var (random.ascii/lower 12))]
+    ($_ _.and
+        (_.cover [/.lambda]
+                 (expression (|>> (:as Frac) (f.= float/0))
+                             (/.apply/* (/.lambda (list)
+                                                  (/.float float/0))
+                                        (list))))
+        (_.cover [/.apply/1]
+                 (expression (|>> (:as Frac) (f.= float/0))
+                             (/.apply/1 (/.lambda (list $arg/0)
+                                                  $arg/0)
+                                        (/.float float/0))))
+        (_.cover [/.apply/2]
+                 (expression (|>> (:as Frac) (f.= ($_ f.+ float/0 float/1)))
+                             (/.apply/2 (/.lambda (list $arg/0 $arg/1)
+                                                  ($_ /.+ $arg/0 $arg/1))
+                                        (/.float float/0)
+                                        (/.float float/1))))
+        (_.cover [/.apply/3]
+                 (expression (|>> (:as Frac) (f.= ($_ f.+ float/0 float/1 float/2)))
+                             (/.apply/3 (/.lambda (list $arg/0 $arg/1 $arg/2)
+                                                  ($_ /.+ $arg/0 $arg/1 $arg/2))
+                                        (/.float float/0)
+                                        (/.float float/1)
+                                        (/.float float/2))))
+        (_.cover [/.apply/*]
+                 (expression (|>> (:as Frac) (f.= ($_ f.+ float/0 float/1 float/2)))
+                             (/.apply/* (/.lambda (list $arg/0 $arg/1 $arg/2)
+                                                  ($_ /.+ $arg/0 $arg/1 $arg/2))
+                                        (list (/.float float/0) (/.float float/1) (/.float float/2)))))
+        )))
+
+(def: test|expression
+  Test
+  (do [! random.monad]
+    [dummy random.safe_frac
+     expected random.safe_frac]
+    (`` ($_ _.and
+            (_.for [/.Literal]
+                   ..test|literal)
+            (_.for [/.Computation]
+                   ..test|computation)
+            ..test|function
+            ))))
+
+(def: .public test
+  Test
+  (do [! random.monad]
+    []
+    (<| (_.covering /._)
+        (_.for [/.Code /.code])
+        ($_ _.and
+            (_.for [/.Expression]
+                   ..test|expression)
+            ))))

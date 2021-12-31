@@ -90,9 +90,9 @@
 (def: .public (class_name [module id])
   (-> generation.Context Text)
   (format lux_context
-          "/" (%.nat version.version)
-          "/" (%.nat module)
-          "/" (%.nat id)))
+          "." (%.nat version.version)
+          "." (%.nat module)
+          "." (%.nat id)))
 
 (def: artifact_id
   0)
@@ -135,40 +135,40 @@
 (def: .public unit (_.string synthesis.unit))
 
 (def: variant::name "variant")
-(def: variant::type (type.method [(list) (list //type.tag //type.flag //type.value) //type.variant (list)]))
+(def: variant::type (type.method [(list) (list //type.lefts //type.right? //type.value) //type.variant (list)]))
 (def: .public variant (..procedure ..variant::name ..variant::type))
 
-(def: variant_tag _.iconst_0)
-(def: variant_last? _.iconst_1)
+(def: variant_lefts _.iconst_0)
+(def: variant_right? _.iconst_1)
 (def: variant_value _.iconst_2)
 
 (def: variant::method
   (let [new_variant ($_ _.composite
                         _.iconst_3
                         (_.anewarray //type.value))
-        $tag ($_ _.composite
-                 _.iload_0
-                 (//value.wrap type.int))
-        $last? _.aload_1
+        $lefts ($_ _.composite
+                   _.iload_0
+                   (//value.wrap type.int))
+        $right? _.aload_1
         $value _.aload_2]
     (method.method ..modifier ..variant::name
                    ..variant::type
                    (list)
                    {.#Some ($_ _.composite
-                               new_variant                  ... A[3]
-                               (..set! ..variant_tag $tag)  ... A[3]
-                               (..set! ..variant_last? $last?) ... A[3]
-                               (..set! ..variant_value $value) ... A[3]
+                               new_variant                       ... A[3]
+                               (..set! ..variant_lefts $lefts)   ... A[3]
+                               (..set! ..variant_right? $right?) ... A[3]
+                               (..set! ..variant_value $value)   ... A[3]
                                _.areturn)})))
 
-(def: .public left_flag _.aconst_null)
-(def: .public right_flag ..unit)
+(def: .public left_right? _.aconst_null)
+(def: .public right_right? ..unit)
 
 (def: .public left_injection
   (Bytecode Any)
   ($_ _.composite
       _.iconst_0
-      ..left_flag
+      ..left_right?
       _.dup2_x1
       _.pop2
       ..variant))
@@ -176,8 +176,8 @@
 (def: .public right_injection
   (Bytecode Any)
   ($_ _.composite
-      _.iconst_1
-      ..right_flag
+      _.iconst_0
+      ..right_right?
       _.dup2_x1
       _.pop2
       ..variant))
@@ -188,7 +188,7 @@
   (Bytecode Any)
   ($_ _.composite
       _.iconst_0
-      ..left_flag
+      ..left_right?
       ..unit
       ..variant))
 
@@ -288,7 +288,7 @@
                         _.areturn))}))
 
 (def: case::name "case")
-(def: case::type (type.method [(list) (list //type.variant //type.tag //type.flag) //type.value (list)]))
+(def: case::type (type.method [(list) (list //type.variant //type.lefts //type.right?) //type.value (list)]))
 (def: .public case (..procedure ..case::name ..case::type))
 
 (def: case::method
@@ -298,68 +298,72 @@
                   (do _.monad
                     [@loop _.new_label
                      @perfect_match! _.new_label
-                     @tags_match! _.new_label
+                     @lefts_match! _.new_label
                      @maybe_nested _.new_label
                      @mismatch! _.new_label
-                     .let [::tag ($_ _.composite
-                                     (..get ..variant_tag)
-                                     (//value.unwrap type.int))
-                           ::last? (..get ..variant_last?)
-                           ::value (..get ..variant_value)
+                     .let [$variant _.aload_0
+                           $lefts _.iload_1
+                           $right? _.aload_2
 
-                           $variant _.aload_0
-                           $tag _.iload_1
-                           $last? _.aload_2
+                           ::lefts ($_ _.composite
+                                       (..get ..variant_lefts)
+                                       (//value.unwrap type.int))
+                           ::right? (..get ..variant_right?)
+                           ::value (..get ..variant_value)
 
                            not_found _.aconst_null
 
-                           update_$tag _.isub
+                           super_nested_lefts ($_ _.composite
+                                                  _.swap
+                                                  _.isub
+                                                  (_.int (i32.i32 (.i64 +1)))
+                                                  _.isub)
+                           super_nested ($_ _.composite
+                                            ... lefts, sumT
+                                            super_nested_lefts ... super_lefts
+                                            $variant ::right? ... super_lefts, super_right
+                                            $variant ::value ... super_lefts, super_right, super_value
+                                            ..variant)
+
                            update_$variant ($_ _.composite
                                                $variant ::value
                                                (_.checkcast //type.variant)
                                                _.astore_0)
-                           recur (: (-> Label (Bytecode Any))
-                                    (function (_ @loop_start)
+                           update_$lefts ($_ _.composite
+                                             _.isub
+                                             (_.int (i32.i32 (.i64 +1)))
+                                             _.isub)
+                           again (: (-> Label (Bytecode Any))
+                                    (function (_ @)
                                       ($_ _.composite
-                                          ... tag, sumT
-                                          update_$variant ... tag, sumT
-                                          update_$tag     ... sub_tag
-                                          (_.goto @loop_start))))
-                           
-                           super_nested_tag ($_ _.composite
-                                                ... tag, sumT
-                                                _.swap ... sumT, tag
-                                                _.isub)
-                           super_nested ($_ _.composite
-                                            ... tag, sumT
-                                            super_nested_tag ... super_tag
-                                            $variant ::last? ... super_tag, super_last
-                                            $variant ::value ... super_tag, super_last, super_value
-                                            ..variant)]]
+                                          ... lefts, sumT
+                                          update_$variant ... lefts, sumT
+                                          update_$lefts ... sub_lefts
+                                          (_.goto @))))]]
                     ($_ _.composite
-                        $tag
+                        $lefts
                         (_.set_label @loop)
-                        $variant ::tag
-                        _.dup2 (_.if_icmpeq @tags_match!)
+                        $variant ::lefts
+                        _.dup2 (_.if_icmpeq @lefts_match!)
                         _.dup2 (_.if_icmpgt @maybe_nested)
-                        $last? (_.ifnull @mismatch!) ... tag, sumT
+                        $right? (_.ifnull @mismatch!) ... lefts, sumT
                         super_nested                 ... super_variant
                         _.areturn
-                        (_.set_label @tags_match!) ... tag, sumT
-                        $last?            ... tag, sumT, wants_last?
-                        $variant ::last? ... tag, sumT, wants_last?, is_last?
-                        (_.if_acmpeq @perfect_match!) ... tag, sumT
-                        (_.set_label @maybe_nested)   ... tag, sumT
-                        $variant ::last?       ... tag, sumT, last?
-                        (_.ifnull @mismatch!)  ... tag, sumT
-                        (recur @loop)
-                        (_.set_label @perfect_match!) ... tag, sumT
-                        ... _.pop2
-                        $variant ::value
-                        _.areturn
-                        (_.set_label @mismatch!) ... tag, sumT
+                        (_.set_label @lefts_match!) ... lefts, sumT
+                        $right?            ... lefts, sumT, wants_right?
+                        $variant ::right? ... lefts, sumT, wants_right?, is_right?
+                        (_.if_acmpeq @perfect_match!) ... lefts, sumT
+                        (_.set_label @mismatch!) ... lefts, sumT
                         ... _.pop2
                         not_found
+                        _.areturn
+                        (_.set_label @maybe_nested)   ... lefts, sumT
+                        $variant ::right?       ... lefts, sumT, right?
+                        (_.ifnull @mismatch!)  ... lefts, sumT
+                        (again @loop)
+                        (_.set_label @perfect_match!) ... lefts, sumT
+                        ... _.pop2
+                        $variant ::value
                         _.areturn
                         ))}))
 
@@ -599,8 +603,10 @@
                                   (list& <init>::method apply::method+)
                                   (sequence.sequence)))]
     (do ////.monad
-      [_ (generation.execute! [class bytecode])]
-      (generation.save! //function.artifact_id {.#None} [class bytecode]))))
+      [_ (generation.execute! [class bytecode])
+       ... _ (generation.save! //function.artifact_id {.#None} [class bytecode])
+       ]
+      (in []))))
 
 (def: .public generate
   (Operation [Registry Output])

@@ -10,6 +10,7 @@
 
 # Reference
 
+1. [Why are ML Compilers so Hard?](https://petewarden.com/2021/12/24/why-are-ml-compilers-so-hard/)
 1. ["Multi-Level Intermediate Representation" Compiler Infrastructure](https://github.com/tensorflow/mlir)
 1. [Sampling can be faster than optimization](https://www.pnas.org/content/116/42/20881)
 1. [Layer rotation: a surprisingly powerful indicator of generalization in deep networks](https://arxiv.org/abs/1806.01603v2)
