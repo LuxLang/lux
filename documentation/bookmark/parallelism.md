@@ -1,5 +1,5 @@
 # Reference
 
-1. [Arachne: Towards Core-Aware Scheduling](https://github.com/PlatformLab/Arachne)
-1. []()
+0. [C++ Standard Parallelism - Bryce Adelstein Lelbach - CppCon 2021](https://www.youtube.com/watch?v=LW_T2RGXego)
+0. [Arachne: Towards Core-Aware Scheduling](https://github.com/PlatformLab/Arachne)
 

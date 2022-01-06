@@ -23,18 +23,12 @@
   ["[1][0]" value]
   ["[1][0]" structure]
   [////
-   ["[0]" synthesis {"+" Path Synthesis}]
+   ["[0]" synthesis {"+" Path Fork Synthesis}]
    ["[0]" generation]
    [///
     ["[0]" phase ("operation#[0]" monad)]
     [reference
      [variable {"+" Register}]]]]])
-
-(def: equals_name
-  "equals")
-
-(def: equals_type
-  (type.method [(list) (list //type.value) type.boolean (list)]))
 
 (def: (pop_alt stack_depth)
   (-> Nat (Bytecode Any))
@@ -54,10 +48,6 @@
 (def: long
   (-> (I64 Any) (Bytecode Any))
   (|>> .int _.long))
-
-(def: double
-  (-> Frac (Bytecode Any))
-  (|>> _.double))
 
 (def: peek
   (Bytecode Any)
@@ -90,178 +80,240 @@
       (..int lefts)
       //runtime.right_projection))
 
-(def: (path' stack_depth @else @end phase archive path)
-  (-> Nat Label Label (Generator Path))
-  (.case path
-    {synthesis.#Pop}
-    (operation#in ..pop)
-    
-    {synthesis.#Bind register}
-    (operation#in ($_ _.composite
-                      ..peek
-                      (_.astore register)))
+(def: equals@Object
+  (.let [class (type.class "java.lang.Object" (list))
+         method (type.method [(list) (list //type.value) type.boolean (list)])]
+    (_.invokevirtual class "equals" method)))
 
-    {synthesis.#Then bodyS}
-    (do phase.monad
-      [bodyG (phase archive bodyS)]
-      (in ($_ _.composite
-              (..pop_alt stack_depth)
-              bodyG
-              (_.goto @end))))
-    
-    (^template [<pattern> <right?>]
-      [(^ (<pattern> lefts))
-       (operation#in
-        (do _.monad
-          [@success _.new_label
-           @fail _.new_label]
+(def: (path|bind register)
+  (-> Register (Operation (Bytecode Any)))
+  (operation#in ($_ _.composite
+                    ..peek
+                    (_.astore register))))
+
+(def: (path|bit_fork again @else [when thenP elseP])
+  (-> (-> Path (Operation (Bytecode Any)))
+      Label [Bit Path (Maybe Path)]
+      (Operation (Bytecode Any)))
+  (do phase.monad
+    [then! (again thenP)
+     else! (.case elseP
+             {.#Some elseP}
+             (again elseP)
+
+             {.#None}
+             (in (_.goto @else)))
+     .let [if! (.if when _.ifeq _.ifne)]]
+    (in (do _.monad
+          [@else _.new_label]
           ($_ _.composite
               ..peek
-              (_.checkcast //type.variant)
-              (//structure.lefts lefts <right?>)
-              (//structure.right? <right?>)
-              //runtime.case
-              _.dup
-              (_.ifnull @fail)
-              (_.goto @success)
-              (_.set_label @fail)
-              _.pop
-              (_.goto @else)
-              (_.set_label @success)
-              //runtime.push)))])
-    ([synthesis.side/left  false]
-     [synthesis.side/right true])
+              (//value.unwrap type.boolean)
+              (if! @else)
+              then!
+              (_.set_label @else)
+              else!)))))
 
-    (^template [<pattern> <projection>]
-      [(^ (<pattern> lefts))
-       (operation#in ($_ _.composite
-                         ..peek
-                         (<projection> lefts)
-                         //runtime.push))])
-    ([synthesis.member/left ..left_projection]
-     [synthesis.member/right ..right_projection])
+(template [<name> <type> <unwrap> <dup> <pop> <test> <comparison> <if>]
+  [(def: (<name> again @else cons)
+     (-> (-> Path (Operation (Bytecode Any)))
+         Label (Fork <type> Path)
+         (Operation (Bytecode Any)))
+     (do [! phase.monad]
+       [fork! (monad.mix ! (function (_ [test thenP] else!)
+                             (do !
+                               [then! (again thenP)]
+                               (in (do _.monad
+                                     [@else _.new_label]
+                                     ($_ _.composite
+                                         <dup>
+                                         (<test> test)
+                                         <comparison>
+                                         (<if> @else)
+                                         <pop>
+                                         then!
+                                         (_.set_label @else)
+                                         else!)))))
+                         ($_ _.composite
+                             <pop>
+                             (_.goto @else))
+                         {.#Item cons})]
+       (in ($_ _.composite
+               ..peek
+               <unwrap>
+               fork!))))]
 
-    ... Extra optimization
-    (^ (synthesis.path/seq
-        (synthesis.member/left 0)
-        (synthesis.!bind_top register thenP)))
-    (do phase.monad
-      [thenG (path' stack_depth @else @end phase archive thenP)]
-      (in ($_ _.composite
-              ..peek
-              (_.checkcast //type.tuple)
-              _.iconst_0
-              _.aaload
-              (_.astore register)
-              thenG)))
+  [path|i64_fork (I64 Any) (//value.unwrap type.long) _.dup2 _.pop2 ..long _.lcmp _.ifne]
+  [path|f64_fork Frac (//value.unwrap type.double) _.dup2 _.pop2 _.double _.dcmpl _.ifne]
+  [path|text_fork Text (# _.monad in []) _.dup _.pop _.string ..equals@Object _.ifeq]
+  )
 
-    ... Extra optimization
-    (^template [<pm> <projection>]
-      [(^ (synthesis.path/seq
-           (<pm> lefts)
-           (synthesis.!bind_top register thenP)))
-       (do phase.monad
-         [then! (path' stack_depth @else @end phase archive thenP)]
-         (in ($_ _.composite
-                 ..peek
-                 (_.checkcast //type.tuple)
-                 (..int lefts)
-                 <projection>
-                 (_.astore register)
-                 then!)))])
-    ([synthesis.member/left //runtime.left_projection]
-     [synthesis.member/right //runtime.right_projection])
+(def: (path' stack_depth @else @end phase archive)
+  (-> Nat Label Label (Generator Path))
+  (function (again path)
+    (.case path
+      {synthesis.#Pop}
+      (operation#in ..pop)
+      
+      {synthesis.#Bind register}
+      (..path|bind register)
 
-    {synthesis.#Alt leftP rightP}
-    (do phase.monad
-      [@alt_else //runtime.forge_label
-       left! (path' (++ stack_depth) @alt_else @end phase archive leftP)
-       right! (path' stack_depth @else @end phase archive rightP)]
-      (in ($_ _.composite
-              _.dup
-              left!
-              (_.set_label @alt_else)
-              _.pop
-              right!)))
-    
-    {synthesis.#Seq leftP rightP}
-    (do phase.monad
-      [left! (path' stack_depth @else @end phase archive leftP)
-       right! (path' stack_depth @else @end phase archive rightP)]
-      (in ($_ _.composite
-              left!
-              right!)))
+      (^template [<tag> <path>]
+        [{<tag> it}
+         (<path> again @else it)])
+      ([synthesis.#Bit_Fork ..path|bit_fork]
+       [synthesis.#I64_Fork ..path|i64_fork]
+       [synthesis.#F64_Fork ..path|f64_fork]
+       [synthesis.#Text_Fork ..path|text_fork])
 
-    _
-    (undefined)
-    ))
+      {synthesis.#Then bodyS}
+      (do phase.monad
+        [body! (phase archive bodyS)]
+        (in ($_ _.composite
+                (..pop_alt stack_depth)
+                body!
+                (_.when_continuous (_.goto @end)))))
+      
+      (^template [<right?> <pattern>]
+        [(^ (<pattern> lefts))
+         (operation#in
+          (do _.monad
+            [@success _.new_label]
+            ($_ _.composite
+                ..peek
+                (_.checkcast //type.variant)
+                (//structure.lefts lefts)
+                (//structure.right? <right?>)
+                //runtime.case
+                _.dup
+                (_.ifnonnull @success)
+                _.pop
+                (_.goto @else)
+                (_.set_label @success)
+                //runtime.push)))])
+      ([#0 synthesis.side/left]
+       [#1 synthesis.side/right])
+
+      (^template [<pattern> <projection>]
+        [(^ (<pattern> lefts))
+         (operation#in ($_ _.composite
+                           ..peek
+                           (<projection> lefts)
+                           //runtime.push))
+
+         ... Extra optimization
+         (^ (synthesis.path/seq
+             (<pattern> lefts)
+             (synthesis.!bind_top register thenP)))
+         (do phase.monad
+           [then! (path' stack_depth @else @end phase archive thenP)]
+           (in ($_ _.composite
+                   ..peek
+                   (<projection> lefts)
+                   (_.astore register)
+                   then!)))])
+      ([synthesis.member/left ..left_projection]
+       [synthesis.member/right ..right_projection])
+      
+      {synthesis.#Seq leftP rightP}
+      (do phase.monad
+        [left! (path' stack_depth @else @end phase archive leftP)
+         right! (path' stack_depth @else @end phase archive rightP)]
+        (in ($_ _.composite
+                left!
+                right!)))
+
+      {synthesis.#Alt leftP rightP}
+      (do phase.monad
+        [@alt_else //runtime.forge_label
+         left! (path' (++ stack_depth) @alt_else @end phase archive leftP)
+         right! (path' stack_depth @else @end phase archive rightP)]
+        (in ($_ _.composite
+                _.dup
+                left!
+                (_.set_label @alt_else)
+                _.pop
+                right!)))
+      )))
 
 (def: (path @end phase archive path)
   (-> Label (Generator Path))
   (do phase.monad
     [@else //runtime.forge_label
-     pathG (..path' 1 @else @end phase archive path)]
+     path! (..path' 1 @else @end phase archive path)]
     (in ($_ _.composite
-            pathG
-            (_.set_label @else)
-            _.pop
-            //runtime.pm_failure
-            _.aconst_null
-            (_.goto @end)))))
+            path!
+            (do _.monad
+              [?@else (_.acknowledged? @else)]
+              (.case ?@else
+                {.#None}
+                (in [])
+                
+                {.#Some _}
+                ($_ _.composite
+                    (_.set_label @else)
+                    _.pop ... TODO: Comment this line
+                    //runtime.pm_failure
+                    _.aconst_null ... TODO: Comment this line
+                    (_.goto @end)
+                    )))
+            ))))
 
-(def: .public (if phase archive [conditionS thenS elseS])
+(def: .public (if phase archive [testS thenS elseS])
   (Generator [Synthesis Synthesis Synthesis])
   (do phase.monad
-    [conditionG (phase archive conditionS)
-     thenG (phase archive thenS)
-     elseG (phase archive elseS)]
+    [test! (phase archive testS)
+     then! (phase archive thenS)
+     else! (phase archive elseS)]
     (in (do _.monad
           [@else _.new_label
            @end _.new_label]
           ($_ _.composite
-              conditionG
+              test!
               (//value.unwrap type.boolean)
               (_.ifeq @else)
-              thenG
-              (_.goto @end)
+              then!
+              (_.when_continuous (_.goto @end))
               (_.set_label @else)
-              elseG
+              else!
               (_.set_label @end))))))
 
 (def: .public (let phase archive [inputS register bodyS])
   (Generator [Synthesis Register Synthesis])
   (do phase.monad
-    [inputG (phase archive inputS)
-     bodyG (phase archive bodyS)]
+    [input! (phase archive inputS)
+     body! (phase archive bodyS)]
     (in ($_ _.composite
-            inputG
+            input!
             (_.astore register)
-            bodyG))))
+            body!))))
 
 (def: .public (get phase archive [path recordS])
   (Generator [(List synthesis.Member) Synthesis])
   (do phase.monad
-    [recordG (phase archive recordS)]
-    (in (list#mix (function (_ step so_far)
-                    (.let [next (.case step
-                                  {.#Left lefts}
-                                  (..left_projection lefts)
-                                  
-                                  {.#Right lefts}
-                                  (..right_projection lefts))]
-                      (_.composite so_far next)))
-                  recordG
+    [record! (phase archive recordS)]
+    (in (list#mix (function (_ step so_far!)
+                    (.let [next! (.case step
+                                   {.#Left lefts}
+                                   (..left_projection lefts)
+                                   
+                                   {.#Right lefts}
+                                   (..right_projection lefts))]
+                      ($_ _.composite
+                          so_far!
+                          next!)))
+                  record!
                   (list.reversed path)))))
 
 (def: .public (case phase archive [valueS path])
   (Generator [Synthesis Path])
   (do phase.monad
     [@end //runtime.forge_label
-     valueG (phase archive valueS)
-     pathG (..path @end phase archive path)]
+     value! (phase archive valueS)
+     path! (..path @end phase archive path)]
     (in ($_ _.composite
             _.aconst_null
-            valueG
+            value!
             //runtime.push
-            pathG
+            path!
             (_.set_label @end)))))
