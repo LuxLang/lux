@@ -1,6 +1,6 @@
 (.using
  [library
-  [lux {"-" Variant}
+  [lux "*"
    [abstract
     equivalence
     ["[0]" monad {"+" do}]]
@@ -14,13 +14,17 @@
      ["%" format {"+" Format format}]]
     [collection
      ["[0]" list ("[1]#[0]" functor mix)]
-     ["[0]" dictionary {"+" Dictionary}]]]
+     ["[0]" dictionary {"+" Dictionary}]
+     ["[0]" set {"+" Set}]]]
    [math
     [number
-     ["n" nat]]]]]
+     ["n" nat]
+     ["i" int]
+     ["r" rev]
+     ["f" frac]]]]]
  ["[0]" //// "_"
   [//
-   ["/" analysis {"+" Pattern Variant Operation}
+   ["/" analysis {"+" Pattern Operation}
     ["[1][0]" primitive]]
    [///
     ["[1]" phase ("[1]#[0]" monad)]]]])
@@ -45,14 +49,15 @@
 ... Every other coverage is considered partial, and it would be valued
 ... as insuficient (since it could lead to runtime errors due to values
 ... not being handled by any pattern).
-... The #Partial tag covers arbitrary partial coverages in a general
-... way, while the other tags cover more specific cases for bits
-... and variants.
 (type: .public Coverage
   (Rec Coverage
-    (.Variant
-     {#Partial}
+    (Variant
      {#Bit Bit}
+     {#Nat (Set Nat)}
+     {#Int (Set Int)}
+     {#Rev (Set Rev)}
+     {#Frac (Set Frac)}
+     {#Text (Set Text)}
      {#Variant (Maybe Nat) (Dictionary Nat Coverage)}
      {#Seq Coverage Coverage}
      {#Alt Coverage Coverage}
@@ -70,13 +75,23 @@
 (def: .public (%coverage value)
   (Format Coverage)
   (case value
-    {#Partial}
-    "#Partial"
-    
     {#Bit value'}
     (|> value'
         %.bit
         (text.enclosed ["{#Bit " "}"]))
+
+    (^template [<tag> <format>]
+      [{<tag> it}
+       (|> it
+           set.list
+           (list#each <format>)
+           (text.interposed " ")
+           (text.enclosed [(format "{" (%.symbol (symbol <tag>)) " ") "}"]))])
+    ([#Nat %.nat]
+     [#Int %.int]
+     [#Rev %.rev]
+     [#Frac %.frac]
+     [#Text %.text])
     
     {#Variant ?max_cases cases}
     (|> cases
@@ -106,14 +121,14 @@
 
     ... Primitive patterns always have partial coverage because there
     ... are too many possibilities as far as values go.
-    (^template [<tag>]
-      [{/.#Simple {<tag> _}}
-       (////#in {#Partial})])
-    ([/primitive.#Nat]
-     [/primitive.#Int]
-     [/primitive.#Rev]
-     [/primitive.#Frac]
-     [/primitive.#Text])
+    (^template [<from> <to> <hash>]
+      [{/.#Simple {<from> it}}
+       (////#in {<to> (set.of_list <hash> (list it))})])
+    ([/primitive.#Nat #Nat n.hash]
+     [/primitive.#Int #Int i.hash]
+     [/primitive.#Rev #Rev r.hash]
+     [/primitive.#Frac #Frac f.hash]
+     [/primitive.#Text #Text text.hash])
 
     ... Bits are the exception, since there is only "#1" and
     ... "#0", which means it is possible for bit
@@ -183,7 +198,9 @@
     _
     (list coverage)))
 
-(implementation: equivalence (Equivalence Coverage)
+(implementation: equivalence
+  (Equivalence Coverage)
+  
   (def: (= reference sample)
     (case [reference sample]
       [{#Exhaustive} {#Exhaustive}]
@@ -191,6 +208,15 @@
 
       [{#Bit sideR} {#Bit sideS}]
       (bit#= sideR sideS)
+
+      (^template [<tag>]
+        [[{<tag> partialR} {<tag> partialS}]
+         (# set.equivalence = partialR partialS)])
+      ([#Nat]
+       [#Int]
+       [#Rev]
+       [#Frac]
+       [#Text])
 
       [{#Variant allR casesR} {#Variant allS casesS}]
       (and (n.= (cases allR)
@@ -212,7 +238,7 @@
       _
       #0)))
 
-(open: "coverage/[0]" ..equivalence)
+(open: "coverage#[0]" ..equivalence)
 
 (exception: .public (variants_do_not_match [addition_cases Nat
                                             so_far_cases Nat])
@@ -226,155 +252,166 @@
 ... redundant patterns.
 (def: .public (merged addition so_far)
   (-> Coverage Coverage (Try Coverage))
-  (case [addition so_far]
-    [{#Partial} {#Partial}]
-    (try#in {#Partial})
+  (with_expansions [<redundancy> (exception.except ..redundant_pattern [so_far addition])]
+    (case [addition so_far]
+      ... 2 bit coverages are exhaustive if they complement one another.
+      [{#Bit sideA} {#Bit sideSF}]
+      (if (xor sideA sideSF)
+        (try#in {#Exhaustive})
+        <redundancy>)
 
-    ... 2 bit coverages are exhaustive if they complement one another.
-    (^multi [{#Bit sideA} {#Bit sideSF}]
-            (xor sideA sideSF))
-    (try#in {#Exhaustive})
+      (^template [<tag>]
+        [[{<tag> partialA} {<tag> partialSF}]
+         (let [common (set.intersection partialA partialSF)]
+           (if (set.empty? common)
+             (try#in {<tag> (set.union partialA partialSF)})
+             <redundancy>))])
+      ([#Nat]
+       [#Int]
+       [#Rev]
+       [#Frac]
+       [#Text])
 
-    [{#Variant allA casesA} {#Variant allSF casesSF}]
-    (let [addition_cases (cases allSF)
-          so_far_cases (cases allA)]
-      (cond (and (known_cases? addition_cases)
-                 (known_cases? so_far_cases)
-                 (not (n.= addition_cases so_far_cases)))
-            (exception.except ..variants_do_not_match [addition_cases so_far_cases])
+      [{#Variant allA casesA} {#Variant allSF casesSF}]
+      (let [addition_cases (cases allSF)
+            so_far_cases (cases allA)]
+        (cond (and (known_cases? addition_cases)
+                   (known_cases? so_far_cases)
+                   (not (n.= addition_cases so_far_cases)))
+              (exception.except ..variants_do_not_match [addition_cases so_far_cases])
 
-            (# (dictionary.equivalence ..equivalence) = casesSF casesA)
-            (exception.except ..redundant_pattern [so_far addition])
+              (# (dictionary.equivalence ..equivalence) = casesSF casesA)
+              <redundancy>
 
-            ... else
-            (do [! try.monad]
-              [casesM (monad.mix !
-                                 (function (_ [tagA coverageA] casesSF')
-                                   (case (dictionary.value tagA casesSF')
-                                     {.#Some coverageSF}
-                                     (do !
-                                       [coverageM (merged coverageA coverageSF)]
-                                       (in (dictionary.has tagA coverageM casesSF')))
+              ... else
+              (do [! try.monad]
+                [casesM (monad.mix !
+                                   (function (_ [tagA coverageA] casesSF')
+                                     (case (dictionary.value tagA casesSF')
+                                       {.#Some coverageSF}
+                                       (do !
+                                         [coverageM (merged coverageA coverageSF)]
+                                         (in (dictionary.has tagA coverageM casesSF')))
 
-                                     {.#None}
-                                     (in (dictionary.has tagA coverageA casesSF'))))
-                                 casesSF (dictionary.entries casesA))]
-              (in (if (and (or (known_cases? addition_cases)
-                               (known_cases? so_far_cases))
-                           (n.= (++ (n.max addition_cases so_far_cases))
-                                (dictionary.size casesM))
-                           (list.every? exhaustive? (dictionary.values casesM)))
-                    {#Exhaustive}
-                    {#Variant (case allSF
-                                {.#Some _}
-                                allSF
+                                       {.#None}
+                                       (in (dictionary.has tagA coverageA casesSF'))))
+                                   casesSF (dictionary.entries casesA))]
+                (in (if (and (or (known_cases? addition_cases)
+                                 (known_cases? so_far_cases))
+                             (n.= (++ (n.max addition_cases so_far_cases))
+                                  (dictionary.size casesM))
+                             (list.every? exhaustive? (dictionary.values casesM)))
+                      {#Exhaustive}
+                      {#Variant (case allSF
+                                  {.#Some _}
+                                  allSF
 
-                                _
-                                allA)
-                              casesM})))))
+                                  _
+                                  allA)
+                                casesM})))))
 
-    [{#Seq leftA rightA} {#Seq leftSF rightSF}]
-    (case [(coverage/= leftSF leftA) (coverage/= rightSF rightA)]
-      ... Same prefix
-      [#1 #0]
-      (do try.monad
-        [rightM (merged rightA rightSF)]
-        (if (exhaustive? rightM)
-          ... If all that follows is exhaustive, then it can be safely dropped
-          ... (since only the "left" part would influence whether the
-          ... merged coverage is exhaustive or not).
-          (in leftSF)
-          (in {#Seq leftSF rightM})))
+      [{#Seq leftA rightA} {#Seq leftSF rightSF}]
+      (case [(coverage#= leftSF leftA) (coverage#= rightSF rightA)]
+        ... Same prefix
+        [#1 #0]
+        (do try.monad
+          [rightM (merged rightA rightSF)]
+          (if (exhaustive? rightM)
+            ... If all that follows is exhaustive, then it can be safely dropped
+            ... (since only the "left" part would influence whether the
+            ... merged coverage is exhaustive or not).
+            (in leftSF)
+            (in {#Seq leftSF rightM})))
 
-      ... Same suffix
-      [#0 #1]
-      (do try.monad
-        [leftM (merged leftA leftSF)]
-        (in {#Seq leftM rightA}))
+        ... Same suffix
+        [#0 #1]
+        (do try.monad
+          [leftM (merged leftA leftSF)]
+          (in {#Seq leftM rightA}))
 
-      ... The 2 sequences cannot possibly be merged.
-      [#0 #0]
-      (try#in {#Alt so_far addition})
+        ... The 2 sequences cannot possibly be merged.
+        [#0 #0]
+        (try#in {#Alt so_far addition})
 
-      ... There is nothing the addition adds to the coverage.
-      [#1 #1]
-      (exception.except ..redundant_pattern [so_far addition]))
+        ... There is nothing the addition adds to the coverage.
+        [#1 #1]
+        <redundancy>)
 
-    ... The addition cannot possibly improve the coverage.
-    [_ {#Exhaustive}]
-    (exception.except ..redundant_pattern [so_far addition])
-
-    ... The addition completes the coverage.
-    [{#Exhaustive} _]
-    (try#in {#Exhaustive})
-    
-    ... The left part will always match, so the addition is redundant.
-    (^multi [{#Seq left right} single]
-            (coverage/= left single))
-    (exception.except ..redundant_pattern [so_far addition])
-
-    ... The right part is not necessary, since it can always match the left.
-    (^multi [single {#Seq left right}]
-            (coverage/= left single))
-    (try#in single)
-
-    ... When merging a new coverage against one based on Alt, it may be
-    ... that one of the many coverages in the Alt is complementary to
-    ... the new one, so effort must be made to fuse carefully, to match
-    ... the right coverages together.
-    ... If one of the Alt sub-coverages matches the new one, the cycle
-    ... must be repeated, in case the resulting coverage can now match
-    ... other ones in the original Alt.
-    ... This process must be repeated until no further productive
-    ... merges can be done.
-    [_ {#Alt leftS rightS}]
-    (do [! try.monad]
-      [.let [fuse_once (: (-> Coverage (List Coverage)
-                              (Try [(Maybe Coverage)
-                                    (List Coverage)]))
-                          (function (_ coverageA possibilitiesSF)
-                            (loop [altsSF possibilitiesSF]
-                              (case altsSF
-                                {.#End}
-                                (in [{.#None} (list coverageA)])
-                                
-                                {.#Item altSF altsSF'}
-                                (case (merged coverageA altSF)
-                                  {try.#Success altMSF}
-                                  (case altMSF
-                                    {#Alt _}
-                                    (do !
-                                      [[success altsSF+] (again altsSF')]
-                                      (in [success {.#Item altSF altsSF+}]))
-
-                                    _
-                                    (in [{.#Some altMSF} altsSF']))
-                                  
-                                  {try.#Failure error}
-                                  {try.#Failure error})
-                                ))))]
-       [successA possibilitiesSF] (fuse_once addition (flat_alt so_far))]
-      (loop [successA successA
-             possibilitiesSF possibilitiesSF]
-        (case successA
-          {.#Some coverageA'}
-          (do !
-            [[successA' possibilitiesSF'] (fuse_once coverageA' possibilitiesSF)]
-            (again successA' possibilitiesSF'))
-          
-          {.#None}
-          (case (list.reversed possibilitiesSF)
-            {.#Item last prevs}
-            (in (list#mix (function (_ left right) {#Alt left right})
-                          last
-                          prevs))
-
-            {.#End}
-            (undefined)))))
-
-    _
-    (if (coverage/= so_far addition)
       ... The addition cannot possibly improve the coverage.
-      (exception.except ..redundant_pattern [so_far addition])
-      ... There are now 2 alternative paths.
-      (try#in {#Alt so_far addition}))))
+      [_ {#Exhaustive}]
+      <redundancy>
+
+      ... The addition completes the coverage.
+      [{#Exhaustive} _]
+      (try#in {#Exhaustive})
+      
+      ... The left part will always match, so the addition is redundant.
+      (^multi [{#Seq left right} single]
+              (coverage#= left single))
+      <redundancy>
+
+      ... The right part is not necessary, since it can always match the left.
+      (^multi [single {#Seq left right}]
+              (coverage#= left single))
+      (try#in single)
+
+      ... When merging a new coverage against one based on Alt, it may be
+      ... that one of the many coverages in the Alt is complementary to
+      ... the new one, so effort must be made to fuse carefully, to match
+      ... the right coverages together.
+      ... If one of the Alt sub-coverages matches the new one, the cycle
+      ... must be repeated, in case the resulting coverage can now match
+      ... other ones in the original Alt.
+      ... This process must be repeated until no further productive
+      ... merges can be done.
+      [_ {#Alt leftS rightS}]
+      (do [! try.monad]
+        [.let [fuse_once (: (-> Coverage (List Coverage)
+                                (Try [(Maybe Coverage)
+                                      (List Coverage)]))
+                            (function (_ coverageA possibilitiesSF)
+                              (loop [altsSF possibilitiesSF]
+                                (case altsSF
+                                  {.#End}
+                                  (in [{.#None} (list coverageA)])
+                                  
+                                  {.#Item altSF altsSF'}
+                                  (case (merged coverageA altSF)
+                                    {try.#Success altMSF}
+                                    (case altMSF
+                                      {#Alt _}
+                                      (do !
+                                        [[success altsSF+] (again altsSF')]
+                                        (in [success {.#Item altSF altsSF+}]))
+
+                                      _
+                                      (in [{.#Some altMSF} altsSF']))
+                                    
+                                    {try.#Failure error}
+                                    {try.#Failure error})
+                                  ))))]
+         [successA possibilitiesSF] (fuse_once addition (flat_alt so_far))]
+        (loop [successA successA
+               possibilitiesSF possibilitiesSF]
+          (case successA
+            {.#Some coverageA'}
+            (do !
+              [[successA' possibilitiesSF'] (fuse_once coverageA' possibilitiesSF)]
+              (again successA' possibilitiesSF'))
+            
+            {.#None}
+            (case (list.reversed possibilitiesSF)
+              {.#Item last prevs}
+              (in (list#mix (function (_ left right) {#Alt left right})
+                            last
+                            prevs))
+
+              {.#End}
+              (undefined)))))
+
+      _
+      (if (coverage#= so_far addition)
+        ... The addition cannot possibly improve the coverage.
+        <redundancy>
+        ... There are now 2 alternative paths.
+        (try#in {#Alt so_far addition})))))
