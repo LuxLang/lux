@@ -43,17 +43,11 @@
 (abstract: .public (Code brand)
   Text
 
-  (implementation: .public code_equivalence
+  (implementation: .public equivalence
     (All (_ brand) (Equivalence (Code brand)))
 
     (def: (= reference subject)
       (# text.equivalence = (:representation reference) (:representation subject))))
-
-  (implementation: .public code_hash
-    (All (_ brand) (Hash (Code brand)))
-
-    (def: &equivalence ..code_equivalence)
-    (def: hash (|>> :representation (# text.hash hash))))
 
   (def: .public manual
     (-> Text Code)
@@ -223,8 +217,18 @@
             \n+ "end" ..statement_suffix))
 
   (type: .public Block
-    [(List LVar)
-     Statement])
+    (Record
+     [#parameters (List Var)
+      #body Statement]))
+
+  (def: (block it)
+    (-> Block Text)
+    (|> (format (|> (value@ #parameters it)
+                    (list#each (|>> :representation))
+                    (text.interposed ..input_separator)
+                    (text.enclosed' "|"))
+                (..nested (:representation (value@ #body it))))
+        (text.enclosed ["{" "}"])))
 
   (def: .public (apply/* arguments block func)
     (-> (List Expression) (Maybe Block) Expression Computation)
@@ -336,19 +340,18 @@
                                          (..nested (:representation rescue)))))
                     (text.interposed \n+)))))
 
-  (def: .public (catch expectation body!)
-    (-> Expression Statement Statement)
+  (def: .public (catch expectation block)
+    (-> Expression Block Expression)
     (<| :abstraction
-        ..control_structure
-        (format "catch(" (:representation expectation) ") do"
-                (..nested (:representation body!)))))
+        (format "catch(" (:representation expectation) ") "
+                (..block block))))
 
   (def: .public (return value)
     (-> Expression Statement)
     (:abstraction (format "return " (:representation value) ..statement_suffix)))
 
   (def: .public (raise message)
-    (-> Expression Computation)
+    (-> Expression Expression)
     (:abstraction (format "raise " (:representation message))))
 
   (template [<name> <keyword>]
@@ -374,15 +377,9 @@
                     (text.enclosed ["(" ")"]))
                 (..nested (:representation body!)))))
 
-  (def: .public (lambda name args body!)
-    (-> (Maybe LVar) (List Var) Statement Computation)
-    (let [proc (|> (format (|> args
-                               (list#each (|>> :representation))
-                               (text.interposed ..input_separator)
-                               (text.enclosed' "|"))
-                           (..nested (:representation body!)))
-                   (text.enclosed ["{" "}"])
-                   (format "lambda "))]
+  (def: .public (lambda name block)
+    (-> (Maybe LVar) Block Literal)
+    (let [proc (format "lambda " (..block block))]
       (|> (case name
             {.#None}
             proc
@@ -491,12 +488,13 @@
   [2
    [["print"]
     ["alias_method"]]]
-
-  [3
-   [["print"]]]
   )
 
 (def: .public throw/1
   (-> Expression Statement)
   (|>> (..apply/1 (..local "throw"))
        ..statement))
+
+(def: .public (throw/2 tag value)
+  (-> Expression Expression Statement)
+  (..statement (..apply/2 (..local "throw") tag value)))
