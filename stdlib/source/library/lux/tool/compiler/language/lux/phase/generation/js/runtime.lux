@@ -164,12 +164,12 @@
           ($_ _.then
               (_.define last_index_right (..last_index tuple))
               (_.define right_index (_.+ (_.i32 +1) lefts))
-              (_.cond (list [(_.= last_index_right right_index)
-                             (_.return (_.at right_index tuple))]
-                            [(_.> last_index_right right_index)
-                             ... Needs recursion.
-                             <recur>])
-                      (_.return (_.do "slice" (list right_index) tuple)))
+              (<| (_.if (_.= last_index_right right_index)
+                    (_.return (_.at right_index tuple)))
+                  (_.if (_.> last_index_right right_index)
+                    ... Needs recursion.
+                    <recur>)
+                  (_.return (_.do "slice" (list right_index) tuple)))
               )))))
 
 (def: .public variant_tag_field "_lux_tag")
@@ -202,23 +202,21 @@
                                               (_.- (_.i32 +1))))
                    (_.set sum actual##value))]
     (<| (_.while (_.boolean true))
-        (_.cond (list [(_.= expected##lefts actual##lefts)
-                       (_.if (_.= expected##right? actual##right?)
-                         (_.return actual##value)
-                         mismatch!)]
-                      
-                      [(_.< expected##lefts actual##lefts)
-                       (_.if (_.= ..unit actual##right?)
-                         recur!
-                         mismatch!)]
-                      
-                      [(_.= ..unit expected##right?)
-                       (_.return (..variant (|> actual##lefts
-                                                (_.- expected##lefts)
-                                                (_.- (_.i32 +1)))
-                                            actual##right?
-                                            actual##value))])
-                mismatch!))))
+        (_.if (_.= expected##lefts actual##lefts)
+          (_.if (_.= expected##right? actual##right?)
+            (_.return actual##value)
+            mismatch!))
+        (_.if (_.< expected##lefts actual##lefts)
+          (_.if (_.= ..unit actual##right?)
+            recur!
+            mismatch!))
+        (_.if (_.= ..unit expected##right?)
+          (_.return (..variant (|> actual##lefts
+                                   (_.- expected##lefts)
+                                   (_.- (_.i32 +1)))
+                               actual##right?
+                               actual##value)))
+        mismatch!)))
 
 (def: left
   (-> Expression Computation)
@@ -545,89 +543,84 @@
   (|> (i64//< param subject)
       (_.or (i64//= param subject))))
 
+(def: negative?
+  (i64//< i64//zero))
+
 (runtime: (i64/// parameter subject)
-  (let [negative? (function (_ value)
-                    (i64//< i64//zero value))
-        valid_division_check [(i64//= i64//zero parameter)
-                              (_.throw (_.string "Cannot divide by zero!"))]
-        short_circuit_check [(i64//= i64//zero subject)
-                             (_.return i64//zero)]]
-    (_.cond (list valid_division_check
-                  short_circuit_check
-
-                  [(i64//= i64//min subject)
-                   (_.cond (list [(_.or (i64//= i64//one parameter)
-                                        (i64//= i64//-one parameter))
-                                  (_.return i64//min)]
-                                 [(i64//= i64//min parameter)
-                                  (_.return i64//one)])
-                           (with_vars [approximation]
-                             (let [subject/2 (..i64//arithmetic_right_shifted subject (_.i32 +1))]
-                               ($_ _.then
-                                   (_.define approximation (i64//left_shifted (i64/// parameter
-                                                                                      subject/2)
-                                                                              (_.i32 +1)))
-                                   (_.if (i64//= i64//zero approximation)
-                                     (_.return (_.? (negative? parameter)
-                                                    i64//one
-                                                    i64//-one))
-                                     (let [remainder (i64//- (i64//* approximation
-                                                                     parameter)
-                                                             subject)]
-                                       (_.return (i64//+ (i64/// parameter
-                                                                 remainder)
-                                                         approximation))))))))]
-                  [(i64//= i64//min parameter)
-                   (_.return i64//zero)]
-
-                  [(negative? subject)
-                   (_.return (_.? (negative? parameter)
-                                  (i64/// (i64//opposite parameter)
-                                          (i64//opposite subject))
-                                  (i64//opposite (i64/// parameter
-                                                         (i64//opposite subject)))))]
-
-                  [(negative? parameter)
-                   (_.return (i64//opposite (i64/// (i64//opposite parameter) subject)))])
-            (with_vars [result remainder]
-              ($_ _.then
-                  (_.define result i64//zero)
-                  (_.define remainder subject)
-                  (_.while (i64//<= remainder parameter)
-                           (with_vars [approximate approximate_result approximate_remainder log2 delta]
-                             (let [approximate_result' (i64//of_number approximate)
-                                   approx_remainder (i64//* parameter approximate_result)]
-                               ($_ _.then
-                                   (_.define approximate (|> (i64//number remainder)
-                                                             (_./ (i64//number parameter))
-                                                             (_.apply/1 (_.var "Math.floor"))
-                                                             (_.apply/2 (_.var "Math.max") (_.i32 +1))))
-                                   (_.define log2 (|> approximate
-                                                      (_.apply/1 (_.var "Math.log"))
-                                                      (_./ (_.var "Math.LN2"))
-                                                      (_.apply/1 (_.var "Math.ceil"))))
-                                   (_.define delta (_.? (_.> (_.i32 +48) log2)
-                                                        (_.apply/2 (_.var "Math.pow")
-                                                                   (_.i32 +2)
-                                                                   (_.- (_.i32 +48)
-                                                                        log2))
-                                                        (_.i32 +1)))
-                                   (_.define approximate_result approximate_result')
-                                   (_.define approximate_remainder approx_remainder)
-                                   (_.while (_.or (negative? approximate_remainder)
-                                                  (i64//< approximate_remainder
-                                                          remainder))
-                                            ($_ _.then
-                                                (_.set approximate (_.- delta approximate))
-                                                (_.set approximate_result approximate_result')
-                                                (_.set approximate_remainder approx_remainder)))
-                                   (_.set result (i64//+ (_.? (i64//= i64//zero approximate_result)
-                                                              i64//one
-                                                              approximate_result)
-                                                         result))
-                                   (_.set remainder (i64//- approximate_remainder remainder))))))
-                  (_.return result)))
-            )))
+  (<| (_.if (i64//= i64//zero parameter)
+        (_.throw (_.string "Cannot divide by zero!")))
+      (_.if (i64//= i64//zero subject)
+        (_.return i64//zero))
+      (_.if (i64//= i64//min subject)
+        (<| (_.if (_.or (i64//= i64//one parameter)
+                        (i64//= i64//-one parameter))
+              (_.return i64//min))
+            (_.if (i64//= i64//min parameter)
+              (_.return i64//one))
+            (with_vars [approximation]
+              (let [subject/2 (..i64//arithmetic_right_shifted subject (_.i32 +1))]
+                ($_ _.then
+                    (_.define approximation (i64//left_shifted (i64/// parameter
+                                                                       subject/2)
+                                                               (_.i32 +1)))
+                    (_.if (i64//= i64//zero approximation)
+                      (_.return (_.? (..negative? parameter)
+                                     i64//one
+                                     i64//-one))
+                      (let [remainder (i64//- (i64//* approximation
+                                                      parameter)
+                                              subject)]
+                        (_.return (i64//+ (i64/// parameter
+                                                  remainder)
+                                          approximation)))))))))
+      (_.if (i64//= i64//min parameter)
+        (_.return i64//zero))
+      (_.if (..negative? subject)
+        (_.return (_.? (..negative? parameter)
+                       (i64/// (i64//opposite parameter)
+                               (i64//opposite subject))
+                       (i64//opposite (i64/// parameter
+                                              (i64//opposite subject))))))
+      (_.if (..negative? parameter)
+        (_.return (i64//opposite (i64/// (i64//opposite parameter) subject))))
+      (with_vars [result remainder]
+        ($_ _.then
+            (_.define result i64//zero)
+            (_.define remainder subject)
+            (_.while (i64//<= remainder parameter)
+                     (with_vars [approximate approximate_result approximate_remainder log2 delta]
+                       (let [approximate_result' (i64//of_number approximate)
+                             approx_remainder (i64//* parameter approximate_result)]
+                         ($_ _.then
+                             (_.define approximate (|> (i64//number remainder)
+                                                       (_./ (i64//number parameter))
+                                                       (_.apply/1 (_.var "Math.floor"))
+                                                       (_.apply/2 (_.var "Math.max") (_.i32 +1))))
+                             (_.define log2 (|> approximate
+                                                (_.apply/1 (_.var "Math.log"))
+                                                (_./ (_.var "Math.LN2"))
+                                                (_.apply/1 (_.var "Math.ceil"))))
+                             (_.define delta (_.? (_.> (_.i32 +48) log2)
+                                                  (_.apply/2 (_.var "Math.pow")
+                                                             (_.i32 +2)
+                                                             (_.- (_.i32 +48)
+                                                                  log2))
+                                                  (_.i32 +1)))
+                             (_.define approximate_result approximate_result')
+                             (_.define approximate_remainder approx_remainder)
+                             (_.while (_.or (..negative? approximate_remainder)
+                                            (i64//< approximate_remainder
+                                                    remainder))
+                                      ($_ _.then
+                                          (_.set approximate (_.- delta approximate))
+                                          (_.set approximate_result approximate_result')
+                                          (_.set approximate_remainder approx_remainder)))
+                             (_.set result (i64//+ (_.? (i64//= i64//zero approximate_result)
+                                                        i64//one
+                                                        approximate_result)
+                                                   result))
+                             (_.set remainder (i64//- approximate_remainder remainder))))))
+            (_.return result)))))
 
 (runtime: (i64//% parameter subject)
   (let [flat (|> subject
@@ -694,19 +687,19 @@
   (let [console (_.var "console")
         print (_.var "print")
         end! (_.return ..unit)]
-    (_.cond (list [(|> console _.type_of (_.= (_.string "undefined")) _.not
-                       (_.and (_.the "log" console)))
-                   ($_ _.then
-                       (_.statement (|> console (_.do "log" (list message))))
-                       end!)]
-                  [(|> print _.type_of (_.= (_.string "undefined")) _.not)
-                   ($_ _.then
-                       (_.statement (_.apply/1 print (_.? (_.= (_.string "string")
-                                                               (_.type_of message))
-                                                          message
-                                                          (_.apply/1 (_.var "JSON.stringify") message))))
-                       end!)])
-            end!)))
+    (<| (_.if (|> console _.type_of (_.= (_.string "undefined")) _.not
+                  (_.and (_.the "log" console)))
+          ($_ _.then
+              (_.statement (|> console (_.do "log" (list message))))
+              end!))
+        (_.if (|> print _.type_of (_.= (_.string "undefined")) _.not)
+          ($_ _.then
+              (_.statement (_.apply/1 print (_.? (_.= (_.string "string")
+                                                      (_.type_of message))
+                                                 message
+                                                 (_.apply/1 (_.var "JSON.stringify") message))))
+              end!))
+        end!)))
 
 (runtime: (io//error message)
   (_.throw message))
@@ -733,7 +726,7 @@
 
 (runtime: (js//delete object field)
   ($_ _.then
-      (_.delete (_.at field object))
+      (_.statement (_.delete (_.at field object)))
       (_.return object)))
 
 (def: runtime//js
@@ -751,7 +744,7 @@
 
 (runtime: (array//delete idx array)
   ($_ _.then
-      (_.delete (_.at (_.the ..i64_low_field idx) array))
+      (_.statement (_.delete (_.at (_.the ..i64_low_field idx) array)))
       (_.return array)))
 
 (def: runtime//array
