@@ -32,7 +32,7 @@ cd ~/lux/stdlib/ \
 ## Use new JVM compiler to compile tests for the Standard Library
 cd ~/lux/stdlib/ \
 && lein clean \
-&& java -jar ~/lux/lux-jvm/target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux \
+&& java -jar ~/lux/lux-jvm/target/program.jar build --host_dependency ~/.m2/repository/com/github/luxlang/lux-jvm-function/0.6.5/lux-jvm-function-0.6.5.jar --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux \
 && java -jar ~/lux/stdlib/target/program.jar
 ```
 
@@ -40,7 +40,7 @@ cd ~/lux/stdlib/ \
 
 ```
 cd ~/lux/lux-jvm/ \
-&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-jvm -Dversion=0.7.0 -Dpackaging=jar
+&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-jvm -Dversion=0.6.6 -Dpackaging=jar
 
 cd ~/lux/lux-jvm/ && mvn deploy:deploy-file \
 -Durl=https://USERNAME:PASSWORD@oss.sonatype.org/content/repositories/snapshots/ \
