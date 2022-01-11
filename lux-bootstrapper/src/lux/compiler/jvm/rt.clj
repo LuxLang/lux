@@ -283,7 +283,6 @@
             (.visitEnd)))
       nil))
 
-  ^:private compile-Runtime-int-methods  "decode_int"  "java/lang/Long"   "parseLong"   "(Ljava/lang/String;)J" &&/wrap-long
   ^:private compile-Runtime-frac-methods "decode_frac" "java/lang/Double" "parseDouble" "(Ljava/lang/String;)D" &&/wrap-double
   )
 
@@ -428,7 +427,6 @@
               _ (doto =class
                   (compile-Runtime-pm-methods)
                   (compile-Runtime-adt-methods)
-                  (compile-Runtime-int-methods)
                   (compile-Runtime-frac-methods))]]
     (&&/save-class! (-> &&/lux-utils-class (string/split #"/") (nth 2))
                     (.toByteArray (doto =class .visitEnd)))))

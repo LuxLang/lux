@@ -1,7 +1,3 @@
-# Notes
-
-* TODO: Switch to [neolua](https://github.com/neolithos/neolua) ASAP. Rembulan is too immature of an implementation.
-
 # Test
 
 ```
@@ -33,6 +29,6 @@ cd ~/lux/stdlib/ \
 
 ```
 cd ~/lux/lux-lua/ \
-&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-lua -Dversion=0.6.3 -Dpackaging=jar
+&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-lua -Dversion=0.6.6-SNAPSHOT -Dpackaging=jar
 ```
 
