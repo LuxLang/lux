@@ -1,0 +1,206 @@
+(.using
+ [library
+  [lux "*"
+   ["_" test {"+" Test}]
+   [abstract
+    [monad {"+" do}]
+    [\\specification
+     ["$[0]" functor {"+" Injection Comparison}]
+     ["$[0]" monad]]]
+   [control
+    [pipe {"+" case>}]
+    ["[0]" try ("[1]#[0]" functor)]
+    ["[0]" exception {"+" exception:}]]
+   [data
+    ["[0]" text ("[1]#[0]" equivalence)
+     ["%" format {"+" format}]]]
+   [math
+    ["[0]" random]
+    [number
+     ["n" nat]
+     ["i" int]]]]]
+ [\\library
+  ["[0]" /
+   [//
+    [meta
+     ["[0]" archive]]]]])
+
+(def: (injection value)
+  (All (_ s) (Injection (/.Operation s)))
+  (function (_ state)
+    {try.#Success [state value]}))
+
+(def: (comparison init)
+  (All (_ s) (-> s (Comparison (/.Operation s))))
+  (function (_ == left right)
+    (case [(/.result init left)
+           (/.result init right)]
+      [{try.#Success left}
+       {try.#Success right}]
+      (== left right)
+
+      _
+      false)))
+
+(exception: oops)
+
+(def: test|error
+  Test
+  (do [! random.monad]
+    [state random.nat
+     expected random.int
+     expected_error (random.ascii/lower 1)]
+    ($_ _.and
+        (_.cover [/.failure]
+                 (|> (/.failure expected_error)
+                     (/.result state)
+                     (case> {try.#Failure actual_error}
+                            (same? expected_error actual_error)
+
+                            _
+                            false)))
+        (_.cover [/.lifted]
+                 (and (|> (/.lifted {try.#Failure expected_error})
+                          (/.result state)
+                          (case> {try.#Failure actual_error}
+                                 (same? expected_error actual_error)
+
+                                 _
+                                 false))
+                      (|> (/.lifted {try.#Success expected})
+                          (# /.functor each (same? expected))
+                          (/.result state)
+                          (try.else false))))
+        (_.cover [/.except]
+                 (|> (/.except ..oops [])
+                     (/.result state)
+                     (case> {try.#Failure error}
+                            (exception.match? ..oops error)
+
+                            _
+                            false)))
+        (_.cover [/.assertion]
+                 (and (|> (/.assertion ..oops [] false)
+                          (/.result state)
+                          (case> {try.#Failure error}
+                                 (exception.match? ..oops error)
+
+                                 _
+                                 false))
+                      (|> (/.assertion ..oops [] true)
+                          (/.result state)
+                          (case> {try.#Success _}
+                                 true
+
+                                 _
+                                 false))))
+        )))
+
+(def: test|state
+  Test
+  (do [! random.monad]
+    [state random.nat
+     dummy random.nat
+     expected random.int]
+    ($_ _.and
+        (_.cover [/.state]
+                 (|> /.state
+                     (# /.functor each (same? state))
+                     (/.result state)
+                     (try.else false)))
+        (_.cover [/.with]
+                 (|> (do /.monad
+                       [_ (/.with state)]
+                       /.state)
+                     (# /.functor each (same? state))
+                     (/.result dummy)
+                     (try.else false)))
+        (_.cover [/.sub]
+                 (|> (/.sub [(# n.hex encoded)
+                             (function (_ new old)
+                               (|> new (# n.hex decoded) (try.else dummy)))]
+                            (do /.monad
+                              [state/hex /.state]
+                              (in (|> state
+                                      (# n.hex encoded)
+                                      (text#= state/hex)))))
+                     (/.result' state)
+                     (case> {try.#Success [state' verdict]}
+                            (and verdict
+                                 (n.= state state'))
+
+                            _
+                            false)))
+        )))
+
+(def: test|operation
+  Test
+  (do [! random.monad]
+    [state random.nat
+     expected random.int]
+    ($_ _.and
+        (_.for [/.functor]
+               ($functor.spec ..injection (..comparison state) /.functor))
+        (_.for [/.monad]
+               ($monad.spec ..injection (..comparison state) /.monad))
+
+        (_.cover [/.result]
+                 (|> (# /.monad in expected)
+                     (/.result state)
+                     (case> {try.#Success actual}
+                            (same? expected actual)
+
+                            _
+                            false)))
+        (_.cover [/.result']
+                 (|> (# /.monad in expected)
+                     (/.result' state)
+                     (case> {try.#Success [state' actual]}
+                            (and (same? state state')
+                                 (same? expected actual))
+
+                            _
+                            false)))
+        ..test|state
+        ..test|error
+        )))
+
+(def: test|phase
+  Test
+  (do [! random.monad]
+    [state/0 random.nat
+     state/1 random.rev
+     expected random.int]
+    ($_ _.and
+        (_.cover [/.identity]
+                 (|> (/.identity archive.empty expected)
+                     (/.result state/0)
+                     (try#each (same? expected))
+                     (try.else false)))
+        (_.cover [/.composite]
+                 (let [phase (/.composite (: (/.Phase Nat Int Frac)
+                                             (function (_ archive input)
+                                               (# /.monad in (i.frac input))))
+                                          (: (/.Phase Rev Frac Text)
+                                             (function (_ archive input)
+                                               (# /.monad in (%.frac input)))))]
+                   (|> (phase archive.empty expected)
+                       (/.result' [state/0 state/1])
+                       (case> {try.#Success [[state/0' state/1'] actual]}
+                              (and (text#= (%.frac (i.frac expected)) actual)
+                                   (same? state/0 state/0')
+                                   (same? state/1 state/1'))
+
+                              _
+                              false))))
+        )))
+
+(def: .public test
+  Test
+  (<| (_.covering /._)
+      ($_ _.and
+          (_.for [/.Operation]
+                 ..test|operation)
+          (_.for [/.Phase]
+                 ..test|phase)
+          )))

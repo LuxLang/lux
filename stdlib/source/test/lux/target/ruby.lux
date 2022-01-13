@@ -223,34 +223,25 @@
                                       (/.= /.nil)))))
         )))
 
-... (def: test|object
-...   Test
-...   (do [! random.monad]
-...     [expected random.safe_frac
-...      field (random.ascii/upper 5)
-...      dummy (random.only (|>> (text#= field) not)
-...                         (random.ascii/upper 5))
-
-...      size (# ! each (|>> (n.% 10) ++) random.nat)
-...      index (# ! each (n.% size) random.nat)
-...      items (random.list size random.safe_frac)]
-...     ($_ _.and
-...         (_.cover [/.object /.the]
-...                  (expression (|>> (:as Frac) (f.= expected))
-...                              (/.the field (/.object (list [field (/.float expected)])))))
-...         (let [expected (|> items
-...                            (list.item index)
-...                            (maybe.else f.not_a_number))]
-...           (_.cover [/.do]
-...                    (expression (|>> (:as Frac) f.int (i.= (.int index)))
-...                                (|> (/.array (list#each /.float items))
-...                                    (/.do "lastIndexOf" (list (/.float expected)))))))
-...         (_.cover [/.undefined]
-...                  (expression (|>> (:as Bit))
-...                              (|> (/.object (list [field (/.float expected)]))
-...                                  (/.the dummy)
-...                                  (/.= /.undefined))))
-...         )))
+(def: test|object
+  Test
+  (do [! random.monad]
+    [size (# ! each (|>> (n.% 10) ++) random.nat)
+     index (# ! each (n.% size) random.nat)
+     items (random.list size random.safe_frac)]
+    ($_ _.and
+        (_.cover [/.the]
+                 (expression (|>> (:as Int) (i.= (.int size)))
+                             (|> (/.array (list#each /.float items))
+                                 (/.the "length"))))
+        (_.cover [/.do]
+                 (expression (let [expected (|> items
+                                                (list.item index)
+                                                (maybe.else f.not_a_number))]
+                               (|>> (:as Frac) (f.= expected)))
+                             (|> (/.array (list#each /.float items))
+                                 (/.do "at" (list (/.int (.int index))) {.#None}))))
+        )))
 
 (def: test|computation
   Test
@@ -270,7 +261,7 @@
         ..test|int
         ..test|array
         ..test|hash
-        ... ..test|object
+        ..test|object
         (_.cover [/.?]
                  (let [expected (if test then else)]
                    (expression (|>> (:as Frac) (f.= expected))
@@ -539,25 +530,9 @@
                              (|> ($_ /.then
                                      (/.function $self (list $arg/0)
                                        (/.return (/.? (/.< (/.int (.int iterations)) $arg/0)
-                                                      (/.apply/1 $self (/.+ (/.int +1) $arg/0))
+                                                      (/.apply/* (list (/.+ (/.int +1) $arg/0)) {.#None} $self)
                                                       $arg/0)))
-                                     (/.return (/.apply/1 $self (/.int +0))))
-                                 [(list)] (/.lambda {.#None})
-                                 (/.apply_lambda/* (list)))))
-        (_.cover [/.apply/1]
-                 (expression (|>> (:as Frac) (f.= float/0))
-                             (|> ($_ /.then
-                                     (/.function $self (list $arg/0)
-                                       (/.return $arg/0))
-                                     (/.return (/.apply/1 $self (/.float float/0))))
-                                 [(list)] (/.lambda {.#None})
-                                 (/.apply_lambda/* (list)))))
-        (_.cover [/.apply/2]
-                 (expression (|>> (:as Frac) (f.= ($_ f.+ float/0 float/1)))
-                             (|> ($_ /.then
-                                     (/.function $self (list $arg/0 $arg/1)
-                                       (/.return ($_ /.+ $arg/0 $arg/1)))
-                                     (/.return (/.apply/2 $self (/.float float/0) (/.float float/1))))
+                                     (/.return (/.apply/* (list (/.int +0)) {.#None} $self)))
                                  [(list)] (/.lambda {.#None})
                                  (/.apply_lambda/* (list)))))
         (_.cover [/.apply/*]
@@ -568,15 +543,6 @@
                                      (/.return (/.apply/* (list (/.float float/0) (/.float float/1) (/.float float/2)) {.#None} $self)))
                                  [(list)] (/.lambda {.#None})
                                  (/.apply_lambda/* (list)))))
-        ... (_.cover [/.new]
-        ...          (let [$this (/.local "this")]
-        ...            (expression (|>> (:as Frac) (f.= float/0))
-        ...                        (/.apply/1 (/.closure (list $arg/0)
-        ...                                              ($_ /.then
-        ...                                                  (/.function $class (list)
-        ...                                                               (/.set (/.the field $this) $arg/0))
-        ...                                                  (/.return (/.the field (/.new $class (list))))))
-        ...                                   (/.float float/0)))))
         )))
 
 (def: test|branching
@@ -621,7 +587,9 @@
      float/2 random.safe_frac
      $arg/0 (# ! each /.local (random.ascii/lower 10))
      $arg/1 (# ! each /.local (random.ascii/lower 11))
-     $arg/2 (# ! each /.local (random.ascii/lower 12))]
+     $arg/2 (# ! each /.local (random.ascii/lower 12))
+     expected (# ! each (|>> %.int (text.replaced "+" ""))
+                 random.int)]
     ($_ _.and
         (_.cover [/.statement]
                  (expression (|>> (:as Frac) (f.= float/0))
@@ -637,6 +605,15 @@
                                      (/.return $arg/1))
                                  [(list $arg/0 $arg/1)] (/.lambda {.#None})
                                  (/.apply_lambda/* (list (/.float float/0) (/.float float/1))))))
+        (_.cover [/.require/1]
+                 (let [$JSON (/.local "JSON")]
+                   (expression (|>> (:as Text) (text#= expected))
+                               (|> ($_ /.then
+                                       (/.statement (/.require/1 (/.string "json")))
+                                       (/.return (let [json (/.do "parse" (list $arg/0) {.#None} $JSON)]
+                                                   (/.do "generate" (list json) {.#None} $JSON))))
+                                   [(list $arg/0)] (/.lambda {.#None})
+                                   (/.apply_lambda/* (list (/.string expected)))))))
         ..test|exception
         ..test|branching
         ..test|loop
@@ -668,6 +645,9 @@
                                  {.#None} true
                                  {.#Some _} false)))
                    (try.else false)))
+      (_.cover [/.process_id]
+               (expression (|>> (:as Nat) (n.= 0) not)
+                           /.process_id))
       ))
 
 (def: random_expression

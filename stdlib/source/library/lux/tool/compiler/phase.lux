@@ -1,35 +1,58 @@
 (.using
-  [library
-   [lux "*"
-    ["[0]" debug]
-    [abstract
-     [monad {"+" Monad do}]]
-    [control
-     ["[0]" state]
-     ["[0]" try {"+" Try} ("[1]#[0]" functor)]
-     ["ex" exception {"+" Exception exception:}]
-     ["[0]" io]
-     [parser
-      ["<[0]>" code]]]
-    [data
-     ["[0]" product]
-     ["[0]" text
-      ["%" format {"+" format}]]]
-    [time
-     ["[0]" instant]
-     ["[0]" duration]]
-    [macro
-     [syntax {"+" syntax:}]]]]
-  [//
-   [meta
-    [archive {"+" Archive}]]])
+ [library
+  [lux "*"
+   ["[0]" debug]
+   [abstract
+    [functor {"+" Functor}]
+    [monad {"+" Monad do}]]
+   [control
+    ["[0]" state]
+    ["[0]" try {"+" Try} ("[1]#[0]" functor)]
+    ["[0]" exception {"+" Exception}]
+    ["[0]" io]]
+   [data
+    ["[0]" product]
+    [text
+     ["%" format {"+" format}]]]
+   [time
+    ["[0]" instant]
+    ["[0]" duration]]]]
+ [//
+  [meta
+   [archive {"+" Archive}]]])
 
 (type: .public (Operation s o)
   (state.+State Try s o))
 
-(def: .public monad
+(implementation: .public functor
+  (All (_ s) (Functor (Operation s)))
+
+  (def: (each f it)
+    (function (_ state)
+      (case (it state)
+        {try.#Success [state' output]}
+        {try.#Success [state' (f output)]}
+        
+        {try.#Failure error}
+        {try.#Failure error}))))
+
+(implementation: .public monad
   (All (_ s) (Monad (Operation s)))
-  (state.with try.monad))
+
+  (def: &functor ..functor)
+  
+  (def: (in it)
+    (function (_ state)
+      {try.#Success [state it]}))
+
+  (def: (conjoint it)
+    (function (_ state)
+      (case (it state)
+        {try.#Success [state' it']}
+        (it' state')
+        
+        {try.#Failure error}
+        {try.#Failure error}))))
 
 (type: .public (Phase s i o)
   (-> Archive i (Operation s o)))
@@ -49,13 +72,13 @@
       operation
       (# try.monad each product.right)))
 
-(def: .public get_state
+(def: .public state
   (All (_ s o)
     (Operation s s))
   (function (_ state)
     {try.#Success [state state]}))
 
-(def: .public (set_state state)
+(def: .public (with state)
   (All (_ s o)
     (-> s (Operation s Any)))
   (function (_ _)
@@ -77,19 +100,17 @@
 
 (def: .public (except exception parameters)
   (All (_ e) (-> (Exception e) e Operation))
-  (..failure (ex.error exception parameters)))
+  (..failure (exception.error exception parameters)))
 
 (def: .public (lifted error)
   (All (_ s a) (-> (Try a) (Operation s a)))
   (function (_ state)
     (try#each (|>> [state]) error)))
 
-(syntax: .public (assertion [exception <code>.any
-                             message <code>.any
-                             test <code>.any])
-  (in (list (` (if (~ test)
-                 (# ..monad (~' in) [])
-                 (..except (~ exception) (~ message)))))))
+(template: .public (assertion exception message test)
+  [(if test
+     (# ..monad in [])
+     (..except exception message))])
 
 (def: .public identity
   (All (_ s a) (Phase s a a))
@@ -106,19 +127,3 @@
       [[pre/state' temp] (pre archive input pre/state)
        [post/state' output] (post archive temp post/state)]
       (in [[pre/state' post/state'] output]))))
-
-(def: .public (timed definition description operation)
-  (All (_ s a)
-    (-> Symbol Text (Operation s a) (Operation s a)))
-  (do ..monad
-    [_ (in [])
-     .let [pre (io.run! instant.now)]
-     output operation
-     .let [_ (|> instant.now
-                 io.run!
-                 instant.relative
-                 (duration.difference (instant.relative pre))
-                 %.duration
-                 (format (%.symbol definition) " [" description "]: ")
-                 debug.log!)]]
-    (in output)))
