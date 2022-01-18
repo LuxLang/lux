@@ -1,0 +1,265 @@
+(.using
+ [library
+  [lux "*"
+   ["_" test {"+" Test}]
+   [abstract
+    ["[0]" monad {"+" do}]
+    [\\specification
+     ["$[0]" equivalence]
+     ["$[0]" hash]]]
+   [control
+    [pipe {"+" case>}]
+    ["[0]" try]
+    ["[0]" exception]]
+   [data
+    ["[0]" bit ("[1]#[0]" equivalence)]
+    ["[0]" text ("[1]#[0]" equivalence)
+     ["%" format {"+" format}]]
+    [collection
+     ["[0]" dictionary]
+     ["[0]" list ("[1]#[0]" mix)]]]
+   [math
+    ["[0]" random {"+" Random}]
+    [number
+     ["n" nat]
+     ["i" int]]]]]
+ [\\library
+  ["[0]" /
+   [/////
+    ["[0]" phase]
+    [meta
+     ["[0]" archive]]]]])
+
+(def: .public random
+  (Random (/.Extension Nat))
+  ($_ random.and
+      (random.ascii/lower 5)
+      (random.list 2 random.nat)
+      ))
+
+(def: test|state
+  Test
+  (do [! random.monad]
+    [state random.int
+     dummy (random.only (|>> (i.= state) not)
+                        random.int)]
+    ($_ _.and
+        (_.cover [/.read]
+                 (|> (: (/.Operation Int Nat Nat Text)
+                        (/.read %.int))
+                     (# phase.functor each (text#= (%.int state)))
+                     (phase.result [/.#bundle /.empty
+                                    /.#state state])
+                     (try.else false)))
+        (_.cover [/.update]
+                 (|> (: (/.Operation Int Nat Nat Text)
+                        (do phase.monad
+                          [_ (/.update ++)]
+                          (/.read %.int)))
+                     (# phase.functor each (text#= (%.int (++ state))))
+                     (phase.result [/.#bundle /.empty
+                                    /.#state state])
+                     (try.else false)))
+        (_.cover [/.temporary]
+                 (|> (: (/.Operation Int Nat Nat Text)
+                        (do phase.monad
+                          [|state'| (/.temporary ++ (/.read %.int))
+                           |state| (/.read %.int)]
+                          (in (format |state'| " " |state|))))
+                     (# phase.functor each (text#= (format (%.int (++ state)) " " (%.int state))))
+                     (phase.result [/.#bundle /.empty
+                                    /.#state state])
+                     (try.else false)))
+        (_.cover [/.with_state]
+                 (|> (: (/.Operation Int Nat Nat Text)
+                        (/.with_state state
+                          (/.read %.int)))
+                     (# phase.functor each (text#= (%.int state)))
+                     (phase.result [/.#bundle /.empty
+                                    /.#state dummy])
+                     (try.else false)))
+        (_.cover [/.localized]
+                 (|> (: (/.Operation Int Nat Nat Text)
+                        (do phase.monad
+                          [|state| (/.localized %.int
+                                                (function (_ _ old) (++ old))
+                                                (text.enclosed ["<" ">"])
+                                                (/.read %.int))
+                           |state'| (/.read %.int)]
+                          (in (format |state'| " " |state|))))
+                     (# phase.functor each (text#= (format (%.int (i.+ +2 state))
+                                                           " " (%.int (i.+ +1 state)))))
+                     (phase.result [/.#bundle /.empty
+                                    /.#state state])
+                     (try.else false))))
+    ))
+
+(def: extender
+  /.Extender
+  (|>> :expected))
+
+(def: handler/0
+  (/.Handler Int Nat Nat)
+  (function (_ @self phase archive inputs)
+    (# phase.monad in (list#mix n.+ 0 inputs))))
+
+(def: handler/1
+  (/.Handler Int Nat Nat)
+  (function (_ @self phase archive inputs)
+    (# phase.monad in (list#mix n.* 1 inputs))))
+
+(def: test|name
+  Test
+  (do [! random.monad]
+    [state random.int
+     extension (random.ascii/lower 1)
+     left random.nat
+     right random.nat]
+    ($_ _.and
+        (_.cover [/.cannot_overwrite]
+                 (|> (do phase.monad
+                       [_ (/.install extender extension handler/0)]
+                       (/.install extender extension handler/1))
+                     (phase.result [/.#bundle /.empty
+                                    /.#state state])
+                     (case> {try.#Failure error}
+                            (exception.match? /.cannot_overwrite error)
+
+                            _
+                            false)))
+        (_.cover [/.unknown]
+                 (|> (/.apply archive.empty (function (_ archive input)
+                                              (# phase.monad in (++ input)))
+                              [extension (list left right)])
+                     (phase.result [/.#bundle /.empty
+                                    /.#state state])
+                     (case> {try.#Failure error}
+                            (exception.match? /.unknown error)
+
+                            _
+                            false)))
+        )))
+
+(def: test|bundle
+  Test
+  (let [phase (: (/.Phase Int Nat Nat)
+                 (function (_ archive input)
+                   (# phase.monad in (++ input))))]
+    (do [! random.monad]
+      [state random.int
+
+       extension (random.ascii/lower 1)
+       left random.nat
+       right random.nat]
+      ($_ _.and
+          (_.cover [/.empty]
+                   (dictionary.empty? /.empty))
+          (<| (_.for [/.Extender /.Handler])
+              ($_ _.and
+                  (_.cover [/.install /.apply]
+                           (|> (do phase.monad
+                                 [_ (/.install extender extension handler/0)]
+                                 (/.apply archive.empty phase [extension (list left right)]))
+                               (# phase.functor each (n.= (n.+ left right)))
+                               (phase.result [/.#bundle /.empty
+                                              /.#state state])
+                               (try.else false)))
+                  (_.cover [/.Phase]
+                           (let [handler (: (/.Handler Int Nat Nat)
+                                            (function (_ @self phase archive inputs)
+                                              (let [! phase.monad]
+                                                (|> inputs
+                                                    (monad.each ! (phase archive))
+                                                    (# ! each (list#mix n.+ 0))))))]
+                             (|> (do phase.monad
+                                   [_ (/.install extender extension handler)]
+                                   (/.apply archive.empty phase [extension (list left right)]))
+                                 (# phase.functor each (n.= (n.+ (++ left) (++ right))))
+                                 (phase.result [/.#bundle /.empty
+                                                /.#state state])
+                                 (try.else false))))
+                  (_.cover [/.with]
+                           (|> (do phase.monad
+                                 [_ (/.with extender (dictionary.of_list text.hash (list [extension handler/1])))]
+                                 (/.apply archive.empty (function (_ archive input)
+                                                          (# phase.monad in (++ input)))
+                                          [extension (list left right)]))
+                               (# phase.functor each (n.= (n.* left right)))
+                               (phase.result [/.#bundle /.empty
+                                              /.#state state])
+                               (try.else false)))
+                  (_.cover [/.incorrect_arity]
+                           (let [handler (: (/.Handler Int Nat Nat)
+                                            (function (_ @self phase archive inputs)
+                                              (phase.except /.incorrect_arity [@self 2 (list.size inputs)])))]
+                             (|> (do phase.monad
+                                   [_ (/.install extender extension handler)]
+                                   (/.apply archive.empty phase [extension (list)]))
+                                 (phase.result [/.#bundle /.empty
+                                                /.#state state])
+                                 (case> {try.#Failure error}
+                                        (exception.match? /.incorrect_arity error)
+
+                                        _
+                                        false))))
+                  (_.cover [/.invalid_syntax]
+                           (let [handler (: (/.Handler Int Nat Nat)
+                                            (function (_ @self phase archive inputs)
+                                              (phase.except /.invalid_syntax [@self %.nat inputs])))]
+                             (|> (do phase.monad
+                                   [_ (/.install extender extension handler)]
+                                   (/.apply archive.empty phase [extension (list left right)]))
+                                 (phase.result [/.#bundle /.empty
+                                                /.#state state])
+                                 (case> {try.#Failure error}
+                                        (exception.match? /.invalid_syntax error)
+
+                                        _
+                                        false))))
+                  (_.for [/.Name]
+                         ..test|name)
+                  ))
+          ))))
+
+(def: .public test
+  Test
+  (<| (_.covering /._)
+      (_.for [/.Extension])
+      (do [! random.monad]
+        [state random.int
+         dummy (random.only (|>> (i.= state) not)
+                            random.int)
+         expected random.nat
+         expected_error (random.ascii/lower 1)]
+        ($_ _.and
+            (_.for [/.equivalence]
+                   ($equivalence.spec (/.equivalence n.equivalence) ..random))
+            (_.for [/.hash]
+                   ($hash.spec (/.hash n.hash) ..random))
+            
+            (<| (_.for [/.Operation])
+                ($_ _.and
+                    (_.cover [/.lifted]
+                             (and (|> (: (/.Operation Int Nat Nat Nat)
+                                         (/.lifted (do phase.monad
+                                                     []
+                                                     (in expected))))
+                                      (# phase.functor each (same? expected))
+                                      (phase.result [/.#bundle /.empty
+                                                     /.#state state])
+                                      (try.else false))
+                                  (|> (: (/.Operation Int Nat Nat Nat)
+                                         (/.lifted (phase.lifted {try.#Failure expected_error})))
+                                      (phase.result [/.#bundle /.empty
+                                                     /.#state state])
+                                      (case> {try.#Failure actual_error}
+                                             (same? expected_error actual_error)
+
+                                             _
+                                             false))))
+                    ))
+            (_.for [/.State]
+                   ..test|state)
+            (_.for [/.Bundle]
+                   ..test|bundle)
+            ))))

@@ -9,6 +9,7 @@
     [\\specification
      ["$[0]" equivalence]]]
    [control
+    [pipe {"+" case>}]
     ["[0]" maybe ("[1]#[0]" functor)]
     ["[0]" try {"+" Try} ("[1]#[0]" functor)]]
    [data
@@ -20,7 +21,7 @@
      ["[0]" set]]]
    ["[0]" math
     ["[0]" random {"+" Random} ("[1]#[0]" monad)]
-    [number
+    [number {"+" hex}
      ["n" nat]
      ["i" int]
      ["f" frac]
@@ -46,6 +47,14 @@
                      (maybe.else false)))
       (try.else false)))
 
+(def: nil
+  (-> /.Expression Bit)
+  (|>> /.code
+       ..eval
+       (try#each (|>> (case> {.#None} true
+                             {.#Some _} false)))
+       (try.else false)))
+
 (def: test|literal
   Test
   (do [! random.monad]
@@ -55,14 +64,7 @@
      string (random.ascii/upper 5)]
     ($_ _.and
         (_.cover [/.nil]
-                 (|> /.nil
-                     /.code
-                     ..eval
-                     (try#each (function (_ it)
-                                 (case it
-                                   {.#None} true
-                                   {.#Some _} false)))
-                     (try.else false)))
+                 (..nil /.nil))
         (_.cover [/.bool]
                  (expression (|>> (:as Bit) (bit#= bool))
                              (/.bool bool)))
@@ -398,6 +400,22 @@
                                        (/.return $output))
                                    [(list $input)] (/.lambda {.#None})
                                    (/.apply_lambda/* (list (/.int input)))))))
+        (_.cover [/.redo]
+                 (let [expected (i.* (.int (n.- expected_inner_iterations full_inner_iterations)) input)]
+                   (expression (|>> (:as Frac) f.int (i.= expected))
+                               (|> ($_ /.then
+                                       (/.set (list $inner_index) (/.int +0))
+                                       (/.set (list $output) (/.int +0))
+                                       (/.while (/.< (/.int (.int full_inner_iterations)) $inner_index)
+                                                ($_ /.then
+                                                    (/.set (list $inner_index) (/.+ (/.int +1) $inner_index))
+                                                    (/.when (/.<= (/.int (.int expected_inner_iterations)) $inner_index)
+                                                            /.redo)
+                                                    (/.set (list $output) (/.+ $input $output))
+                                                    ))
+                                       (/.return $output))
+                                   [(list $input)] (/.lambda {.#None})
+                                   (/.apply_lambda/* (list (/.int input)))))))
         )))
 
 (def: test|loop
@@ -435,17 +453,23 @@
         ..test|label
         )))
 
+(def: random_tag
+  (Random Int)
+  (random#each (i64.and (hex "FF,FF,FF,FF"))
+               random.int))
+
 (def: test|exception
   Test
   (do [! random.monad]
     [expected random.safe_frac
      dummy (random.only (|>> (f.= expected) not)
                         random.safe_frac)
+     error (random.ascii/lower 10)
      $ex (# ! each /.local (random.ascii/lower 10))
 
-     expected_tag random.int
+     expected_tag ..random_tag
      dummy_tag (random.only (|>> (i.= expected_tag) not)
-                            random.int)
+                            ..random_tag)
      .let [expected_tag (/.int expected_tag)
            dummy_tag (/.int dummy_tag)]]
     ($_ _.and
@@ -458,7 +482,7 @@
         (_.cover [/.Rescue /.throw/1]
                  (expression (|>> (:as Frac) (f.= expected))
                              (|> (/.begin ($_ /.then
-                                              (/.throw/1 (/.string ""))
+                                              (/.throw/1 (/.string error))
                                               (/.return (/.float dummy)))
                                           (list [(list) $ex (/.return (/.float expected))]))
                                  [(list)] (/.lambda {.#None})
@@ -466,7 +490,7 @@
         (_.cover [/.raise]
                  (expression (|>> (:as Frac) (f.= expected))
                              (|> (/.begin ($_ /.then
-                                              (/.statement (/.raise (/.string "")))
+                                              (/.statement (/.raise (/.string error)))
                                               (/.return (/.float dummy)))
                                           (list [(list) $ex (/.return (/.float expected))]))
                                  [(list)] (/.lambda {.#None})
@@ -492,6 +516,28 @@
                                       (/.catch dummy_tag) [(list)]
                                       /.statement (/.catch expected_tag) [(list)]
                                       (/.throw/2 expected_tag (/.float expected))))))
+        (_.cover [/.latest_error_message]
+                 (expression (|>> (:as Text) (text#= error))
+                             (|> (/.begin ($_ /.then
+                                              (/.statement (/.raise (/.string error)))
+                                              (/.return (/.float dummy)))
+                                          (list [(list) $ex (/.return (/.the "message" /.latest_error_message))]))
+                                 [(list)] (/.lambda {.#None})
+                                 (/.apply_lambda/* (list)))))
+        (_.cover [/.latest_error_location]
+                 (and (|> (/.return /.latest_error_location)
+                          [(list)] (/.lambda {.#None})
+                          (/.apply_lambda/* (list))
+                          ..nil)
+                      (expression (|>> (:as Bit) (bit#= true))
+                                  (|> (/.begin ($_ /.then
+                                                   (/.statement (/.raise (/.string error)))
+                                                   (/.return (/.float dummy)))
+                                               (list [(list) $ex (/.return ($_ /.and
+                                                                               (/.do "kind_of?" (list (/.local "Array")) {.#None} /.latest_error_location)
+                                                                               (/.> (/.int +0) (/.the "length" /.latest_error_location))))]))
+                                      [(list)] (/.lambda {.#None})
+                                      (/.apply_lambda/* (list))))))
         )))
 
 (def: test|function
@@ -625,30 +671,30 @@
 
 (def: test|global
   Test
-  ($_ _.and
-      (_.cover [/.script_name]
-               (expression (let [file (format (# file.default separator) packager.main_file)]
-                             (|>> (:as Text)
-                                  (predicate.or (text.ends_with? file)
-                                                (text#= "<script>"))))
-                           /.script_name))
-      (_.cover [/.input_record_separator]
-               (expression (|>> (:as Text)
-                                (text#= text.\n))
-                           /.input_record_separator))
-      (_.cover [/.output_record_separator]
-               (|> /.output_record_separator
-                   /.code
-                   ..eval
-                   (try#each (function (_ it)
-                               (case it
-                                 {.#None} true
-                                 {.#Some _} false)))
-                   (try.else false)))
-      (_.cover [/.process_id]
-               (expression (|>> (:as Nat) (n.= 0) not)
-                           /.process_id))
-      ))
+  (do random.monad
+    [_ (in [])]
+    ($_ _.and
+        (_.cover [/.script_name]
+                 (expression (let [file (format (# file.default separator) packager.main_file)]
+                               (|>> (:as Text)
+                                    (text.ends_with? file)))
+                             /.script_name))
+        (_.cover [/.input_record_separator]
+                 (expression (|>> (:as Text)
+                                  (text#= text.\n))
+                             /.input_record_separator))
+        (_.cover [/.output_record_separator]
+                 (..nil /.output_record_separator))
+        (_.cover [/.process_id]
+                 (expression (|>> (:as Nat) (n.= 0) not)
+                             /.process_id))
+        (_.cover [/.case_insensitivity_flag]
+                 (expression (|>> (:as Bit) (bit#= false))
+                             /.case_insensitivity_flag))
+        (_.cover [/.command_line_arguments]
+                 (expression (|>> (:as Int) (i.= +0))
+                             (/.the "length" /.command_line_arguments)))
+        )))
 
 (def: random_expression
   (Random /.Expression)
