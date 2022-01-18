@@ -6,6 +6,7 @@
     [abstract
      [monad {"+" do}]]
     [control
+     ["[0]" maybe]
      ["[0]" try {"+" Try}]
      ["[0]" exception {"+" exception:}]
      ["[0]" io {"+" IO io}]
@@ -93,39 +94,67 @@
                                               (|>> (exception.except ..cannot_close) in)))))))))]
   (for [@.old (as_is <jvm>)
         @.jvm (as_is <jvm>)
-        @.js (as_is (ffi.import: Readable
-                      ["[1]::[0]"])
+        @.js (as_is (ffi.import: Buffer
+                      ["[1]::[0]"
+                       (toString [] ffi.String)])
 
-                    (ffi.import: Writable
+                    (ffi.import: Readable_Stream
+                      ["[1]::[0]"
+                       (read [] "?" Buffer)
+                       (unshift "as" unshift|String [ffi.String] ffi.Boolean)
+                       (unshift "as" unshift|Buffer [Buffer] ffi.Boolean)])
+
+                    (ffi.import: Writable_Stream
                       ["[1]::[0]"
                        (write [ffi.String ffi.Function] ffi.Boolean)
                        (once [ffi.String ffi.Function] Any)])
 
                     (ffi.import: process
                       ["[1]::[0]"
-                       ("static" stdout Writable)
-                       ("static" stdin Readable)])
+                       ("static" stdout Writable_Stream)
+                       ("static" stdin Readable_Stream)])
 
-                    ... TODO: Implement fully. https://nodejs.org/api/readline.html
                     (exception: .public cannot_read)
-                    
+
+                    (template: (!read <type> <query>)
+                      [(let [it (process::stdin)]
+                         (case (Readable_Stream::read [] it)
+                           {.#Some buffer}
+                           (let [input (Buffer::toString [] buffer)]
+                             (case (: (Maybe [<type> Text])
+                                      <query>)
+                               {.#Some [head tail]}
+                               (exec
+                                 (Readable_Stream::unshift|String [tail] it)
+                                 (async#in {try.#Success head}))
+                               
+                               {.#None}
+                               (exec
+                                 (Readable_Stream::unshift|Buffer [buffer] it)
+                                 (async#in (exception.except ..cannot_read [])))))
+
+                           {.#None}
+                           (async#in (exception.except ..cannot_read []))))])
+
                     (def: .public default
                       (Maybe (Console Async))
                       (if ffi.on_node_js?
                         {.#Some (implementation
-                                 (def: read
-                                   (|>> (exception.except ..cannot_read) async#in))
+                                 (def: (read _)
+                                   (!read Char (do maybe.monad
+                                                 [head (text.char 0 input)
+                                                  [_ tail] (text.split_at 1 input)]
+                                                 (in [head tail]))))
                                  
-                                 (def: read_line
-                                   (|>> (exception.except ..cannot_read) async#in))
+                                 (def: (read_line _)
+                                   (!read Text (text.split_by text.\n input)))
                                  
                                  (def: (write it)
                                    (let [[read! write!] (: [(async.Async (Try [])) (async.Resolver (Try []))]
                                                            (async.async []))]
                                      (exec
-                                       (Writable::write [it
-                                                         (ffi.closure [] (io.run! (write! {try.#Success []})))]
-                                                        (process::stdout))
+                                       (Writable_Stream::write [it (ffi.closure [] (io.run! (write! {try.#Success []})))]
+                                                               (process::stdout))
                                        read!)))
                                  
                                  (def: close

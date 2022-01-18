@@ -1,39 +1,42 @@
-(.using
-  [library
-   [lux "*"
-    ["@" target]
-    ["[0]" ffi]
-    [abstract
-     ["[0]" monad {"+" Monad do}]]
-    [control
-     [pipe {"+" case>}]
-     ["[0]" maybe ("[1]#[0]" functor)]
-     ["[0]" try {"+" Try} ("[1]#[0]" functor)]
-     ["[0]" exception {"+" exception:}]
-     ["[0]" io {"+" IO} ("[1]#[0]" functor)]
-     ["[0]" function]
-     [concurrency
-      ["[0]" async {"+" Async}]
-      ["[0]" stm {"+" Var STM}]]]
-    [data
-     ["[0]" bit ("[1]#[0]" equivalence)]
-     ["[0]" product]
-     ["[0]" binary {"+" Binary}]
-     ["[0]" text ("[1]#[0]" equivalence)
-      ["%" format {"+" format}]]
-     [collection
-      ["[0]" array {"+" Array}]
-      ["[0]" list ("[1]#[0]" functor)]
-      ["[0]" dictionary {"+" Dictionary}]]]
-    [macro
-     ["[0]" template]]
-    [math
-     [number
-      ["i" int]
-      ["f" frac]]]
-    [time
-     ["[0]" instant {"+" Instant}]
-     ["[0]" duration]]]])
+(.`` (.`` (.using
+           [library
+            [lux "*"
+             ["@" target]
+             [abstract
+              ["[0]" monad {"+" Monad do}]]
+             [control
+              [pipe {"+" case>}]
+              ["[0]" maybe ("[1]#[0]" functor)]
+              ["[0]" try {"+" Try} ("[1]#[0]" functor)]
+              ["[0]" exception {"+" exception:}]
+              ["[0]" io {"+" IO} ("[1]#[0]" functor)]
+              ["[0]" function]
+              [concurrency
+               ["[0]" async {"+" Async}]
+               ["[0]" stm {"+" Var STM}]]]
+             [data
+              ["[0]" bit ("[1]#[0]" equivalence)]
+              ["[0]" product]
+              ["[0]" binary {"+" Binary}]
+              ["[0]" text ("[1]#[0]" equivalence)
+               ["%" format {"+" format}]]
+              [collection
+               ["[0]" array {"+" Array}]
+               ["[0]" list ("[1]#[0]" functor)]
+               ["[0]" dictionary {"+" Dictionary}]]]
+             ["[0]" ffi
+              (~~ (.for ["JavaScript" (~~ (.as_is ["[0]" node_js]))
+                         "{old}" (~~ (.as_is ["node_js" //control/thread]))]
+                        (~~ (.as_is))))]
+             [macro
+              ["[0]" template]]
+             [math
+              [number
+               ["i" int]
+               ["f" frac]]]
+             [time
+              ["[0]" instant {"+" Instant}]
+              ["[0]" duration]]]])))
 
 (type: .public Path
   Text)
@@ -370,171 +373,139 @@
                  ["[1]::[0]"
                   (sep ffi.String)])
                
-               (template [<name> <path>]
-                 [(def: (<name> _)
-                    (-> [] (Maybe (-> ffi.String Any)))
-                    (ffi.constant (-> ffi.String Any) <path>))]
+               (def: .public default
+                 (Maybe (System Async))
+                 (do maybe.monad
+                   [node_fs (node_js.require "fs")
+                    node_path (node_js.require "path")
+                    .let [node_fs (:as ..Fs node_fs)
+                          js_separator (if ffi.on_node_js?
+                                         (JsPath::sep (:as ..JsPath node_path))
+                                         "/")]]
+                   (in (: (System Async)
+                          (`` (implementation
+                               (def: separator
+                                 js_separator)
 
-                 [normal_require [require]]
-                 [global_require [global require]]
-                 [process_load [global process mainModule constructor _load]]
-                 )
+                               (~~ (template [<name> <method>]
+                                     [(def: (<name> path)
+                                        (do async.monad
+                                          [?stats (with_async write! (Try Stats)
+                                                    (Fs::stat [path (..value_callback write!)]
+                                                              node_fs))]
+                                          (in (case ?stats
+                                                {try.#Success stats}
+                                                (<method> [] stats)
+                                                
+                                                {try.#Failure _}
+                                                false))))]
 
-               (def: (require module)
-                 (-> ffi.String Any)
-                 (case [(normal_require []) (global_require []) (process_load [])]
-                   (^or [{.#Some require} _ _]
-                        [_ {.#Some require} _]
-                        [_ _ {.#Some require}])
-                   (require module)
+                                     [file?      Stats::isFile]
+                                     [directory? Stats::isDirectory]
+                                     ))
 
-                   _
-                   (undefined)))
+                               (def: (make_directory path)
+                                 (do async.monad
+                                   [outcome (with_async write! (Try Any)
+                                              (Fs::access [path
+                                                           (|> node_fs Fs::constants FsConstants::F_OK)
+                                                           (..any_callback write!)]
+                                                          node_fs))]
+                                   (case outcome
+                                     {try.#Success _}
+                                     (in (exception.except ..cannot_make_directory [path]))
+                                     
+                                     {try.#Failure _}
+                                     (with_async write! (Try Any)
+                                       (Fs::mkdir [path (..any_callback write!)] node_fs)))))
 
-               (template [<name> <module> <type>]
-                 [(def: (<name> _)
-                    (-> [] <type>)
-                    (:as <type> (..require <module>)))]
+                               (~~ (template [<name> <method>]
+                                     [(def: (<name> path)
+                                        (do [! (try.with async.monad)]
+                                          [subs (with_async write! (Try (Array ffi.String))
+                                                  (Fs::readdir [path (..value_callback write!)] node_fs))]
+                                          (|> subs
+                                              (array.list {.#None})
+                                              (list#each (|>> (format path js_separator)))
+                                              (monad.each ! (function (_ sub)
+                                                              (# ! each (|>> (<method> []) [sub])
+                                                                 (with_async write! (Try Stats)
+                                                                   (Fs::stat [sub (..value_callback write!)] node_fs)))))
+                                              (# ! each (|>> (list.only product.right)
+                                                             (list#each product.left))))))]
 
-                 [node_fs   "fs"   ..Fs]
-                 [node_path "path" ..JsPath]
-                 )
+                                     [directory_files Stats::isFile]
+                                     [sub_directories Stats::isDirectory]
+                                     ))
 
-               (def: js_separator
-                 (if ffi.on_node_js?
-                   (JsPath::sep (..node_path []))
-                   "/"))
+                               (def: (file_size path)
+                                 (do (try.with async.monad)
+                                   [stats (with_async write! (Try Stats)
+                                            (Fs::stat [path (..value_callback write!)]
+                                                      node_fs))]
+                                   (in (|> stats
+                                           Stats::size
+                                           f.nat))))
 
-               (`` (implementation: .public default
-                     (System Async)
-                     
-                     (def: separator
-                       ..js_separator)
+                               (def: (last_modified path)
+                                 (do (try.with async.monad)
+                                   [stats (with_async write! (Try Stats)
+                                            (Fs::stat [path (..value_callback write!)]
+                                                      node_fs))]
+                                   (in (|> stats
+                                           Stats::mtimeMs
+                                           f.int
+                                           duration.of_millis
+                                           instant.absolute))))
 
-                     (~~ (template [<name> <method>]
-                           [(def: (<name> path)
-                              (do async.monad
-                                [?stats (with_async write! (Try Stats)
-                                          (Fs::stat [path (..value_callback write!)]
-                                                    (..node_fs [])))]
-                                (in (case ?stats
-                                      {try.#Success stats}
-                                      (<method> [] stats)
-                                      
-                                      {try.#Failure _}
-                                      false))))]
+                               (def: (can_execute? path)
+                                 (# async.monad each
+                                    (|>> (case> {try.#Success _}
+                                                true
 
-                           [file?      Stats::isFile]
-                           [directory? Stats::isDirectory]
-                           ))
+                                                {try.#Failure _}
+                                                false)
+                                         {try.#Success})
+                                    (with_async write! (Try Any)
+                                      (Fs::access [path
+                                                   (|> node_fs Fs::constants FsConstants::X_OK)
+                                                   (..any_callback write!)]
+                                                  node_fs))))
 
-                     (def: (make_directory path)
-                       (do async.monad
-                         [.let [node_fs (..node_fs [])]
-                          outcome (with_async write! (Try Any)
-                                    (Fs::access [path
-                                                 (|> node_fs Fs::constants FsConstants::F_OK)
-                                                 (..any_callback write!)]
-                                                node_fs))]
-                         (case outcome
-                           {try.#Success _}
-                           (in (exception.except ..cannot_make_directory [path]))
-                           
-                           {try.#Failure _}
-                           (with_async write! (Try Any)
-                             (Fs::mkdir [path (..any_callback write!)] node_fs)))))
+                               (def: (read path)
+                                 (with_async write! (Try Binary)
+                                   (Fs::readFile [path (..value_callback write!)]
+                                                 node_fs)))
 
-                     (~~ (template [<name> <method>]
-                           [(def: (<name> path)
-                              (do [! (try.with async.monad)]
-                                [.let [node_fs (..node_fs [])]
-                                 subs (with_async write! (Try (Array ffi.String))
-                                        (Fs::readdir [path (..value_callback write!)] node_fs))]
-                                (|> subs
-                                    (array.list {.#None})
-                                    (list#each (|>> (format path ..js_separator)))
-                                    (monad.each ! (function (_ sub)
-                                                    (# ! each (|>> (<method> []) [sub])
-                                                       (with_async write! (Try Stats)
-                                                         (Fs::stat [sub (..value_callback write!)] node_fs)))))
-                                    (# ! each (|>> (list.only product.right)
-                                                   (list#each product.left))))))]
+                               (def: (delete path)
+                                 (do (try.with async.monad)
+                                   [stats (with_async write! (Try Stats)
+                                            (Fs::stat [path (..value_callback write!)] node_fs))]
+                                   (with_async write! (Try Any)
+                                     (if (Stats::isFile [] stats)
+                                       (Fs::unlink [path (..any_callback write!)] node_fs)
+                                       (Fs::rmdir [path (..any_callback write!)] node_fs)))))
 
-                           [directory_files Stats::isFile]
-                           [sub_directories Stats::isDirectory]
-                           ))
+                               (def: (modify time_stamp path)
+                                 (with_async write! (Try Any)
+                                   (let [when (|> time_stamp instant.relative duration.millis i.frac)]
+                                     (Fs::utimes [path when when (..any_callback write!)]
+                                                 node_fs))))
 
-                     (def: (file_size path)
-                       (do (try.with async.monad)
-                         [stats (with_async write! (Try Stats)
-                                  (Fs::stat [path (..value_callback write!)]
-                                            (..node_fs [])))]
-                         (in (|> stats
-                                 Stats::size
-                                 f.nat))))
+                               (~~ (template [<name> <method>]
+                                     [(def: (<name> data path)
+                                        (with_async write! (Try Any)
+                                          (<method> [path (Buffer::from data) (..any_callback write!)]
+                                                    node_fs)))]
 
-                     (def: (last_modified path)
-                       (do (try.with async.monad)
-                         [stats (with_async write! (Try Stats)
-                                  (Fs::stat [path (..value_callback write!)]
-                                            (..node_fs [])))]
-                         (in (|> stats
-                                 Stats::mtimeMs
-                                 f.int
-                                 duration.of_millis
-                                 instant.absolute))))
+                                     [write  Fs::writeFile]
+                                     [append Fs::appendFile]
+                                     ))
 
-                     (def: (can_execute? path)
-                       (let [node_fs (..node_fs [])]
-                         (# async.monad each
-                            (|>> (case> {try.#Success _}
-                                        true
-
-                                        {try.#Failure _}
-                                        false)
-                                 {try.#Success})
-                            (with_async write! (Try Any)
-                              (Fs::access [path
-                                           (|> node_fs Fs::constants FsConstants::X_OK)
-                                           (..any_callback write!)]
-                                          node_fs)))))
-
-                     (def: (read path)
-                       (with_async write! (Try Binary)
-                         (Fs::readFile [path (..value_callback write!)]
-                                       (..node_fs []))))
-
-                     (def: (delete path)
-                       (do (try.with async.monad)
-                         [.let [node_fs (..node_fs [])]
-                          stats (with_async write! (Try Stats)
-                                  (Fs::stat [path (..value_callback write!)] node_fs))]
-                         (with_async write! (Try Any)
-                           (if (Stats::isFile [] stats)
-                             (Fs::unlink [path (..any_callback write!)] node_fs)
-                             (Fs::rmdir [path (..any_callback write!)] node_fs)))))
-
-                     (def: (modify time_stamp path)
-                       (with_async write! (Try Any)
-                         (let [when (|> time_stamp instant.relative duration.millis i.frac)]
-                           (Fs::utimes [path when when (..any_callback write!)]
-                                       (..node_fs [])))))
-
-                     (~~ (template [<name> <method>]
-                           [(def: (<name> data path)
-                              (with_async write! (Try Any)
-                                (<method> [path (Buffer::from data) (..any_callback write!)]
-                                          (..node_fs []))))]
-
-                           [write  Fs::writeFile]
-                           [append Fs::appendFile]
-                           ))
-
-                     (def: (move destination origin)
-                       (with_async write! (Try Any)
-                         (Fs::rename [origin destination (..any_callback write!)]
-                                     (..node_fs []))))
-                     )))
+                               (def: (move destination origin)
+                                 (with_async write! (Try Any)
+                                   (Fs::rename [origin destination (..any_callback write!)]
+                                               node_fs))))))))))
 
         @.python
         (as_is (type: (Tuple/2 left right)
