@@ -7,8 +7,8 @@
    [control
     [pipe {"+" case>}]
     ["<>" parser ("[1]#[0]" monad)
-     ["<c>" code {"+" Parser}]
-     ["<t>" text]]]
+     ["<[0]>" code {"+" Parser}]
+     ["<[0]>" text]]]
    [data
     ["[0]" product]
     [text
@@ -16,7 +16,9 @@
     [collection
      ["[0]" list ("[1]#[0]" functor mix)]
      ["[0]" dictionary]
-     ["[0]" sequence]]]
+     ["[0]" sequence]]
+    ["[0]" format "_"
+     ["[1]" binary]]]
    [macro
     ["[0]" template]]
    [math
@@ -29,13 +31,14 @@
      ["[0]" attribute]
      ["[0]" field]
      ["[0]" version]
+     ["[0]" method {"+" Method}]
      ["[0]" class]
      ["[0]" constant
       ["[0]" pool {"+" Resource}]]
      [encoding
-      ["[0]" name]]
+      ["[0]" name {"+" External}]]
      ["[0]" type {"+" Type Constraint Argument Typed}
-      [category {"+" Void Value Return Method Primitive Object Class Array Var Parameter}]
+      [category {"+" Void Value Return Primitive Object Class Array Var Parameter}]
       ["[0]T" lux {"+" Mapping}]
       ["[0]" signature]
       ["[0]" descriptor {"+" Descriptor}]
@@ -44,7 +47,8 @@
     [compiler
      ["[0]" phase]
      [meta
-      [archive {"+" Archive}]]
+      [archive {"+" Archive}
+       ["[0]" artifact]]]
      [language
       [lux
        ["[0]" analysis]
@@ -56,7 +60,7 @@
          ["[0]A" type]]
         [generation
          [jvm
-          [runtime {"+" Anchor Definition Extender}]]]
+          ["[0]" runtime {"+" Anchor Definition Extender}]]]
         ["[0]" extension
          ["[0]" bundle]
          [analysis
@@ -76,13 +80,13 @@
 
 (def: declaration
   (Parser Declaration)
-  (<c>.form (<>.and <c>.text (<>.some jvm.var))))
+  (<code>.form (<>.and <code>.text (<>.some jvm.var))))
 
 (def: visibility
   (Parser (Modifier field.Field))
   (`` ($_ <>.either
           (~~ (template [<label> <modifier>]
-                [(<>.after (<c>.text! <label>) (<>#in <modifier>))]
+                [(<>.after (<code>.text! <label>) (<>#in <modifier>))]
 
                 ["public" field.public]
                 ["private" field.private]
@@ -93,7 +97,7 @@
   (Parser (Modifier class.Class))
   (`` ($_ <>.either
           (~~ (template [<label> <modifier>]
-                [(<>.after (<c>.text! <label>) (<>#in <modifier>))]
+                [(<>.after (<code>.text! <label>) (<>#in <modifier>))]
 
                 ["final" class.final]
                 ["abstract" class.abstract]
@@ -103,7 +107,7 @@
   (Parser (Modifier field.Field))
   (`` ($_ <>.either
           (~~ (template [<label> <modifier>]
-                [(<>.after (<c>.text! <label>) (<>#in <modifier>))]
+                [(<>.after (<code>.text! <label>) (<>#in <modifier>))]
 
                 ["volatile" field.volatile]
                 ["final" field.final]
@@ -113,24 +117,24 @@
 
 (def: annotation
   (Parser Annotation)
-  <c>.any)
+  <code>.any)
 
 (def: field_type
   (Parser (Type Value))
-  (<t>.then parser.value <c>.text))
+  (<text>.then parser.value <code>.text))
 
 (type: Constant
   [Text (List Annotation) (Type Value) Code])
 
 (def: constant
   (Parser Constant)
-  (<| <c>.form
-      (<>.after (<c>.text! "constant"))
+  (<| <code>.form
+      (<>.after (<code>.text! "constant"))
       ($_ <>.and
-          <c>.text
-          (<c>.tuple (<>.some ..annotation))
+          <code>.text
+          (<code>.tuple (<>.some ..annotation))
           ..field_type
-          <c>.any
+          <code>.any
           )))
 
 (type: Variable
@@ -138,13 +142,13 @@
 
 (def: variable
   (Parser Variable)
-  (<| <c>.form
-      (<>.after (<c>.text! "variable"))
+  (<| <code>.form
+      (<>.after (<code>.text! "variable"))
       ($_ <>.and
-          <c>.text
+          <code>.text
           ..visibility
           ..state
-          (<c>.tuple (<>.some ..annotation))
+          (<code>.tuple (<>.some ..annotation))
           ..field_type
           )))
 
@@ -254,11 +258,11 @@
    [($_ <>.and
         ..declaration
         jvm.class
-        (<c>.tuple (<>.some jvm.class))
+        (<code>.tuple (<>.some jvm.class))
         ..inheritance
-        (<c>.tuple (<>.some ..annotation))
-        (<c>.tuple (<>.some ..field))
-        (<c>.tuple (<>.some ..method)))
+        (<code>.tuple (<>.some ..annotation))
+        (<code>.tuple (<>.some ..field))
+        (<code>.tuple (<>.some ..method)))
     (function (_ extension phase archive
                  [[name parameters]
                   super_class
@@ -304,8 +308,65 @@
          ...                                    (list) ... TODO: Add methods
          ...                                    (sequence.sequence))]))
          _ (directive.lifted_generation
-            (generation.log! (format "Class " name)))]
+            (generation.log! (format "JVM Class " name)))]
         (in directive.no_requirements)))]))
+
+(def: (method_declaration (^open "it[0]"))
+  (-> (jvm.Method_Declaration Code) (Resource Method))
+  (let [type (type.method [it#type_variables it#arguments it#return it#exceptions])]
+    (method.method ($_ modifier#composite
+                       method.public
+                       method.abstract)
+                   it#name
+                   type
+                   (list)
+                   {.#None})))
+
+(template [<name> <type> <parser>]
+  [(def: <name>
+     (Parser <type>)
+     (do [! <>.monad]
+       [raw <code>.text]
+       (<>.lifted (<text>.result <parser> raw))))]
+
+  [class_declaration [External (List (Type Var))] parser.declaration']
+  )
+
+(def: jvm::class::interface
+  (Handler Anchor (Bytecode Any) Definition)
+  (/.custom
+   [($_ <>.and
+        ..class_declaration
+        (<code>.tuple (<>.some jvm.class))
+        (<code>.tuple (<>.some ..annotation))
+        (<>.some jvm.method_declaration))
+    (function (_ extension_name phase archive [[name parameters] supers annotations method_declarations])
+      (directive.lifted_generation
+       (do [! phase.monad]
+         [bytecode (<| (# ! each (format.result class.writer))
+                       phase.lifted
+                       (class.class version.v6_0
+                                    ($_ modifier#composite
+                                        class.public
+                                        class.abstract
+                                        class.interface)
+                                    (name.internal name)
+                                    (name.internal "java.lang.Object")
+                                    (list#each (|>> parser.read_class product.left name.internal)
+                                               supers)
+                                    (list)
+                                    (list#each ..method_declaration method_declarations)
+                                    (sequence.sequence)))
+          ... module generation.module
+          ... module_id (generation.module_id module archive)
+          artifact_id (generation.learn_custom name artifact.no_dependencies)
+          .let [artifact [name
+                          ... (runtime.class_name [module_id artifact_id])
+                          bytecode]]
+          _ (generation.execute! artifact)
+          _ (generation.save! artifact_id {.#Some name} artifact)
+          _ (generation.log! (format "JVM Interface " (%.text name)))]
+         (in directive.no_requirements))))]))
 
 (import: java/lang/ClassLoader)
 
@@ -315,4 +376,5 @@
       (|> bundle.empty
           ... TODO: Finish handling methods and un-comment.
           ... (dictionary.has "class" jvm::class)
+          (dictionary.has "class interface" ..jvm::class::interface)
           )))

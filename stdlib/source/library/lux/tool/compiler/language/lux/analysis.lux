@@ -1,6 +1,6 @@
 (.using
  [library
-  [lux {"-" Tuple Variant nat int rev}
+  [lux {"-" Tuple Variant nat int rev case}
    [abstract
     [equivalence {"+" Equivalence}]
     [hash {"+" Hash}]
@@ -9,14 +9,18 @@
     ["[0]" function]
     ["[0]" maybe]
     ["[0]" try]
-    ["[0]" exception {"+" Exception}]]
+    ["[0]" exception {"+" Exception}]
+    [parser
+     ["<[0]>" code]]]
    [data
     ["[0]" product]
     ["[0]" bit ("[1]#[0]" equivalence)]
     ["[0]" text ("[1]#[0]" equivalence)
-     ["%" format {"+" Format format}]]
+     ["%" format {"+" Format}]]
     [collection
      ["[0]" list ("[1]#[0]" functor mix)]]]
+   [macro
+    [syntax {"+" syntax:}]]
    [math
     [number
      ["n" nat]
@@ -27,14 +31,14 @@
     ["[0]" location]]]]
  ["[0]" / "_"
   ["[1][0]" simple {"+" Simple}]
-  ["[1][0]" composite {"+" Tuple Variant Composite}]
+  ["[1][0]" complex {"+" Tuple Variant Complex}]
   ["[1][0]" pattern {"+" Pattern}]
   [//
    [phase
     ["[0]" extension {"+" Extension}]]
    [///
     [arity {"+" Arity}]
-    [version {"+" Version}]
+    ["[0]" version {"+" Version}]
     ["[0]" phase]
     ["[0]" reference {"+" Reference}
      ["[0]" variable {"+" Register Variable}]]]]])
@@ -54,7 +58,7 @@
   (Rec Analysis
     (.Variant
      {#Simple Simple}
-     {#Structure (Composite Analysis)}
+     {#Structure (Complex Analysis)}
      {#Reference Reference}
      {#Case Analysis (Match' Analysis)}
      {#Function (Environment Analysis) Analysis}
@@ -78,12 +82,12 @@
   (Equivalence Analysis)
 
   (def: (= reference sample)
-    (case [reference sample]
+    (.case [reference sample]
       [{#Simple reference} {#Simple sample}]
       (# /simple.equivalence = reference sample)
 
       [{#Structure reference} {#Structure sample}]
-      (# (/composite.equivalence =) = reference sample)
+      (# (/complex.equivalence =) = reference sample)
 
       [{#Reference reference} {#Reference sample}]
       (# reference.equivalence = reference sample)
@@ -113,7 +117,7 @@
   [(template: .public (<name> content)
      [{<tag> content}])]
 
-  [control/case ..#Case]
+  [case ..#Case]
   )
 
 (template: .public (unit)
@@ -156,7 +160,7 @@
   (-> Analysis (Application Analysis))
   (loop [abstraction analysis
          inputs (list)]
-    (case abstraction
+    (.case abstraction
       {#Apply input next}
       (again next {.#Item input inputs})
 
@@ -164,16 +168,16 @@
       [abstraction inputs])))
 
 (template [<name> <tag>]
-  [(template: .public (<name> content)
-     [(.<| {..#Reference}
-           <tag>
-           content)])]
+  [(syntax: .public (<name> [content <code>.any])
+     (in (list (` (.<| {..#Reference}
+                       <tag>
+                       (~ content))))))]
 
   [variable         {reference.#Variable}]
   [constant         {reference.#Constant}]
 
-  [variable/local   (reference.local)]
-  [variable/foreign (reference.foreign)]
+  [variable/local   ((~! reference.local))]
+  [variable/foreign ((~! reference.foreign))]
   )
 
 (template [<name> <tag>]
@@ -182,47 +186,54 @@
            {<tag>}
            content)])]
 
-  [variant /composite.#Variant]
-  [tuple   /composite.#Tuple]
+  [variant /complex.#Variant]
+  [tuple   /complex.#Tuple]
   )
 
-(def: .public (%analysis analysis)
+(def: .public (format analysis)
   (Format Analysis)
-  (case analysis
+  (.case analysis
     {#Simple it}
     (/simple.format it)
     
     {#Structure it}
-    (/composite.format %analysis it)
+    (/complex.format format it)
     
     {#Reference reference}
     (reference.format reference)
     
     {#Case analysis match}
-    "{?}"
+    (%.format "({"
+              (|> {.#Item match}
+                  (list#each (function (_ [when then])
+                               (%.format (/pattern.format when) " " (format then))))
+                  (text.interposed " "))
+              "} "
+              (format analysis)
+              ")")
     
     {#Function environment body}
-    (|> (%analysis body)
-        (format " ")
-        (format (|> environment
-                    (list#each %analysis)
-                    (text.interposed " ")
-                    (text.enclosed ["[" "]"])))
+    (|> (format body)
+        (%.format " ")
+        (%.format (|> environment
+                      (list#each format)
+                      (text.interposed " ")
+                      (text.enclosed ["[" "]"])))
         (text.enclosed ["(" ")"]))
     
     {#Apply _}
     (|> analysis
         ..application
         {.#Item}
-        (list#each %analysis)
+        (list#each format)
         (text.interposed " ")
         (text.enclosed ["(" ")"]))
     
     {#Extension name parameters}
     (|> parameters
-        (list#each %analysis)
+        (list#each format)
         (text.interposed " ")
-        (format (%.text name) " ")
+        (%.format (%.text name) " ")
         (text.enclosed ["(" ")"]))))
 
 (template [<special> <general>]
@@ -240,7 +251,7 @@
   (All (_ a) (-> Source (Operation a) (Operation a)))
   (function (_ [bundle state])
     (let [old_source (value@ .#source state)]
-      (case (action [bundle (with@ .#source source state)])
+      (.case (action [bundle (with@ .#source source state)])
         {try.#Success [[bundle' state'] output]}
         {try.#Success [[bundle' (with@ .#source old_source state')]
                        output]}
@@ -263,9 +274,9 @@
 (def: .public (with_scope action)
   (All (_ a) (-> (Operation a) (Operation [Scope a])))
   (function (_ [bundle state])
-    (case (action [bundle (revised@ .#scopes (|>> {.#Item fresh_scope}) state)])
+    (.case (action [bundle (revised@ .#scopes (|>> {.#Item fresh_scope}) state)])
       {try.#Success [[bundle' state'] output]}
-      (case (value@ .#scopes state')
+      (.case (value@ .#scopes state')
         {.#Item head tail}
         {try.#Success [[bundle' (with@ .#scopes tail state')]
                        [head output]]}
@@ -283,7 +294,7 @@
 (def: .public (without_scopes action)
   (All (_ a) (-> (Operation a) (Operation a)))
   (function (_ [bundle state])
-    (case (action [bundle (with@ .#scopes ..scope_reset state)])
+    (.case (action [bundle (with@ .#scopes ..scope_reset state)])
       {try.#Success [[bundle' state'] output]}
       {try.#Success [[bundle' (with@ .#scopes (value@ .#scopes state) state')]
                      output]}
@@ -303,7 +314,7 @@
     action
     (function (_ [bundle state])
       (let [old_location (value@ .#location state)]
-        (case (action [bundle (with@ .#location location state)])
+        (.case (action [bundle (with@ .#location location state)])
           {try.#Success [[bundle' state'] output]}
           {try.#Success [[bundle' (with@ .#location old_location state')]
                          output]}
@@ -313,8 +324,8 @@
 
 (def: (locate_error location error)
   (-> Location Text Text)
-  (format (%.location location) text.new_line
-          error))
+  (%.format (%.location location) text.new_line
+            error))
 
 (def: .public (failure error)
   (-> Text Operation)
@@ -331,20 +342,11 @@
     (# phase.monad in [])
     (..except exception parameters)))
 
-(def: .public (failure' error)
-  (-> Text (phase.Operation Lux))
-  (function (_ state)
-    {try.#Failure (locate_error (value@ .#location state) error)}))
-
-(def: .public (except' exception parameters)
-  (All (_ e) (-> (Exception e) e (phase.Operation Lux)))
-  (..failure' (exception.error exception parameters)))
-
 (def: .public (with_stack exception message action)
   (All (_ e o) (-> (Exception e) e (Operation o) (Operation o)))
   (function (_ bundle,state)
-    (case (exception.with exception message
-            (action bundle,state))
+    (.case (exception.with exception message
+             (action bundle,state))
       {try.#Success output}
       {try.#Success output}
       
@@ -389,7 +391,7 @@
 (def: .public (info version host)
   (-> Version Text Info)
   [.#target host
-   .#version (%.nat version)
+   .#version (version.format version)
    .#mode {.#Build}])
 
 (def: .public (state info)

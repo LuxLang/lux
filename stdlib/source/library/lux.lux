@@ -2079,42 +2079,98 @@
            (in_meta (list token))}
           token))
 
-(def:''' .private (full_expansion syntax)
-         (-> Code ($' Meta ($' List Code)))
-         ({[_ {#Form {#Item [_ {#Symbol name}] args}}]
-           (do meta_monad
-             [name' (normal name)
-              ?macro (macro' name')]
-             ({{#Some macro}
-               (do meta_monad
-                 [expansion (("lux type as" Macro' macro) args)
-                  expansion' (monad#each meta_monad full_expansion expansion)]
-                 (in (list#conjoint expansion')))
-               
-               {#None}
-               (do meta_monad
-                 [args' (monad#each meta_monad full_expansion args)]
-                 (in (list (form$ {#Item (symbol$ name) (list#conjoint args')}))))}
-              ?macro))
+(def:''' .private (full_expansion' full_expansion name args)
+         (-> (-> Code ($' Meta ($' List Code))) Symbol ($' List Code) ($' Meta ($' List Code)))
+         (do meta_monad
+           [name' (normal name)
+            ?macro (macro' name')]
+           ({{#Some macro}
+             (do meta_monad
+               [expansion (("lux type as" Macro' macro) args)
+                expansion' (monad#each meta_monad full_expansion expansion)]
+               (in (list#conjoint expansion')))
+             
+             {#None}
+             (do meta_monad
+               [args' (monad#each meta_monad full_expansion args)]
+               (in (list (form$ {#Item (symbol$ name) (list#conjoint args')}))))}
+            ?macro)))
 
-           [_ {#Form members}]
-           (do meta_monad
-             [members' (monad#each meta_monad full_expansion members)]
-             (in (list (form$ (list#conjoint members')))))
+(def:''' .private (in_module module meta)
+         (All (_ a)
+           (-> Text ($' Meta a) ($' Meta a)))
+         (function' [lux]
+                    ({[..#info info ..#source source
+                       ..#current_module current_module ..#modules modules
+                       ..#scopes scopes ..#type_context type_context
+                       ..#host host ..#seed seed
+                       ..#expected expected ..#location location
+                       ..#extensions extensions ..#scope_type_vars scope_type_vars
+                       ..#eval eval]
+                      ({{#Left error}
+                        {#Left error}
+                        
+                        {#Right [[..#info info' ..#source source'
+                                  ..#current_module _ ..#modules modules'
+                                  ..#scopes scopes' ..#type_context type_context'
+                                  ..#host host' ..#seed seed'
+                                  ..#expected expected' ..#location location'
+                                  ..#extensions extensions' ..#scope_type_vars scope_type_vars'
+                                  ..#eval eval']
+                                 output]}
+                        {#Right [[..#info info' ..#source source'
+                                  ..#current_module current_module ..#modules modules'
+                                  ..#scopes scopes' ..#type_context type_context'
+                                  ..#host host' ..#seed seed'
+                                  ..#expected expected' ..#location location'
+                                  ..#extensions extensions' ..#scope_type_vars scope_type_vars'
+                                  ..#eval eval']
+                                 output]}}
+                       (meta [..#info info ..#source source
+                              ..#current_module {.#Some module} ..#modules modules
+                              ..#scopes scopes ..#type_context type_context
+                              ..#host host ..#seed seed
+                              ..#expected expected ..#location location
+                              ..#extensions extensions ..#scope_type_vars scope_type_vars
+                              ..#eval eval]))}
+                     lux)))
 
-           [_ {#Variant members}]
-           (do meta_monad
-             [members' (monad#each meta_monad full_expansion members)]
-             (in (list (variant$ (list#conjoint members')))))
+(def:''' .private (full_expansion expand_in_module?)
+         (-> Bit Code ($' Meta ($' List Code)))
+         (function' again [syntax]
+                    ({[_ {#Form {#Item head tail}}]
+                      ({[_ {#Form {#Item [_ {#Text "lux in-module"}]
+                                         {#Item [_ {#Text module}]
+                                                {#Item [_ {#Symbol name}]
+                                                       {#End}}}}}]
+                        (if expand_in_module?
+                          (..in_module module (..full_expansion' again name tail))
+                          (do meta_monad
+                            [members' (monad#each meta_monad again {#Item head tail})]
+                            (in (list (form$ (list#conjoint members'))))))
 
-           [_ {#Tuple members}]
-           (do meta_monad
-             [members' (monad#each meta_monad full_expansion members)]
-             (in (list (tuple$ (list#conjoint members')))))
+                        [_ {#Symbol name}]
+                        (..full_expansion' again name tail)
 
-           _
-           (in_meta (list syntax))}
-          syntax))
+                        _
+                        (do meta_monad
+                          [members' (monad#each meta_monad again {#Item head tail})]
+                          (in (list (form$ (list#conjoint members')))))}
+                       head)
+
+                      [_ {#Variant members}]
+                      (do meta_monad
+                        [members' (monad#each meta_monad again members)]
+                        (in (list (variant$ (list#conjoint members')))))
+
+                      [_ {#Tuple members}]
+                      (do meta_monad
+                        [members' (monad#each meta_monad again members)]
+                        (in (list (tuple$ (list#conjoint members')))))
+
+                      _
+                      (in_meta (list syntax))}
+                     syntax)))
 
 (def:''' .private (text#encoded original)
          (-> Text Text)
@@ -2218,7 +2274,7 @@
              [initialized_quantification? (function' [lux] {#Right [lux (initialized_quantification? lux)]})]
              (if initialized_quantification?
                (do meta_monad
-                 [type+ (full_expansion type)]
+                 [type+ (full_expansion #0 type)]
                  ({{#Item type' {#End}}
                    (in (list (normal_type type')))
 
@@ -2381,7 +2437,7 @@
          (case tokens
            {#Item [_ {#Form {#Item pattern {#End}}}] {#Item body branches}}
            (do meta_monad
-             [pattern+ (full_expansion pattern)]
+             [pattern+ (full_expansion #1 pattern)]
              (case pattern+
                {#Item pattern' {#End}}
                (in (list& pattern' body branches))

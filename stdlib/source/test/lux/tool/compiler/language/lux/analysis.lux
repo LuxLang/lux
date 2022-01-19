@@ -1,0 +1,439 @@
+(.using
+ [library
+  [lux "*"
+   ["_" test {"+" Test}]
+   ["[0]" static]
+   [abstract
+    [monad {"+" do}]
+    [\\specification
+     ["$[0]" equivalence]]]
+   [control
+    [pipe {"+" case>}]
+    ["[0]" maybe]
+    ["[0]" try]
+    ["[0]" exception {"+" exception:}]]
+   [data
+    ["[0]" bit ("[1]#[0]" equivalence)]
+    ["[0]" text ("[1]#[0]" equivalence)]
+    [collection
+     ["[0]" list]]]
+   [macro
+    ["[0]" template]]
+   [math
+    ["[0]" random {"+" Random} ("[1]#[0]" monad)]
+    [number
+     ["f" frac]]]]]
+ ["[0]" / "_"
+  ["[1][0]" simple]
+  ["[1][0]" complex]
+  ["[1][0]" pattern]
+  [////
+   ["[1][0]" reference
+    ["[2][0]" variable]]
+   [///
+    [meta
+     ["[1][0]" symbol]
+     ["[0]" location "_"
+      ["[2][1]" /]
+      ["[1]" \\library ("[1]#[0]" equivalence)]]]]]]
+ [\\library
+  ["[0]" /
+   [//
+    [phase
+     ["[0]" extension]]
+    [///
+     ["[0]" phase]
+     ["[0]" version]]]]])
+
+(def: (random_branch random)
+  (All (_ a) (-> (Random a) (Random (/.Branch' a))))
+  ($_ random.and
+      /pattern.random
+      random
+      ))
+
+(def: (random_match multiplicity random)
+  (All (_ a) (-> Nat (Random a) (Random (/.Match' a))))
+  ($_ random.and
+      (..random_branch random)
+      (random.list multiplicity (..random_branch random))
+      ))
+
+(def: .public (random multiplicity)
+  (-> Nat (Random /.Analysis))
+  (<| random.rec
+      (function (_ random))
+      (let [random|case ($_ random.and
+                            random
+                            (..random_match multiplicity random)
+                            )
+            random|function ($_ random.and
+                                (random.list multiplicity random)
+                                random
+                                )
+            random|apply ($_ random.and
+                             random
+                             random
+                             )
+            random|extension ($_ random.and
+                                 (random.ascii/lower 1)
+                                 (random.list multiplicity random)
+                                 )])
+      ($_ random.or
+          /simple.random
+          (/complex.random multiplicity random)
+          /reference.random
+          random|case
+          random|function
+          random|apply
+          random|extension
+          )))
+
+(def: test|simple
+  Test
+  (do random.monad
+    [bit random.bit
+     nat random.nat
+     int random.int
+     rev random.rev
+     frac random.frac
+     text (random.ascii/lower 1)]
+    (`` ($_ _.and
+            (_.cover [/.unit]
+                     (case (/.unit)
+                       (^ (/.unit))
+                       true
+                       
+                       _
+                       false))
+            (~~ (template [<tag> <expected>]
+                  [(_.cover [<tag>]
+                            (case (<tag> <expected>)
+                              (^ (<tag> actual))
+                              (same? <expected> actual)
+                              
+                              _
+                              false))]
+
+                  [/.bit bit]
+                  [/.nat nat]
+                  [/.int int]
+                  [/.rev rev]
+                  [/.frac frac]
+                  [/.text text]))
+            ))))
+
+(def: test|complex
+  Test
+  (do random.monad
+    [expected_left (..random 2)
+     expected_right (..random 2)
+     expected_lefts random.nat
+     expected_right? random.bit]
+    ($_ _.and
+        (_.cover [/.variant]
+                 (let [expected (if expected_right?
+                                  expected_right
+                                  expected_left)]
+                   (case (/.variant [expected_lefts expected_right? expected])
+                     (^ (/.variant [actual_lefts actual_right? actual]))
+                     (and (same? expected_lefts actual_lefts)
+                          (same? expected_right? actual_right?)
+                          (same? expected actual))
+
+                     _
+                     false)))
+        (_.cover [/.tuple]
+                 (case (/.tuple (list expected_left expected_right))
+                   (^ (/.tuple (list actual_left actual_right)))
+                   (and (same? expected_left actual_left)
+                        (same? expected_right actual_right))
+
+                   _
+                   false))
+        )))
+
+(def: test|reference
+  Test
+  (do random.monad
+    [expected_register random.nat
+     expected_constant (/symbol.random 1 1)
+     expected_variable /variable.random]
+    (`` ($_ _.and
+            (~~ (template [<tag> <expected>]
+                  [(_.cover [<tag>]
+                            (case (<tag> <expected>)
+                              (^ (<tag> actual))
+                              (same? <expected> actual)
+
+                              _
+                              false))]
+
+                  [/.variable/local expected_register]
+                  [/.variable/foreign expected_register]
+                  [/.constant expected_constant]
+                  [/.variable expected_variable]
+                  ))
+            ))))
+
+(template: (tagged? <tag> <it>)
+  [(case <it>
+     {<tag> _}
+     true
+
+     _
+     false)])
+
+(def: test|application
+  Test
+  (do random.monad
+    [expected_abstraction (random.only (|>> (..tagged? /.#Apply) not)
+                                       (..random 2))
+     expected_parameter/0 (..random 2)
+     expected_parameter/1 (..random 2)]
+    ($_ _.and
+        (_.cover [/.apply /.application]
+                 (case (|> [expected_abstraction (list expected_parameter/0 expected_parameter/1)]
+                           /.apply
+                           /.application)
+                   (^ [actual_abstraction (list actual_parameter/0 actual_parameter/1)])
+                   (and (same? expected_abstraction actual_abstraction)
+                        (same? expected_parameter/0 actual_parameter/0)
+                        (same? expected_parameter/1 actual_parameter/1))
+
+                   _
+                   false))
+        (_.cover [/.no_op]
+                 (case (/.no_op expected_parameter/0)
+                   (^ (/.no_op actual))
+                   (same? expected_parameter/0 actual)
+
+                   _
+                   false))
+        )))
+
+(def: test|case
+  Test
+  (do random.monad
+    [expected_input (..random 2)
+     expected_match (random_match 2 (..random 2))]
+    ($_ _.and
+        (_.cover [/.case]
+                 (case (/.case [expected_input expected_match])
+                   (^ (/.case [actual_input actual_match]))
+                   (and (same? expected_input actual_input)
+                        (same? expected_match actual_match))
+
+                   _
+                   false))
+        )))
+
+(with_expansions [<id> (static.random_nat)
+                  <exception> (template.symbol ["exception_" <id>])]
+  (exception: <exception>)
+
+  (def: test|phase
+    Test
+    (do random.monad
+      [version random.nat
+       host (random.ascii/lower 5)
+       expected_error (random.ascii/lower 10)
+       location /location.random
+       .let [state (with@ .#location location
+                          (/.state (/.info version host)))]]
+      ($_ _.and
+          (_.cover [/.failure]
+                   (|> (/.failure expected_error)
+                       (phase.result [extension.#bundle extension.empty
+                                      extension.#state state])
+                       (case> {try.#Failure actual_error}
+                              (and (text.contains? expected_error actual_error)
+                                   (text.contains? (location.format location) actual_error))
+
+                              _
+                              false)))
+          (_.cover [/.except]
+                   (|> (/.except <exception> [])
+                       (phase.result [extension.#bundle extension.empty
+                                      extension.#state state])
+                       (case> {try.#Failure actual_error}
+                              (and (text.contains? (exception.error <exception> []) actual_error)
+                                   (text.contains? (location.format location) actual_error))
+
+                              _
+                              false)))
+          (_.cover [/.assertion]
+                   (and (|> (/.assertion <exception> [] false)
+                            (phase.result [extension.#bundle extension.empty
+                                           extension.#state state])
+                            (case> {try.#Failure actual_error}
+                                   (and (text.contains? (exception.error <exception> []) actual_error)
+                                        (text.contains? (location.format location) actual_error))
+
+                                   _
+                                   false))
+                        (|> (/.assertion <exception> [] true)
+                            (phase.result [extension.#bundle extension.empty
+                                           extension.#state state])
+                            (case> {try.#Success _}
+                                   true
+
+                                   _
+                                   false))))
+          ))))
+
+(def: test|state
+  Test
+  (do random.monad
+    [version random.nat
+     host (random.ascii/lower 5)
+
+     expected_module (random.ascii/lower 10)
+     dummy_module (random.ascii/lower 11)
+
+     location /location.random
+     
+     expected_file (random.ascii/lower 12)
+     expected_code (random.ascii/lower 13)
+
+     .let [state (with@ .#location location
+                        (/.state (/.info version host)))]]
+    ($_ _.and
+        (_.cover [/.info]
+                 (let [it (/.info version host)]
+                   (and (text#= (version.format version)
+                                (value@ .#version it))
+                        (same? host
+                               (value@ .#target it))
+                        (..tagged? .#Build (value@ .#mode it)))))
+        (_.cover [/.state]
+                 (let [info (/.info version host)
+                       it (/.state info)]
+                   (and (same? info
+                               (value@ .#info it))
+                        (same? location.dummy
+                               (value@ .#location it))
+                        (..tagged? .#None (value@ .#current_module it))
+                        (..tagged? .#None (value@ .#expected it))
+                        (list.empty? (value@ .#modules it))
+                        (list.empty? (value@ .#scopes it))
+                        (list.empty? (value@ [.#type_context .#var_bindings] it))
+                        (case (value@ .#source it)
+                          [location 0 ""]
+                          (same? location.dummy location)
+
+                          _
+                          false))))
+        (_.cover [/.set_current_module]
+                 (|> (do phase.monad
+                       [_ (/.set_current_module expected_module)]
+                       (extension.read (|>> (value@ .#current_module) (maybe.else ""))))
+                     (phase.result [extension.#bundle extension.empty
+                                    extension.#state state])
+                     (case> {try.#Success actual}
+                            (same? expected_module actual)
+
+                            _
+                            false)))
+        (_.cover [/.with_current_module]
+                 (let [current_module (extension.read (|>> (value@ .#current_module) (maybe.else "")))]
+                   (|> (do phase.monad
+                         [_ (/.set_current_module expected_module)
+                          pre current_module
+                          mid (/.with_current_module dummy_module
+                                current_module)
+                          post current_module]
+                         (in (and (same? expected_module pre)
+                                  (same? dummy_module mid)
+                                  (same? expected_module post))))
+                       (phase.result [extension.#bundle extension.empty
+                                      extension.#state state])
+                       (try.else false))))
+        (_.cover [/.location /.set_location]
+                 (let [expected (/.location expected_file)]
+                   (|> (do phase.monad
+                         [_ (/.set_location expected)]
+                         (extension.read (value@ .#location)))
+                       (phase.result [extension.#bundle extension.empty
+                                      extension.#state state])
+                       (case> {try.#Success actual}
+                              (same? expected actual)
+
+                              _
+                              false))))
+        (_.cover [/.with_location]
+                 (let [expected (/.location expected_file)
+                       dummy (/.location expected_code)
+                       location (extension.read (value@ .#location))]
+                   (|> (do phase.monad
+                         [_ (/.set_location expected)
+                          pre location
+                          mid (/.with_location dummy
+                                location)
+                          post location]
+                         (in (and (same? expected pre)
+                                  (same? dummy mid)
+                                  (same? expected post))))
+                       (phase.result [extension.#bundle extension.empty
+                                      extension.#state state])
+                       (try.else false))))
+        (_.cover [/.source /.set_source_code]
+                 (let [expected (/.source expected_file expected_code)]
+                   (|> (do phase.monad
+                         [_ (/.set_source_code expected)]
+                         (extension.read (value@ .#source)))
+                       (phase.result [extension.#bundle extension.empty
+                                      extension.#state state])
+                       (case> {try.#Success actual}
+                              (same? expected actual)
+
+                              _
+                              false))))
+        (_.cover [/.with_source_code]
+                 (let [expected (/.source expected_file expected_code)
+                       dummy (/.source expected_code expected_file)
+                       source (extension.read (value@ .#source))]
+                   (|> (do phase.monad
+                         [_ (/.set_source_code expected)
+                          pre source
+                          mid (/.with_source_code dummy
+                                source)
+                          post source]
+                         (in (and (same? expected pre)
+                                  (same? dummy mid)
+                                  (same? expected post))))
+                       (phase.result [extension.#bundle extension.empty
+                                      extension.#state state])
+                       (try.else false))))
+        )))
+
+(def: .public test
+  Test
+  (<| (_.covering /._)
+      (_.for [/.Analysis])
+      (do random.monad
+        [left (..random 2)
+         right (..random 2)]
+        ($_ _.and
+            (_.for [/.equivalence]
+                   ($equivalence.spec /.equivalence (..random 2)))
+            
+            ..test|simple
+            ..test|complex
+            ..test|reference
+            (_.for [/.Application]
+                   ..test|application)
+            (_.for [/.Branch /.Branch' /.Match /.Match']
+                   ..test|case)
+            (_.for [/.Operation /.Phase /.Handler /.Bundle]
+                   ..test|phase)
+            (_.for [/.State+]
+                   ..test|state)
+            (_.cover [/.format]
+                     (bit#= (# /.equivalence = left right)
+                            (text#= (/.format left) (/.format right))))
+
+            /simple.test
+            /complex.test
+            /pattern.test
+            ))))
