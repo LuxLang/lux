@@ -1,0 +1,88 @@
+(.using
+ [library
+  [lux "*"
+   ["_" test {"+" Test}]
+   ["[0]" type ("[1]#[0]" equivalence)]
+   [abstract
+    [monad {"+" do}]]
+   [control
+    [pipe {"+" case>}]
+    ["[0]" try]]
+   [math
+    ["[0]" random]]]]
+ [\\library
+  ["[0]" /
+   [//
+    ["[1][0]" type]
+    [//
+     ["[1][0]" extension]
+     [//
+      ["[1][0]" analysis {"+" Analysis Operation}]
+      [///
+       ["[1][0]" phase]]]]]]])
+
+(def: (analysis state type it ?)
+  (-> Lux Type (Operation Analysis) (-> Analysis Bit) Bit)
+  (and (|> (/type.with_type type
+             it)
+           (/phase.result [/extension.#bundle /extension.empty
+                           /extension.#state state])
+           (case> (^ {try.#Success analysis})
+                  (? analysis)
+
+                  _
+                  false))
+       (|> (/type.with_type .Nothing
+             it)
+           (/phase.result [/extension.#bundle /extension.empty
+                           /extension.#state state])
+           (case> (^ {try.#Failure error})
+                  true
+
+                  _
+                  false))
+       (|> (/type.with_inference
+             it)
+           (/phase.result [/extension.#bundle /extension.empty
+                           /extension.#state state])
+           (case> (^ {try.#Success [inferred analysis]})
+                  (and (type#= type inferred)
+                       (? analysis))
+
+                  _
+                  false))))
+
+(template: (analysis? <type> <tag>)
+  [(: (-> <type> Analysis Bit)
+      (function (_ expected)
+        (|>> (case> (^ (<tag> actual))
+                    (same? expected actual)
+
+                    _
+                    false))))])
+
+(def: .public test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [version random.nat
+         host (random.ascii/lower 5)
+         .let [state (/analysis.state (/analysis.info version host))]]
+        (`` ($_ _.and
+                (_.cover [/.unit]
+                         (..analysis state .Any /.unit
+                                     (|>> (case> (^ (/analysis.unit)) true _ false))))
+                (~~ (template [<analysis> <type> <random> <tag>]
+                      [(do !
+                         [sample <random>]
+                         (_.cover [<analysis>]
+                                  (..analysis state <type> (<analysis> sample)
+                                              ((..analysis? <type> <tag>) sample))))]
+
+                      [/.bit .Bit random.bit /analysis.bit]
+                      [/.nat .Nat random.nat /analysis.nat]
+                      [/.int .Int random.int /analysis.int]
+                      [/.rev .Rev random.rev /analysis.rev]
+                      [/.frac .Frac random.frac /analysis.frac]
+                      [/.text .Text (random.unicode 1) /analysis.text]
+                      ))
+                )))))

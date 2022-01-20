@@ -21,6 +21,8 @@
      ["[0]" list ("[1]#[0]" mix monad monoid)]
      ["[0]" array]
      ["[0]" dictionary {"+" Dictionary}]]]
+   [macro
+    ["[0]" template]]
    [math
     [number
      ["n" nat]]]
@@ -89,9 +91,13 @@
    (getDeclaringClass [] (java/lang/Class java/lang/Object))
    (getTypeParameters [] [(java/lang/reflect/TypeVariable java/lang/reflect/Method)])
    (getGenericParameterTypes [] [java/lang/reflect/Type])
-   (getGenericReturnType [] java/lang/reflect/Type)
-   (getGenericExceptionTypes [] [java/lang/reflect/Type])
-   (getDeclaredAnnotations [] [java/lang/annotation/Annotation])])
+   (getDeclaredAnnotations [] [java/lang/annotation/Annotation])
+   
+   (getReturnType [] (java/lang/Class java/lang/Object))
+   (getGenericReturnType [] "?" java/lang/reflect/Type)
+   
+   (getExceptionTypes [] [(java/lang/Class java/lang/Object)])
+   (getGenericExceptionTypes [] [java/lang/reflect/Type])])
 
 (import: (java/lang/reflect/Constructor c)
   ["[1]::[0]"
@@ -99,6 +105,7 @@
    (getDeclaringClass [] (java/lang/Class c))
    (getTypeParameters [] [(java/lang/reflect/TypeVariable (java/lang/reflect/Constructor c))])
    (getGenericParameterTypes [] [java/lang/reflect/Type])
+   (getExceptionTypes [] [(java/lang/Class java/lang/Object)])
    (getGenericExceptionTypes [] [java/lang/reflect/Type])
    (getDeclaredAnnotations [] [java/lang/annotation/Annotation])])
 
@@ -1183,6 +1190,31 @@
         mapping (dictionary.of_list text.hash lux_tvars)]
     [owner_tvarsT mapping]))
 
+(def: (lux_class it)
+  (-> (java/lang/Class java/lang/Object) (Type Class))
+  (jvm.class (java/lang/Class::getName it) (list)))
+
+(template [<name> <type> <params>]
+  [(`` (def: <name>
+         (-> (<type> (~~ (template.spliced <params>))) (List (Type Class)))
+         (|>> (~~ (template.symbol [<type> "::getExceptionTypes"]))
+              (array.list {.#None})
+              (list#each ..lux_class))))]
+
+  [concrete_method_exceptions java/lang/reflect/Method []]
+  [concrete_constructor_exceptions java/lang/reflect/Constructor [java/lang/Object]]
+  )
+
+(def: (return_type it)
+  (-> java/lang/reflect/Method (Try (Type Return)))
+  (reflection!.return
+   (case (java/lang/reflect/Method::getGenericReturnType it)
+     {.#Some it}
+     it
+     
+     {.#None}
+     (java/lang/reflect/Method::getReturnType it))))
+
 (def: (method_signature method_style method)
   (-> Method_Style java/lang/reflect/Method (Operation Method_Signature))
   (let [owner (java/lang/reflect/Method::getDeclaringClass method)
@@ -1205,16 +1237,17 @@
                    (phase#each (monad.each ! (..reflection_type mapping)))
                    phase#conjoint)
        outputT (|> method
-                   java/lang/reflect/Method::getGenericReturnType
-                   reflection!.return
+                   ..return_type
                    phase.lifted
                    (phase#each (..reflection_return mapping))
                    phase#conjoint)
-       exceptionsT (|> (java/lang/reflect/Method::getGenericExceptionTypes method)
-                       (array.list {.#None})
-                       (monad.each ! (|>> reflection!.type phase.lifted))
-                       (phase#each (monad.each ! (..reflection_type mapping)))
-                       phase#conjoint)
+       .let [concrete_exceptions (..concrete_method_exceptions method)]
+       concrete_exceptions (monad.each ! (..reflection_type mapping) concrete_exceptions)
+       generic_exceptions (|> (java/lang/reflect/Method::getGenericExceptionTypes method)
+                              (array.list {.#None})
+                              (monad.each ! (|>> reflection!.type phase.lifted))
+                              (phase#each (monad.each ! (..reflection_type mapping)))
+                              phase#conjoint)
        .let [methodT (<| (type.univ_q (dictionary.size mapping))
                          (type.function (case method_style
                                           {#Static}
@@ -1226,7 +1259,9 @@
                          outputT)]]
       (in [methodT
            (reflection!.deprecated? (java/lang/reflect/Method::getDeclaredAnnotations method))
-           exceptionsT]))))
+           (if (list.empty? generic_exceptions)
+             concrete_exceptions
+             generic_exceptions)]))))
 
 (def: (constructor_signature constructor)
   (-> (java/lang/reflect/Constructor java/lang/Object) (Operation Method_Signature))
@@ -1244,18 +1279,22 @@
                    (monad.each ! (|>> reflection!.type phase.lifted))
                    (phase#each (monad.each ! (reflection_type mapping)))
                    phase#conjoint)
-       exceptionsT (|> (java/lang/reflect/Constructor::getGenericExceptionTypes constructor)
-                       (array.list {.#None})
-                       (monad.each ! (|>> reflection!.type phase.lifted))
-                       (phase#each (monad.each ! (reflection_type mapping)))
-                       phase#conjoint)
+       .let [concrete_exceptions (..concrete_constructor_exceptions constructor)]
+       concrete_exceptions (monad.each ! (..reflection_type mapping) concrete_exceptions)
+       generic_exceptions (|> (java/lang/reflect/Constructor::getGenericExceptionTypes constructor)
+                              (array.list {.#None})
+                              (monad.each ! (|>> reflection!.type phase.lifted))
+                              (phase#each (monad.each ! (reflection_type mapping)))
+                              phase#conjoint)
        .let [objectT {.#Primitive (java/lang/Class::getName owner) owner_tvarsT}
              constructorT (<| (type.univ_q (dictionary.size mapping))
                               (type.function inputsT)
                               objectT)]]
       (in [constructorT
            (reflection!.deprecated? (java/lang/reflect/Constructor::getDeclaredAnnotations constructor))
-           exceptionsT]))))
+           (if (list.empty? generic_exceptions)
+             concrete_exceptions
+             generic_exceptions)]))))
 
 (type: Evaluation
   (Variant
@@ -1572,14 +1611,15 @@
                            inputs (|> (java/lang/reflect/Method::getGenericParameterTypes method)
                                       (array.list {.#None})
                                       (monad.each ! reflection!.type))
-                           return (|> method
-                                      java/lang/reflect/Method::getGenericReturnType
-                                      reflection!.return)
-                           exceptions (|> (java/lang/reflect/Method::getGenericExceptionTypes method)
-                                          (array.list {.#None})
-                                          (monad.each ! reflection!.class))]
+                           return (..return_type method)
+                           .let [concrete_exceptions (..concrete_method_exceptions method)]
+                           generic_exceptions (|> (java/lang/reflect/Method::getGenericExceptionTypes method)
+                                                  (array.list {.#None})
+                                                  (monad.each ! reflection!.class))]
                           (in [(java/lang/reflect/Method::getName method)
-                               (jvm.method [type_variables inputs return exceptions])]))))))]
+                               (jvm.method [type_variables inputs return (if (list.empty? generic_exceptions)
+                                                                           concrete_exceptions
+                                                                           generic_exceptions)])]))))))]
 
   [abstract_methods (list.only (|>> java/lang/reflect/Method::getModifiers java/lang/reflect/Modifier::isAbstract))]
   [methods (<|)]

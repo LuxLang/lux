@@ -3,6 +3,7 @@
   [lux "*"
    ["_" test {"+" Test}]
    ["[0]" ffi]
+   ["[0]" debug]
    [abstract
     [monad {"+" do}]
     ["[0]" predicate]
@@ -340,12 +341,103 @@
                    ..test|computation)
             ))))
 
-(def: test/location
+(def: test|local_var
+  Test
+  (do [! random.monad]
+    [float/0 random.safe_frac
+     $foreign (# ! each /.local (random.ascii/lower 10))]
+    ($_ _.and
+        (_.cover [/.local]
+                 (expression (|>> (:as Frac) (f.= (f.+ float/0 float/0)))
+                             (|> (/.return (/.+ $foreign $foreign))
+                                 [(list $foreign)] (/.lambda {.#None})
+                                 (/.apply_lambda/* (list (/.float float/0))))))
+        (_.cover [/.set]
+                 (expression (|>> (:as Frac) (f.= (f.+ float/0 float/0)))
+                             (|> ($_ /.then
+                                     (/.set (list $foreign) (/.float float/0))
+                                     (/.return (/.+ $foreign $foreign)))
+                                 [(list)] (/.lambda {.#None})
+                                 (/.apply_lambda/* (list)))))
+        )))
+
+(def: test|instance_var
+  Test
+  (do [! random.monad]
+    [float/0 random.safe_frac
+     instance (# ! each (|>> %.nat (format "instance_"))
+                 random.nat)
+     .let [$instance (/.instance instance)]
+     $method (# ! each (|>> %.nat (format "method_") /.local)
+                random.nat)
+     $class (# ! each (|>> %.nat (format "class_") /.local)
+               random.nat)
+     $object (# ! each (|>> %.nat (format "object_") /.local)
+                random.nat)]
+    ($_ _.and
+        (_.cover [/.instance]
+                 (expression (|>> (:as Frac) (f.= float/0))
+                             (|> ($_ /.then
+                                     (/.set (list $class) (/.class [/.#parameters (list)
+                                                                    /.#body ($_ /.then
+                                                                                (/.function /.initialize (list)
+                                                                                  (/.set (list $instance) (/.float float/0)))
+                                                                                (/.function $method (list)
+                                                                                  (/.return $instance))
+                                                                                )]))
+                                     (/.return (|> $class
+                                                   (/.new (list) {.#None})
+                                                   (/.do (/.code $method) (list) {.#None}))))
+                                 [(list)] (/.lambda {.#None})
+                                 (/.apply_lambda/* (list)))))
+        (_.cover [/.attr_reader/*]
+                 (expression (|>> (:as Frac) (f.= float/0))
+                             (|> ($_ /.then
+                                     (/.set (list $class) (/.class [/.#parameters (list)
+                                                                    /.#body ($_ /.then
+                                                                                (/.attr_reader/* (list instance))
+                                                                                (/.function /.initialize (list)
+                                                                                  (/.set (list $instance) (/.float float/0)))
+                                                                                )]))
+                                     (/.return (|> $class
+                                                   (/.new (list) {.#None})
+                                                   (/.the instance))))
+                                 [(list)] (/.lambda {.#None})
+                                 (/.apply_lambda/* (list)))))
+        (_.cover [/.attr_writer/*]
+                 (expression (|>> (:as Frac) (f.= float/0))
+                             (|> ($_ /.then
+                                     (/.set (list $class) (/.class [/.#parameters (list)
+                                                                    /.#body ($_ /.then
+                                                                                (/.attr_writer/* (list instance))
+                                                                                (/.function $method (list)
+                                                                                  (/.return $instance))
+                                                                                )]))
+                                     (/.set (list $object) (|> $class
+                                                               (/.new (list) {.#None})))
+                                     (/.set (list (/.the instance $object)) (/.float float/0))
+                                     (/.return (|>  $object
+                                                    (/.do (/.code $method) (list) {.#None}))))
+                                 [(list)] (/.lambda {.#None})
+                                 (/.apply_lambda/* (list)))))
+        (_.cover [/.attr_accessor/*]
+                 (expression (|>> (:as Frac) (f.= float/0))
+                             (|> ($_ /.then
+                                     (/.set (list $class) (/.class [/.#parameters (list)
+                                                                    /.#body (/.attr_accessor/* (list instance))]))
+                                     (/.set (list $object) (|> $class
+                                                               (/.new (list) {.#None})))
+                                     (/.set (list (/.the instance $object)) (/.float float/0))
+                                     (/.return (/.the instance $object)))
+                                 [(list)] (/.lambda {.#None})
+                                 (/.apply_lambda/* (list)))))
+        )))
+
+(def: test|var
   Test
   (do [! random.monad]
     [float/0 random.safe_frac
      $foreign (# ! each /.local (random.ascii/lower 10))
-     field (# ! each /.string (random.ascii/upper 10))
 
      $inputs (# ! each /.local (random.ascii/lower 10))
      arity (# ! each (n.% 10) random.nat)
@@ -356,44 +448,49 @@
               (random.set text.hash arity)
               (# ! each (|>> set.list (list#each /.string))))]
     ($_ _.and
-        (<| (_.for [/.Var])
+        (_.cover [/.defined?/1]
+                 (and (expression (|>> (:as Bit))
+                                  (|> (/.defined?/1 $foreign)
+                                      (/.= /.nil)))
+                      (expression (|>> (:as Text) (text#= "local-variable"))
+                                  (|> ($_ /.then
+                                          (/.set (list $foreign) (/.float float/0))
+                                          (/.return (/.defined?/1 $foreign)))
+                                      [(list)] (/.lambda {.#None})
+                                      (/.apply_lambda/* (list))))))
+        (_.for [/.LVar]
+               ..test|local_var)
+        (_.for [/.IVar]
+               ..test|instance_var)
+        (<| (_.for [/.LVar*])
             ($_ _.and
-                (_.cover [/.defined?/1]
-                         (and (expression (|>> (:as Bit))
-                                          (|> (/.defined?/1 $foreign)
-                                              (/.= /.nil)))
-                              (expression (|>> (:as Text) (text#= "local-variable"))
-                                          (|> ($_ /.then
-                                                  (/.set (list $foreign) (/.float float/0))
-                                                  (/.return (/.defined?/1 $foreign)))
-                                              [(list)] (/.lambda {.#None})
-                                              (/.apply_lambda/* (list))))))
-                (_.cover [/.LVar /.local /.set]
-                         (expression (|>> (:as Frac) (f.= (f.+ float/0 float/0)))
-                                     (|> ($_ /.then
-                                             (/.set (list $foreign) (/.+ $foreign $foreign))
-                                             (/.return $foreign))
-                                         [(list $foreign)] (/.lambda {.#None})
-                                         (/.apply_lambda/* (list (/.float float/0))))))
-                (<| (_.for [/.LVar*])
-                    ($_ _.and
-                        (_.cover [/.variadic]
-                                 (expression (|>> (:as Int) .nat (n.= arity))
-                                             (|> (/.return (/.the "length" $inputs))
-                                                 [(list (/.variadic $inputs))] (/.lambda {.#None})
-                                                 (/.apply_lambda/* vals))))
-                        (_.cover [/.splat]
-                                 (expression (|>> (:as Int) .nat (n.= arity))
-                                             (|> (/.return (/.the "length" (/.array (list (/.splat $inputs)))))
-                                                 [(list (/.variadic $inputs))] (/.lambda {.#None})
-                                                 (/.apply_lambda/* vals))))))
-                (<| (_.for [/.LVar**])
-                    (_.cover [/.variadic_kv /.double_splat]
-                             (expression (|>> (:as Int) .nat (n.= arity))
-                                         (|> (/.return (/.the "length" $inputs))
-                                             [(list (/.variadic_kv $inputs))] (/.lambda {.#None})
-                                             (/.apply_lambda/* (list (/.double_splat (/.hash (list.zipped/2 keys vals)))))))))
-                ))
+                (_.cover [/.variadic]
+                         (expression (|>> (:as Int) .nat (n.= arity))
+                                     (|> (/.return (/.the "length" $inputs))
+                                         [(list (/.variadic $inputs))] (/.lambda {.#None})
+                                         (/.apply_lambda/* vals))))
+                (_.cover [/.splat]
+                         (expression (|>> (:as Int) .nat (n.= arity))
+                                     (|> (/.return (/.the "length" (/.array (list (/.splat $inputs)))))
+                                         [(list (/.variadic $inputs))] (/.lambda {.#None})
+                                         (/.apply_lambda/* vals))))))
+        (<| (_.for [/.LVar**])
+            (_.cover [/.variadic_kv /.double_splat]
+                     (expression (|>> (:as Int) .nat (n.= arity))
+                                 (|> (/.return (/.the "length" $inputs))
+                                     [(list (/.variadic_kv $inputs))] (/.lambda {.#None})
+                                     (/.apply_lambda/* (list (/.double_splat (/.hash (list.zipped/2 keys vals)))))))))
+        )))
+
+(def: test|location
+  Test
+  (do [! random.monad]
+    [float/0 random.safe_frac
+     $foreign (# ! each /.local (random.ascii/lower 10))
+     field (# ! each /.string (random.ascii/upper 10))]
+    ($_ _.and
+        (<| (_.for [/.Var])
+            ..test|var)
         (_.cover [/.Access]
                  (and (expression (|>> (:as Frac) (f.= (f.+ float/0 float/0)))
                                   (let [@ (/.item (/.int +0) $foreign)]
@@ -483,7 +580,7 @@
 (def: test|loop
   Test
   (do [! random.monad]
-    [input random.int
+    [input (# ! each (i.right_shifted 32) random.int)
      iterations (# ! each (n.% 10) random.nat)
      .let [$input (/.local "input")
            $output (/.local "output")
@@ -728,7 +825,7 @@
         (_.for [/.Block]
                ..test|function)
         (_.for [/.Location]
-               ..test/location)
+               ..test|location)
         )))
 
 (def: test|global
