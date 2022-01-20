@@ -393,10 +393,10 @@
       (str "(-> " (->> ?ins (&/|map show-type) (&/|interpose " ") (&/fold str "")) " " (show-type ?out) ")"))
 
     (&/$Var id)
-    (str "⌈v:" id "⌋")
+    (str "-" id)
 
     (&/$Ex ?id)
-    (str "⟨e:" ?id "⟩")
+    (str "+" ?id)
 
     (&/$Parameter idx)
     (str idx)

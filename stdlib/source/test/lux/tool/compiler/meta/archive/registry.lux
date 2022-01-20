@@ -1,0 +1,173 @@
+(.using
+ [library
+  [lux "*"
+   ["_" test {"+" Test}]
+   [abstract
+    [monad {"+" do}]]
+   [control
+    ["[0]" maybe ("[1]#[0]" functor)]
+    ["[0]" try ("[1]#[0]" functor)]
+    [parser
+     ["<[0]>" binary]]]
+   [data
+    ["[0]" product]
+    ["[0]" text]
+    [collection
+     ["[0]" sequence {"+" Sequence}]
+     ["[0]" set {"+" Set}]
+     ["[0]" list ("[1]#[0]" mix)]]
+    [format
+     ["[0]" binary]]]
+   [math
+    ["[0]" random {"+" Random}]
+    [number
+     ["n" nat]]]]]
+ [\\library
+  ["[0]" /
+   [//
+    ["[0]" artifact
+     ["[0]" category]]]]])
+
+(template: (tagged? <tag> <it>)
+  [(case <it>
+     {<tag> _}
+     true
+     
+     _
+     false)])
+
+(def: random_dependency
+  (Random artifact.Dependency)
+  ($_ random.and
+      random.nat
+      random.nat
+      ))
+
+(def: (random_dependencies amount)
+  (-> Nat (Random (Set artifact.Dependency)))
+  (random.set artifact.dependency_hash amount ..random_dependency))
+
+(def: .public test
+  Test
+  (<| (_.covering /._)
+      (_.for [/.Registry])
+      (do [! random.monad]
+        [expected_name (random.ascii/lower 5)
+         mandatory? random.bit
+         expected_dependencies (..random_dependencies 5)
+         
+         expected_amount (# ! each (n.% 10) random.nat)
+         expected_names (|> (random.ascii/lower 1)
+                            (random.set text.hash expected_amount)
+                            (# ! each set.list))]
+        (`` ($_ _.and
+                (_.cover [/.empty]
+                         (|> /.empty
+                             /.artifacts
+                             sequence.size
+                             (n.= 0)))
+                (_.cover [/.resource]
+                         (let [[@it registry] (/.resource mandatory? expected_dependencies /.empty)]
+                           (case (sequence.list (/.artifacts registry))
+                             (^ (list [artifact actual_dependencies]))
+                             (and (same? @it (value@ artifact.#id artifact))
+                                  (same? mandatory? (value@ artifact.#mandatory? artifact))
+                                  (tagged? category.#Anonymous (value@ artifact.#category artifact))
+                                  (same? expected_dependencies actual_dependencies))
+
+                             _
+                             false)))
+                (~~ (template [<new> <query> <tag> <wrong_new>]
+                      [(_.cover [<new> <query>]
+                                (and (let [[@it registry] (<new> expected_name mandatory? expected_dependencies /.empty)]
+                                       (and (case (<query> registry)
+                                              (^ (list actual_name))
+                                              (same? expected_name actual_name)
+
+                                              _
+                                              false)
+                                            (case (sequence.list (/.artifacts registry))
+                                              (^ (list [artifact actual_dependencies]))
+                                              (and (same? @it (value@ artifact.#id artifact))
+                                                   (same? mandatory? (value@ artifact.#mandatory? artifact))
+                                                   (case (value@ artifact.#category artifact)
+                                                     {<tag> actual_name}
+                                                     (same? expected_name actual_name)
+
+                                                     _
+                                                     false)
+                                                   (same? expected_dependencies actual_dependencies))
+
+                                              _
+                                              false)))
+                                     (let [[@it registry] (<wrong_new> expected_name mandatory? expected_dependencies /.empty)]
+                                       (case (<query> registry)
+                                         (^ (list))
+                                         true
+
+                                         _
+                                         false))))]
+
+                      [/.definition /.definitions category.#Definition /.analyser]
+                      [/.analyser /.analysers category.#Analyser /.synthesizer]
+                      [/.synthesizer /.synthesizers category.#Synthesizer /.generator]
+                      [/.generator /.generators category.#Generator /.directive]
+                      [/.directive /.directives category.#Directive /.custom]
+                      [/.custom /.customs category.#Custom /.definition]
+                      ))
+                (_.cover [/.id]
+                         (and (~~ (template [<new>]
+                                    [(let [[@expected registry] (<new> expected_name mandatory? expected_dependencies /.empty)]
+                                       (|> (/.id expected_name registry)
+                                           (maybe#each (same? @expected))
+                                           (maybe.else false)))]
+
+                                    [/.definition]
+                                    [/.analyser]
+                                    [/.synthesizer]
+                                    [/.generator]
+                                    [/.directive]
+                                    [/.custom]
+                                    ))))
+                (_.cover [/.artifacts]
+                         (and (~~ (template [<new> <query>]
+                                    [(let [[ids registry] (: [(Sequence artifact.ID) /.Registry]
+                                                             (list#mix (function (_ name [ids registry])
+                                                                         (let [[@new registry] (<new> name mandatory? expected_dependencies registry)]
+                                                                           [(sequence.suffix @new ids) registry]))
+                                                                       [sequence.empty /.empty]
+                                                                       expected_names))
+                                           it (/.artifacts registry)]
+                                       (and (n.= expected_amount (sequence.size it))
+                                            (n.= expected_amount (sequence.size it))
+                                            (list.every? (function (_ [@it [it dependencies]])
+                                                           (same? @it (value@ artifact.#id it)))
+                                                         (list.zipped/2 (sequence.list ids) (sequence.list it)))
+                                            (# (list.equivalence text.equivalence) = expected_names (<query> registry))))]
+
+                                    [/.definition /.definitions]
+                                    [/.analyser /.analysers]
+                                    [/.synthesizer /.synthesizers]
+                                    [/.generator /.generators]
+                                    [/.directive /.directives]
+                                    [/.custom /.customs]
+                                    ))))
+                (_.cover [/.writer /.parser]
+                         (and (~~ (template [<new>]
+                                    [(let [[@expected before] (<new> expected_name mandatory? expected_dependencies /.empty)]
+                                       (|> before
+                                           (binary.result /.writer)
+                                           (<binary>.result /.parser)
+                                           (try#each (|>> (/.id expected_name)
+                                                          (maybe#each (same? @expected))
+                                                          (maybe.else false)))
+                                           (try.else false)))]
+
+                                    [/.definition]
+                                    [/.analyser]
+                                    [/.synthesizer]
+                                    [/.generator]
+                                    [/.directive]
+                                    [/.custom]
+                                    ))))
+                )))))
