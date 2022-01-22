@@ -35,7 +35,7 @@
    [world
     ["[0]" file]]]]
  [\\library
-  ["[0]" /]])
+  ["[0]" / ("[1]#[0]" equivalence)]])
 
 (ffi.import: (eval [Text] "try" "?" Any))
 
@@ -238,7 +238,7 @@
                   random.nat)
      $method/1 (|> random.nat
                    (# ! each (|>> %.nat (format "method_") /.local))
-                   (random.only (|>> (# /.equivalence = $method/0) not)))
+                   (random.only (|>> (/#= $method/0) not)))
      $arg/0 (# ! each (|>> %.nat (format "arg_") /.local)
                random.nat)
      $state (# ! each (|>> %.nat (format "instance_") /.instance)
@@ -341,6 +341,46 @@
                    ..test|computation)
             ))))
 
+(def: test|global
+  Test
+  (do [! random.monad]
+    [float/0 random.safe_frac
+     $global (# ! each /.global (random.ascii/lower 10))]
+    ($_ _.and
+        (_.cover [/.global]
+                 (expression (|>> (:as Text) (text#= "global-variable"))
+                             (|> ($_ /.then
+                                     (/.set (list $global) (/.float float/0))
+                                     (/.return (/.defined?/1 $global)))
+                                 [(list)] (/.lambda {.#None})
+                                 (/.apply_lambda/* (list)))))
+        (_.cover [/.script_name]
+                 (expression (let [file (format (# file.default separator) packager.main_file)]
+                               (|>> (:as Text)
+                                    (text.ends_with? file)))
+                             /.script_name))
+        (_.cover [/.script_name]
+                 (expression (let [file (format (# file.default separator) packager.main_file)]
+                               (|>> (:as Text)
+                                    (text.ends_with? file)))
+                             /.script_name))
+        (_.cover [/.input_record_separator]
+                 (expression (|>> (:as Text)
+                                  (text#= text.\n))
+                             /.input_record_separator))
+        (_.cover [/.output_record_separator]
+                 (..nil /.output_record_separator))
+        (_.cover [/.process_id]
+                 (expression (|>> (:as Nat) (n.= 0) not)
+                             /.process_id))
+        (_.cover [/.case_insensitivity_flag]
+                 (expression (|>> (:as Bit) (bit#= false))
+                             /.case_insensitivity_flag))
+        (_.cover [/.command_line_arguments]
+                 (expression (|>> (:as Int) (i.= +0))
+                             (/.the "length" /.command_line_arguments)))
+        )))
+
 (def: test|local_var
   Test
   (do [! random.monad]
@@ -433,13 +473,36 @@
                                  (/.apply_lambda/* (list)))))
         )))
 
-(def: test|var
+(def: test|static_var
   Test
   (do [! random.monad]
-    [float/0 random.safe_frac
-     $foreign (# ! each /.local (random.ascii/lower 10))
+    [int/0 (# ! each (|>> (n.% 10) ++ .int)
+              random.nat)
+     $static (# ! each (|>> %.nat (format "static_") /.static)
+                random.nat)
+     $arg (# ! each (|>> %.nat /.local)
+             random.nat)
+     $method (# ! each (|>> %.nat (format "method_") /.local)
+                random.nat)
+     $class (# ! each (|>> %.nat (format "class_") /.local)
+               random.nat)]
+    ($_ _.and
+        (_.cover [/.static /.class_variable_set /.class_variable_get]
+                 (expression (|>> (:as Int) (i.= int/0))
+                             (|> ($_ /.then
+                                     (/.set (list $class) (/.class [/.#parameters (list)
+                                                                    /.#body (/.function $method (list)
+                                                                              (/.return (/.int +0)))]))
+                                     (/.statement (/.class_variable_set $static (/.int int/0) $class))
+                                     (/.return (/.class_variable_get $static $class)))
+                                 [(list)] (/.lambda {.#None})
+                                 (/.apply_lambda/* (list)))))
+        )))
 
-     $inputs (# ! each /.local (random.ascii/lower 10))
+(def: test|variadic
+  Test
+  (do [! random.monad]
+    [$inputs (# ! each /.local (random.ascii/lower 10))
      arity (# ! each (n.% 10) random.nat)
      vals (|> random.int
               (# ! each /.int)
@@ -448,20 +511,6 @@
               (random.set text.hash arity)
               (# ! each (|>> set.list (list#each /.string))))]
     ($_ _.and
-        (_.cover [/.defined?/1]
-                 (and (expression (|>> (:as Bit))
-                                  (|> (/.defined?/1 $foreign)
-                                      (/.= /.nil)))
-                      (expression (|>> (:as Text) (text#= "local-variable"))
-                                  (|> ($_ /.then
-                                          (/.set (list $foreign) (/.float float/0))
-                                          (/.return (/.defined?/1 $foreign)))
-                                      [(list)] (/.lambda {.#None})
-                                      (/.apply_lambda/* (list))))))
-        (_.for [/.LVar]
-               ..test|local_var)
-        (_.for [/.IVar]
-               ..test|instance_var)
         (<| (_.for [/.LVar*])
             ($_ _.and
                 (_.cover [/.variadic]
@@ -480,6 +529,43 @@
                                  (|> (/.return (/.the "length" $inputs))
                                      [(list (/.variadic_kv $inputs))] (/.lambda {.#None})
                                      (/.apply_lambda/* (list (/.double_splat (/.hash (list.zipped/2 keys vals)))))))))
+        )))
+
+(def: test|var
+  Test
+  (do [! random.monad]
+    [float/0 random.safe_frac
+     $foreign (# ! each /.local (random.ascii/lower 10))
+
+     $constant (# ! each /.constant (random.ascii/lower 10))]
+    ($_ _.and
+        (_.cover [/.defined?/1]
+                 (and (expression (|>> (:as Bit))
+                                  (|> (/.defined?/1 $foreign)
+                                      (/.= /.nil)))
+                      (expression (|>> (:as Text) (text#= "local-variable"))
+                                  (|> ($_ /.then
+                                          (/.set (list $foreign) (/.float float/0))
+                                          (/.return (/.defined?/1 $foreign)))
+                                      [(list)] (/.lambda {.#None})
+                                      (/.apply_lambda/* (list))))))
+        (_.for [/.CVar]
+               (_.cover [/.constant]
+                        (expression (|>> (:as Text) (text#= "constant"))
+                                    (|> ($_ /.then
+                                            (/.set (list $constant) (/.float float/0))
+                                            (/.return (/.defined?/1 $constant)))
+                                        [(list)] (/.lambda {.#None})
+                                        (/.apply_lambda/* (list))))))
+        (_.for [/.GVar]
+               ..test|global)
+        (_.for [/.LVar]
+               ..test|local_var)
+        (_.for [/.IVar]
+               ..test|instance_var)
+        (_.for [/.SVar]
+               ..test|static_var)
+        ..test|variadic
         )))
 
 (def: test|location
@@ -828,33 +914,6 @@
                ..test|location)
         )))
 
-(def: test|global
-  Test
-  (do random.monad
-    [_ (in [])]
-    ($_ _.and
-        (_.cover [/.script_name]
-                 (expression (let [file (format (# file.default separator) packager.main_file)]
-                               (|>> (:as Text)
-                                    (text.ends_with? file)))
-                             /.script_name))
-        (_.cover [/.input_record_separator]
-                 (expression (|>> (:as Text)
-                                  (text#= text.\n))
-                             /.input_record_separator))
-        (_.cover [/.output_record_separator]
-                 (..nil /.output_record_separator))
-        (_.cover [/.process_id]
-                 (expression (|>> (:as Nat) (n.= 0) not)
-                             /.process_id))
-        (_.cover [/.case_insensitivity_flag]
-                 (expression (|>> (:as Bit) (bit#= false))
-                             /.case_insensitivity_flag))
-        (_.cover [/.command_line_arguments]
-                 (expression (|>> (:as Int) (i.= +0))
-                             (/.the "length" /.command_line_arguments)))
-        )))
-
 (def: random_expression
   (Random /.Expression)
   (let [literal (: (Random /.Literal)
@@ -881,11 +940,9 @@
             (_.cover [/.code /.manual]
                      (|> (/.manual (/.code expected))
                          (: /.Expression)
-                         (# /.equivalence = expected)))
+                         (/#= expected)))
             (_.for [/.Expression]
                    ..test|expression)
             (_.for [/.Statement]
                    ..test|statement)
-            (_.for [/.GVar]
-                   ..test|global)
             ))))

@@ -1,0 +1,106 @@
+(.using
+ [library
+  [lux "*"
+   ["_" test {"+" Test}]
+   ["[0]" meta]
+   [abstract
+    [monad {"+" do}]
+    [\\specification
+     ["$[0]" equivalence]]]
+   [control
+    [pipe {"+" case>}]
+    ["[0]" maybe ("[1]#[0]" functor)]
+    ["[0]" try ("[1]#[0]" functor)]
+    ["[0]" exception]]
+   [data
+    ["[0]" bit ("[1]#[0]" equivalence)]
+    ["[0]" text ("[1]#[0]" equivalence)]
+    [collection
+     ["[0]" list ("[1]#[0]" monad)]]]
+   [macro
+    ["[0]" code ("[1]#[0]" equivalence)]]
+   [math
+    ["[0]" random {"+" Random} ("[1]#[0]" monad)]
+    [number
+     ["n" nat]]]]]
+ ["$" /////// "_"
+  [macro
+   ["[1][0]" code]]
+  [meta
+   ["[1][0]" symbol]]]
+ [\\library
+  ["[0]" /
+   ["/[1]" //]]])
+
+(def: random_state
+  (Random Lux)
+  (do random.monad
+    [version random.nat
+     host (random.ascii/lower 1)]
+    (in (//.state (//.info version host)))))
+
+(def: (expander macro inputs state)
+  /.Expander
+  {try.#Success ((.macro macro) inputs state)})
+
+(def: .public test
+  Test
+  (<| (_.covering /._)
+      (_.for [/.Expander])
+      (do [! random.monad]
+        [multiplicity (# ! each (|>> (n.% 8) (n.+ 2))
+                         random.nat)
+         choice (# ! each (n.% multiplicity)
+                   random.nat)
+         expected_error (random.ascii/upper 5)
+
+         name ($symbol.random 2 2)
+         mono $code.random
+         poly (random.list multiplicity $code.random)
+
+         lux ..random_state
+         .let [singular (<| (:as Macro)
+                            (: Macro')
+                            (function (_ inputs state)
+                              (case (list.item choice inputs)
+                                {.#Some it}
+                                {try.#Success [state (list it)]}
+
+                                {.#None}
+                                {try.#Failure expected_error})))
+               multiple (<| (:as Macro)
+                            (: Macro')
+                            (function (_ inputs state)
+                              {try.#Success [state (|> inputs
+                                                       (list.repeated multiplicity)
+                                                       list#conjoint)]}))]])
+      ($_ _.and
+          (_.cover [/.expansion]
+                   (|> (/.expansion ..expander name multiple (list mono))
+                       (meta.result lux)
+                       (try#each (# (list.equivalence code.equivalence) =
+                                    (list.repeated multiplicity mono)))
+                       (try.else false)))
+          (_.cover [/.expansion_failed]
+                   (|> (/.expansion ..expander name singular (list))
+                       (meta.result lux)
+                       (case> {try.#Failure it}
+                              (and (text.contains? expected_error it)
+                                   (text.contains? (value@ exception.#label /.expansion_failed) it))
+
+                              _
+                              false)))
+          (_.cover [/.single_expansion]
+                   (|> (/.single_expansion ..expander name singular poly)
+                       (meta.result lux)
+                       (try#each (code#= (|> poly (list.item choice) maybe.trusted)))
+                       (try.else false)))
+          (_.cover [/.must_have_single_expansion]
+                   (|> (/.single_expansion ..expander name multiple (list mono))
+                       (meta.result lux)
+                       (case> {try.#Failure it}
+                              (text.contains? (value@ exception.#label /.must_have_single_expansion) it)
+
+                              _
+                              false)))
+          )))

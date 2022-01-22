@@ -6,10 +6,12 @@
     ["[0]" monad {"+" do}]]
    [control
     [pipe {"+" case>}]
+    ["[0]" try {"+" Try} ("[1]#[0]" functor)]
     ["<>" parser ("[1]#[0]" monad)
      ["<[0]>" code {"+" Parser}]
      ["<[0]>" text]]]
    [data
+    [binary {"+" Binary}]
     ["[0]" product]
     [text
      ["%" format {"+" format}]]
@@ -81,6 +83,13 @@
 (def: declaration
   (Parser Declaration)
   (<code>.form (<>.and <code>.text (<>.some jvm.var))))
+
+(def: method_privacy
+  (-> ffi.Privacy (Modifier method.Method))
+  (|>> (case> {ffi.#PublicP} method.public
+              {ffi.#PrivateP} method.private
+              {ffi.#ProtectedP} method.protected
+              {ffi.#DefaultP} modifier.empty)))
 
 (def: visibility
   (Parser (Modifier field.Field))
@@ -180,11 +189,9 @@
       jvm.overriden_method_definition
       ))
 
-(def: (constraint name)
-  (-> Text Constraint)
-  [type.#name name
-   type.#super_class (type.class "java.lang.Object" (list))
-   type.#super_interfaces (list)])
+(def: $Object
+  (Type Class)
+  (type.class "java.lang.Object" (list)))
 
 (def: constant::modifier
   (Modifier field.Field)
@@ -223,7 +230,7 @@
     ... TODO: Handle annotations.
     {#Variable [name visibility state annotations type]}
     (field.field (modifier#composite visibility state)
-                 name type (sequence.sequence))))
+                 name type sequence.empty)))
 
 (def: (method_definition archive supers [mapping selfT] [analyse synthesize generate])
   (-> Archive
@@ -252,11 +259,189 @@
       (directive.lifted_synthesis
        (synthesize archive methodA)))))
 
+(def: (mock_class [name parameters] super interfaces fields methods modifier)
+  (-> Declaration (Type Class) (List (Type Class))
+      (List (Resource field.Field)) (List (Resource method.Method)) (Modifier class.Class)
+      (Try [External Binary]))
+  (let [class_name (|>> parser.read_class product.left name.internal)
+        signature (signature.inheritance (list#each type.signature parameters)
+                                         (type.signature super)
+                                         (list#each type.signature interfaces))]
+    (try#each (|>> (format.result class.writer)
+                   [name])
+              (class.class version.v6_0
+                           ($_ modifier#composite
+                               class.public
+                               modifier)
+                           (name.internal name)
+                           {.#Some signature}
+                           (class_name super)
+                           (list#each class_name interfaces)
+                           fields
+                           methods
+                           sequence.empty))))
+
+(def: (mock_field it)
+  (-> ..Field (Resource field.Field))
+  (case it
+    ... TODO: Handle constants
+    {#Constant [name annotations type term]}
+    (undefined)
+    
+    {#Variable [name visibility state annotations type]}
+    (field.field ($_ modifier#composite visibility state) name type sequence.empty)))
+
+(def: (mock_value valueT)
+  (-> (Type Value) (Bytecode Any))
+  (case (type.primitive? valueT)
+    {.#Left classT}
+    _.aconst_null
+    
+    {.#Right primitiveT}
+    (cond (# type.equivalence = type.long primitiveT)
+          _.lconst_0
+
+          (# type.equivalence = type.float primitiveT)
+          _.fconst_0
+
+          (# type.equivalence = type.double primitiveT)
+          _.dconst_0
+
+          ... type.boolean type.byte type.short type.int type.char
+          _.iconst_0)))
+
+(def: (mock_return returnT)
+  (-> (Type Return) (Bytecode Any))
+  (case (type.void? returnT)
+    {.#Right returnT}
+    _.return
+
+    {.#Left valueT}
+    ($_ _.composite
+        (mock_value valueT)
+        (case (type.primitive? valueT)
+          {.#Left classT}
+          _.areturn
+          
+          {.#Right primitiveT}
+          (cond (# type.equivalence = type.long primitiveT)
+                _.lreturn
+
+                (# type.equivalence = type.float primitiveT)
+                _.freturn
+
+                (# type.equivalence = type.double primitiveT)
+                _.dreturn
+
+                ... type.boolean type.byte type.short type.int type.char
+                _.ireturn)))))
+
+(def: constructor_name
+  "<init>")
+
+(def: (mock_method super method)
+  (-> (Type Class) ..Method_Definition (Resource method.Method))
+  (case method
+    {#Constructor [privacy strict_floating_point? annotations variables exceptions
+                   self arguments constructor_arguments
+                   body]}
+    (method.method ($_ modifier#composite
+                       (..method_privacy privacy)
+                       (if strict_floating_point?
+                         method.strict
+                         modifier.empty))
+                   ..constructor_name
+                   (type.method [variables (list#each product.right arguments) type.void exceptions])
+                   (list)
+                   {.#Some ($_ _.composite
+                               (_.aload 0)
+                               (|> constructor_arguments
+                                   (list#each (|>> product.left ..mock_value))
+                                   (monad.all _.monad))
+                               (|> (type.method [(list) (list#each product.left constructor_arguments) type.void (list)])
+                                   (_.invokespecial super ..constructor_name))
+                               _.return
+                               )})
+
+    {#Overriden_Method [super name strict_floating_point? annotations variables
+                        self arguments return exceptions
+                        body]}
+    (method.method ($_ modifier#composite
+                       method.public
+                       (if strict_floating_point?
+                         method.strict
+                         modifier.empty))
+                   name
+                   (type.method [variables (list#each product.right arguments) return exceptions])
+                   (list)
+                   {.#Some (..mock_return return)})
+
+    {#Virtual_Method [name privacy final? strict_floating_point? annotations variables
+                      self arguments return exceptions
+                      body]}
+    (method.method ($_ modifier#composite
+                       (..method_privacy privacy)
+                       (if strict_floating_point?
+                         method.strict
+                         modifier.empty)
+                       (if final?
+                         method.final
+                         modifier.empty))
+                   name
+                   (type.method [variables (list#each product.right arguments) return exceptions])
+                   (list)
+                   {.#Some (..mock_return return)})
+
+    {#Static_Method [name privacy strict_floating_point? annotations
+                     variables exceptions arguments return
+                     body]}
+    (method.method ($_ modifier#composite
+                       method.static
+                       (..method_privacy privacy)
+                       (if strict_floating_point?
+                         method.strict
+                         modifier.empty))
+                   name
+                   (type.method [variables (list#each product.right arguments) return exceptions])
+                   (list)
+                   {.#Some (..mock_return return)})
+
+    ... {#Abstract [name privacy annotations
+    ...             variables arguments return exceptions]}
+    ... (method.method ($_ modifier#composite
+    ...                    method.abstract
+    ...                    (..method_privacy privacy))
+    ...                name
+    ...                (type.method [variables (list#each product.right arguments) return exceptions])
+    ...                (list)
+    ...                {.#None})
+    ))
+
+(def: (mock declaration super interfaces inheritance fields methods)
+  (-> Declaration
+      (Type Class) (List (Type Class))
+      (Modifier class.Class) (List ..Field) (List ..Method_Definition)
+      (Try [External Binary]))
+  (mock_class declaration super interfaces
+              (list#each ..mock_field fields)
+              (list#each (..mock_method super) methods)
+              inheritance))
+
+(template [<name> <type> <parser>]
+  [(def: <name>
+     (Parser <type>)
+     (do [! <>.monad]
+       [raw <code>.text]
+       (<>.lifted (<text>.result <parser> raw))))]
+
+  [class_declaration [External (List (Type Var))] parser.declaration']
+  )
+
 (def: jvm::class
   (Handler Anchor (Bytecode Any) Definition)
   (/.custom
    [($_ <>.and
-        ..declaration
+        ..class_declaration
         jvm.class
         (<code>.tuple (<>.some jvm.class))
         ..inheritance
@@ -264,38 +449,49 @@
         (<code>.tuple (<>.some ..field))
         (<code>.tuple (<>.some ..method)))
     (function (_ extension phase archive
-                 [[name parameters]
-                  super_class
-                  super_interfaces
+                 [class_declaration
+                  super
+                  interfaces
                   inheritance
                   ... TODO: Handle annotations.
                   annotations
                   fields
                   methods])
       (do [! phase.monad]
-        [parameters (directive.lifted_analysis
+        [.let [[name parameters] class_declaration]
+         mock (<| phase.lifted
+                  (..mock class_declaration
+                          super
+                          interfaces
+                          inheritance
+                          fields
+                          methods))
+         ... Necessary for reflection to work properly during analysis.
+         _ (directive.lifted_generation
+            (generation.execute! mock))
+         parameters (directive.lifted_analysis
                      (typeA.with_env
                        (jvm.parameter_types parameters)))
          .let [mapping (list#mix (function (_ [parameterJ parameterT] mapping)
                                    (dictionary.has (parser.name parameterJ) parameterT mapping))
                                  luxT.fresh
                                  parameters)]
-         super_classT (directive.lifted_analysis
-                       (typeA.with_env
-                         (luxT.check (luxT.class mapping) (..signature super_class))))
-         super_interfaceT+ (directive.lifted_analysis
-                            (typeA.with_env
-                              (monad.each check.monad
-                                          (|>> ..signature (luxT.check (luxT.class mapping)))
-                                          super_interfaces)))
+         superT (directive.lifted_analysis
+                 (typeA.with_env
+                   (luxT.check (luxT.class mapping) (..signature super))))
+         interfaceT+ (directive.lifted_analysis
+                      (typeA.with_env
+                        (monad.each check.monad
+                                    (|>> ..signature (luxT.check (luxT.class mapping)))
+                                    interfaces)))
          .let [selfT (jvm.inheritance_relationship_type {.#Primitive name (list#each product.right parameters)}
-                                                        super_classT
-                                                        super_interfaceT+)]
+                                                        superT
+                                                        interfaceT+)]
          state (extension.lifted phase.state)
          .let [analyse (value@ [directive.#analysis directive.#phase] state)
                synthesize (value@ [directive.#synthesis directive.#phase] state)
                generate (value@ [directive.#generation directive.#phase] state)]
-         methods (monad.each ! (..method_definition archive (list& super_class super_interfaces) [mapping selfT] [analyse synthesize generate])
+         methods (monad.each ! (..method_definition archive (list& super interfaces) [mapping selfT] [analyse synthesize generate])
                              methods)
          ... _ (directive.lifted_generation
          ...    (generation.save! true ["" name]
@@ -303,10 +499,10 @@
          ...                       (class.class version.v6_0
          ...                                    (modifier#composite class.public inheritance)
          ...                                    (name.internal name) (list#each (|>> product.left parser.name ..constraint) parameters)
-         ...                                    super_class super_interfaces
+         ...                                    super interfaces
          ...                                    (list#each ..field_definition fields)
          ...                                    (list) ... TODO: Add methods
-         ...                                    (sequence.sequence))]))
+         ...                                    sequence.empty)]))
          _ (directive.lifted_generation
             (generation.log! (format "JVM Class " name)))]
         (in directive.no_requirements)))]))
@@ -322,22 +518,13 @@
                    (list)
                    {.#None})))
 
-(template [<name> <type> <parser>]
-  [(def: <name>
-     (Parser <type>)
-     (do [! <>.monad]
-       [raw <code>.text]
-       (<>.lifted (<text>.result <parser> raw))))]
-
-  [class_declaration [External (List (Type Var))] parser.declaration']
-  )
-
 (def: jvm::class::interface
   (Handler Anchor (Bytecode Any) Definition)
   (/.custom
    [($_ <>.and
         ..class_declaration
         (<code>.tuple (<>.some jvm.class))
+        ... TODO: Handle annotations.
         (<code>.tuple (<>.some ..annotation))
         (<>.some jvm.method_declaration))
     (function (_ extension_name phase archive [[name parameters] supers annotations method_declarations])
@@ -351,13 +538,15 @@
                                         class.abstract
                                         class.interface)
                                     (name.internal name)
-                                    (type.declaration name parameters)
+                                    {.#Some (signature.inheritance (list#each type.signature parameters)
+                                                                   (type.signature $Object)
+                                                                   (list#each type.signature supers))}
                                     (name.internal "java.lang.Object")
                                     (list#each (|>> parser.read_class product.left name.internal)
                                                supers)
                                     (list)
                                     (list#each ..method_declaration method_declarations)
-                                    (sequence.sequence)))
+                                    sequence.empty))
           ... module generation.module
           ... module_id (generation.module_id module archive)
           artifact_id (generation.learn_custom name artifact.no_dependencies)
@@ -375,7 +564,6 @@
   (-> java/lang/ClassLoader Extender (Bundle Anchor (Bytecode Any) Definition))
   (<| (bundle.prefix "jvm")
       (|> bundle.empty
-          ... TODO: Finish handling methods and un-comment.
-          ... (dictionary.has "class" jvm::class)
+          (dictionary.has "class" jvm::class)
           (dictionary.has "class interface" ..jvm::class::interface)
           )))
