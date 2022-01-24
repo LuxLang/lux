@@ -1,6 +1,6 @@
 (.using
  [library
-  [lux {"-" case let if  symbol}
+  [lux {"-" case exec let if symbol}
    [abstract
     ["[0]" monad {"+" do}]]
    [data
@@ -32,8 +32,9 @@
        ["[1][0]" variable {"+" Register}]]
       ["[1][0]" phase ("[1]#[0]" monad)]
       [meta
-       [archive {"+" Archive}
-        ["[0]" dependency]]]]]]]])
+       [archive {"+" Archive}]
+       ["[0]" cache "_"
+        ["[1]" artifact]]]]]]]])
 
 (def: .public (symbol prefix)
   (-> Text (Operation SVar))
@@ -46,7 +47,7 @@
 
 (def: .public capture
   (-> Register SVar)
-  (|>> (///reference.foreign //reference.system) :expected))
+  (|>> (///reference.foreign //reference.system) :expected)) 
 
 (def: .public (let expression archive [valueS register bodyS])
   (Generator [Synthesis Register Synthesis])
@@ -66,6 +67,22 @@
     (in ($_ _.then
             (_.set (list (..register register)) valueO)
             bodyO))))
+
+(def: .public (exec expression archive [pre post])
+  (Generator [Synthesis Synthesis])
+  (do ///////phase.monad
+    [pre (expression archive pre)
+     post (expression archive post)]
+    (in (_.item (_.int +1) (_.tuple (list pre post))))))
+
+(def: .public (exec! statement expression archive [pre post])
+  (Generator! [Synthesis Synthesis])
+  (do ///////phase.monad
+    [pre (expression archive pre)
+     post (statement expression archive post)]
+    (in ($_ _.then
+            (_.statement pre)
+            post))))
 
 (def: .public (if expression archive [testS thenS elseS])
   (Generator [Synthesis Synthesis Synthesis])
@@ -207,8 +224,10 @@
                                                 ..peek)])
                                      (again then)))
                               {.#Item item})]
-         (in {.#Some (_.cond clauses
-                             ..fail_pm!)}))])
+         (in {.#Some (list#mix (function (_ [when then] else)
+                                 (_.if when then else))
+                               ..fail_pm!
+                               clauses)}))])
     ([/////synthesis.#I64_Fork (<| //primitive.i64 .int)]
      [/////synthesis.#F64_Fork (<| //primitive.f64)]
      [/////synthesis.#Text_Fork (<| //primitive.text)])
@@ -324,7 +343,7 @@
 (def: .public (case statement expression archive [valueS pathP])
   (-> Phase! (Generator [Synthesis Path]))
   (do ///////phase.monad
-    [dependencies (dependency.path_dependencies archive pathP)
+    [dependencies (cache.path_dependencies archive pathP)
      [[case_module case_artifact] pattern_matching!] (/////generation.with_new_context
                                                        archive
                                                        dependencies

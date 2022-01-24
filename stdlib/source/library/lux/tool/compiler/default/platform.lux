@@ -51,7 +51,7 @@
        ["[0]" module]]]]]
    [meta
     ["[0]" archive {"+" Output Archive}
-     [registry {"+" Registry}]
+     ["[0]" registry {"+" Registry}]
      ["[0]" artifact]
      ["[0]" descriptor {"+" Descriptor Module}]
      ["[0]" document {"+" Document}]]
@@ -89,13 +89,16 @@
                     <Bundle> (as_is (///generation.Bundle <type_vars>))]
 
     (def: writer
-      (Writer [Descriptor (Document .Module)])
-      (_.and descriptor.writer
-             (document.writer $.writer)))
+      (Writer [Descriptor (Document .Module) Registry])
+      ($_ _.and
+          descriptor.writer
+          (document.writer $.writer)
+          registry.writer
+          ))
 
-    (def: (cache_module static platform module_id [descriptor document output])
+    (def: (cache_module static platform module_id [descriptor document output registry])
       (All (_ <type_vars>)
-        (-> Static <Platform> archive.ID [Descriptor (Document Any) Output]
+        (-> Static <Platform> archive.ID (archive.Entry Any)
             (Async (Try Any))))
       (let [system (value@ #&file_system platform)
             write_artifact! (: (-> [artifact.ID (Maybe Text) Binary] (Action Any))
@@ -115,7 +118,7 @@
            document (# async.monad in
                        (document.marked? $.key document))]
           (ioW.cache system static module_id
-                     (_.result ..writer [descriptor document])))))
+                     (_.result ..writer [descriptor document registry])))))
 
     ... TODO: Inline ASAP
     (def: initialize_buffer!
@@ -131,14 +134,13 @@
         [_ ..initialize_buffer!]
         (value@ #runtime platform)))
 
-    (def: (runtime_descriptor registry)
-      (-> Registry Descriptor)
+    (def: runtime_descriptor
+      Descriptor
       [descriptor.#hash 0
        descriptor.#name archive.runtime_module
        descriptor.#file ""
        descriptor.#references (set.empty text.hash)
-       descriptor.#state {.#Compiled}
-       descriptor.#registry registry])
+       descriptor.#state {.#Compiled}])
     
     (def: runtime_document
       (Document .Module)
@@ -148,17 +150,16 @@
       (All (_ <type_vars>)
         (-> Archive <Platform>
             (///directive.Operation <type_vars>
-                                    [Archive [Descriptor (Document .Module) Output]])))
+                                    [Archive (archive.Entry .Module)])))
       (do ///phase.monad
         [[registry payload] (///directive.lifted_generation
                              (..compile_runtime! platform))
-         .let [[descriptor document] [(..runtime_descriptor registry) ..runtime_document]]
          archive (///phase.lifted (if (archive.reserved? archive archive.runtime_module)
-                                    (archive.has archive.runtime_module [descriptor document payload] archive)
+                                    (archive.has archive.runtime_module [..runtime_descriptor ..runtime_document payload registry] archive)
                                     (do try.monad
                                       [[_ archive] (archive.reserve archive.runtime_module archive)]
-                                      (archive.has archive.runtime_module [descriptor document payload] archive))))]
-        (in [archive [descriptor document payload]])))
+                                      (archive.has archive.runtime_module [..runtime_descriptor ..runtime_document payload registry] archive))))]
+        (in [archive [..runtime_descriptor ..runtime_document payload registry]])))
 
     (def: (initialize_state extender
                             [analysers
@@ -623,7 +624,7 @@
         (All (_ <type_vars>)
           (-> Module <Context> (///.Compilation <State+> .Module Any)
               (Try [<State+> (Either (///.Compilation <State+> .Module Any)
-                                     [Descriptor (Document .Module) Output])])))
+                                     (archive.Entry Any))])))
         ((value@ ///.#process compilation)
          ... TODO: The "///directive.set_current_module" below shouldn't be necessary. Remove it ASAP.
          ... TODO: The context shouldn't need to be re-set either.

@@ -1,6 +1,6 @@
 (.using
  [library
-  [lux {"-" Module}
+  [lux "*"
    [target {"+" Target}]
    [abstract
     [predicate {"+" Predicate}]
@@ -36,8 +36,8 @@
   ["[1][0]" context]
   ["/[1]" //
    ["[0]" archive {"+" Output Archive}
-    ["[0]" registry]
-    ["[0]" descriptor {"+" Module Descriptor}]
+    ["[0]" registry {"+" Registry}]
+    ["[0]" descriptor {"+" Descriptor}]
     ["[0]" document {"+" Document}]
     ["[0]" artifact {"+" Artifact Dependency}
      ["[0]" category {"+" Category}]]]
@@ -158,9 +158,11 @@
   (# fs read (..module_descriptor fs static module_id)))
 
 (def: parser
-  (Parser [Descriptor (Document .Module)])
-  (<>.and descriptor.parser
-          (document.parser $.parser)))
+  (Parser [Descriptor (Document .Module) Registry])
+  ($_ <>.and
+      descriptor.parser
+      (document.parser $.parser)
+      registry.parser))
 
 (def: (fresh_analysis_state host)
   (-> Target .Lux)
@@ -169,7 +171,7 @@
 (def: (analysis_state host archive)
   (-> Target Archive (Try .Lux))
   (do [! try.monad]
-    [modules (: (Try (List [Module .Module]))
+    [modules (: (Try (List [descriptor.Module .Module]))
                 (monad.each ! (function (_ module)
                                 (do !
                                   [[descriptor document output] (archive.find module archive)
@@ -350,20 +352,23 @@
     (in [(document.document $.key (with@ .#definitions definitions content))
          bundles])))
 
-(def: (load_definitions fs static module_id host_environment descriptor document)
+(def: (load_definitions fs static module_id host_environment descriptor document registry)
   (All (_ expression directive)
     (-> (file.System Async) Static archive.ID (generation.Host expression directive)
-        Descriptor (Document .Module)
-        (Async (Try [[Descriptor (Document .Module) Output]
-                     Bundles]))))
+        Descriptor (Document .Module) Registry
+        (Async (Try [(archive.Entry .Module) Bundles]))))
   (do (try.with async.monad)
     [actual (cached_artifacts fs static module_id)
-     .let [expected (|> descriptor (value@ descriptor.#registry) registry.artifacts)]
+     .let [expected (registry.artifacts registry)]
      [document bundles output] (async#in (loaded_document (value@ static.#artifact_extension static) host_environment module_id expected actual document))]
-    (in [[descriptor document output] bundles])))
+    (in [[archive.#descriptor descriptor
+          archive.#document document
+          archive.#output output
+          archive.#registry registry]
+         bundles])))
 
 (def: (purge! fs static [module_name module_id])
-  (-> (file.System Async) Static [Module archive.ID] (Async (Try Any)))
+  (-> (file.System Async) Static [descriptor.Module archive.ID] (Async (Try Any)))
   (do [! (try.with async.monad)]
     [.let [cache (..module fs static module_id)]
      _ (|> cache
@@ -381,11 +386,14 @@
        (n.= (value@ descriptor.#hash expected)
             (value@ ////.#hash actual))))
 
+(type: Cache
+  [descriptor.Module [archive.ID [Descriptor (Document .Module) Registry]]])
+
 (type: Purge
-  (Dictionary Module archive.ID))
+  (Dictionary descriptor.Module archive.ID))
 
 (def: initial_purge
-  (-> (List [Bit [Module [archive.ID [Descriptor (Document .Module)]]]])
+  (-> (List [Bit Cache])
       Purge)
   (|>> (list.all (function (_ [valid_cache? [module_name [module_id _]]])
                    (if valid_cache?
@@ -394,11 +402,11 @@
        (dictionary.of_list text.hash)))
 
 (def: (full_purge caches load_order)
-  (-> (List [Bit [Module [archive.ID [Descriptor (Document .Module)]]]])
-      cache/module.Order
+  (-> (List [Bit Cache])
+      (cache/module.Order .Module)
       Purge)
   (list#mix (function (_ [module_name [module_id [descriptor document]]] purge)
-              (let [purged? (: (Predicate Module)
+              (let [purged? (: (Predicate descriptor.Module)
                                (dictionary.key? purge))]
                 (if (purged? module_name)
                   purge
@@ -415,49 +423,75 @@
   Text
   "(Lux Caching System)")
 
+(def: (valid_cache fs static import contexts [module_name module_id])
+  (-> (file.System Async) Static Import (List Context)
+      [descriptor.Module archive.ID]
+      (Async (Try [Bit Cache])))
+  (with_expansions [<cache> [module_name [module_id [descriptor document registry]]]]
+    (do [! (try.with async.monad)]
+      [data (..read_module_descriptor fs static module_id)
+       [descriptor document registry] (async#in (<binary>.result ..parser data))]
+      (if (text#= archive.runtime_module module_name)
+        (in [true <cache>])
+        (do !
+          [input (//context.read fs ..pseudo_module import contexts (value@ static.#host_module_extension static) module_name)]
+          (in [(..valid_cache? descriptor input) <cache>]))))))
+
+(def: (pre_loaded_caches fs static import contexts archive)
+  (-> (file.System Async) Static Import (List Context) Archive
+      (Async (Try (List [Bit Cache]))))
+  (do [! (try.with async.monad)]
+    [... TODO: Stop needing to wrap this expression in an unnecessary "do" expression.
+     it (|> archive
+            archive.reservations
+            (monad.each !
+                        (..valid_cache fs static import contexts)))]
+    (in it)))
+
+(def: (load_order archive pre_loaded_caches)
+  (-> Archive (List [Bit Cache])
+      (Try (cache/module.Order .Module)))
+  (|> pre_loaded_caches
+      (monad.mix try.monad
+                 (function (_ [_ [module [module_id [descriptor document registry]]]] archive)
+                   (archive.has module [descriptor document (: Output sequence.empty) registry] archive))
+                 archive)
+      (# try.monad each (cache/module.load_order $.key))
+      (# try.monad conjoint)))
+
+(def: (loaded_caches host_environment fs static purge load_order)
+  (All (_ expression directive)
+    (-> (generation.Host expression directive) (file.System Async) Static
+        Purge (cache/module.Order .Module)
+        (Async (Try (List [[descriptor.Module (archive.Entry .Module)] Bundles])))))
+  (do [! (try.with async.monad)]
+    [... TODO: Stop needing to wrap this expression in an unnecessary "do" expression.
+     it (|> load_order
+            (list.only (|>> product.left (dictionary.key? purge) not))
+            (monad.each ! (function (_ [module_name [module_id [descriptor document _ registry]]])
+                            (do !
+                              [[entry bundles] (..load_definitions fs static module_id host_environment descriptor document registry)]
+                              (in [[module_name entry]
+                                   bundles])))))]
+    (in it)))
+
 (def: (load_every_reserved_module host_environment fs static import contexts archive)
   (All (_ expression directive)
     (-> (generation.Host expression directive) (file.System Async) Static Import (List Context) Archive
         (Async (Try [Archive .Lux Bundles]))))
   (do [! (try.with async.monad)]
-    [pre_loaded_caches (|> archive
-                           archive.reservations
-                           (monad.each ! (function (_ [module_name module_id])
-                                           (do !
-                                             [data (..read_module_descriptor fs static module_id)
-                                              [descriptor document] (async#in (<binary>.result ..parser data))]
-                                             (if (text#= archive.runtime_module module_name)
-                                               (in [true
-                                                    [module_name [module_id [descriptor document]]]])
-                                               (do !
-                                                 [input (//context.read fs ..pseudo_module import contexts (value@ static.#host_module_extension static) module_name)]
-                                                 (in [(..valid_cache? descriptor input)
-                                                      [module_name [module_id [descriptor document]]]])))))))
-     load_order (|> pre_loaded_caches
-                    (list#each product.right)
-                    (monad.mix try.monad
-                               (function (_ [module [module_id [descriptor document]]] archive)
-                                 (archive.has module [descriptor document (: Output sequence.empty)] archive))
-                               archive)
-                    (# try.monad each (cache/module.load_order $.key))
-                    (# try.monad conjoint)
-                    async#in)
+    [pre_loaded_caches (..pre_loaded_caches fs static import contexts archive)
+     load_order (async#in (load_order archive pre_loaded_caches))
      .let [purge (..full_purge pre_loaded_caches load_order)]
      _ (|> purge
            dictionary.entries
            (monad.each ! (..purge! fs static)))
-     loaded_caches (|> load_order
-                       (list.only (|>> product.left (dictionary.key? purge) not))
-                       (monad.each ! (function (_ [module_name [module_id [descriptor document _]]])
-                                       (do !
-                                         [[descriptor,document,output bundles] (..load_definitions fs static module_id host_environment descriptor document)]
-                                         (in [[module_name descriptor,document,output]
-                                              bundles])))))]
+     loaded_caches (..loaded_caches host_environment fs static purge load_order)]
     (async#in
      (do [! try.monad]
        [archive (monad.mix !
-                           (function (_ [[module descriptor,document,output] _bundle] archive)
-                             (archive.has module descriptor,document,output archive))
+                           (function (_ [[module entry] _bundle] archive)
+                             (archive.has module entry archive))
                            archive
                            loaded_caches)
         analysis_state (..analysis_state (value@ static.#host static) archive)]

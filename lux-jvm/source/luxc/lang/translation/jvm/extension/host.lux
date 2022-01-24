@@ -40,8 +40,9 @@
       ["[0]" variable {"+" Variable Register}]]
      [meta
       [archive {"+" Archive}
-       ["[0]" artifact]
-       ["[0]" dependency]]]
+       ["[0]" artifact]]
+      ["[0]" cache "_"
+       ["[1]" artifact]]]
      [language
       [lux
        [analysis {"+" Environment}]
@@ -913,8 +914,29 @@
        [synthesis.#Text_Fork])
       )))
 
+(type: Mapping
+  (Dictionary Synthesis Variable))
+
+(def: (local_mapping global_mapping)
+  (-> Mapping (Environment Synthesis) Mapping)
+  (|>> list.enumeration
+       (list#each (function (_ [foreign_id capture])
+                    [(synthesis.variable/foreign foreign_id)
+                     (|> global_mapping
+                         (dictionary.value capture)
+                         maybe.trusted)]))
+       (dictionary.of_list synthesis.hash)))
+
+(def: (init_mapping global_mapping)
+  (-> Mapping (Environment Synthesis) Mapping)
+  (|>> list.enumeration
+       (list#each (function (_ [id capture])
+                    [(synthesis.variable/foreign id)
+                     {variable.#Local (++ id)}]))
+       (dictionary.of_list synthesis.hash)))
+
 (def: (normalize_method_body mapping)
-  (-> (Dictionary Synthesis Variable) Synthesis Synthesis)
+  (-> Mapping Synthesis Synthesis)
   (function (again body)
     (case body
       (^template [<tag>]
@@ -980,38 +1002,51 @@
 (def: $Object
   (type.class "java.lang.Object" (list)))
 
-(def: (anonymous_init_method env)
-  (-> (Environment Synthesis) (Type Method))
+(def: (anonymous_init_method env inputsTI)
+  (-> (Environment Synthesis) (List (Typed Inst)) (Type Method))
   (type.method [(list)
-                (list.repeated (list.size env) $Object)
+                (list.repeated (n.+ (list.size inputsTI) (list.size env)) $Object)
                 type.void
                 (list)]))
 
 (def: (with_anonymous_init class env super_class inputsTI)
   (-> (Type Class) (Environment Synthesis) (Type Class) (List (Typed Inst)) Def)
-  (let [store_capturedI (|> env
+  (let [inputs_offset (list.size inputsTI)
+        inputs! (|> inputsTI
+                    list.enumeration
+                    (list#each (function (_ [register [type term]])
+                                 (case (type.primitive? type)
+                                   {.#Right type}
+                                   (_.ALOAD (++ register))
+                                   
+                                   {.#Left type}
+                                   (|>> (_.ALOAD (++ register))
+                                        (_.CHECKCAST type)))))
+                    _.fuse)
+        store_capturedI (|> env
                             list.size
                             list.indices
                             (list#each (.function (_ register)
                                          (|>> (_.ALOAD 0)
-                                              (_.ALOAD (++ register))
+                                              (_.ALOAD (n.+ inputs_offset (++ register)))
                                               (_.PUTFIELD class (///reference.foreign_name register) $Object))))
                             _.fuse)]
-    (_def.method {$.#Public} $.noneM "<init>" (anonymous_init_method env)
+    (_def.method {$.#Public} $.noneM "<init>" (anonymous_init_method env inputsTI)
                  (|>> (_.ALOAD 0)
-                      ((_.fuse (list#each product.right inputsTI)))
+                      inputs!
                       (_.INVOKESPECIAL super_class "<init>" (type.method [(list) (list#each product.left inputsTI) type.void (list)]))
                       store_capturedI
                       _.RETURN))))
 
-(def: (anonymous_instance generate archive class env)
-  (-> Phase Archive (Type Class) (Environment Synthesis) (Operation Inst))
+(def: (anonymous_instance generate archive class env inputsTI)
+  (-> Phase Archive (Type Class) (Environment Synthesis) (List (Typed Inst)) (Operation Inst))
   (do [! phase.monad]
     [captureI+ (monad.each ! (generate archive) env)]
     (in (|>> (_.NEW class)
              _.DUP
-             (_.fuse captureI+)
-             (_.INVOKESPECIAL class "<init>" (anonymous_init_method env))))))
+             ((_.fuse (list#each product.right inputsTI)))
+             ((_.fuse captureI+))
+             (_.INVOKESPECIAL class "<init>" (anonymous_init_method env inputsTI))))))
 
 (def: (prepare_argument lux_register argumentT jvm_register)
   (-> Register (Type Value) Register [Register Inst])
@@ -1095,7 +1130,7 @@
   (let [[_super _name _strict_fp? _annotations
          _t_vars _this _arguments _return _exceptions
          bodyS] method]
-    (dependency.dependencies archive bodyS)))
+    (cache.dependencies archive bodyS)))
 
 (def: class::anonymous
   Handler
@@ -1110,16 +1145,16 @@
                                                   inputsTS
                                                   overriden_methods])
       (do [! phase.monad]
-        [all_input_dependencies (monad.each ! (|>> product.right (dependency.dependencies archive)) inputsTS)
+        [all_input_dependencies (monad.each ! (|>> product.right (cache.dependencies archive)) inputsTS)
          all_closure_dependencies (|> overriden_methods
                                       (list#each product.left)
                                       list.together
-                                      (monad.each ! (dependency.dependencies archive)))
+                                      (monad.each ! (cache.dependencies archive)))
          all_method_dependencies (monad.each ! (|>> product.right (method_dependencies archive)) overriden_methods)
-         .let [all_dependencies (dependency.all ($_ list#composite
-                                                    all_input_dependencies
-                                                    all_closure_dependencies
-                                                    all_method_dependencies))]
+         .let [all_dependencies (cache.all ($_ list#composite
+                                               all_input_dependencies
+                                               all_closure_dependencies
+                                               all_method_dependencies))]
          [context _] (generation.with_new_context
                        archive
                        all_dependencies
@@ -1146,20 +1181,18 @@
                                                             strict_fp? annotations vars
                                                             self_name arguments returnT exceptionsT
                                                             body]])
-                                               (let [local_mapping (|> environment
-                                                                       list.enumeration
-                                                                       (list#each (function (_ [foreign_id capture])
-                                                                                    [(synthesis.variable/foreign foreign_id)
-                                                                                     (|> global_mapping
-                                                                                         (dictionary.value capture)
-                                                                                         maybe.trusted)]))
-                                                                       (dictionary.of_list synthesis.hash))]
-                                                 [ownerT name
-                                                  strict_fp? annotations vars
-                                                  self_name arguments returnT exceptionsT
-                                                  (normalize_method_body local_mapping body)]))
-                                             overriden_methods)]
-         inputsTI (monad.each ! (generate_input generate archive) inputsTS)
+                                               [ownerT name
+                                                strict_fp? annotations vars
+                                                self_name arguments returnT exceptionsT
+                                                (normalize_method_body (..local_mapping global_mapping environment)
+                                                                       body)])
+                                             overriden_methods)
+               inputsTS (let [mapping (..init_mapping global_mapping total_environment)]
+                          (list#each (function (_ [type term])
+                                       [type (normalize_method_body mapping term)])
+                                     inputsTS))]
+         inputsTI (generation.with_context artifact_id
+                    (monad.each ! (generate_input generate archive) inputsTS))
          method_definitions (|> normalized_methods
                                 (monad.each ! (function (_ [ownerT name
                                                             strict_fp? annotations varsT
@@ -1188,7 +1221,7 @@
                                            method_definitions))]]
          _ (generation.execute! directive)
          _ (generation.save! artifact_id {.#None} directive)]
-        (..anonymous_instance generate archive class total_environment)))]))
+        (..anonymous_instance generate archive class total_environment inputsTI)))]))
 
 (def: class_bundle
   Bundle

@@ -114,37 +114,84 @@
              ($monad.spec ..injection ..comparison /.monad))
       ))
 
+(def: (primitive_type parameters)
+  (-> Nat (Random Type))
+  (do random.monad
+    [primitive (random.ascii/upper 3)
+     parameters (random.list parameters (primitive_type (-- parameters)))]
+    (in {.#Primitive primitive parameters})))
+
+(def: clean_type
+  (Random Type)
+  (primitive_type 2))
+
 (exception: yolo)
 
 (def: error_handling
   Test
-  ($_ _.and
-      (do random.monad
-        [expected (random.ascii/upper 10)]
-        (_.cover [/.failure]
+  (do random.monad
+    [left ..clean_type
+     right ..clean_type
+     ex random.nat]
+    ($_ _.and
+        (do random.monad
+          [expected (random.ascii/upper 10)]
+          (_.cover [/.failure]
+                   (case (/.result /.fresh_context
+                                   (: (/.Check Any)
+                                      (/.failure expected)))
+                     {try.#Success _} false
+                     {try.#Failure actual} (same? expected actual))))
+        (do random.monad
+          [expected (random.ascii/upper 10)]
+          (_.cover [/.assertion]
+                   (and (case (/.result /.fresh_context
+                                        (: (/.Check Any)
+                                           (/.assertion expected true)))
+                          {try.#Success _} true
+                          {try.#Failure actual} false)
+                        (case (/.result /.fresh_context (/.assertion expected false))
+                          {try.#Success _} false
+                          {try.#Failure actual} (same? expected actual)))))
+        (_.cover [/.except]
                  (case (/.result /.fresh_context
                                  (: (/.Check Any)
-                                    (/.failure expected)))
+                                    (/.except ..yolo [])))
                    {try.#Success _} false
-                   {try.#Failure actual} (same? expected actual))))
-      (do random.monad
-        [expected (random.ascii/upper 10)]
-        (_.cover [/.assertion]
-                 (and (case (/.result /.fresh_context
-                                      (: (/.Check Any)
-                                         (/.assertion expected true)))
-                        {try.#Success _} true
-                        {try.#Failure actual} false)
-                      (case (/.result /.fresh_context (/.assertion expected false))
-                        {try.#Success _} false
-                        {try.#Failure actual} (same? expected actual)))))
-      (_.cover [/.except]
-               (case (/.result /.fresh_context
-                               (: (/.Check Any)
-                                  (/.except ..yolo [])))
-                 {try.#Success _} false
-                 {try.#Failure error} (exception.match? ..yolo error)))
-      ))
+                   {try.#Failure error} (exception.match? ..yolo error)))
+        (let [scenario (: (-> (-> Text Bit) Type Type Bit)
+                          (function (_ ? <left> <right>)
+                            (and (|> (/.check <left> <right>)
+                                     (: (/.Check Any))
+                                     (/.result /.fresh_context)
+                                     (case> {try.#Failure error} (? error)
+                                            {try.#Success _} false))
+                                 (|> (/.check <right> <left>)
+                                     (: (/.Check Any))
+                                     (/.result /.fresh_context)
+                                     (case> {try.#Failure error} (? error)
+                                            {try.#Success _} false)))))]
+          ($_ _.and
+              (_.cover [/.type_check_failed]
+                       (let [scenario (scenario (exception.match? /.type_check_failed))]
+                         (and (scenario (Tuple left right) left)
+                              (scenario (Tuple left right) (Or left right))
+                              (scenario (Tuple left right) (-> left right))
+                              (scenario (Tuple left right) {.#Ex ex})
+
+                              (scenario (Or left right) left)
+                              (scenario (Or left right) (-> left right))
+                              (scenario (Or left right) {.#Ex ex})
+
+                              (scenario (-> left right) left)
+                              (scenario (-> left right) {.#Ex ex})
+
+                              (scenario {.#Ex ex} left)
+                              )))
+              (_.cover [/.invalid_type_application]
+                       (let [scenario (scenario (text.contains? (value@ exception.#label /.invalid_type_application)))]
+                         (scenario {.#Apply left right} left)))))
+        )))
 
 (def: var
   Test
@@ -699,17 +746,6 @@
                       (/.result /.fresh_context)
                       (try.else false))
                   ))))
-
-(def: (primitive_type parameters)
-  (-> Nat (Random Type))
-  (do random.monad
-    [primitive (random.ascii/upper 3)
-     parameters (random.list parameters (primitive_type (-- parameters)))]
-    (in {.#Primitive primitive parameters})))
-
-(def: clean_type
-  (Random Type)
-  (primitive_type 2))
 
 (def: for_subsumption|ultimate
   (Random Bit)

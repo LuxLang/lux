@@ -1,6 +1,6 @@
 (.using
   [library
-   [lux {"-" Module}
+   [lux "*"
     [abstract
      ["[0]" equivalence {"+" Equivalence}]
      ["[0]" monad {"+" do}]]
@@ -13,7 +13,6 @@
       ["<[0]>" binary {"+" Parser}]]]
     [data
      [binary {"+" Binary}]
-     ["[0]" bit]
      ["[0]" product]
      ["[0]" text
       ["%" format {"+" format}]]
@@ -31,9 +30,10 @@
      abstract]]]
   [/
    ["[0]" artifact]
+   ["[0]" registry {"+" Registry}]
    ["[0]" signature {"+" Signature}]
    ["[0]" key {"+" Key}]
-   ["[0]" descriptor {"+" Module Descriptor}]
+   ["[0]" descriptor {"+" Descriptor}]
    ["[0]" document {"+" Document}]
    [///
     [version {"+" Version}]]])
@@ -41,13 +41,13 @@
 (type: .public Output
   (Sequence [artifact.ID (Maybe Text) Binary]))
 
-(exception: .public (unknown_document [module Module
-                                       known_modules (List Module)])
+(exception: .public (unknown_document [module descriptor.Module
+                                       known_modules (List descriptor.Module)])
   (exception.report
    ["Module" (%.text module)]
    ["Known Modules" (exception.listing %.text known_modules)]))
 
-(exception: .public (cannot_replace_document [module Module
+(exception: .public (cannot_replace_document [module descriptor.Module
                                               old (Document Any)
                                               new (Document Any)])
   (exception.report
@@ -55,29 +55,34 @@
    ["Old key" (signature.description (document.signature old))]
    ["New key" (signature.description (document.signature new))]))
 
-(exception: .public (module_has_already_been_reserved [module Module])
-  (exception.report
-   ["Module" (%.text module)]))
+(template [<name>]
+  [(exception: .public (<name> [it descriptor.Module])
+     (exception.report
+      ["Module" (%.text it)]))]
 
-(exception: .public (module_must_be_reserved_before_it_can_be_added [module Module])
-  (exception.report
-   ["Module" (%.text module)]))
-
-(exception: .public (module_is_only_reserved [module Module])
-  (exception.report
-   ["Module" (%.text module)]))
+  [module_has_already_been_reserved]
+  [module_must_be_reserved_before_it_can_be_added]
+  [module_is_only_reserved]
+  )
 
 (type: .public ID
   Nat)
 
 (def: .public runtime_module
-  Module
+  descriptor.Module
   "")
+
+(type: .public (Entry a)
+  (Record
+   [#descriptor Descriptor
+    #document (Document a)
+    #output Output
+    #registry Registry]))
 
 (abstract: .public Archive
   (Record
    [#next ID
-    #resolver (Dictionary Module [ID (Maybe [Descriptor (Document Any) Output])])])
+    #resolver (Dictionary descriptor.Module [ID (Maybe (Entry Any))])])
 
   (def: next
     (-> Archive ID)
@@ -89,52 +94,52 @@
                    #resolver (dictionary.empty text.hash)]))
 
   (def: .public (id module archive)
-    (-> Module Archive (Try ID))
-    (let [(^open "_[0]") (:representation archive)]
-      (case (dictionary.value module _#resolver)
+    (-> descriptor.Module Archive (Try ID))
+    (let [(^open "/[0]") (:representation archive)]
+      (case (dictionary.value module /#resolver)
         {.#Some [id _]}
         {try.#Success id}
         
         {.#None}
         (exception.except ..unknown_document [module
-                                              (dictionary.keys _#resolver)]))))
+                                              (dictionary.keys /#resolver)]))))
 
   (def: .public (reserve module archive)
-    (-> Module Archive (Try [ID Archive]))
-    (let [(^open "_[0]") (:representation archive)]
-      (case (dictionary.value module _#resolver)
+    (-> descriptor.Module Archive (Try [ID Archive]))
+    (let [(^open "/[0]") (:representation archive)]
+      (case (dictionary.value module /#resolver)
         {.#Some _}
         (exception.except ..module_has_already_been_reserved [module])
         
         {.#None}
-        {try.#Success [_#next
+        {try.#Success [/#next
                        (|> archive
                            :representation
-                           (revised@ #resolver (dictionary.has module [_#next {.#None}]))
+                           (revised@ #resolver (dictionary.has module [/#next {.#None}]))
                            (revised@ #next ++)
                            :abstraction)]})))
 
-  (def: .public (has module [descriptor document output] archive)
-    (-> Module [Descriptor (Document Any) Output] Archive (Try Archive))
-    (let [(^open "_[0]") (:representation archive)]
-      (case (dictionary.value module _#resolver)
+  (def: .public (has module entry archive)
+    (-> descriptor.Module (Entry Any) Archive (Try Archive))
+    (let [(^open "/[0]") (:representation archive)]
+      (case (dictionary.value module /#resolver)
         {.#Some [id {.#None}]}
         {try.#Success (|> archive
                           :representation
-                          (revised@ ..#resolver (dictionary.has module [id {.#Some [descriptor document output]}]))
+                          (revised@ ..#resolver (dictionary.has module [id {.#Some entry}]))
                           :abstraction)}
         
         {.#Some [id {.#Some [existing_descriptor existing_document existing_output]}]}
-        (if (same? document existing_document)
+        (if (same? existing_document (value@ #document entry))
           ... TODO: Find out why this code allows for the same module to be added more than once. It looks fishy...
           {try.#Success archive}
-          (exception.except ..cannot_replace_document [module existing_document document]))
+          (exception.except ..cannot_replace_document [module existing_document (value@ #document entry)]))
         
         {.#None}
         (exception.except ..module_must_be_reserved_before_it_can_be_added [module]))))
 
   (def: .public entries
-    (-> Archive (List [Module [ID [Descriptor (Document Any) Output]]]))
+    (-> Archive (List [descriptor.Module [ID (Entry Any)]]))
     (|>> :representation
          (value@ #resolver)
          dictionary.entries
@@ -142,9 +147,9 @@
                      (# maybe.monad each (|>> [module_id] [module]) entry)))))
 
   (def: .public (find module archive)
-    (-> Module Archive (Try [Descriptor (Document Any) Output]))
-    (let [(^open "_[0]") (:representation archive)]
-      (case (dictionary.value module _#resolver)
+    (-> descriptor.Module Archive (Try (Entry Any)))
+    (let [(^open "/[0]") (:representation archive)]
+      (case (dictionary.value module /#resolver)
         {.#Some [id {.#Some entry}]}
         {try.#Success entry}
 
@@ -152,19 +157,19 @@
         (exception.except ..module_is_only_reserved [module])
         
         {.#None}
-        (exception.except ..unknown_document [module (dictionary.keys _#resolver)]))))
+        (exception.except ..unknown_document [module (dictionary.keys /#resolver)]))))
 
   (def: .public (archived? archive module)
-    (-> Archive Module Bit)
+    (-> Archive descriptor.Module Bit)
     (case (..find module archive)
       {try.#Success _}
-      bit.yes
+      true
 
       {try.#Failure _}
-      bit.no))
+      false))
 
   (def: .public archived
-    (-> Archive (List Module))
+    (-> Archive (List descriptor.Module))
     (|>> :representation
          (value@ #resolver)
          dictionary.entries
@@ -174,23 +179,23 @@
                        {.#None} {.#None})))))
 
   (def: .public (reserved? archive module)
-    (-> Archive Module Bit)
-    (let [(^open "_[0]") (:representation archive)]
-      (case (dictionary.value module _#resolver)
+    (-> Archive descriptor.Module Bit)
+    (let [(^open "/[0]") (:representation archive)]
+      (case (dictionary.value module /#resolver)
         {.#Some [id _]}
-        bit.yes
+        true
 
         {.#None}
-        bit.no)))
+        false)))
 
   (def: .public reserved
-    (-> Archive (List Module))
+    (-> Archive (List descriptor.Module))
     (|>> :representation
          (value@ #resolver)
          dictionary.keys))
 
   (def: .public reservations
-    (-> Archive (List [Module ID]))
+    (-> Archive (List [descriptor.Module ID]))
     (|>> :representation
          (value@ #resolver)
          dictionary.entries
@@ -216,7 +221,7 @@
           :abstraction)))
 
   (type: Reservation
-    [Module ID])
+    [descriptor.Module ID])
   
   (type: Frozen
     [Version ID (List Reservation)])
@@ -237,14 +242,14 @@
   
   (def: .public (export version archive)
     (-> Version Archive Binary)
-    (let [(^open "_[0]") (:representation archive)]
-      (|> _#resolver
+    (let [(^open "/[0]") (:representation archive)]
+      (|> /#resolver
           dictionary.entries
           (list.all (function (_ [module [id descriptor+document]])
                       (case descriptor+document
                         {.#Some _} {.#Some [module id]}
                         {.#None} {.#None})))
-          [version _#next]
+          [version /#next]
           (binary.result ..writer))))
 
   (exception: .public (version_mismatch [expected Version
