@@ -400,7 +400,7 @@ Called by `imenu--generic-function'."
 							(function-definition (altRE "function" "|>>" "<<|" "||>"))
 							(remember (altRE "remember" "to_do" "fix_me"))
 							(definition (altRE "\\.using"
-											   "def:" "type:" "program:"
+											   "def:" "type:" "program:" "inline:"
 											   "implementation:"
 											   "macro:" "syntax:"
 											   "exception:"
