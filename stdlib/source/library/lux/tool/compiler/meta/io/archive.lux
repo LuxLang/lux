@@ -37,6 +37,7 @@
   ["/[1]" //
    ["[0]" archive {"+" Output Archive}
     ["[0]" registry {"+" Registry}]
+    ["[0]" module]
     ["[0]" descriptor {"+" Descriptor}]
     ["[0]" document {"+" Document}]
     ["[0]" artifact {"+" Artifact Dependency}
@@ -54,7 +55,7 @@
       ["[1]/[0]" program]]]]]])
 
 (exception: .public (cannot_prepare [archive file.Path
-                                     module_id archive.ID
+                                     module_id module.ID
                                      error Text])
   (exception.report
    ["Archive" archive]
@@ -80,13 +81,13 @@
           (%.nat version.version)))
 
 (def: (module fs static module_id)
-  (All (_ !) (-> (file.System !) Static archive.ID file.Path))
+  (All (_ !) (-> (file.System !) Static module.ID file.Path))
   (format (..versioned_lux_archive fs static)
           (# fs separator)
           (%.nat module_id)))
 
 (def: .public (artifact fs static module_id artifact_id)
-  (All (_ !) (-> (file.System !) Static archive.ID artifact.ID file.Path))
+  (All (_ !) (-> (file.System !) Static module.ID artifact.ID file.Path))
   (format (..module fs static module_id)
           (# fs separator)
           (%.nat artifact_id)
@@ -101,7 +102,7 @@
       (# fs make_directory path))))
 
 (def: .public (prepare fs static module_id)
-  (-> (file.System Async) Static archive.ID (Async (Try Any)))
+  (-> (file.System Async) Static module.ID (Async (Try Any)))
   (do [! async.monad]
     [.let [module (..module fs static module_id)]
      module_exists? (# fs directory? module)]
@@ -121,7 +122,7 @@
                                                                       error])))))))))
 
 (def: .public (write fs static module_id artifact_id content)
-  (-> (file.System Async) Static archive.ID artifact.ID Binary (Async (Try Any)))
+  (-> (file.System Async) Static module.ID artifact.ID Binary (Async (Try Any)))
   (# fs write content (..artifact fs static module_id artifact_id)))
 
 (def: .public (enable fs static)
@@ -144,24 +145,30 @@
   "module_descriptor")
 
 (def: (module_descriptor fs static module_id)
-  (-> (file.System Async) Static archive.ID file.Path)
+  (-> (file.System Async) Static module.ID file.Path)
   (format (..module fs static module_id)
           (# fs separator)
           ..module_descriptor_file))
 
 (def: .public (cache fs static module_id content)
-  (-> (file.System Async) Static archive.ID Binary (Async (Try Any)))
+  (-> (file.System Async) Static module.ID Binary (Async (Try Any)))
   (# fs write content (..module_descriptor fs static module_id)))
 
 (def: (read_module_descriptor fs static module_id)
-  (-> (file.System Async) Static archive.ID (Async (Try Binary)))
+  (-> (file.System Async) Static module.ID (Async (Try Binary)))
   (# fs read (..module_descriptor fs static module_id)))
 
-(def: parser
-  (Parser [Descriptor (Document .Module) Registry])
+(def: module_parser
+  (Parser (module.Module .Module))
   ($_ <>.and
+      <binary>.nat
       descriptor.parser
-      (document.parser $.parser)
+      (document.parser $.parser)))
+
+(def: parser
+  (Parser [(module.Module .Module) Registry])
+  ($_ <>.and
+      ..module_parser
       registry.parser))
 
 (def: (fresh_analysis_state host)
@@ -174,14 +181,16 @@
     [modules (: (Try (List [descriptor.Module .Module]))
                 (monad.each ! (function (_ module)
                                 (do !
-                                  [[descriptor document output] (archive.find module archive)
-                                   content (document.content $.key document)]
+                                  [entry (archive.find module archive)
+                                   content (|> entry
+                                               (value@ [archive.#module module.#document])
+                                               (document.content $.key))]
                                   (in [module content])))
                             (archive.archived archive)))]
     (in (with@ .#modules modules (fresh_analysis_state host)))))
 
 (def: (cached_artifacts fs static module_id)
-  (-> (file.System Async) Static archive.ID (Async (Try (Dictionary Text Binary))))
+  (-> (file.System Async) Static module.ID (Async (Try (Dictionary Text Binary))))
   (let [! (try.with async.monad)]
     (|> (..module fs static module_id)
         (# fs directory_files)
@@ -216,7 +225,7 @@
 
 (def: (loaded_document extension host module_id expected actual document)
   (All (_ expression directive)
-    (-> Text (generation.Host expression directive) archive.ID (Sequence [Artifact (Set Dependency)]) (Dictionary Text Binary) (Document .Module)
+    (-> Text (generation.Host expression directive) module.ID (Sequence [Artifact (Set Dependency)]) (Dictionary Text Binary) (Document .Module)
         (Try [(Document .Module) Bundles Output])))
   (do [! try.monad]
     [[definitions bundles] (: (Try [Definitions Bundles Output])
@@ -352,23 +361,24 @@
     (in [(document.document $.key (with@ .#definitions definitions content))
          bundles])))
 
-(def: (load_definitions fs static module_id host_environment descriptor document registry)
+(def: (load_definitions fs static module_id host_environment entry)
   (All (_ expression directive)
-    (-> (file.System Async) Static archive.ID (generation.Host expression directive)
-        Descriptor (Document .Module) Registry
+    (-> (file.System Async) Static module.ID (generation.Host expression directive)
+        (archive.Entry .Module)
         (Async (Try [(archive.Entry .Module) Bundles]))))
   (do (try.with async.monad)
     [actual (cached_artifacts fs static module_id)
-     .let [expected (registry.artifacts registry)]
-     [document bundles output] (async#in (loaded_document (value@ static.#artifact_extension static) host_environment module_id expected actual document))]
-    (in [[archive.#descriptor descriptor
-          archive.#document document
-          archive.#output output
-          archive.#registry registry]
+     .let [expected (registry.artifacts (value@ archive.#registry entry))]
+     [document bundles output] (|> (value@ [archive.#module module.#document] entry)
+                                   (loaded_document (value@ static.#artifact_extension static) host_environment module_id expected actual)
+                                   async#in)]
+    (in [(|> entry
+             (with@ [archive.#module module.#document] document)
+             (with@ archive.#output output))
          bundles])))
 
 (def: (purge! fs static [module_name module_id])
-  (-> (file.System Async) Static [descriptor.Module archive.ID] (Async (Try Any)))
+  (-> (file.System Async) Static [descriptor.Module module.ID] (Async (Try Any)))
   (do [! (try.with async.monad)]
     [.let [cache (..module fs static module_id)]
      _ (|> cache
@@ -387,10 +397,10 @@
             (value@ ////.#hash actual))))
 
 (type: Cache
-  [descriptor.Module [archive.ID [Descriptor (Document .Module) Registry]]])
+  [descriptor.Module [module.ID [(module.Module .Module) Registry]]])
 
 (type: Purge
-  (Dictionary descriptor.Module archive.ID))
+  (Dictionary descriptor.Module module.ID))
 
 (def: initial_purge
   (-> (List [Bit Cache])
@@ -405,13 +415,13 @@
   (-> (List [Bit Cache])
       (cache/module.Order .Module)
       Purge)
-  (list#mix (function (_ [module_name [module_id [descriptor document]]] purge)
+  (list#mix (function (_ [module_name [module_id entry]] purge)
               (let [purged? (: (Predicate descriptor.Module)
                                (dictionary.key? purge))]
                 (if (purged? module_name)
                   purge
-                  (if (|> descriptor
-                          (value@ descriptor.#references)
+                  (if (|> entry
+                          (value@ [archive.#module module.#descriptor descriptor.#references])
                           set.list
                           (list.any? purged?))
                     (dictionary.has module_name module_id purge)
@@ -425,17 +435,17 @@
 
 (def: (valid_cache fs static import contexts [module_name module_id])
   (-> (file.System Async) Static Import (List Context)
-      [descriptor.Module archive.ID]
+      [descriptor.Module module.ID]
       (Async (Try [Bit Cache])))
-  (with_expansions [<cache> [module_name [module_id [descriptor document registry]]]]
+  (with_expansions [<cache> [module_name [module_id [module registry]]]]
     (do [! (try.with async.monad)]
       [data (..read_module_descriptor fs static module_id)
-       [descriptor document registry] (async#in (<binary>.result ..parser data))]
+       [module registry] (async#in (<binary>.result ..parser data))]
       (if (text#= archive.runtime_module module_name)
         (in [true <cache>])
         (do !
           [input (//context.read fs ..pseudo_module import contexts (value@ static.#host_module_extension static) module_name)]
-          (in [(..valid_cache? descriptor input) <cache>]))))))
+          (in [(..valid_cache? (value@ module.#descriptor module) input) <cache>]))))))
 
 (def: (pre_loaded_caches fs static import contexts archive)
   (-> (file.System Async) Static Import (List Context) Archive
@@ -453,8 +463,12 @@
       (Try (cache/module.Order .Module)))
   (|> pre_loaded_caches
       (monad.mix try.monad
-                 (function (_ [_ [module [module_id [descriptor document registry]]]] archive)
-                   (archive.has module [descriptor document (: Output sequence.empty) registry] archive))
+                 (function (_ [_ [module [module_id [|module| registry]]]] archive)
+                   (archive.has module
+                                [archive.#module |module|
+                                 archive.#output (: Output sequence.empty)
+                                 archive.#registry registry]
+                                archive))
                  archive)
       (# try.monad each (cache/module.load_order $.key))
       (# try.monad conjoint)))
@@ -468,9 +482,9 @@
     [... TODO: Stop needing to wrap this expression in an unnecessary "do" expression.
      it (|> load_order
             (list.only (|>> product.left (dictionary.key? purge) not))
-            (monad.each ! (function (_ [module_name [module_id [descriptor document _ registry]]])
+            (monad.each ! (function (_ [module_name [module_id entry]])
                             (do !
-                              [[entry bundles] (..load_definitions fs static module_id host_environment descriptor document registry)]
+                              [[entry bundles] (..load_definitions fs static module_id host_environment entry)]
                               (in [[module_name entry]
                                    bundles])))))]
     (in it)))

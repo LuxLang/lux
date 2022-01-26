@@ -1499,6 +1499,18 @@
            {#None}}
           plist))
 
+(def:''' .private (plist#with k v plist)
+         (All (_ a)
+           (-> Text a ($' PList a) ($' PList a)))
+         ({{#Item [k' v'] plist'}
+           (if (text#= k k')
+             (list& [k v] plist')
+             (list& [k' v'] (plist#with k v plist')))
+
+           {#End}
+           (list [k v])}
+          plist))
+
 (def:''' .private (text#composite x y)
          (-> Text Text Text)
          ("lux text concat" x y))
@@ -2522,6 +2534,68 @@
            {#None}
            (failure "Wrong syntax for function")))
 
+(def:' .private Parser
+       Type
+       {#Named [..prelude_module "Parser"]
+               (..type (All (_ a)
+                         (-> (List Code) (Maybe [(List Code) a]))))})
+
+(def:' .private (parsed parser tokens)
+       (All (_ a) (-> (Parser a) (List Code) (Maybe a)))
+       (case (parser tokens)
+         (^ {#Some [(list) it]})
+         {#Some it}
+
+         _
+         {#None}))
+
+(def:' .private (andP leftP rightP tokens)
+       (All (_ l r)
+         (-> (Parser l)
+             (Parser r)
+             (Parser [l r])))
+       (do maybe_monad
+         [left (leftP tokens)
+          .let [[tokens left] left]
+          right (rightP tokens)
+          .let [[tokens right] right]]
+         (in [tokens [left right]])))
+
+(def:' .private (someP itP tokens)
+       (All (_ a)
+         (-> (Parser a)
+             (Parser (List a))))
+       (case (itP tokens)
+         {#Some [tokens head]}
+         (do maybe_monad
+           [it (someP itP tokens)
+            .let [[tokens tail] it]]
+           (in [tokens (list& head tail)]))
+
+         {#None}
+         {#Some [tokens (list)]}))
+
+(def:' .private (tupleP itP tokens)
+       (All (_ a)
+         (-> (Parser a) (Parser a)))
+       (case tokens
+         (^ (list& [_ {#Tuple tuple}] tokens'))
+         (do maybe_monad
+           [it (parsed itP tuple)]
+           (in [tokens' it]))
+
+         _
+         {#None}))
+
+(def:' .private (bindingP tokens)
+       (Parser [Text Code])
+       (case tokens
+         (^ (list& [_ {#Symbol ["" name]}] value &rest))
+         {#Some [&rest [name value]]}
+
+         _
+         {#None}))
+
 (def:' .private (endP tokens)
        (-> (List Code) (Maybe Any))
        (case tokens
@@ -2532,7 +2606,7 @@
          {#None}))
 
 (def:' .private (anyP tokens)
-       (-> (List Code) (Maybe [(List Code) Code]))
+       (Parser Code)
        (case tokens
          (^ (list& code tokens'))
          {#Some [tokens' code]}
@@ -4433,24 +4507,35 @@
      [#Tuple])))
 
 (macro: .public (with_expansions tokens)
-  (case tokens
-    (^ (list& [_ {#Tuple bindings}] bodies))
-    (case bindings
-      (^ (list& [_ {#Symbol ["" var_name]}] expr bindings'))
-      (do meta_monad
-        [expansion (single_expansion expr)]
-        (in (with_expansions' var_name expansion
-              (` (.with_expansions
-                   [(~+ bindings')]
-                   (~+ bodies))))))
+  (case (parsed (andP (tupleP (someP bindingP)) (someP anyP)) tokens)
+    {#Some [bindings bodies]}
+    (loop [bindings bindings
+           map (: (PList (List Code))
+                  (list))]
+      (let [normal (: (-> Code (List Code))
+                      (function (_ it)
+                        (list#mix (function (_ [binding expansion] it)
+                                    (list#conjoint (list#each (with_expansions' binding expansion) it)))
+                                  (list it)
+                                  map)))]
+        (case bindings
+          {#Item [var_name expr] &rest}
+          (do meta_monad
+            [expansion (case (normal expr)
+                         (^ (list expr))
+                         (single_expansion expr)
 
-      {#End}
-      (in_meta bodies)
-
-      _
-      (failure "Wrong syntax for with_expansions"))
-
-    _
+                         _
+                         (failure ($_ text#composite
+                                      "Incorrect expansion in with_expansions"
+                                      " | Binding: " (text#encoded var_name)
+                                      " | Expression: " (code#encoded expr))))]
+            (again &rest (plist#with var_name expansion map)))
+          
+          {#End}
+          (# meta_monad #in (list#conjoint (list#each normal bodies))))))
+    
+    {#None}
     (failure "Wrong syntax for with_expansions")))
 
 (def: (flat_alias type)
@@ -4714,21 +4799,12 @@
     _
     (failure (..wrong_syntax_error (symbol ..:of)))))
 
-(def: (tupleP tokens)
-  (-> (List Code) (Maybe [(List Code) (List Code)]))
-  (case tokens
-    (^ (list& [_ {#Tuple tuple}] tokens'))
-    {#Some [tokens' tuple]}
-
-    _
-    {#None}))
-
 (def: (templateP tokens)
   (-> (List Code) (Maybe [Code Text (List Text) (List Code)]))
   (do maybe_monad
     [% (declarationP tokens)
      .let' [[tokens [export_policy name parameters]] %]
-     % (tupleP tokens)
+     % (tupleP (someP anyP) tokens)
      .let' [[tokens templates] %]
      _ (endP tokens)]
     (in [export_policy name parameters templates])))

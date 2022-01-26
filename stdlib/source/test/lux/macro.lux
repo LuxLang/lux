@@ -1,36 +1,37 @@
 (.using
-  [library
-   [lux "*"
-    ["_" test {"+" Test}]
-    [abstract
-     [monad {"+" do}]]
-    [control
-     ["[0]" try ("[1]#[0]" functor)]
-     [parser
-      ["<[0]>" code]]]
-    [data
-     ["[0]" bit ("[1]#[0]" equivalence)]
-     ["[0]" text
-      ["%" format {"+" format}]]
-     [collection
-      ["[0]" list]]]
-    [math
-     ["[0]" random {"+" Random}]
-     [number
-      ["[0]" nat]]]
-    ["[0]" meta
-     ["[0]" location]
-     ["[0]" symbol]]]]
-  [\\library
-   ["[0]" /
-    [syntax {"+" syntax:}]
-    ["[0]" code ("[1]#[0]" equivalence)]
-    ["[0]" template]]]
-  ["[0]" / "_"
-   ["[1][0]" code]
-   ["[1][0]" local]
-   ["[1][0]" syntax]
-   ["[1][0]" template]])
+ [library
+  [lux "*"
+   ["_" test {"+" Test}]
+   ["[0]" static]
+   [abstract
+    [monad {"+" do}]]
+   [control
+    ["[0]" try ("[1]#[0]" functor)]
+    [parser
+     ["<[0]>" code]]]
+   [data
+    ["[0]" bit ("[1]#[0]" equivalence)]
+    ["[0]" text
+     ["%" format {"+" format}]]
+    [collection
+     ["[0]" list]]]
+   [math
+    ["[0]" random {"+" Random} ("[1]#[0]" functor)]
+    [number
+     ["n" nat]]]
+   ["[0]" meta
+    ["[0]" location]
+    ["[0]" symbol]]]]
+ [\\library
+  ["[0]" /
+   [syntax {"+" syntax:}]
+   ["[0]" code ("[1]#[0]" equivalence)]
+   ["[0]" template]]]
+ ["[0]" / "_"
+  ["[1][0]" code]
+  ["[1][0]" local]
+  ["[1][0]" syntax]
+  ["[1][0]" template]])
 
 (template: (!expect <pattern> <value>)
   [(case <value>
@@ -42,7 +43,7 @@
       [(template.text [<definition>]) {.#Definition [true .Macro <definition>]}])])
 
 (syntax: (pow/2 [number <code>.any])
-  (in (list (` (nat.* (~ number) (~ number))))))
+  (in (list (` (n.* (~ number) (~ number))))))
 
 (syntax: (pow/4 [number <code>.any])
   (in (list (` (..pow/2 (..pow/2 (~ number)))))))
@@ -100,19 +101,25 @@
           .#eval            (:as (-> Type Code (Meta Any)) [])
           .#host            []]])))
 
-(def: expander
+(syntax: (iterated [cycle <code>.nat
+                    it <code>.any])
+  (in (list (case cycle
+              0 it
+              _ (` (..iterated (~ (code.nat (-- cycle))) (~ it)))))))
+
+(def: test|expansion
   Test
   (do [! random.monad]
     [[seed symbol_prefix lux] ..random_lux
 
      pow/1 (# ! each code.nat random.nat)
 
-     repetitions (# ! each (nat.% 10) random.nat)
+     repetitions (# ! each (n.% 10) random.nat)
      .let [single_expansion (` (..pow/2 (..pow/2 (~ pow/1))))
-           expansion (` (nat.* (..pow/2 (~ pow/1))
-                               (..pow/2 (~ pow/1))))
-           full_expansion (` (nat.* (nat.* (~ pow/1) (~ pow/1))
-                                    (nat.* (~ pow/1) (~ pow/1))))]]
+           expansion (` (n.* (..pow/2 (~ pow/1))
+                             (..pow/2 (~ pow/1))))
+           full_expansion (` (n.* (n.* (~ pow/1) (~ pow/1))
+                                  (n.* (~ pow/1) (~ pow/1))))]]
     (`` ($_ _.and
             (~~ (template [<expander> <logger> <expansion>]
                   [(_.cover [<expander>]
@@ -137,10 +144,36 @@
                   [/.full_expansion   /.log_full_expansion!   full_expansion]
                   ))
             (_.cover [/.one_expansion]
-                     (bit#= (not (nat.= 1 repetitions))
+                     (bit#= (not (n.= 1 repetitions))
                             (|> (/.one_expansion (` (..repeated (~ (code.nat repetitions)) (~ pow/1))))
                                 (meta.result lux)
                                 (!expect {try.#Failure _}))))
+            (_.cover [/.final]
+                     (with_expansions [<expected> (static.random_nat)
+                                       <cycles> (static.random code.nat
+                                                               (random#each (|>> (n.% 5) ++) random.nat))
+                                       <actual> (/.final (..iterated <cycles> <expected>))]
+                       (case (' <actual>)
+                         [_ {.#Nat actual}]
+                         (n.= <expected> actual)
+
+                         _
+                         false)))
+            (_.cover [/.times]
+                     (with_expansions [<expected> (static.random_nat)
+                                       <max> (static.random code.nat
+                                                            (random#each (|>> (n.% 10) (n.+ 2)) random.nat))
+                                       <cycles> (static.random code.nat
+                                                               (random#each (|>> (n.% <max>) ++) random.nat))
+                                       <actual> (/.times <cycles> (..iterated <max> <expected>))]
+                       (let [expected_remaining (n.- <cycles> <max>)]
+                         (case (` <actual>)
+                           (^code (..iterated (~ [_ {.#Nat actual_remaining}]) (~ [_ {.#Nat actual}])))
+                           (and (n.= expected_remaining actual_remaining)
+                                (n.= <expected> actual))
+
+                           _
+                           false))))
             ))))
 
 (def: .public test
@@ -173,7 +206,7 @@
                                                                 actual))))))
                 ))
 
-          ..expander
+          ..test|expansion
           
           /code.test
           /local.test

@@ -1,6 +1,6 @@
 (.using
  [library
-  [lux {"-" Module}
+  [lux "*"
    [type {"+" :sharing}]
    ["@" target]
    ["[0]" debug]
@@ -48,12 +48,13 @@
      [phase
       ["[0]" extension {"+" Extender}]
       [analysis
-       ["[0]" module]]]]]
+       ["[0]A" module]]]]]
    [meta
     ["[0]" archive {"+" Output Archive}
      ["[0]" registry {"+" Registry}]
      ["[0]" artifact]
-     ["[0]" descriptor {"+" Descriptor Module}]
+     ["[0]" module]
+     ["[0]" descriptor {"+" Descriptor}]
      ["[0]" document {"+" Document}]]
     [io {"+" Context}
      ["[0]" context]
@@ -89,16 +90,18 @@
                     <Bundle> (as_is (///generation.Bundle <type_vars>))]
 
     (def: writer
-      (Writer [Descriptor (Document .Module) Registry])
+      (Writer [(module.Module .Module) Registry])
       ($_ _.and
-          descriptor.writer
-          (document.writer $.writer)
+          ($_ _.and
+              _.nat
+              descriptor.writer
+              (document.writer $.writer))
           registry.writer
           ))
 
-    (def: (cache_module static platform module_id [descriptor document output registry])
+    (def: (cache_module static platform module_id entry)
       (All (_ <type_vars>)
-        (-> Static <Platform> archive.ID (archive.Entry Any)
+        (-> Static <Platform> module.ID (archive.Entry Any)
             (Async (Try Any))))
       (let [system (value@ #&file_system platform)
             write_artifact! (: (-> [artifact.ID (Maybe Text) Binary] (Action Any))
@@ -106,19 +109,25 @@
                                  (ioW.write system static module_id artifact_id content)))]
         (do [! ..monad]
           [_ (ioW.prepare system static module_id)
-           _ (for [@.python (|> output
+           _ (for [@.python (|> entry
+                                (value@ archive.#output)
                                 sequence.list
                                 (list.sub 128)
                                 (monad.each ! (monad.each ! write_artifact!))
                                 (: (Action (List (List Any)))))]
-                  (|> output
+                  (|> entry
+                      (value@ archive.#output)
                       sequence.list
                       (monad.each ..monad write_artifact!)
                       (: (Action (List Any)))))
            document (# async.monad in
-                       (document.marked? $.key document))]
-          (ioW.cache system static module_id
-                     (_.result ..writer [descriptor document registry])))))
+                       (document.marked? $.key (value@ [archive.#module module.#document] entry)))]
+          (|> [(|> entry
+                   (value@ archive.#module)
+                   (with@ module.#document document))
+               (value@ archive.#registry entry)]
+              (_.result ..writer)
+              (ioW.cache system static module_id)))))
 
     ... TODO: Inline ASAP
     (def: initialize_buffer!
@@ -144,7 +153,13 @@
     
     (def: runtime_document
       (Document .Module)
-      (document.document $.key (module.empty 0)))
+      (document.document $.key (moduleA.empty 0)))
+
+    (def: runtime_module
+      (module.Module .Module)
+      [module.#id module.runtime
+       module.#descriptor runtime_descriptor
+       module.#document runtime_document])
 
     (def: (process_runtime archive platform)
       (All (_ <type_vars>)
@@ -154,12 +169,13 @@
       (do ///phase.monad
         [[registry payload] (///directive.lifted_generation
                              (..compile_runtime! platform))
+         .let [entry [..runtime_module payload registry]]
          archive (///phase.lifted (if (archive.reserved? archive archive.runtime_module)
-                                    (archive.has archive.runtime_module [..runtime_descriptor ..runtime_document payload registry] archive)
+                                    (archive.has archive.runtime_module entry archive)
                                     (do try.monad
                                       [[_ archive] (archive.reserve archive.runtime_module archive)]
-                                      (archive.has archive.runtime_module [..runtime_descriptor ..runtime_document payload registry] archive))))]
-        (in [archive [..runtime_descriptor ..runtime_document payload registry]])))
+                                      (archive.has archive.runtime_module entry archive))))]
+        (in [archive entry])))
 
     (def: (initialize_state extender
                             [analysers
@@ -226,7 +242,7 @@
                               import compilation_sources)
       (All (_ <type_vars>)
         (-> Static
-            Module
+            descriptor.Module
             Expander
             ///analysis.Bundle
             <Platform>
@@ -278,7 +294,7 @@
 
     (def: (module_compilation_log module)
       (All (_ <type_vars>)
-        (-> Module <State+> Text))
+        (-> descriptor.Module <State+> Text))
       (|>> (value@ [extension.#state
                     ///directive.#generation
                     ///directive.#state
@@ -299,11 +315,11 @@
              sequence.empty))
 
     (def: empty
-      (Set Module)
+      (Set descriptor.Module)
       (set.empty text.hash))
 
     (type: Mapping
-      (Dictionary Module (Set Module)))
+      (Dictionary descriptor.Module (Set descriptor.Module)))
 
     (type: Dependence
       (Record
@@ -317,8 +333,8 @@
          #depended_by empty]))
 
     (def: (depend module import dependence)
-      (-> Module Module Dependence Dependence)
-      (let [transitive_dependency (: (-> (-> Dependence Mapping) Module (Set Module))
+      (-> descriptor.Module descriptor.Module Dependence Dependence)
+      (let [transitive_dependency (: (-> (-> Dependence Mapping) descriptor.Module (Set descriptor.Module))
                                      (function (_ lens module)
                                        (|> dependence
                                            lens
@@ -326,7 +342,7 @@
                                            (maybe.else ..empty))))
             transitive_depends_on (transitive_dependency (value@ #depends_on) import)
             transitive_depended_by (transitive_dependency (value@ #depended_by) module)
-            update_dependence (: (-> [Module (Set Module)] [Module (Set Module)]
+            update_dependence (: (-> [descriptor.Module (Set descriptor.Module)] [descriptor.Module (Set descriptor.Module)]
                                      (-> Mapping Mapping))
                                  (function (_ [source forward] [target backward])
                                    (function (_ mapping)
@@ -349,8 +365,8 @@
                        [import transitive_depended_by])))))
 
     (def: (circular_dependency? module import dependence)
-      (-> Module Module Dependence Bit)
-      (let [dependence? (: (-> Module (-> Dependence Mapping) Module Bit)
+      (-> descriptor.Module descriptor.Module Dependence Bit)
+      (let [dependence? (: (-> descriptor.Module (-> Dependence Mapping) descriptor.Module Bit)
                            (function (_ from relationship to)
                              (let [targets (|> dependence
                                                relationship
@@ -360,24 +376,24 @@
         (or (dependence? import (value@ #depends_on) module)
             (dependence? module (value@ #depended_by) import))))
 
-    (exception: .public (module_cannot_import_itself [module Module])
+    (exception: .public (module_cannot_import_itself [module descriptor.Module])
       (exception.report
        ["Module" (%.text module)]))
 
-    (exception: .public (cannot_import_circular_dependency [importer Module
-                                                            importee Module])
+    (exception: .public (cannot_import_circular_dependency [importer descriptor.Module
+                                                            importee descriptor.Module])
       (exception.report
        ["Importer" (%.text importer)]
        ["importee" (%.text importee)]))
 
-    (exception: .public (cannot_import_twice [importer Module
-                                              duplicates (Set Module)])
+    (exception: .public (cannot_import_twice [importer descriptor.Module
+                                              duplicates (Set descriptor.Module)])
       (exception.report
        ["Importer" (%.text importer)]
        ["Duplicates" (%.list %.text (set.list duplicates))]))
 
     (def: (verify_dependencies importer importee dependence)
-      (-> Module Module Dependence (Try Any))
+      (-> descriptor.Module descriptor.Module Dependence (Try Any))
       (cond (text#= importer importee)
             (exception.except ..module_cannot_import_itself [importer])
 
@@ -440,8 +456,8 @@
                       <Return> (as_is (Async <Result>))
                       <Signal> (as_is (Resolver <Result>))
                       <Pending> (as_is [<Return> <Signal>])
-                      <Importer> (as_is (-> Module Module <Return>))
-                      <Compiler> (as_is (-> Module <Importer> archive.ID <Context> Module <Return>))]
+                      <Importer> (as_is (-> descriptor.Module descriptor.Module <Return>))
+                      <Compiler> (as_is (-> descriptor.Module <Importer> module.ID <Context> descriptor.Module <Return>))]
       (def: (parallel initial)
         (All (_ <type_vars>)
           (-> <Context>
@@ -451,7 +467,7 @@
                                 <Context>
                                 initial
                                 
-                                (Var (Dictionary Module <Pending>))
+                                (Var (Dictionary descriptor.Module <Pending>))
                                 (:expected (stm.var (dictionary.empty text.hash))))
               dependence (: (Var Dependence)
                             (stm.var ..independence))]
@@ -463,7 +479,7 @@
                                            initial
                                            
                                            (Async [<Return> (Maybe [<Context>
-                                                                    archive.ID
+                                                                    module.ID
                                                                     <Signal>])])
                                            (:expected
                                             (stm.commit!
@@ -543,8 +559,10 @@
         (do [! try.monad]
           [modules (monad.each ! (function (_ module)
                                    (do !
-                                     [[descriptor document output] (archive.find module archive)
-                                      lux_module (document.content $.key document)]
+                                     [entry (archive.find module archive)
+                                      lux_module (|> entry
+                                                     (value@ [archive.#module module.#document])
+                                                     (document.content $.key))]
                                      (in [module lux_module])))
                                (archive.archived archive))
            .let [additions (|> modules
@@ -571,7 +589,7 @@
 
       (def: (set_current_module module state)
         (All (_ <type_vars>)
-          (-> Module <State+> <State+>))
+          (-> descriptor.Module <State+> <State+>))
         (|> (///directive.set_current_module module)
             (///phase.result' state)
             try.trusted
@@ -581,8 +599,8 @@
       ... This currently assumes that all imports will be specified once in a single .using form.
       ... This might not be the case in the future.
       (def: (with_new_dependencies new_dependencies all_dependencies)
-        (-> (List Module) (Set Module) [(Set Module) (Set Module)])
-        (let [[all_dependencies duplicates _] (: [(Set Module) (Set Module) Bit]
+        (-> (List descriptor.Module) (Set descriptor.Module) [(Set descriptor.Module) (Set descriptor.Module)])
+        (let [[all_dependencies duplicates _] (: [(Set descriptor.Module) (Set descriptor.Module) Bit]
                                                  (list#mix (function (_ new [all duplicates seen_prelude?])
                                                              (if (set.member? all new)
                                                                (if (text#= .prelude_module new)
@@ -591,14 +609,14 @@
                                                                    [all duplicates true])
                                                                  [all (set.has new duplicates) seen_prelude?])
                                                                [(set.has new all) duplicates seen_prelude?]))
-                                                           (: [(Set Module) (Set Module) Bit]
+                                                           (: [(Set descriptor.Module) (Set descriptor.Module) Bit]
                                                               [all_dependencies ..empty (set.empty? all_dependencies)])
                                                            new_dependencies))]
           [all_dependencies duplicates]))
 
       (def: (after_imports import! module duplicates new_dependencies [archive state])
         (All (_ <type_vars>)
-          (-> <Importer> Module (Set Module) (List Module) <Context> <Return>))
+          (-> <Importer> descriptor.Module (Set descriptor.Module) (List descriptor.Module) <Context> <Return>))
         (do [! (try.with async.monad)]
           []
           (if (set.empty? duplicates)
@@ -622,7 +640,7 @@
 
       (def: (next_compilation module [archive state] compilation)
         (All (_ <type_vars>)
-          (-> Module <Context> (///.Compilation <State+> .Module Any)
+          (-> descriptor.Module <Context> (///.Compilation <State+> .Module Any)
               (Try [<State+> (Either (///.Compilation <State+> .Module Any)
                                      (archive.Entry Any))])))
         ((value@ ///.#process compilation)
@@ -655,7 +673,7 @@
                                  module)]
             (loop [[archive state] [archive (..set_current_module module state)]
                    compilation (compiler input)
-                   all_dependencies (: (Set Module)
+                   all_dependencies (: (Set descriptor.Module)
                                        (set.of_list text.hash (list)))]
               (do !
                 [.let [new_dependencies (value@ ///.#dependencies compilation)
@@ -669,12 +687,12 @@
                                               <Platform>
                                               platform
                                               
-                                              (-> <Context> (///.Compilation <State+> .Module Any) (Set Module)
+                                              (-> <Context> (///.Compilation <State+> .Module Any) (Set descriptor.Module)
                                                   (Action [Archive <State+>]))
                                               (:expected again))]
                       (continue! [archive state] more all_dependencies))
 
-                    {.#Right [descriptor document output]}
+                    {.#Right entry}
                     (do !
                       [_ (let [report (..module_compilation_log module state)]
                            (with_expansions [<else> (in (debug.log! report))]
@@ -685,9 +703,9 @@
                                           {.#Some console}
                                           (console.write_line report console))]
                                   <else>)))
-                       .let [descriptor (with@ descriptor.#references all_dependencies descriptor)]
-                       _ (..cache_module static platform module_id [descriptor document output])]
-                      (case (archive.has module [descriptor document output] archive)
+                       .let [entry (with@ [archive.#module module.#descriptor descriptor.#references] all_dependencies entry)]
+                       _ (..cache_module static platform module_id entry)]
+                      (case (archive.has module entry archive)
                         {try.#Success archive}
                         (in [archive
                              (..with_reset_log state)])
