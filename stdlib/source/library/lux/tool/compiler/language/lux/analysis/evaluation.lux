@@ -1,38 +1,36 @@
 (.using
-  [library
-   [lux {"-" Module}
-    ["[0]" meta]
-    [abstract
-     [monad {"+" do}]]
-    [control
-     ["[0]" try]]
-    [math
-     [number
-      ["n" nat]]]]]
-  ["[0]" // {"+" Operation}
-   [macro {"+" Expander}]
-   [//
-    [phase
-     ["[0]P" extension]
-     ["[0]P" synthesis]
-     ["[0]P" analysis
-      ["[0]" type]]
-     [//
-      ["[0]" synthesis]
-      ["[0]" generation {"+" Context}]
-      [///
-       ["[0]" phase]
-       [meta
-        [archive {"+" Archive}
-         [descriptor {"+" Module}]]]]]]]])
+ [library
+  [lux "*"
+   ["[0]" meta]
+   [abstract
+    [monad {"+" do}]]
+   [control
+    ["[0]" try {"+" Try}]]
+   [data
+    [text
+     ["%" format]]]
+   [math
+    [number {"+" hex}
+     ["n" nat]
+     ["[0]" i64]]]]]
+ ["[0]" // {"+" Operation}
+  ["[0]" type]
+  [macro {"+" Expander}]
+  [//
+   [phase
+    ["[0]P" extension]
+    ["[0]P" synthesis]
+    ["[0]P" analysis]
+    [//
+     ["[0]" synthesis]
+     ["[0]" generation {"+" Context}]
+     [///
+      ["[0]" phase]
+      [meta
+       ["[0]" archive {"+" Archive}]]]]]]])
 
 (type: .public Eval
   (-> Archive Type Code (Operation Any)))
-
-(def: (context [module_id artifact_id])
-  (-> Context Context)
-  ... TODO: Find a better way that doesn't rely on clever tricks.
-  [(n.- module_id 0) artifact_id])
 
 (def: .public (evaluator expander synthesis_state generation_state generate)
   (All (_ anchor expression artifact)
@@ -44,17 +42,22 @@
   (let [analyze (analysisP.phase expander)]
     (function (eval archive type exprC)
       (do phase.monad
-        [exprA (type.with_type type
-                 (//.without_scopes
-                  (analyze archive exprC)))
+        [count (extensionP.lifted
+                meta.seed)
+         exprA (<| (type.expecting type)
+                   //.without_scopes
+                   (analyze archive exprC))
          module (extensionP.lifted
-                 meta.current_module_name)
-         count (extensionP.lifted
-                meta.seed)]
-        (phase.lifted (do try.monad
-                        [exprS (|> exprA (synthesisP.phase archive) (phase.result synthesis_state))]
-                        (phase.result generation_state
-                                      (do phase.monad
-                                        [exprO (generate archive exprS)
-                                         module_id (generation.module_id module archive)]
-                                        (generation.evaluate! (..context [module_id count]) exprO)))))))))
+                 meta.current_module_name)]
+        (<| phase.lifted
+            (do try.monad
+              [exprS (|> exprA (synthesisP.phase archive) (phase.result synthesis_state))])
+            (phase.result generation_state)
+            (let [shift (|> count
+                            (i64.left_shifted 32)
+                            (i64.or (hex "FF,FF,FF,FF")))])
+            (do phase.monad
+              [exprO (generation.with_registry_shift shift
+                       (generate archive exprS))
+               module_id (generation.module_id module archive)]
+              (generation.evaluate! [module_id count] exprO)))))))

@@ -1,38 +1,37 @@
 (.using
-  [library
-   [lux "*"
-    [abstract
-     ["[0]" monad {"+" do}]]
-    [control
-     ["[0]" maybe]
-     ["[0]" try]
-     ["[0]" exception {"+" exception:}]
-     ["<>" parser
-      ["<[0]>" code {"+" Parser}]]]
-    [data
-     ["[0]" text
-      ["%" format {"+" format}]]
-     [collection
-      ["[0]" list ("[1]#[0]" functor)]
-      ["[0]" dictionary {"+" Dictionary}]]]
-    [math
-     [number
-      ["n" nat]]]
-    [type
-     ["[0]" check]]
-    ["[0]" meta]]]
-  ["[0]" ///
-   ["[1][0]" bundle]
-   ["/[1]" // "_"
-    [analysis
+ [library
+  [lux "*"
+   [abstract
+    ["[0]" monad {"+" do}]]
+   [control
+    ["[0]" maybe]
+    ["[0]" try]
+    ["[0]" exception {"+" exception:}]
+    ["<>" parser
+     ["<[0]>" code {"+" Parser}]]]
+   [data
+    ["[0]" text
+     ["%" format {"+" format}]]
+    [collection
+     ["[0]" list ("[1]#[0]" functor)]
+     ["[0]" dictionary {"+" Dictionary}]]]
+   [math
+    [number
+     ["n" nat]]]
+   [type
+    ["[0]" check]]
+   ["[0]" meta]]]
+ ["[0]" ///
+  ["[1][0]" bundle]
+  ["/[1]" // "_"
+   [//
+    ["[1][0]" analysis {"+" Analysis Operation Phase Handler Bundle}
+     [evaluation {"+" Eval}]
      ["[0]A" type]]
-    [//
-     ["[1][0]" analysis {"+" Analysis Operation Phase Handler Bundle}
-      [evaluation {"+" Eval}]]
-     [///
-      ["[1]" phase]
-      [meta
-       [archive {"+" Archive}]]]]]])
+    [///
+     ["[1]" phase]
+     [meta
+      [archive {"+" Archive}]]]]]])
 
 (def: .public (custom [syntax handler])
   (All (_ s)
@@ -54,11 +53,11 @@
       (let [num_actual (list.size args)]
         (if (n.= num_expected num_actual)
           (do [! ////.monad]
-            [_ (typeA.infer outputT)
+            [_ (typeA.inference outputT)
              argsA (monad.each !
                                (function (_ [argT argC])
-                                 (typeA.with_type argT
-                                   (analyse archive argC)))
+                                 (<| (typeA.expecting argT)
+                                     (analyse archive argC)))
                                (list.zipped/2 inputsT+ args))]
             (in {////analysis.#Extension extension_name argsA}))
           (////analysis.except ///.incorrect_arity [extension_name num_expected num_actual]))))))
@@ -102,17 +101,17 @@
          <code>.any)
      (function (_ extension_name phase archive [input conditionals else])
        (do [! ////.monad]
-         [input (typeA.with_type text.Char
-                  (phase archive input))
+         [input (<| (typeA.expecting text.Char)
+                    (phase archive input))
           expectedT (///.lifted meta.expected_type)
           conditionals (monad.each ! (function (_ [cases branch])
                                        (do !
-                                         [branch (typeA.with_type expectedT
-                                                   (phase archive branch))]
+                                         [branch (<| (typeA.expecting expectedT)
+                                                     (phase archive branch))]
                                          (in [cases branch])))
                                    conditionals)
-          else (typeA.with_type expectedT
-                 (phase archive else))]
+          else (<| (typeA.expecting expectedT)
+                   (phase archive else))]
          (in (|> conditionals
                  (list#each (function (_ [cases branch])
                               (////analysis.tuple
@@ -126,7 +125,7 @@
   Handler
   (function (_ extension_name analyse archive args)
     (do ////.monad
-      [[var_id varT] (typeA.with_env check.var)]
+      [[var_id varT] (typeA.check check.var)]
       ((binary varT varT Bit extension_name)
        analyse archive args))))
 
@@ -138,10 +137,10 @@
     (case args
       (^ (list opC))
       (do ////.monad
-        [[var_id varT] (typeA.with_env check.var)
-         _ (typeA.infer (type (Either Text varT)))
-         opA (typeA.with_type (type (-> .Any varT))
-               (analyse archive opC))]
+        [[var_id varT] (typeA.check check.var)
+         _ (typeA.inference (type (Either Text varT)))
+         opA (<| (typeA.expecting (type (-> .Any varT)))
+                 (analyse archive opC))]
         (in {////analysis.#Extension extension_name (list opA)}))
       
       _
@@ -166,9 +165,9 @@
       (do [! ////.monad]
         [actualT (# ! each (|>> (:as Type))
                     (eval archive Type typeC))
-         _ (typeA.infer actualT)]
-        (typeA.with_type actualT
-          (analyse archive valueC)))
+         _ (typeA.inference actualT)]
+        (<| (typeA.expecting actualT)
+            (analyse archive valueC)))
 
       _
       (////analysis.except ///.incorrect_arity [extension_name 2 (list.size args)]))))
@@ -181,9 +180,9 @@
       (do [! ////.monad]
         [actualT (# ! each (|>> (:as Type))
                     (eval archive Type typeC))
-         _ (typeA.infer actualT)
-         [valueT valueA] (typeA.with_inference
-                           (analyse archive valueC))]
+         _ (typeA.inference actualT)
+         [valueT valueA] (typeA.inferring
+                          (analyse archive valueC))]
         (in valueA))
 
       _
@@ -195,9 +194,9 @@
    [<code>.any
     (function (_ extension_name phase archive valueC)
       (do [! ////.monad]
-        [_ (typeA.infer output)]
-        (typeA.with_type input
-          (phase archive valueC))))]))
+        [_ (typeA.inference output)]
+        (<| (typeA.expecting input)
+            (phase archive valueC))))]))
 
 (exception: .public (not_a_type [symbol Symbol])
   (exception.report
@@ -209,7 +208,7 @@
    [<code>.any
     (function (_ extension_name phase archive valueC)
       (do [! ////.monad]
-        [_ (typeA.infer .Macro)
+        [_ (typeA.inference .Macro)
          input_type (loop [input_name (symbol .Macro')]
                       (do !
                         [input_type (///.lifted (meta.definition (symbol .Macro')))]
@@ -224,8 +223,8 @@
 
                           {.#Alias real_name}
                           (again real_name))))]
-        (typeA.with_type input_type
-          (phase archive valueC))))]))
+        (<| (typeA.expecting input_type)
+            (phase archive valueC))))]))
 
 (def: (bundle::lux eval)
   (-> Eval Bundle)
