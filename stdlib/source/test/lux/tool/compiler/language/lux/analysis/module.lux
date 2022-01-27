@@ -1,0 +1,341 @@
+(.using
+ [library
+  [lux "*"
+   ["_" test {"+" Test}]
+   ["[0]" meta]
+   [abstract
+    ["[0]" monad {"+" do}]]
+   [control
+    [pipe {"+" case>}]
+    ["[0]" try ("[1]#[0]" functor)]
+    ["[0]" exception]]
+   [data
+    ["[0]" bit ("[1]#[0]" equivalence)]
+    ["[0]" text ("[1]#[0]" equivalence)]
+    [collection
+     ["[0]" list]
+     ["[0]" set]]]
+   [math
+    ["[0]" random {"+" Random}]
+    [number
+     ["n" nat]]]]]
+ [\\library
+  ["[0]" /
+   ["/[1]" //
+    [//
+     [phase
+      ["[2][0]" extension]]
+     [///
+      ["[2][0]" phase]]]]]])
+
+(def: random_state
+  (Random Lux)
+  (do random.monad
+    [version random.nat
+     host (random.ascii/lower 1)]
+    (in (//.state (//.info version host)))))
+
+(def: primitive
+  (Random Type)
+  (do random.monad
+    [name (random.ascii/lower 1)]
+    (in {.#Primitive name (list)})))
+
+(def: (new? hash it)
+  (-> Nat .Module Bit)
+  (and (same? hash (value@ .#module_hash it))
+       (list.empty? (value@ .#module_aliases it))
+       (list.empty? (value@ .#definitions it))
+       (list.empty? (value@ .#imports it))
+       (case (value@ .#module_state it)
+         {.#Active}
+         true
+         
+         _
+         false)))
+
+(def: test|module
+  Test
+  (do [! random.monad]
+    [lux ..random_state
+     .let [state [/extension.#bundle /extension.empty
+                  /extension.#state lux]]
+     name (random.ascii/lower 1)
+     hash random.nat
+     expected_import (random.ascii/lower 2)
+     expected_alias (random.ascii/lower 3)]
+    ($_ _.and
+        (_.cover [/.empty]
+                 (..new? hash (/.empty hash)))
+        (_.cover [/.create]
+                 (|> (do /phase.monad
+                       [_ (/.create hash name)]
+                       (/extension.lifted (meta.module name)))
+                     (/phase.result state)
+                     (try#each (..new? hash))
+                     (try.else false)))
+        (_.cover [/.exists?]
+                 (|> (do /phase.monad
+                       [pre (/.exists? name)
+                        _ (/.create hash name)
+                        post (/.exists? name)]
+                       (in (and (not pre) post)))
+                     (/phase.result state)
+                     (try.else false)))
+        (_.cover [/.with_module]
+                 (|> (do /phase.monad
+                       [[it _] (/.with_module hash name
+                                 (in []))]
+                       (in it))
+                     (/phase.result state)
+                     (try#each (..new? hash))
+                     (try.else false)))
+        (_.cover [/.import]
+                 (`` (and (~~ (template [<expected>]
+                                [(|> (do [! /phase.monad]
+                                       [_ (/.create hash expected_import)
+                                        [it ?] (/.with_module hash name
+                                                 (do !
+                                                   [_ (if <expected>
+                                                        (/.import expected_import)
+                                                        (in []))]
+                                                   (/extension.lifted
+                                                    (meta.imported? expected_import))))]
+                                       (in ?))
+                                     (/phase.result state)
+                                     (try#each (bit#= <expected>))
+                                     (try.else false))]
+
+                                [false]
+                                [true])))))
+        (_.cover [/.alias]
+                 (|> (do [! /phase.monad]
+                       [_ (/.create hash expected_import)
+                        [it _] (/.with_module hash name
+                                 (do !
+                                   [_ (/.import expected_import)]
+                                   (/.alias expected_alias expected_import)))]
+                       (in it))
+                     (/phase.result state)
+                     (try#each (|>> (value@ .#module_aliases)
+                                    (case> (^ (list [actual_alias actual_import]))
+                                           (and (same? expected_alias actual_alias)
+                                                (same? expected_import actual_import))
+
+                                           _
+                                           false)))
+                     (try.else false)))
+        )))
+
+(def: test|state
+  Test
+  (do [! random.monad]
+    [lux ..random_state
+     .let [state [/extension.#bundle /extension.empty
+                  /extension.#state lux]]
+     name (random.ascii/lower 1)
+     hash random.nat]
+    (`` ($_ _.and
+            (~~ (template [<set> <query> <not/0> <not/1>]
+                  [(_.cover [<set> <query>]
+                            (|> (do [! /phase.monad]
+                                  [[it ?] (/.with_module hash name
+                                            (do !
+                                              [_ (<set> name)
+                                               ? (<query> name)
+                                               ~0 (<not/0> name)
+                                               ~1 (<not/1> name)]
+                                              (in (and ? (not ~0) (not ~1)))))]
+                                  (in ?))
+                                (/phase.result state)
+                                (try.else false)))]
+
+                  [/.set_active   /.active?   /.compiled? /.cached?]
+                  [/.set_compiled /.compiled? /.cached?   /.active?]
+                  [/.set_cached   /.cached?   /.active?   /.compiled?]
+                  ))
+            (_.cover [/.can_only_change_state_of_active_module]
+                     (and (~~ (template [<pre> <post>]
+                                [(|> (/.with_module hash name
+                                       (do /phase.monad
+                                         [_ (<pre> name)]
+                                         (<post> name)))
+                                     (/phase.result state)
+                                     (case> {try.#Success _}
+                                            false
+                                            
+                                            {try.#Failure error}
+                                            (text.contains? (value@ exception.#label /.can_only_change_state_of_active_module) error)))]
+
+                                [/.set_compiled /.set_active]
+                                [/.set_compiled /.set_compiled]
+                                [/.set_compiled /.set_cached]
+                                [/.set_cached /.set_active]
+                                [/.set_cached /.set_compiled]
+                                [/.set_cached /.set_cached]
+                                ))))
+            (_.cover [/.unknown_module]
+                     (and (~~ (template [<set>]
+                                [(|> (<set> name)
+                                     (/phase.result state)
+                                     (case> {try.#Success _}
+                                            false
+                                            
+                                            {try.#Failure error}
+                                            (text.contains? (value@ exception.#label /.unknown_module) error)))]
+
+                                [/.set_active]
+                                [/.set_compiled]
+                                [/.set_cached]
+                                ))))
+            ))))
+
+(def: test|definition
+  Test
+  (do [! random.monad]
+    [lux ..random_state
+     .let [state [/extension.#bundle /extension.empty
+                  /extension.#state lux]]
+     module_name (random.ascii/lower 1)
+     hash random.nat
+     def_name (random.ascii/lower 2)
+     alias_name (random.ascii/lower 3)
+
+     public? random.bit
+     def_type ..primitive
+     arity (# ! each (|>> (n.% 10) ++) random.nat)
+     labels|head (random.ascii/lower 1)
+     labels|tail (|> (random.ascii/lower 1)
+                     (random.only (|>> (text#= labels|head) not))
+                     (random.set text.hash (-- arity))
+                     (# ! each set.list))
+     index (# ! each (n.% arity) random.nat)
+     .let [definition {.#Definition [public? def_type []]}
+           alias {.#Alias [module_name def_name]}]]
+    ($_ _.and
+        (_.cover [/.define]
+                 (`` (and (~~ (template [<global>]
+                                [(|> (/.with_module hash module_name
+                                       (/.define def_name <global>))
+                                     (/phase.result state)
+                                     (case> {try.#Success _} true
+                                            {try.#Failure _} false))]
+
+                                [definition]
+                                [{.#Type [public? def_type {.#Left [labels|head labels|tail]}]}]
+                                [{.#Type [public? def_type {.#Right [labels|head labels|tail]}]}]
+                                [{.#Tag [public? def_type (list& labels|head labels|tail) index]}]
+                                [{.#Slot [public? def_type (list& labels|head labels|tail) index]}]))
+                          (|> (/.with_module hash module_name
+                                (do /phase.monad
+                                  [_ (/.define def_name definition)]
+                                  (/.define alias_name alias)))
+                              (/phase.result state)
+                              (case> {try.#Success _} true
+                                     {try.#Failure _} false)))))
+        (_.cover [/.cannot_define_more_than_once]
+                 (`` (and (~~ (template [<global>]
+                                [(|> (/.with_module hash module_name
+                                       (do /phase.monad
+                                         [_ (/.define def_name <global>)]
+                                         (/.define def_name <global>)))
+                                     (/phase.result state)
+                                     (case> {try.#Success _} false
+                                            {try.#Failure _} true))]
+
+                                [{.#Definition [public? def_type []]}]
+                                [{.#Type [public? def_type {.#Left [labels|head labels|tail]}]}]
+                                [{.#Type [public? def_type {.#Right [labels|head labels|tail]}]}]
+                                [{.#Tag [public? def_type (list& labels|head labels|tail) index]}]
+                                [{.#Slot [public? def_type (list& labels|head labels|tail) index]}]))
+                          (|> (/.with_module hash module_name
+                                (do /phase.monad
+                                  [_ (/.define def_name definition)
+                                   _ (/.define alias_name alias)]
+                                  (/.define alias_name alias)))
+                              (/phase.result state)
+                              (case> {try.#Success _} false
+                                     {try.#Failure _} true)))))
+        )))
+
+(def: test|label
+  Test
+  (do [! random.monad]
+    [lux ..random_state
+     .let [state [/extension.#bundle /extension.empty
+                  /extension.#state lux]]
+     module_name (random.ascii/lower 1)
+     hash random.nat
+     def_name (random.ascii/lower 2)
+     foreign_module (random.ascii/lower 3)
+
+     public? random.bit
+     def_type ..primitive
+     arity (# ! each (|>> (n.% 10) ++) random.nat)
+     labels|head (random.ascii/lower 1)
+     labels|tail (|> (random.ascii/lower 1)
+                     (random.only (|>> (text#= labels|head) not))
+                     (random.set text.hash (-- arity))
+                     (# ! each set.list))]
+    ($_ _.and
+        (_.cover [/.declare_labels]
+                 (`` (and (~~ (template [<side> <record?> <query> <on_success>]
+                                [(|> (/.with_module hash module_name
+                                       (do [! /phase.monad]
+                                         [.let [it {.#Named [module_name def_name] def_type}]
+                                          _ (/.define def_name {.#Type [public? it {<side> [labels|head labels|tail]}]})
+                                          _ (/.declare_labels <record?> (list& labels|head labels|tail) public? it)]
+                                         (monad.each ! (|>> [module_name] <query> /extension.lifted)
+                                                     (list& labels|head labels|tail))))
+                                     (/phase.result state)
+                                     (case> {try.#Success _} <on_success>
+                                            {try.#Failure _} (not <on_success>)))]
+
+                                [.#Left false meta.tag true]
+                                [.#Left false meta.slot false]
+                                [.#Right true meta.slot true]
+                                [.#Right true meta.tag false])))))
+        (_.cover [/.cannot_declare_labels_for_anonymous_type]
+                 (`` (and (~~ (template [<side> <record?>]
+                                [(|> (/.with_module hash module_name
+                                       (do [! /phase.monad]
+                                         [.let [it def_type]
+                                          _ (/.define def_name {.#Type [public? it {<side> [labels|head labels|tail]}]})]
+                                         (/.declare_labels <record?> (list& labels|head labels|tail) public? it)))
+                                     (/phase.result state)
+                                     (case> {try.#Success _}
+                                            false
+                                            
+                                            {try.#Failure error}
+                                            (text.contains? (value@ exception.#label /.cannot_declare_labels_for_anonymous_type) error)))]
+
+                                [.#Left false]
+                                [.#Right true])))))
+        (_.cover [/.cannot_declare_labels_for_foreign_type]
+                 (`` (and (~~ (template [<side> <record?>]
+                                [(|> (/.with_module hash module_name
+                                       (do [! /phase.monad]
+                                         [.let [it {.#Named [foreign_module def_name] def_type}]
+                                          _ (/.define def_name {.#Type [public? it {<side> [labels|head labels|tail]}]})]
+                                         (/.declare_labels <record?> (list& labels|head labels|tail) public? it)))
+                                     (/phase.result state)
+                                     (case> {try.#Success _}
+                                            false
+                                            
+                                            {try.#Failure error}
+                                            (text.contains? (value@ exception.#label /.cannot_declare_labels_for_foreign_type) error)))]
+
+                                [.#Left false]
+                                [.#Right true])))))
+        )))
+
+(def: .public test
+  Test
+  (<| (_.covering /._)
+      ($_ _.and
+          ..test|module
+          ..test|state
+          ..test|definition
+          (_.for [/.Label]
+                 ..test|label)
+          )))

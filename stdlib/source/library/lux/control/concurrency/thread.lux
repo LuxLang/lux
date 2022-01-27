@@ -1,26 +1,26 @@
 (.using
-  [library
-   [lux "*"
-    ["@" target]
-    ["[0]" ffi]
-    [abstract
-     ["[0]" monad {"+" do}]]
-    [control
-     ["[0]" try]
-     ["[0]" exception {"+" exception:}]
-     ["[0]" io {"+" IO io}]]
-    [data
-     ["[0]" text]
-     [collection
-      ["[0]" list]]]
-    [math
-     [number
-      ["n" nat]
-      ["f" frac]]]
-    [time
-     ["[0]" instant]]]]
-  [//
-   ["[0]" atom {"+" Atom}]])
+ [library
+  [lux "*"
+   ["@" target]
+   ["[0]" ffi]
+   [abstract
+    ["[0]" monad {"+" do}]]
+   [control
+    ["[0]" try]
+    ["[0]" exception {"+" exception:}]
+    ["[0]" io {"+" IO io}]]
+   [data
+    ["[0]" text]
+    [collection
+     ["[0]" list]]]
+   [math
+    [number
+     ["n" nat]
+     ["f" frac]]]
+   [time
+    ["[0]" instant]]]]
+ [//
+  ["[0]" atom {"+" Atom}]])
 
 (with_expansions [<jvm> (as_is (ffi.import: java/lang/Object)
 
@@ -84,9 +84,12 @@
         @.python (as_is)]
        
        ... Default
-       (def: runner
-         (Atom (List Thread))
-         (atom.atom (list)))))
+       (as_is (def: started?
+                (Atom Bit)
+                (atom.atom false))
+              (def: runner
+                (Atom (List Thread))
+                (atom.atom (list))))))
 
 (def: (execute! action)
   (-> (IO Any) Any)
@@ -147,27 +150,33 @@
             ... Starts the event-loop.
             (def: .public run!
               (IO Any)
-              (loop [_ []]
-                (do [! io.monad]
-                  [threads (atom.read! ..runner)]
-                  (case threads
-                    ... And... we're done!
-                    {.#End}
-                    (in [])
+              (do [! io.monad]
+                [started? (atom.read! ..started?)]
+                (if started?
+                  (in [])
+                  (do !
+                    [_ (atom.write! true ..started?)]
+                    (loop [_ []]
+                      (do !
+                        [threads (atom.read! ..runner)]
+                        (case threads
+                          ... And... we're done!
+                          {.#End}
+                          (in [])
 
-                    _
-                    (do !
-                      [now (# ! each (|>> instant.millis .nat) instant.now)
-                       .let [[ready pending] (list.partition (function (_ thread)
-                                                               (|> (value@ #creation thread)
-                                                                   (n.+ (value@ #delay thread))
-                                                                   (n.<= now)))
-                                                             threads)]
-                       swapped? (atom.compare_and_swap! threads pending ..runner)]
-                      (if swapped?
-                        (do !
-                          [_ (monad.each ! (|>> (value@ #action) ..execute! io.io) ready)]
-                          (again []))
-                        (panic! (exception.error ..cannot_continue_running_threads []))))
-                    ))))
+                          _
+                          (do !
+                            [now (# ! each (|>> instant.millis .nat) instant.now)
+                             .let [[ready pending] (list.partition (function (_ thread)
+                                                                     (|> (value@ #creation thread)
+                                                                         (n.+ (value@ #delay thread))
+                                                                         (n.<= now)))
+                                                                   threads)]
+                             swapped? (atom.compare_and_swap! threads pending ..runner)]
+                            (if swapped?
+                              (do !
+                                [_ (monad.each ! (|>> (value@ #action) ..execute! io.io) ready)]
+                                (again []))
+                              (panic! (exception.error ..cannot_continue_running_threads []))))
+                          )))))))
             ))
