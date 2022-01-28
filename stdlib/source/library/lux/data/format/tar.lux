@@ -1,37 +1,37 @@
 (.using
-  [library
-   [lux {"-" Mode and}
-    [abstract
-     [monad {"+" do}]]
-    [control
-     [pipe {"+" case>}]
-     ["[0]" try {"+" Try}]
-     ["[0]" exception {"+" exception:}]
-     ["<>" parser
-      ["<[0]>" binary {"+" Parser}]]]
-    [data
-     ["[0]" product]
-     ["[0]" binary {"+" Binary}]
-     ["[0]" text {"+" Char}
-      ["%" format {"+" format}]
-      [encoding
-       ["[0]" utf8]]]
-     ["[0]" format "_"
-      ["[1]" binary {"+" Writer} ("[1]#[0]" monoid)]]
-     [collection
-      ["[0]" list ("[1]#[0]" mix)]
-      ["[0]" sequence {"+" Sequence} ("[1]#[0]" mix)]]]
-    [math
-     ["[0]" number
-      ["n" nat]
-      ["[0]" i64]]]
-    [time
-     ["[0]" instant {"+" Instant}]
-     ["[0]" duration]]
-    [world
-     ["[0]" file]]
-    [type
-     abstract]]])
+ [library
+  [lux {"-" Mode and}
+   [abstract
+    [monad {"+" do}]]
+   [control
+    [pipe {"+" case>}]
+    ["[0]" try {"+" Try}]
+    ["[0]" exception {"+" exception:}]
+    ["<>" parser
+     ["<[0]>" binary {"+" Parser}]]]
+   [data
+    ["[0]" product]
+    ["[0]" binary {"+" Binary}]
+    ["[0]" text {"+" Char}
+     ["%" format {"+" format}]
+     [encoding
+      ["[0]" utf8]]]
+    ["[0]" format "_"
+     ["[1]" binary {"+" Writer} ("[1]#[0]" monoid)]]
+    [collection
+     ["[0]" list ("[1]#[0]" mix)]
+     ["[0]" sequence {"+" Sequence} ("[1]#[0]" mix)]]]
+   [math
+    ["[0]" number
+     ["n" nat]
+     ["[0]" i64]]]
+   [time
+    ["[0]" instant {"+" Instant}]
+    ["[0]" duration]]
+   [world
+    ["[0]" file]]
+   [type
+    abstract]]])
 
 (type: Size
   Nat)
@@ -425,8 +425,8 @@
     (def: link_flag_parser
       (Parser Link_Flag)
       (do <>.monad
-        [linkflag <binary>.bits/8]
-        (case (.nat linkflag)
+        [it <binary>.bits/8]
+        (case (.nat it)
           (^template [<value> <link_flag>]
             [(^ <value>)
              (in <link_flag>)])
@@ -434,7 +434,7 @@
 
           _
           (<>.lifted
-           (exception.except ..invalid_link_flag [(.nat linkflag)]))))))
+           (exception.except ..invalid_link_flag [(.nat it)]))))))
   )
 
 (abstract: .public Mode
@@ -803,19 +803,10 @@
          #major_device major_device
          #minor_device minor_device])))
 
-(exception: .public (wrong_link_flag [expected Link_Flag
-                                      actual Link_Flag])
-  (exception.report
-   ["Expected" (%.nat (..link_flag expected))]
-   ["Actual" (%.nat (..link_flag actual))]))
-
-(def: (file_parser expected)
-  (-> Link_Flag (Parser File))
+(def: (file_parser header)
+  (-> Header (Parser File))
   (do <>.monad
-    [header ..header_parser
-     _ (<>.assertion (exception.error ..wrong_link_flag [expected (value@ #link_flag header)])
-                     (same? expected (value@ #link_flag header)))
-     .let [size (value@ #size header)
+    [.let [size (value@ #size header)
            rounded_size (..rounded_content_size size)]
      content (<binary>.segment (..from_big size))
      content (<>.lifted (..content content))
@@ -835,28 +826,22 @@
                   #id (value@ #group_id header)]]
          content])))
 
-(def: (file_name_parser expected extractor)
-  (-> Link_Flag (-> Header Path) (Parser Path))
-  (do <>.monad
-    [header ..header_parser
-     _ (<>.lifted
-        (exception.assertion ..wrong_link_flag [expected (value@ #link_flag header)]
-                             (n.= (..link_flag expected)
-                                  (..link_flag (value@ #link_flag header)))))]
-    (in (extractor header))))
-
 (def: entry_parser
   (Parser Entry)
-  ($_ <>.either
-      (# <>.monad each (|>> {..#Normal})
-         (<>.either (..file_parser ..normal)
-                    (..file_parser ..old_normal)))
-      (# <>.monad each (|>> {..#Symbolic_Link})
-         (..file_name_parser ..symbolic_link (value@ #link_name)))
-      (# <>.monad each (|>> {..#Directory})
-         (..file_name_parser ..directory (value@ #path)))
-      (# <>.monad each (|>> {..#Contiguous})
-         (..file_parser ..contiguous))))
+  (do [! <>.monad]
+    [header ..header_parser]
+    (cond (same? ..contiguous (value@ #link_flag header))
+          (# ! each (|>> {..#Contiguous}) (..file_parser header))
+
+          (same? ..symbolic_link (value@ #link_flag header))
+          (in {..#Symbolic_Link (value@ #link_name header)})
+          
+          (same? ..directory (value@ #link_flag header))
+          (in {..#Directory (value@ #path header)})
+
+          ... (or (same? ..normal (value@ #link_flag header))
+          ...     (same? ..old_normal (value@ #link_flag header)))
+          (# ! each (|>> {..#Normal}) (..file_parser header)))))
 
 ... It's safe to implement the parser this way because the range of values for Nat is 2^64
 ... Whereas the maximum possible value for the checksum of a 512 block is (256 × 512) = 131,072
@@ -882,6 +867,6 @@
 
 (def: .public parser
   (Parser Tar)
-  (|> (<>.some entry_parser)
+  (|> (<>.some ..entry_parser)
       (# <>.monad each sequence.of_list)
       (<>.before ..end_of_archive_parser)))
