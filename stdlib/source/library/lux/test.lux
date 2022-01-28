@@ -1,46 +1,46 @@
 (.using
-  [library
-   [lux {"-" and for}
-    ["@" target]
-    ["[0]" debug]
-    [abstract
-     ["[0]" monad {"+" do}]]
-    [control
-     [pipe {"+" case>}]
-     ["[0]" maybe]
-     ["[0]" try]
-     ["[0]" exception {"+" exception:}]
-     ["[0]" io]
-     [concurrency
-      ["[0]" atom {"+" Atom}]
-      ["[0]" async {"+" Async} ("[1]#[0]" monad)]]
-     ["<>" parser
-      ["<[0]>" code]]]
-    [data
-     ["[0]" product]
-     ["[0]" text
-      ["%" format {"+" format}]]
-     [collection
-      ["[0]" list ("[1]#[0]" functor mix)]
-      ["[0]" set {"+" Set}]
-      ["[0]" dictionary "_"
-       ["[1]" ordered {"+" Dictionary}]]]]
-    [time
-     ["[0]" instant]
-     ["[0]" duration {"+" Duration}]]
-    [math
-     ["[0]" random {"+" Random} ("[1]#[0]" monad)]
-     [number {"+" hex}
-      ["n" nat]
-      ["f" frac]]]
-    [macro
-     [syntax {"+" syntax:}]
-     ["[0]" code]]
-    ["[0]" meta
-     ["[0]" symbol]]
-    [world
-     ["[0]" program]
-     ["[0]" console]]]])
+ [library
+  [lux {"-" and for}
+   ["@" target]
+   ["[0]" debug]
+   [abstract
+    ["[0]" monad {"+" do}]]
+   [control
+    [pipe {"+" case>}]
+    ["[0]" maybe]
+    ["[0]" try]
+    ["[0]" exception {"+" exception:}]
+    ["[0]" io]
+    [concurrency
+     ["[0]" atom {"+" Atom}]
+     ["[0]" async {"+" Async} ("[1]#[0]" monad)]]
+    ["<>" parser
+     ["<[0]>" code]]]
+   [data
+    ["[0]" product]
+    ["[0]" text
+     ["%" format {"+" format}]]
+    [collection
+     ["[0]" list ("[1]#[0]" functor mix)]
+     ["[0]" set {"+" Set}]
+     ["[0]" dictionary "_"
+      ["[1]" ordered {"+" Dictionary}]]]]
+   [time
+    ["[0]" instant]
+    ["[0]" duration {"+" Duration}]]
+   [math
+    ["[0]" random {"+" Random} ("[1]#[0]" monad)]
+    [number {"+" hex}
+     ["n" nat]
+     ["f" frac]]]
+   [macro
+    [syntax {"+" syntax:}]
+    ["[0]" code]]
+   ["[0]" meta
+    ["[0]" symbol]]
+   [world
+    ["[0]" program]
+    ["[0]" console]]]])
 
 (type: .public Tally
   (Record
@@ -103,15 +103,12 @@
     [left left]
     (# ! each (..and' left) right)))
 
-(def: context_prefix
-  text.tab)
-
 (def: .public (context description)
   (-> Text Test Test)
   (random#each (async#each (function (_ [tally documentation])
                              [tally (|> documentation
                                         (text.all_split_by ..separator)
-                                        (list#each (|>> (format context_prefix)))
+                                        (list#each (|>> (format text.tab)))
                                         (text.interposed ..separator)
                                         (format description ..separator))]))))
 
@@ -265,10 +262,16 @@
 
 (def: definition_separator " & ")
 
+(def: clean_up_marker (text.of_char (hex "05")))
+
+(def: coverage_format
+  (%.Format Symbol)
+  (|>> %.symbol (format ..clean_up_marker)))
+
 (def: (|cover'| coverage condition)
   (-> (List Symbol) Bit Assertion)
   (let [message (|> coverage
-                    (list#each %.symbol)
+                    (list#each ..coverage_format)
                     (text.interposed ..definition_separator))
         coverage (set.of_list symbol.hash coverage)]
     (|> (..assertion message condition)
@@ -284,7 +287,7 @@
 (def: (|for| coverage test)
   (-> (List Symbol) Test Test)
   (let [context (|> coverage
-                    (list#each %.symbol)
+                    (list#each ..coverage_format)
                     (text.interposed ..definition_separator))
         coverage (set.of_list symbol.hash coverage)]
     (random#each (async#each (function (_ [tally documentation])
@@ -356,15 +359,9 @@
     (|> (..context module test)
         (random#each (async#each (function (_ [tally documentation])
                                    [(revised@ #expected_coverage (set.union coverage) tally)
-                                    (`` (|> documentation
-                                            (~~ (template [<prefix>]
-                                                  [(text.replaced (format <prefix> module symbol.separator) <prefix>)]
-
-                                                  [..failure_prefix]
-                                                  [..success_prefix]
-                                                  [..definition_separator]
-                                                  [..context_prefix]
-                                                  ))))]))))))
+                                    (|> documentation
+                                        (text.replaced (format ..clean_up_marker module symbol.separator) "")
+                                        (text.replaced ..clean_up_marker ""))]))))))
 
 (syntax: .public (covering [module <code>.symbol
                             test <code>.any])
@@ -406,31 +403,31 @@
                                  output
                                  
                                  {try.#Failure error}
-                                 (..assertion (exception.error ..error_during_execution [error]) false))
-                          io.io
-                          async.future
-                          async#conjoint))
+                                 (..assertion (exception.error ..error_during_execution [error]) false))))
              state (: (Atom (Dictionary Nat [Tally Text]))
                       (atom.atom (dictionary.empty n.order)))
              [read! write!] (: [Assertion
                                 (async.Resolver [Tally Text])]
                                (async.async []))
-             _ (io.run! (monad.each io.monad
-                                    (function (_ [index test])
-                                      (async.upon! (function (_ assertion)
-                                                     (do io.monad
-                                                       [[_ results] (atom.update! (dictionary.has index assertion) state)]
-                                                       (if (n.= expected_tests (dictionary.size results))
-                                                         (let [assertions (|> results
-                                                                              dictionary.entries
-                                                                              (list#each product.right))]
-                                                           (write! [(|> assertions
-                                                                        (list#each product.left)
-                                                                        (list#mix ..total ..start))
-                                                                    (|> assertions
-                                                                        (list#each product.right)
-                                                                        (text.interposed ..separator))]))
-                                                         (in []))))
-                                                   (run! test)))
-                                    (list.enumeration tests)))]]
+             _ (list#mix (function (_ test index)
+                           (exec
+                             (|> (run! test)
+                                 (async.upon! (function (_ assertion)
+                                                (do io.monad
+                                                  [[_ results] (atom.update! (dictionary.has index assertion) state)]
+                                                  (if (n.= expected_tests (dictionary.size results))
+                                                    (let [assertions (|> results
+                                                                         dictionary.entries
+                                                                         (list#each product.right))]
+                                                      (write! [(|> assertions
+                                                                   (list#each product.left)
+                                                                   (list#mix ..total ..start))
+                                                               (|> assertions
+                                                                   (list#each product.right)
+                                                                   (text.interposed ..separator))]))
+                                                    (in [])))))
+                                 io.run!)
+                             (++ index)))
+                         0
+                         tests)]]
       (in read!))))
