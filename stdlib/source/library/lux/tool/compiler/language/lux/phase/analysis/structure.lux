@@ -27,25 +27,17 @@
     ["[0]" check]]]]
  ["[0]" // "_"
   ["[1][0]" simple]
-  ["[1][0]" inference]
   ["/[1]" // "_"
    ["[1][0]" extension]
    [//
     ["/" analysis {"+" Analysis Operation Phase}
      ["[1][0]" complex {"+" Tag}]
-     ["[1][0]" type]]
+     ["[1][0]" type]
+     ["[1][0]" inference]]
     [///
      ["[1]" phase]
      [meta
       [archive {"+" Archive}]]]]]])
-
-(exception: .public (invalid_variant_type [type Type
-                                           tag Tag
-                                           code Code])
-  (exception.report
-   ["Type" (%.type type)]
-   ["Tag" (%.nat tag)]
-   ["Expression" (%.code code)]))
 
 (template [<name>]
   [(exception: .public (<name> [type Type
@@ -59,7 +51,8 @@
   )
 
 (exception: .public (not_a_quantified_type [type Type])
-  (%.type type))
+  (exception.report
+   ["Type" (%.type type)]))
 
 (template [<name>]
   [(exception: .public (<name> [type Type
@@ -70,6 +63,7 @@
       ["Tag" (%.nat tag)]
       ["Expression" (%.code code)]))]
 
+  [invalid_variant_type]
   [cannot_analyse_variant]
   [cannot_infer_numeric_tag]
   )
@@ -78,7 +72,7 @@
   [(exception: .public (<name> [key Symbol
                                 record (List [Symbol Code])])
      (exception.report
-      ["Tag" (%.code (code.symbol key))]
+      ["Slot" (%.code (code.symbol key))]
       ["Record" (%.code (code.tuple (|> record
                                         (list#each (function (_ [keyI valC])
                                                      (list (code.symbol keyI) valC)))
@@ -90,7 +84,7 @@
 (exception: .public (slot_does_not_belong_to_record [key Symbol
                                                      type Type])
   (exception.report
-   ["Tag" (%.code (code.symbol key))]
+   ["Slot" (%.code (code.symbol key))]
    ["Type" (%.type type)]))
 
 (exception: .public (record_size_mismatch [expected Nat
@@ -117,16 +111,12 @@
         (/.with_stack ..cannot_analyse_variant [expectedT' tag valueC]
           (case expectedT
             {.#Sum _}
-            (let [flat (type.flat_variant expectedT)]
-              (case (list.item tag flat)
-                {.#Some variant_type}
-                (do !
-                  [valueA (<| (/type.expecting variant_type)
-                              (analyse archive valueC))]
-                  (in (/.variant [lefts right? valueA])))
-
-                {.#None}
-                (/.except //inference.variant_tag_out_of_bounds [(list.size flat) tag expectedT])))
+            (|> (analyse archive valueC)
+                (# ! each (|>> [lefts right?] /.variant))
+                (/type.expecting (|> expectedT
+                                     type.flat_variant
+                                     (list.item tag)
+                                     (maybe.else .Nothing))))
 
             {.#Named name unnamedT}
             (<| (/type.expecting unnamedT)
@@ -289,8 +279,8 @@
     (case expectedT
       {.#Var _}
       (do !
-        [inferenceT (//inference.variant idx case_size variantT)
-         [inferredT valueA+] (//inference.general archive analyse inferenceT (list valueC))]
+        [inferenceT (/inference.variant lefts right? variantT)
+         [inferredT valueA+] (/inference.general archive analyse inferenceT (list valueC))]
         (in (/.variant [lefts right? (|> valueA+ list.head maybe.trusted)])))
 
       _
@@ -430,8 +420,8 @@
               (case expectedT
                 {.#Var _}
                 (do !
-                  [inferenceT (//inference.record record_size recordT)
-                   [inferredT membersA] (//inference.general archive analyse inferenceT membersC)]
+                  [inferenceT (/inference.record record_size recordT)
+                   [inferredT membersA] (/inference.general archive analyse inferenceT membersC)]
                   (in (/.tuple membersA)))
 
                 _

@@ -1,0 +1,231 @@
+(.using
+ [library
+  [lux "*"
+   ["[0]" meta]
+   [abstract
+    [monad {"+" do}]]
+   [control
+    [pipe {"+" case>}]
+    ["[0]" maybe]
+    ["[0]" exception {"+" exception:}]]
+   [data
+    ["[0]" text
+     ["%" format {"+" format}]]
+    [collection
+     ["[0]" list ("[1]#[0]" functor monoid)]]]
+   [macro
+    ["[0]" template]]
+   [math
+    [number
+     ["n" nat]]]
+   ["[0]" type
+    ["[0]" check]]]]
+ ["/" // {"+" Analysis Operation Phase}
+  ["[1][0]" type]
+  [//
+   [phase
+    ["[0]" extension]]
+   [///
+    ["[0]" phase ("[1]#[0]" monad)]
+    [meta
+     [archive {"+" Archive}]]]]])
+
+(exception: .public (cannot_infer [type Type
+                                   arguments (List Code)])
+  (exception.report
+   ["Type" (%.type type)]
+   ["Arguments" (exception.listing %.code arguments)]))
+
+(exception: .public (cannot_infer_argument [type Type
+                                            argument Code])
+  (exception.report
+   ["Type" (%.type type)]
+   ["Argument" (%.code argument)]))
+
+(template [<name>]
+  [(exception: .public (<name> [type Type])
+     (exception.report
+      ["Type" (%.type type)]))]
+
+  [not_a_variant]
+  [not_a_record]
+  [invalid_type_application]
+  )
+
+(def: prefix
+  (format (%.symbol (symbol ..type)) "#"))
+
+(def: .public (existential? type)
+  (-> Type Bit)
+  (case type
+    {.#Primitive actual {.#End}}
+    (text.starts_with? ..prefix actual)
+
+    _
+    false))
+
+(def: existential
+  (Operation Type)
+  (do phase.monad
+    [module (extension.lifted meta.current_module_name)
+     [id _] (/type.check check.existential)]
+    (in {.#Primitive (format ..prefix module "#" (%.nat id)) (list)})))
+
+... Type-inference works by applying some (potentially quantified) type
+... to a sequence of values.
+... Function types are used for this, although inference is not always
+... done for function application (alternative uses may be records and
+... tagged variants).
+... But, so long as the type being used for the inference can be treated
+... as a function type, this method of inference should work.
+(def: .public (general archive analyse inferT args)
+  (-> Archive Phase Type (List Code) (Operation [Type (List Analysis)]))
+  (case args
+    {.#End}
+    (do phase.monad
+      [_ (/type.inference inferT)]
+      (in [inferT (list)]))
+    
+    {.#Item argC args'}
+    (case inferT
+      {.#Named name unnamedT}
+      (general archive analyse unnamedT args)
+
+      {.#UnivQ _}
+      (do phase.monad
+        [[var_id varT] (/type.check check.var)]
+        (general archive analyse (maybe.trusted (type.applied (list varT) inferT)) args))
+
+      {.#ExQ _}
+      (do [! phase.monad]
+        [exT ..existential]
+        (general archive analyse (maybe.trusted (type.applied (list exT) inferT)) args))
+
+      {.#Apply inputT transT}
+      (case (type.applied (list inputT) transT)
+        {.#Some outputT}
+        (general archive analyse outputT args)
+
+        {.#None}
+        (/.except ..invalid_type_application [inferT]))
+
+      ... Arguments are inferred back-to-front because, by convention,
+      ... Lux functions take the most important arguments *last*, which
+      ... means that the most information for doing proper inference is
+      ... located in the last arguments to a function call.
+      ... By inferring back-to-front, a lot of type-annotations can be
+      ... avoided in Lux code, since the inference algorithm can piece
+      ... things together more easily.
+      {.#Function inputT outputT}
+      (do phase.monad
+        [[outputT' args'A] (general archive analyse outputT args')
+         argA (<| (/.with_stack ..cannot_infer_argument [inputT argC])
+                  (/type.expecting inputT)
+                  (analyse archive argC))]
+        (in [outputT' (list& argA args'A)]))
+
+      {.#Var infer_id}
+      (do phase.monad
+        [?inferT' (/type.check (check.peek infer_id))]
+        (case ?inferT'
+          {.#Some inferT'}
+          (general archive analyse inferT' args)
+
+          _
+          (/.except ..cannot_infer [inferT args])))
+
+      _
+      (/.except ..cannot_infer [inferT args]))
+    ))
+
+(def: (with_recursion @self recursion)
+  (-> Nat Type Type Type)
+  (function (again it)
+    (case it
+      (^or {.#Parameter index}
+           {.#Apply {.#Primitive "" {.#End}}
+                    {.#Parameter index}})
+      (if (n.= @self index)
+        recursion
+        it)
+      
+      (^template [<tag>]
+        [{<tag> left right}
+         {<tag> (again left) (again right)}])
+      ([.#Sum] [.#Product] [.#Function] [.#Apply])
+      
+      (^template [<tag>]
+        [{<tag> environment quantified}
+         {<tag> (list#each again environment)
+                (with_recursion (n.+ 2 @self) recursion quantified)}])
+      ([.#UnivQ] [.#ExQ])
+      
+      {.#Primitive name parameters}
+      {.#Primitive name (list#each again parameters)}
+
+      _
+      it)))
+
+(def: parameters
+  (-> Nat (List Type))
+  (|>> list.indices
+       (list#each (|>> (n.* 2) ++ {.#Parameter}))
+       list.reversed))
+
+(template [<name> <types> <inputs> <exception> <when> <then>]
+  [(`` (def: .public (<name> (~~ (template.spliced <inputs>)) complex)
+         (-> (~~ (template.spliced <types>)) Type (Operation Type))
+         (loop [depth 0
+                it complex]
+           (case it
+             {.#Named name it}
+             (again depth it)
+
+             (^template [<tag>]
+               [{<tag> env it}
+                (phase#each (|>> {<tag> env})
+                            (again (++ depth) it))])
+             ([.#UnivQ]
+              [.#ExQ])
+
+             {.#Apply parameter abstraction}
+             (case (type.applied (list parameter) abstraction)
+               {.#Some it}
+               (again depth it)
+
+               {.#None}
+               (/.except ..invalid_type_application [it]))
+
+             {<when> _}
+             <then>
+
+             _
+             (/.except <exception> [complex])))))]
+
+  [record [Nat] [arity] ..not_a_record
+   .#Product
+   (let [[lefts right] (|> it
+                           type.flat_tuple
+                           (list.split_at (-- arity)))]
+     (phase#in (type.function
+                 (list#each (..with_recursion (|> depth -- (n.* 2)) complex)
+                            (list#composite lefts (list (type.tuple right))))
+                 (type.application (parameters depth) complex))))]
+  [variant [Nat Bit] [lefts right?] ..not_a_variant
+   .#Sum
+   (|> it
+       type.flat_variant
+       (list.after lefts)
+       (case> {.#Item [head tail]}
+              (let [case (if right?
+                           (type.variant tail)
+                           head)]
+                (-> (if (n.= 0 depth)
+                      case
+                      (..with_recursion (|> depth -- (n.* 2)) complex case))
+                    (type.application (parameters depth) complex)))
+
+              {.#End}
+              (-> .Nothing complex))
+       phase#in)]
+  )

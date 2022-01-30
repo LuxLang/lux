@@ -7,9 +7,11 @@
    [control
     [pipe {"+" case>}]
     ["[0]" try {"+" Try} ("[1]#[0]" functor)]
+    ["[0]" exception]
     ["<>" parser ("[1]#[0]" monad)
      ["<[0]>" code {"+" Parser}]
-     ["<[0]>" text]]]
+     ["<[0]>" text]
+     ["<[0]>" synthesis]]]
    [data
     [binary {"+" Binary}]
     ["[0]" product]
@@ -18,17 +20,19 @@
     [collection
      ["[0]" list ("[1]#[0]" functor mix)]
      ["[0]" dictionary]
-     ["[0]" sequence]]
+     ["[0]" sequence]
+     ["[0]" set {"+" Set}]]
     ["[0]" format "_"
      ["[1]" binary]]]
    [macro
     ["[0]" template]]
    [math
     [number
-     ["[0]" i32]]]
+     ["[0]" i32]
+     ["n" nat]]]
    [target
     [jvm
-     ["_" bytecode {"+" Bytecode}]
+     ["_" bytecode {"+" Bytecode} ("[1]#[0]" monad)]
      ["[0]" modifier {"+" Modifier} ("[1]#[0]" monoid)]
      ["[0]" attribute]
      ["[0]" field]
@@ -49,21 +53,28 @@
    [tool
     [compiler
      ["[0]" phase]
+     [reference
+      [variable {"+" Register}]]
      [meta
       [archive {"+" Archive}
        ["[0]" artifact]
-       ["[0]" unit]]]
+       ["[0]" unit]]
+      ["[0]" cache "_"
+       ["[1]" artifact]]]
      [language
       [lux
-       ["[0]" synthesis]
+       ["[0]" synthesis {"+" Synthesis}]
        ["[0]" generation]
        ["[0]" directive {"+" Handler Bundle}]
-       ["[0]" analysis
+       ["[0]" analysis {"+" Analysis}
         ["[0]A" type]]
        [phase
+        [analysis
+         ["[0]A" scope]]
         [generation
          [jvm
-          ["[0]" runtime {"+" Anchor Definition Extender}]]]
+          ["[0]" runtime {"+" Anchor Definition Extender}]
+          ["[0]" value]]]
         ["[0]" extension
          ["[0]" bundle]
          [analysis
@@ -93,16 +104,20 @@
               {ffi.#ProtectedP} method.protected
               {ffi.#DefaultP} modifier.empty)))
 
-(def: visibility
-  (Parser (Modifier field.Field))
+(def: visibility'
+  (<text>.Parser (Modifier field.Field))
   (`` ($_ <>.either
           (~~ (template [<label> <modifier>]
-                [(<>.after (<code>.text! <label>) (<>#in <modifier>))]
+                [(<>.after (<text>.this <label>) (<>#in <modifier>))]
 
                 ["public" field.public]
                 ["private" field.private]
                 ["protected" field.protected]
                 ["default" modifier.empty])))))
+
+(def: visibility
+  (Parser (Modifier field.Field))
+  (<text>.then ..visibility' <code>.text))
 
 (def: inheritance
   (Parser (Modifier class.Class))
@@ -175,16 +190,16 @@
       ..variable
       ))
 
-(type: Method_Definition
+(type: (Method_Definition a)
   (Variant
-   {#Constructor (jvm.Constructor Code)}
-   {#Virtual_Method (jvm.Virtual_Method Code)}
-   {#Static_Method (jvm.Static_Method Code)}
-   {#Overriden_Method (jvm.Overriden_Method Code)}
-   {#Abstract_Method (jvm.Abstract_Method Code)}))
+   {#Constructor (jvm.Constructor a)}
+   {#Virtual_Method (jvm.Virtual_Method a)}
+   {#Static_Method (jvm.Static_Method a)}
+   {#Overriden_Method (jvm.Overriden_Method a)}
+   {#Abstract_Method (jvm.Abstract_Method a)}))
 
 (def: method
-  (Parser Method_Definition)
+  (Parser (Method_Definition Code))
   ($_ <>.or
       jvm.constructor_definition
       jvm.virtual_method_definition
@@ -236,17 +251,421 @@
     (field.field (modifier#composite visibility state)
                  name type true sequence.empty)))
 
-(def: (method_definition archive supers [mapping selfT] [analyse synthesize generate])
+(def: annotation_parameter_synthesis
+  (<synthesis>.Parser (jvm.Annotation_Parameter Synthesis))
+  (<synthesis>.tuple (<>.and <synthesis>.text <synthesis>.any)))
+
+(def: annotation_synthesis
+  (<synthesis>.Parser (jvm.Annotation Synthesis))
+  (<synthesis>.tuple (<>.and <synthesis>.text (<>.some ..annotation_parameter_synthesis))))
+
+(template [<name> <type> <text>]
+  [(def: <name>
+     (<synthesis>.Parser (Type <type>))
+     (<text>.then <text> <synthesis>.text))]
+
+  [value_type_synthesis Value parser.value]
+  [class_type_synthesis Class parser.class]
+  [var_type_synthesis Var parser.var]
+  [return_type_synthesis Return parser.return]
+  )
+
+(def: argument_synthesis
+  (<synthesis>.Parser Argument)
+  (<synthesis>.tuple (<>.and <synthesis>.text ..value_type_synthesis)))
+
+(def: input_synthesis
+  (<synthesis>.Parser (Typed Synthesis))
+  (<synthesis>.tuple (<>.and ..value_type_synthesis <synthesis>.any)))
+
+(def: (hidden_method_body arity body)
+  (-> Nat Synthesis Synthesis)
+  (case [arity body]
+    [0 _] body
+    [1 _] body
+    
+    [2 {synthesis.#Control {synthesis.#Branch {synthesis.#Let _ 2 hidden}}}]
+    hidden
+    
+    [_ {synthesis.#Control {synthesis.#Branch {synthesis.#Case _ path}}}]
+    (loop [path (: synthesis.Path path)]
+      (case path
+        (^or {synthesis.#Pop}
+             {synthesis.#Access _}
+             {synthesis.#Bind _}
+             {synthesis.#Bit_Fork _}
+             {synthesis.#I64_Fork _}
+             {synthesis.#F64_Fork _}
+             {synthesis.#Text_Fork _}
+             {synthesis.#Alt _})
+        body
+        
+        {synthesis.#Seq _ next}
+        (again next)
+        
+        {synthesis.#Then hidden}
+        hidden))
+
+    _
+    body))
+
+(def: (method_body arity)
+  (-> Nat (<synthesis>.Parser Synthesis))
+  (<| (<>#each (function (_ [env offset inits it]) it))
+      (<synthesis>.function 1)
+      (<synthesis>.loop (<>.exactly 0 <synthesis>.any))
+      <synthesis>.tuple
+      ($_ <>.either
+          (<| (<>.after (<synthesis>.text! ""))
+              (<>#each (..hidden_method_body arity))
+              <synthesis>.any)
+          <synthesis>.any)))
+
+(def: constructor_synthesis
+  (<synthesis>.Parser (jvm.Constructor Synthesis))
+  (<| <synthesis>.tuple
+      (<>.after (<synthesis>.text! jvm.constructor_tag))
+      ($_ <>.and
+          (<text>.then jvm.visibility' <synthesis>.text)
+          <synthesis>.bit
+          (<synthesis>.tuple (<>.some ..annotation_synthesis))
+          (<synthesis>.tuple (<>.some ..var_type_synthesis))
+          (<synthesis>.tuple (<>.some ..class_type_synthesis))
+          <synthesis>.text
+          (do <>.monad
+            [args (<synthesis>.tuple (<>.some ..argument_synthesis))]
+            ($_ <>.and
+                (in args)
+                (<synthesis>.tuple (<>.some ..input_synthesis))
+                (..method_body (list.size args))))
+          )))
+
+(def: overriden_method_synthesis
+  (<synthesis>.Parser (jvm.Overriden_Method Synthesis))
+  (<| <synthesis>.tuple
+      (<>.after (<synthesis>.text! jvm.overriden_tag))
+      ($_ <>.and
+          ..class_type_synthesis
+          <synthesis>.text
+          <synthesis>.bit
+          (<synthesis>.tuple (<>.some ..annotation_synthesis))
+          (<synthesis>.tuple (<>.some ..var_type_synthesis))
+          <synthesis>.text
+          (do <>.monad
+            [args (<synthesis>.tuple (<>.some ..argument_synthesis))]
+            ($_ <>.and
+                (in args)
+                ..return_type_synthesis
+                (<synthesis>.tuple (<>.some ..class_type_synthesis))
+                (..method_body (list.size args))))
+          )))
+
+(def: virtual_method_synthesis
+  (<synthesis>.Parser (jvm.Virtual_Method Synthesis))
+  (<| <synthesis>.tuple
+      (<>.after (<synthesis>.text! jvm.virtual_tag))
+      ($_ <>.and
+          <synthesis>.text
+          (<text>.then jvm.visibility' <synthesis>.text)
+          <synthesis>.bit
+          <synthesis>.bit
+          (<synthesis>.tuple (<>.some ..annotation_synthesis))
+          (<synthesis>.tuple (<>.some ..var_type_synthesis))
+          <synthesis>.text
+          (do <>.monad
+            [args (<synthesis>.tuple (<>.some ..argument_synthesis))]
+            ($_ <>.and
+                (in args)
+                ..return_type_synthesis
+                (<synthesis>.tuple (<>.some ..class_type_synthesis))
+                (..method_body (list.size args))))
+          )))
+
+(def: static_method_synthesis
+  (<synthesis>.Parser (jvm.Static_Method Synthesis))
+  (<| <synthesis>.tuple
+      (<>.after (<synthesis>.text! jvm.static_tag))
+      ($_ <>.and
+          <synthesis>.text
+          (<text>.then jvm.visibility' <synthesis>.text)
+          <synthesis>.bit
+          (<synthesis>.tuple (<>.some ..annotation_synthesis))
+          (<synthesis>.tuple (<>.some ..var_type_synthesis))
+          (do <>.monad
+            [args (<synthesis>.tuple (<>.some ..argument_synthesis))]
+            ($_ <>.and
+                (in args)
+                ..return_type_synthesis
+                (<synthesis>.tuple (<>.some ..class_type_synthesis))
+                (..method_body (list.size args))))
+          )))
+
+(def: abstract_method_synthesis
+  (<synthesis>.Parser (jvm.Abstract_Method Synthesis))
+  (<| <synthesis>.tuple
+      (<>.after (<synthesis>.text! jvm.abstract_tag))
+      ($_ <>.and
+          <synthesis>.text
+          (<text>.then jvm.visibility' <synthesis>.text)
+          (<synthesis>.tuple (<>.some ..annotation_synthesis))
+          (<synthesis>.tuple (<>.some ..var_type_synthesis))
+          (<synthesis>.tuple (<>.some ..argument_synthesis))
+          ..return_type_synthesis
+          (<synthesis>.tuple (<>.some ..class_type_synthesis))
+          )))
+
+(def: method_synthesis
+  (<synthesis>.Parser (Method_Definition Synthesis))
+  ($_ <>.or
+      ..constructor_synthesis
+      ..virtual_method_synthesis
+      ..static_method_synthesis
+      ..overriden_method_synthesis
+      ..abstract_method_synthesis
+      ))
+
+(def: composite
+  (-> (List (Bytecode Any)) (Bytecode Any))
+  (|>> list.reversed
+       (list#mix _.composite (_#in []))))
+
+(def: constructor_name
+  "<init>")
+
+(def: (method_argument lux_register argumentT jvm_register)
+  (-> Register (Type Value) Register [Register (Bytecode Any)])
+  (case (type.primitive? argumentT)
+    {.#Left argumentT}
+    [(n.+ 1 jvm_register)
+     (if (n.= lux_register jvm_register)
+       (_#in [])
+       ($_ _.composite
+           (_.aload jvm_register)
+           (_.astore lux_register)))]
+    
+    {.#Right argumentT}
+    (template.let [(wrap_primitive <shift> <load> <type>)
+                   [[(n.+ <shift> jvm_register)
+                     ($_ _.composite
+                         (<load> jvm_register)
+                         (value.wrap <type>)
+                         (_.astore lux_register))]]]
+      (`` (cond (~~ (template [<shift> <load> <type>]
+                      [(# type.equivalence = <type> argumentT)
+                       (wrap_primitive <shift> <load> <type>)]
+
+                      [1 _.iload type.boolean]
+                      [1 _.iload type.byte]
+                      [1 _.iload type.short]
+                      [1 _.iload type.int]
+                      [1 _.iload type.char]
+                      [1 _.fload type.float]
+                      [2 _.lload type.long]))
+
+                ... (# type.equivalence = type.double argumentT)
+                (wrap_primitive 2 _.dload type.double))))))
+
+(def: .public (method_arguments offset types)
+  (-> Nat (List (Type Value)) (Bytecode Any))
+  (|> types
+      list.enumeration
+      (list#mix (function (_ [lux_register type] [jvm_register before])
+                  (let [[jvm_register' after] (method_argument (n.+ offset lux_register) type jvm_register)]
+                    [jvm_register' ($_ _.composite before after)]))
+                (: [Register (Bytecode Any)] [offset (_#in [])]))
+      product.right))
+
+(def: (constructor_method_generation archive super_class method)
+  (-> Archive (Type Class) (jvm.Constructor Synthesis) (Operation (Resource Method)))
+  (<| (let [[privacy strict_floating_point? annotations method_tvars exceptions
+             self arguments constructor_argumentsS
+             bodyS] method])
+      (do [! phase.monad]
+        [generate directive.generation])
+      directive.lifted_generation
+      (do !
+        [constructor_argumentsG (monad.each ! (|>> product.right (generate archive))
+                                            constructor_argumentsS)
+         bodyG (generate archive bodyS)
+         .let [[super_name super_vars] (parser.read_class super_class)
+               super_constructorT (type.method [(list)
+                                                (list#each product.left constructor_argumentsS)
+                                                type.void
+                                                (list)])
+               argumentsT (list#each product.right arguments)]]
+        (in (method.method ($_ modifier#composite
+                               (..method_privacy privacy)
+                               (if strict_floating_point?
+                                 method.strict
+                                 modifier.empty))
+                           ..constructor_name
+                           (type.method [method_tvars argumentsT type.void exceptions])
+                           (list)
+                           {.#Some ($_ _.composite
+                                       (_.aload 0)
+                                       (..composite constructor_argumentsG)
+                                       (_.invokespecial super_class ..constructor_name super_constructorT)
+                                       (method_arguments 1 argumentsT)
+                                       bodyG
+                                       _.return
+                                       )})))))
+
+(def: (method_return returnT)
+  (-> (Type Return) (Bytecode Any))
+  (case (type.void? returnT)
+    {.#Right returnT}
+    _.return
+
+    {.#Left returnT}
+    (case (type.primitive? returnT)
+      {.#Left returnT}
+      (case (type.class? returnT)
+        {.#Some class_name}
+        ($_ _.composite
+            (_.checkcast returnT)
+            _.areturn)
+
+        {.#None}
+        _.areturn)
+      
+      {.#Right returnT}
+      (template.let [(unwrap_primitive <return> <type>)
+                     [($_ _.composite
+                          (value.unwrap <type>)
+                          <return>)]]
+        (`` (cond (~~ (template [<return> <type>]
+                        [(# type.equivalence = <type> returnT)
+                         (unwrap_primitive <return> <type>)]
+
+                        [_.ireturn type.boolean]
+                        [_.ireturn type.byte]
+                        [_.ireturn type.short]
+                        [_.ireturn type.int]
+                        [_.ireturn type.char]
+                        [_.freturn type.float]
+                        [_.lreturn type.long]))
+
+                  ... (# type.equivalence = type.double returnT)
+                  (unwrap_primitive _.dreturn type.double)))))))
+
+(def: (overriden_method_generation archive method)
+  (-> Archive (jvm.Overriden_Method Synthesis) (Operation (Resource Method)))
+  (do [! phase.monad]
+    [.let [[super method_name strict_floating_point? annotations
+            method_tvars self arguments returnJ exceptionsJ
+            bodyS] method]
+     generate directive.generation]
+    (directive.lifted_generation
+     (do !
+       [bodyG (generate archive bodyS)
+        .let [argumentsT (list#each product.right arguments)]]
+       (in (method.method ($_ modifier#composite
+                              method.public
+                              (if strict_floating_point?
+                                method.strict
+                                modifier.empty))
+                          method_name
+                          (type.method [method_tvars argumentsT returnJ exceptionsJ])
+                          (list)
+                          {.#Some ($_ _.composite
+                                      (method_arguments 1 argumentsT)
+                                      bodyG
+                                      (method_return returnJ))}))))))
+
+(def: (virtual_method_generation archive method)
+  (-> Archive (jvm.Virtual_Method Synthesis) (Operation (Resource Method)))
+  (do [! phase.monad]
+    [.let [[method_name privacy final? strict_floating_point? annotations method_tvars
+            self arguments returnJ exceptionsJ
+            bodyS] method]
+     generate directive.generation]
+    (directive.lifted_generation
+     (do !
+       [bodyG (generate archive bodyS)
+        .let [argumentsT (list#each product.right arguments)]]
+       (in (method.method ($_ modifier#composite
+                              (..method_privacy privacy)
+                              (if strict_floating_point?
+                                method.strict
+                                modifier.empty)
+                              (if final?
+                                method.final
+                                modifier.empty))
+                          method_name
+                          (type.method [method_tvars argumentsT returnJ exceptionsJ])
+                          (list)
+                          {.#Some ($_ _.composite
+                                      (method_arguments 1 argumentsT)
+                                      bodyG
+                                      (method_return returnJ))}))))))
+
+(def: (static_method_generation archive method)
+  (-> Archive (jvm.Static_Method Synthesis) (Operation (Resource Method)))
+  (do [! phase.monad]
+    [.let [[method_name privacy strict_floating_point? annotations method_tvars
+            arguments returnJ exceptionsJ
+            bodyS] method]
+     generate directive.generation]
+    (directive.lifted_generation
+     (do !
+       [bodyG (generate archive bodyS)
+        .let [argumentsT (list#each product.right arguments)]]
+       (in (method.method ($_ modifier#composite
+                              (..method_privacy privacy)
+                              method.static
+                              (if strict_floating_point?
+                                method.strict
+                                modifier.empty))
+                          method_name
+                          (type.method [method_tvars argumentsT returnJ exceptionsJ])
+                          (list)
+                          {.#Some ($_ _.composite
+                                      (method_arguments 0 argumentsT)
+                                      bodyG
+                                      (method_return returnJ))}))))))
+
+(def: (abstract_method_generation method)
+  (-> (jvm.Abstract_Method Synthesis) (Resource Method))
+  (let [[name privacy annotations variables
+         arguments return exceptions] method]
+    (method.method ($_ modifier#composite
+                       (..method_privacy privacy)
+                       method.abstract)
+                   name
+                   (type.method [variables (list#each product.right arguments) return exceptions])
+                   (list)
+                   {.#None})))
+
+(def: (method_generation archive super_class method)
+  (-> Archive (Type Class) (Method_Definition Synthesis) (Operation (Resource Method)))
+  (case method
+    {#Constructor method}
+    (..constructor_method_generation archive super_class method)
+    
+    {#Overriden_Method method}
+    (..overriden_method_generation archive method)
+    
+    {#Virtual_Method method}
+    (..virtual_method_generation archive method)
+    
+    {#Static_Method method}
+    (..static_method_generation archive method)
+
+    {#Abstract_Method method}
+    (# phase.monad in (..abstract_method_generation method))))
+
+(def: (method_definition archive super interfaces [mapping selfT] [analyse synthesize generate])
   (-> Archive
+      (Type Class)
       (List (Type Class))
       [Mapping .Type]
       [analysis.Phase
        synthesis.Phase
        (generation.Phase Anchor (Bytecode Any) Definition)]
-      (-> Method_Definition (Operation synthesis.Synthesis)))
+      (-> (Method_Definition Code) (Operation [(Set unit.ID) (Resource Method)])))
   (function (_ methodC)
     (do phase.monad
-      [methodA (: (Operation analysis.Analysis)
+      [methodA (: (Operation Analysis)
                   (directive.lifted_analysis
                    (case methodC
                      {#Constructor method}
@@ -259,12 +678,21 @@
                      (jvm.analyse_static_method analyse archive mapping method)
                      
                      {#Overriden_Method method}
-                     (jvm.analyse_overriden_method analyse archive selfT mapping supers method)
+                     (jvm.analyse_overriden_method analyse archive selfT mapping (list& super interfaces) method)
 
                      {#Abstract_Method method}
-                     (jvm.analyse_abstract_method analyse archive method))))]
-      (directive.lifted_synthesis
-       (synthesize archive methodA)))))
+                     (jvm.analyse_abstract_method analyse archive method))))
+       methodS (: (Operation Synthesis)
+                  (directive.lifted_synthesis
+                   (synthesize archive methodA)))
+       dependencies (directive.lifted_generation
+                     (cache.dependencies archive methodS))
+       methodS' (|> methodS
+                    list
+                    (<synthesis>.result ..method_synthesis)
+                    phase.lifted)
+       methodG (method_generation archive super methodS')]
+      (in [dependencies methodG]))))
 
 (def: class_name
   (|>> parser.read_class product.left name.internal))
@@ -335,11 +763,8 @@
                 ... type.boolean type.byte type.short type.int type.char
                 _.ireturn)))))
 
-(def: constructor_name
-  "<init>")
-
 (def: (mock_method super method)
-  (-> (Type Class) ..Method_Definition (Resource method.Method))
+  (-> (Type Class) (Method_Definition Code) (Resource method.Method))
   (case method
     {#Constructor [privacy strict_floating_point? annotations variables exceptions
                    self arguments constructor_arguments
@@ -419,7 +844,7 @@
 (def: (mock declaration super interfaces inheritance fields methods)
   (-> Declaration
       (Type Class) (List (Type Class))
-      (Modifier class.Class) (List ..Field) (List ..Method_Definition)
+      (Modifier class.Class) (List ..Field) (List (Method_Definition Code))
       (Try [External Binary]))
   (mock_class declaration super interfaces
               (list#each ..field_definition fields)
@@ -436,12 +861,12 @@
   [class_declaration [External (List (Type Var))] parser.declaration']
   )
 
-(def: (save_class! name bytecode)
-  (-> Text Binary (Operation Any))
+(def: (save_class! name bytecode dependencies)
+  (-> Text Binary (Set unit.ID) (Operation Any))
   (directive.lifted_generation
    (do [! phase.monad]
      [.let [artifact [name bytecode]]
-      artifact_id (generation.learn_custom name unit.none)
+      artifact_id (generation.learn_custom name dependencies)
       _ (generation.execute! artifact)
       _ (generation.save! artifact_id {.#Some name} artifact)
       _ (generation.log! (format "JVM Class " name))]
@@ -487,20 +912,15 @@
          .let [mapping (list#mix (function (_ [parameterJ parameterT] mapping)
                                    (dictionary.has (parser.name parameterJ) parameterT mapping))
                                  luxT.fresh
-                                 parameters)]
-         superT (directive.lifted_analysis
-                 (typeA.check (luxT.check (luxT.class mapping) (..signature super))))
-         interfaceT+ (directive.lifted_analysis
-                      (typeA.check (monad.each check.monad
-                                               (|>> ..signature (luxT.check (luxT.class mapping)))
-                                               interfaces)))
+                                 parameters)
+               selfT {.#Primitive name (list#each product.right parameters)}]
          state (extension.lifted phase.state)
-         .let [selfT {.#Primitive name (list#each product.right parameters)}]
-         methods (monad.each ! (..method_definition archive (list& super interfaces) [mapping selfT]
+         methods (monad.each ! (..method_definition archive super interfaces [mapping selfT]
                                                     [(value@ [directive.#analysis directive.#phase] state)
                                                      (value@ [directive.#synthesis directive.#phase] state)
                                                      (value@ [directive.#generation directive.#phase] state)])
                              methods)
+         .let [all_dependencies (cache.all (list#each product.left methods))]
          bytecode (<| (# ! each (format.result class.writer))
                       phase.lifted
                       (class.class version.v6_0
@@ -512,9 +932,9 @@
                                    (..class_name super)
                                    (list#each ..class_name interfaces)
                                    (list#each ..field_definition fields)
-                                   (list) ... (list#each ..method_definition methods)
+                                   (list#each product.right methods)
                                    sequence.empty))
-         _ (..save_class! name bytecode)]
+         _ (..save_class! name bytecode all_dependencies)]
         (in directive.no_requirements)))]))
 
 (def: (method_declaration (^open "/[0]"))
