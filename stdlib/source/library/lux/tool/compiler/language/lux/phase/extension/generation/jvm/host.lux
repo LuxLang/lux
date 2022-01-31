@@ -994,41 +994,60 @@
 (def: $Object
   (type.class "java.lang.Object" (list)))
 
-(def: (anonymous_init_method env)
-  (-> (Environment Synthesis) (Type category.Method))
+(def: (anonymous_init_method env inputsTI)
+  (-> (Environment Synthesis) (List (Typed (Bytecode Any))) (Type category.Method))
   (type.method [(list)
-                (list.repeated (list.size env) ..$Object)
+                (list.repeated (n.+ (list.size inputsTI) (list.size env)) ..$Object)
                 type.void
                 (list)]))
 
 (def: (with_anonymous_init class env super_class inputsTG)
   (-> (Type category.Class) (Environment Synthesis) (Type category.Class) (List (Typed (Bytecode Any))) (Resource Method))
-  (let [store_capturedG (|> env
+  (let [inputs_offset (list.size inputsTG)
+        inputs! (|> inputsTG
+                    list.enumeration
+                    (list#each (function (_ [register [type term]])
+                                 (let [then! (case (type.primitive? type)
+                                               {.#Right type}
+                                               (///value.unwrap type)
+                                               
+                                               {.#Left type}
+                                               (_.checkcast type))]
+                                   ($_ _.composite
+                                       (_.aload (++ register))
+                                       then!))))
+                    list.reversed
+                    (list#mix _.composite (_#in [])))
+        store_captured! (|> env
                             list.size
                             list.indices
                             (monad.each _.monad (.function (_ register)
                                                   ($_ _.composite
                                                       (_.aload 0)
-                                                      (_.aload (++ register))
+                                                      (_.aload (n.+ inputs_offset (++ register)))
                                                       (_.putfield class (///reference.foreign_name register) $Object)))))]
-    (method.method method.public "<init>" (anonymous_init_method env)
+    (method.method method.public "<init>" (anonymous_init_method env inputsTG)
                    (list)
                    {.#Some ($_ _.composite
                                (_.aload 0)
-                               (monad.each _.monad product.right inputsTG)
+                               inputs!
                                (_.invokespecial super_class "<init>" (type.method [(list) (list#each product.left inputsTG) type.void (list)]))
-                               store_capturedG
+                               store_captured!
                                _.return)})))
 
-(def: (anonymous_instance generate archive class env)
-  (-> Phase Archive (Type category.Class) (Environment Synthesis) (Operation (Bytecode Any)))
+(def: (anonymous_instance generate archive class env inputsTI)
+  (-> Phase Archive (Type category.Class) (Environment Synthesis) (List (Typed (Bytecode Any))) (Operation (Bytecode Any)))
   (do [! //////.monad]
     [captureG+ (monad.each ! (generate archive) env)]
     (in ($_ _.composite
             (_.new class)
             _.dup
+            (|> inputsTI
+                (list#each product.right)
+                list.reversed
+                (list#mix _.composite (_#in [])))
             (monad.all _.monad captureG+)
-            (_.invokespecial class "<init>" (anonymous_init_method env))))))
+            (_.invokespecial class "<init>" (anonymous_init_method env inputsTI))))))
 
 (def: (returnG returnT)
   (-> (Type Return) (Bytecode Any))
@@ -1236,7 +1255,7 @@
          .let [artifact [anonymous_class_name bytecode]]
          _ (//////generation.execute! artifact)
          _ (//////generation.save! artifact_id {.#None} artifact)]
-        (anonymous_instance generate archive class total_environment)))]))
+        (anonymous_instance generate archive class total_environment inputsTI)))]))
 
 (def: bundle::class
   Bundle

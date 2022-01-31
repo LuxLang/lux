@@ -54,6 +54,7 @@
 
 # Reference
 
+0. [Documentation in the Era of Concepts and Ranges - Christopher Di Bella & Sy Brand - CppCon 2021](https://www.youtube.com/watch?v=nm45t2fnUms)
 0. [conventional: comments](https://conventionalcomments.org/)
 0. [Architecture decision record (ADR)](https://github.com/joelparkerhenderson/architecture_decision_record)
 0. [Seamless API Specification](https://github.com/seamlessapis/seamless/tree/master/domain)

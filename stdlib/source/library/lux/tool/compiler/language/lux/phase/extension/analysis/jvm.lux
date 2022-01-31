@@ -4,7 +4,8 @@
    ["[0]" ffi {"+" import:}]
    ["[0]" meta]
    [abstract
-    ["[0]" monad {"+" do}]]
+    ["[0]" monad {"+" do}]
+    ["[0]" predicate]]
    [control
     pipe
     ["[0]" maybe]
@@ -60,7 +61,8 @@
       ["[0]" phase ("[1]#[0]" monad)]
       [meta
        [archive {"+" Archive}
-        [descriptor {"+" Module}]]]]]]]])
+        [module
+         [descriptor {"+" Module}]]]]]]]]])
 
 (import: java/lang/ClassLoader)
 
@@ -80,7 +82,9 @@
    ("static" isStatic [int] boolean)
    ("static" isFinal [int] boolean)
    ("static" isInterface [int] boolean)
-   ("static" isAbstract [int] boolean)])
+   ("static" isAbstract [int] boolean)
+   ("static" isPublic [int] boolean)
+   ("static" isProtected [int] boolean)])
 
 (import: java/lang/annotation/Annotation)
 
@@ -1592,31 +1596,36 @@
          (value_analysis argumentJT))))
 
 (template [<name> <only>]
-  [(def: <name>
-     (-> (java/lang/Class java/lang/Object)
-         (Try (List [Text (Type Method)])))
-     (|>> java/lang/Class::getDeclaredMethods
-          (array.list {.#None})
-          <only>
-          (monad.each try.monad
-                      (function (_ method)
-                        (do [! try.monad]
-                          [.let [type_variables (|> (java/lang/reflect/Method::getTypeParameters method)
-                                                    (array.list {.#None})
-                                                    (list#each (|>> java/lang/reflect/TypeVariable::getName
-                                                                    jvm.var)))]
-                           inputs (|> (java/lang/reflect/Method::getGenericParameterTypes method)
-                                      (array.list {.#None})
-                                      (monad.each ! reflection!.type))
-                           return (..return_type method)
-                           .let [concrete_exceptions (..concrete_method_exceptions method)]
-                           generic_exceptions (|> (java/lang/reflect/Method::getGenericExceptionTypes method)
-                                                  (array.list {.#None})
-                                                  (monad.each ! reflection!.class))]
-                          (in [(java/lang/reflect/Method::getName method)
-                               (jvm.method [type_variables inputs return (if (list.empty? generic_exceptions)
-                                                                           concrete_exceptions
-                                                                           generic_exceptions)])]))))))]
+  [(def: (<name> [type class])
+     (-> [(Type Class) (java/lang/Class java/lang/Object)]
+         (Try (List [(Type Class) Text (Type Method)])))
+     (|> class
+         java/lang/Class::getDeclaredMethods
+         (array.list {.#None})
+         (list.only (|>> java/lang/reflect/Method::getModifiers
+                         (predicate.or (|>> java/lang/reflect/Modifier::isPublic)
+                                       (|>> java/lang/reflect/Modifier::isProtected))))
+         <only>
+         (monad.each try.monad
+                     (function (_ method)
+                       (do [! try.monad]
+                         [.let [type_variables (|> (java/lang/reflect/Method::getTypeParameters method)
+                                                   (array.list {.#None})
+                                                   (list#each (|>> java/lang/reflect/TypeVariable::getName
+                                                                   jvm.var)))]
+                          inputs (|> (java/lang/reflect/Method::getGenericParameterTypes method)
+                                     (array.list {.#None})
+                                     (monad.each ! reflection!.type))
+                          return (..return_type method)
+                          .let [concrete_exceptions (..concrete_method_exceptions method)]
+                          generic_exceptions (|> (java/lang/reflect/Method::getGenericExceptionTypes method)
+                                                 (array.list {.#None})
+                                                 (monad.each ! reflection!.class))]
+                         (in [type
+                              (java/lang/reflect/Method::getName method)
+                              (jvm.method [type_variables inputs return (if (list.empty? generic_exceptions)
+                                                                          concrete_exceptions
+                                                                          generic_exceptions)])]))))))]
 
   [abstract_methods (list.only (|>> java/lang/reflect/Method::getModifiers java/lang/reflect/Modifier::isAbstract))]
   [methods (<|)]
@@ -1626,8 +1635,12 @@
 
 (template [<name> <methods>]
   [(def: (<name> class_loader)
-     (-> java/lang/ClassLoader (List (Type Class)) (Try (List [Text (Type Method)])))
-     (|>> (monad.each try.monad (|>> ..reflection (reflection!.load class_loader)))
+     (-> java/lang/ClassLoader (List (Type Class)) (Try (List [(Type Class) Text (Type Method)])))
+     (|>> (monad.each try.monad (function (_ type)
+                                  (|> type
+                                      ..reflection
+                                      (reflection!.load class_loader)
+                                      (try#each (|>> [type])))))
           (try#each (monad.each try.monad <methods>))
           try#conjoint
           (try#each list#conjoint)))]
@@ -1637,12 +1650,14 @@
   )
 
 (template [<name>]
-  [(exception: .public (<name> [methods (List [Text (Type Method)])])
-     (exception.report
-      ["Methods" (exception.listing
-                  (function (_ [name type])
-                    (format (%.text name) " " (..signature type)))
-                  methods)]))]
+  [(exception: .public (<name> [expected (List [(Type Class) Text (Type Method)])
+                                actual (List [(Type Class) Text (Type Method)])])
+     (let [%method (: (%.Format [(Type Class) Text (Type Method)])
+                      (function (_ [super name type])
+                        (format (..signature super) " :: " (%.text name) " " (..signature type))))]
+       (exception.report
+        ["Expected Methods" (exception.listing %method expected)]
+        ["Actual Methods" (exception.listing %method actual)])))]
 
   [missing_abstract_methods]
   [invalid_overriden_methods]
@@ -2166,13 +2181,14 @@
                   (in [parameterJ parameterT])))))
 
 (def: (mismatched_methods super_set sub_set)
-  (-> (List [Text (Type Method)])
-      (List [Text (Type Method)])
-      (List [Text (Type Method)]))
-  (list.only (function (_ [sub_name subJT])
+  (-> (List [(Type Class) Text (Type Method)])
+      (List [(Type Class) Text (Type Method)])
+      (List [(Type Class) Text (Type Method)]))
+  (list.only (function (_ [sub sub_name subJT])
                (|> super_set
-                   (list.only (function (_ [super_name superJT])
-                                (and (text#= super_name sub_name)
+                   (list.only (function (_ [super super_name superJT])
+                                (and (jvm#= super sub)
+                                     (text#= super_name sub_name)
                                      (jvm#= superJT subJT))))
                    list.size
                    (n.= 1)
@@ -2229,17 +2245,18 @@
                                                    body])
                                        (do !
                                          [aliasing (super_aliasing class_loader parent_type)]
-                                         (in [method_name (|> (jvm.method [type_vars
-                                                                           (list#each product.right arguments)
-                                                                           return
-                                                                           exceptions])
-                                                              (jvm_alias.method aliasing))])))
+                                         (in (|> (jvm.method [type_vars
+                                                              (list#each product.right arguments)
+                                                              return
+                                                              exceptions])
+                                                 (jvm_alias.method aliasing)
+                                                 [parent_type method_name]))))
                                    methods)
      .let [missing_abstract_methods (mismatched_methods overriden_methods required_abstract_methods)
            invalid_overriden_methods (mismatched_methods available_methods overriden_methods)]
-     _ (phase.assertion ..missing_abstract_methods missing_abstract_methods
+     _ (phase.assertion ..missing_abstract_methods [required_abstract_methods missing_abstract_methods]
                         (list.empty? missing_abstract_methods))
-     _ (phase.assertion ..invalid_overriden_methods invalid_overriden_methods
+     _ (phase.assertion ..invalid_overriden_methods [available_methods invalid_overriden_methods]
                         (list.empty? invalid_overriden_methods))]
     (in [])))
 

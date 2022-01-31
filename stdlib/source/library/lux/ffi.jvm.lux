@@ -490,14 +490,16 @@
                     (list#each ..decorate_input))))))))
 
 (template [<name> <jvm_op>]
-  [(def: (<name> class_name method_name arguments self_name)
-     (-> Text Text (List Argument) Text (Parser Code))
+  [(def: (<name> class_vars class_name type_vars method_name arguments self_name)
+     (-> (List (Type Var)) Text (List (Type Var)) Text (List Argument) Text (Parser Code))
      (do <>.monad
        [.let [dotted_name (format "::" method_name "!")]
         args (: (Parser (List Code))
                 (<code>.form (<>.after (<code>.this! (code.symbol ["" dotted_name]))
                                        (<code>.tuple (<>.exactly (list.size arguments) <code>.any)))))]
-       (in (` (<jvm_op> (~ (code.text class_name)) (~ (code.text method_name))
+       (in (` (<jvm_op> [(~+ (list#each (|>> ..signature code.text) class_vars))]
+                        (~ (code.text class_name)) (~ (code.text method_name))
+                        [(~+ (list#each (|>> ..signature code.text) type_vars))]
                         (~ (code.local_symbol self_name))
                         (~+ (|> args
                                 (list.zipped/2 (list#each product.right arguments))
@@ -507,8 +509,8 @@
   [virtual_method_parser "jvm member invoke virtual"]
   )
 
-(def: (method->parser class_name [[method_name _ _] meth_def])
-  (-> Text [Member_Declaration Method_Definition] (Parser Code))
+(def: (method->parser class_vars class_name [[method_name _ _] meth_def])
+  (-> (List (Type Var)) Text [Member_Declaration Method_Definition] (Parser Code))
   (case meth_def
     {#ConstructorMethod strict? type_vars self_name args constructor_args return_expr exs}
     (constructor_parser class_name args)
@@ -517,16 +519,16 @@
     (static_method_parser class_name method_name args)
 
     {#VirtualMethod final? strict? type_vars self_name args return_type return_expr exs}
-    (virtual_method_parser class_name method_name args self_name)
+    (virtual_method_parser class_vars class_name type_vars method_name args self_name)
     
     {#OverridenMethod strict? owner_class type_vars self_name args return_type return_expr exs}
-    (special_method_parser class_name method_name args self_name)
+    (special_method_parser class_vars class_name type_vars method_name args self_name)
 
     {#AbstractMethod type_vars args return_type exs}
-    (virtual_method_parser class_name method_name args "")
+    (virtual_method_parser class_vars class_name type_vars method_name args "")
 
     {#NativeMethod type_vars args return_type exs}
-    (virtual_method_parser class_name method_name args "")))
+    (virtual_method_parser class_vars class_name type_vars method_name args "")))
 
 (def: privacy_modifier^
   (Parser Privacy)
@@ -1129,8 +1131,10 @@
                                                           [_ (<code>.this! (' ::super!))
                                                            args (<code>.tuple (<>.exactly (list.size arguments) <code>.any))]
                                                           (in (` ("jvm member invoke special"
+                                                                  [(~+ (list#each (|>> ..signature code.text) (product.right (parser.declaration declaration))))]
                                                                   (~ (code.text (product.left (parser.read_class super_class))))
                                                                   (~ (code.text name))
+                                                                  [(~+ (list#each (|>> ..signature code.text) type_vars))]
                                                                   (~ (code.local_symbol self_name))
                                                                   (~+ (|> args
                                                                           (list.zipped/2 (list#each product.right arguments))
@@ -1206,7 +1210,7 @@
     [.let [fully_qualified_class_name full_class_name
            method_parser (: (Parser Code)
                             (|> methods
-                                (list#each (method->parser fully_qualified_class_name))
+                                (list#each (method->parser class_vars fully_qualified_class_name))
                                 (list#mix <>.either (<>.failure ""))))]]
     (in (list (` ("jvm class"
                   (~ (declaration$ (type.declaration full_class_name class_vars)))
