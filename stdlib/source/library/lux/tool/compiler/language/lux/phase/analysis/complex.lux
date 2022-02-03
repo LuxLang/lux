@@ -35,9 +35,13 @@
      ["[1][0]" type]
      ["[1][0]" inference]]
     [///
-     ["[1]" phase]
+     ["[1]" phase ("[1]#[0]" monad)]
      [meta
       [archive {"+" Archive}]]]]]])
+
+(exception: .public (not_a_quantified_type [type Type])
+  (exception.report
+   ["Type" (%.type type)]))
 
 (template [<name>]
   [(exception: .public (<name> [type Type
@@ -50,36 +54,30 @@
   [cannot_analyse_tuple]
   )
 
-(exception: .public (not_a_quantified_type [type Type])
-  (exception.report
-   ["Type" (%.type type)]))
-
 (template [<name>]
   [(exception: .public (<name> [type Type
-                                tag Tag
+                                lefts Nat
+                                right? Bit
                                 code Code])
      (exception.report
       ["Type" (%.type type)]
-      ["Tag" (%.nat tag)]
+      ["Lefts" (%.nat lefts)]
+      ["Right?" (%.bit right?)]
       ["Expression" (%.code code)]))]
 
   [invalid_variant_type]
   [cannot_analyse_variant]
-  [cannot_infer_numeric_tag]
+  [cannot_infer_sum]
   )
 
-(template [<name>]
-  [(exception: .public (<name> [key Symbol
-                                record (List [Symbol Code])])
-     (exception.report
-      ["Slot" (%.code (code.symbol key))]
-      ["Record" (%.code (code.tuple (|> record
-                                        (list#each (function (_ [keyI valC])
-                                                     (list (code.symbol keyI) valC)))
-                                        list#conjoint)))]))]
-
-  [cannot_repeat_slot]
-  )
+(exception: .public (cannot_repeat_slot [key Symbol
+                                         record (List [Symbol Code])])
+  (exception.report
+   ["Slot" (%.code (code.symbol key))]
+   ["Record" (%.code (code.tuple (|> record
+                                     (list#each (function (_ [keyI valC])
+                                                  (list (code.symbol keyI) valC)))
+                                     list#conjoint)))]))
 
 (exception: .public (slot_does_not_belong_to_record [key Symbol
                                                      type Type])
@@ -108,7 +106,7 @@
       (do [! ///.monad]
         [expectedT (///extension.lifted meta.expected_type)
          expectedT' (/type.check (check.clean expectedT))]
-        (/.with_stack ..cannot_analyse_variant [expectedT' tag valueC]
+        (/.with_stack ..cannot_analyse_variant [expectedT' lefts right? valueC]
           (case expectedT
             {.#Sum _}
             (|> (analyse archive valueC)
@@ -134,13 +132,13 @@
                 ... This is because there is no way of knowing how many
                 ... cases the inferred sum type would have.
                 _
-                (/.except ..cannot_infer_numeric_tag [expectedT tag valueC])))
+                (/.except ..cannot_infer_sum [expectedT lefts right? valueC])))
 
             (^template [<tag> <instancer>]
               [{<tag> _}
                (do !
-                 [[instance_id instanceT] (/type.check <instancer>)]
-                 (<| (/type.expecting (maybe.trusted (type.applied (list instanceT) expectedT)))
+                 [[@instance :instance:] (/type.check <instancer>)]
+                 (<| (/type.expecting (maybe.trusted (type.applied (list :instance:) expectedT)))
                      (again valueC)))])
             ([.#UnivQ check.existential]
              [.#ExQ check.var])
@@ -156,7 +154,7 @@
                       (again valueC))
 
                   _
-                  (/.except ..invalid_variant_type [expectedT tag valueC])))
+                  (/.except ..invalid_variant_type [expectedT lefts right? valueC])))
 
               _
               (case (type.applied (list inputT) funT)
@@ -165,110 +163,12 @@
                     (again valueC))
 
                 {.#None}
-                (/.except ..not_a_quantified_type funT)))
+                (/.except ..not_a_quantified_type [funT])))
             
             _
-            (/.except ..invalid_variant_type [expectedT tag valueC])))))))
+            (/.except ..invalid_variant_type [expectedT lefts right? valueC])))))))
 
-(def: (typed_product archive analyse members)
-  (-> Archive Phase (List Code) (Operation Analysis))
-  (do [! ///.monad]
-    [expectedT (///extension.lifted meta.expected_type)
-     membersA+ (: (Operation (List Analysis))
-                  (loop [membersT+ (type.flat_tuple expectedT)
-                         membersC+ members]
-                    (case [membersT+ membersC+]
-                      [{.#Item memberT {.#End}} {.#Item memberC {.#End}}]
-                      (do !
-                        [memberA (<| (/type.expecting memberT)
-                                     (analyse archive memberC))]
-                        (in (list memberA)))
-                      
-                      [{.#Item memberT {.#End}} _]
-                      (<| (/type.expecting memberT)
-                          (# ! each (|>> list) (analyse archive (code.tuple membersC+))))
-                      
-                      [_ {.#Item memberC {.#End}}]
-                      (<| (/type.expecting (type.tuple membersT+))
-                          (# ! each (|>> list) (analyse archive memberC)))
-                      
-                      [{.#Item memberT membersT+'} {.#Item memberC membersC+'}]
-                      (do !
-                        [memberA (<| (/type.expecting memberT)
-                                     (analyse archive memberC))
-                         memberA+ (again membersT+' membersC+')]
-                        (in {.#Item memberA memberA+}))
-                      
-                      _
-                      (/.except ..cannot_analyse_tuple [expectedT members]))))]
-    (in (/.tuple membersA+))))
-
-(def: .public (product archive analyse membersC)
-  (-> Archive Phase (List Code) (Operation Analysis))
-  (do [! ///.monad]
-    [expectedT (///extension.lifted meta.expected_type)]
-    (/.with_stack ..cannot_analyse_tuple [expectedT membersC]
-      (case expectedT
-        {.#Product _}
-        (..typed_product archive analyse membersC)
-
-        {.#Named name unnamedT}
-        (<| (/type.expecting unnamedT)
-            (product archive analyse membersC))
-
-        {.#Var id}
-        (do !
-          [?expectedT' (/type.check (check.peek id))]
-          (case ?expectedT'
-            {.#Some expectedT'}
-            (<| (/type.expecting expectedT')
-                (product archive analyse membersC))
-
-            _
-            ... Must do inference...
-            (do !
-              [membersTA (monad.each ! (|>> (analyse archive) /type.inferring)
-                                     membersC)
-               _ (/type.check (check.check expectedT
-                                           (type.tuple (list#each product.left membersTA))))]
-              (in (/.tuple (list#each product.right membersTA))))))
-
-        (^template [<tag> <instancer>]
-          [{<tag> _}
-           (do !
-             [[instance_id instanceT] (/type.check <instancer>)]
-             (<| (/type.expecting (maybe.trusted (type.applied (list instanceT) expectedT)))
-                 (product archive analyse membersC)))])
-        ([.#UnivQ check.existential]
-         [.#ExQ check.var])
-
-        {.#Apply inputT funT}
-        (case funT
-          {.#Var funT_id}
-          (do !
-            [?funT' (/type.check (check.peek funT_id))]
-            (case ?funT'
-              {.#Some funT'}
-              (<| (/type.expecting {.#Apply inputT funT'})
-                  (product archive analyse membersC))
-
-              _
-              (/.except ..invalid_tuple_type [expectedT membersC])))
-
-          _
-          (case (type.applied (list inputT) funT)
-            {.#Some outputT}
-            (<| (/type.expecting outputT)
-                (product archive analyse membersC))
-
-            {.#None}
-            (/.except ..not_a_quantified_type funT)))
-        
-        _
-        (/.except ..invalid_tuple_type [expectedT membersC])
-        ))))
-
-(def: .public (tagged_sum analyse tag archive valueC)
+(def: .public (variant analyse tag archive valueC)
   (-> Phase Symbol Phase)
   (do [! ///.monad]
     [tag (///extension.lifted (meta.normal tag))
@@ -286,6 +186,102 @@
       _
       (..sum analyse lefts right? archive valueC))))
 
+(def: (typed_product analyse expectedT archive members)
+  (-> Phase Type Archive (List Code) (Operation Analysis))
+  (<| (let [! ///.monad])
+      (# ! each (|>> /.tuple))
+      (: (Operation (List Analysis)))
+      (loop [membersT+ (type.flat_tuple expectedT)
+             membersC+ members]
+        (case [membersT+ membersC+]
+          [{.#Item memberT {.#End}} {.#Item memberC {.#End}}]
+          (<| (# ! each (|>> list))
+              (/type.expecting memberT)
+              (analyse archive memberC))
+          
+          [{.#Item memberT {.#End}} _]
+          (<| (/type.expecting memberT)
+              (# ! each (|>> list) (analyse archive (code.tuple membersC+))))
+          
+          [_ {.#Item memberC {.#End}}]
+          (<| (/type.expecting (type.tuple membersT+))
+              (# ! each (|>> list) (analyse archive memberC)))
+          
+          [{.#Item memberT membersT+'} {.#Item memberC membersC+'}]
+          (do !
+            [memberA (<| (/type.expecting memberT)
+                         (analyse archive memberC))
+             memberA+ (again membersT+' membersC+')]
+            (in {.#Item memberA memberA+}))
+          
+          _
+          (/.except ..cannot_analyse_tuple [expectedT members])))))
+
+(def: .public (product analyse archive membersC)
+  (-> Phase Archive (List Code) (Operation Analysis))
+  (do [! ///.monad]
+    [expectedT (///extension.lifted meta.expected_type)]
+    (/.with_stack ..cannot_analyse_tuple [expectedT membersC]
+      (case expectedT
+        {.#Product _}
+        (..typed_product analyse expectedT archive membersC)
+
+        {.#Named name unnamedT}
+        (<| (/type.expecting unnamedT)
+            (product analyse archive membersC))
+
+        {.#Var id}
+        (do !
+          [?expectedT' (/type.check (check.peek id))]
+          (case ?expectedT'
+            {.#Some expectedT'}
+            (<| (/type.expecting expectedT')
+                (product analyse archive membersC))
+
+            _
+            ... Must infer...
+            (do !
+              [membersTA (monad.each ! (|>> (analyse archive) /type.inferring)
+                                     membersC)
+               _ (/type.check (check.check expectedT
+                                           (type.tuple (list#each product.left membersTA))))]
+              (in (/.tuple (list#each product.right membersTA))))))
+
+        (^template [<tag> <instancer>]
+          [{<tag> _}
+           (do !
+             [[@instance :instance:] (/type.check <instancer>)]
+             (<| (/type.expecting (maybe.trusted (type.applied (list :instance:) expectedT)))
+                 (product analyse archive membersC)))])
+        ([.#UnivQ check.existential]
+         [.#ExQ check.var])
+
+        {.#Apply inputT funT}
+        (case funT
+          {.#Var funT_id}
+          (do !
+            [?funT' (/type.check (check.peek funT_id))]
+            (case ?funT'
+              {.#Some funT'}
+              (<| (/type.expecting {.#Apply inputT funT'})
+                  (product analyse archive membersC))
+
+              _
+              (/.except ..invalid_tuple_type [expectedT membersC])))
+
+          _
+          (case (type.applied (list inputT) funT)
+            {.#Some outputT}
+            (<| (/type.expecting outputT)
+                (product analyse archive membersC))
+
+            {.#None}
+            (/.except ..not_a_quantified_type funT)))
+        
+        _
+        (/.except ..invalid_tuple_type [expectedT membersC])
+        ))))
+
 ... There cannot be any ambiguity or improper syntax when analysing
 ... records, so they must be normalized for further analysis.
 ... Normalization just means that all the tags get resolved to their
@@ -302,10 +298,10 @@
         (again tail {.#Item [slotH valueH] output}))
 
       {.#End}
-      (# ///.monad in {.#Some output})
+      (///#in {.#Some output})
 
       _
-      (# ///.monad in {.#None}))))
+      (///#in {.#None}))))
 
 (def: (local_binding? name)
   (-> Text (Meta Bit))
@@ -361,25 +357,25 @@
   (case record
     ... empty_record = empty_tuple = unit/any = []
     {.#End}
-    (# ///.monad in {.#Some [0 (list) Any]})
+    (///#in {.#Some [0 (list) .Any]})
 
     {.#Item [head_k head_v] _}
     (case head_k
       ["" head_k']
       (if pattern_matching?
-        (# ///.monad in {.#None})
+        (///#in {.#None})
         (do ///.monad
           [local_binding? (///extension.lifted
-                           (local_binding? head_k'))]
+                           (..local_binding? head_k'))]
           (if local_binding?
-            (order' head_k record)
-            (in {.#None}))))
+            (in {.#None})
+            (order' head_k record))))
       
       _
       (order' head_k record))))
 
-(def: .public (record archive analyse members)
-  (-> Archive Phase (List Code) (Operation Analysis))
+(def: .public (record analyse archive members)
+  (-> Phase Archive (List Code) (Operation Analysis))
   (case members
     (^ (list))
     //simple.unit
@@ -395,24 +391,24 @@
         {try.#Success [_ slot_set recordT]}
         (case (list.size slot_set)
           1 (analyse archive singletonC)
-          _ (..product archive analyse members))
+          _ (..product analyse archive members))
 
         _
-        (..product archive analyse members)))
+        (..product analyse archive members)))
 
     _
     (do [! ///.monad]
       [?members (normal members)]
       (case ?members
         {.#None}
-        (..product archive analyse members)
+        (..product analyse archive members)
 
         {.#Some slots}
         (do !
           [record_size,membersC,recordT (..order false slots)]
           (case record_size,membersC,recordT
             {.#None}
-            (..product archive analyse members)
+            (..product analyse archive members)
 
             {.#Some [record_size membersC recordT]}
             (do !
@@ -425,4 +421,4 @@
                   (in (/.tuple membersA)))
 
                 _
-                (..product archive analyse membersC)))))))))
+                (..product analyse archive membersC)))))))))

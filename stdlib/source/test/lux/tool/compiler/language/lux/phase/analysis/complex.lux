@@ -1,0 +1,650 @@
+(.using
+ [library
+  [lux "*"
+   ["_" test {"+" Test}]
+   [abstract
+    [monad {"+" do}]]
+   [control
+    [pipe {"+" case>}]
+    ["[0]" maybe ("[1]#[0]" functor)]
+    ["[0]" try {"+" Try} ("[1]#[0]" functor)]
+    ["[0]" exception {"+" Exception}]]
+   [data
+    ["[0]" product]
+    ["[0]" bit ("[1]#[0]" equivalence)]
+    ["[0]" text
+     ["%" format {"+" format}]]
+    [collection
+     ["[0]" list ("[1]#[0]" monad monoid)]
+     ["[0]" set]]]
+   [macro
+    ["[0]" code]]
+   [math
+    ["[0]" random {"+" Random} ("[1]#[0]" monad)]
+    [number
+     ["n" nat]
+     ["f" frac]]]
+   [meta
+    ["[0]" symbol
+     ["$[1]" \\test]]]
+   ["[0]" type ("[1]#[0]" equivalence)
+    ["[0]" check]]]]
+ [\\library
+  ["[0]" /
+   ["/[1]" //
+    [//
+     ["[1][0]" extension
+      ["[1]/[0]" analysis "_"
+       ["[1]" lux]]]
+     [//
+      ["[1][0]" analysis {"+" Analysis}
+       [evaluation {"+" Eval}]
+       ["[2][0]" macro]
+       ["[2][0]" type]
+       ["[2][0]" module]
+       ["[2][0]" complex]]
+      [///
+       ["[1][0]" phase ("[1]#[0]" monad)]
+       [meta
+        ["[0]" archive]]]]]]]])
+
+(def: (eval archive type term)
+  Eval
+  (//phase#in []))
+
+(def: (expander macro inputs state)
+  //macro.Expander
+  {try.#Success ((.macro macro) inputs state)})
+
+(def: random_state
+  (Random Lux)
+  (do random.monad
+    [version random.nat
+     host (random.ascii/lower 1)]
+    (in (//analysis.state (//analysis.info version host)))))
+
+(def: primitive
+  (Random Type)
+  (do random.monad
+    [name (random.ascii/lower 1)]
+    (in {.#Primitive name (list)})))
+
+(def: analysis
+  //analysis.Phase
+  (//.phase ..expander))
+
+(def: (failure? exception try)
+  (All (_ e a) (-> (Exception e) (Try a) Bit))
+  (case try
+    {try.#Success _}
+    false
+    
+    {try.#Failure error}
+    (text.contains? (value@ exception.#label exception) error)))
+
+(def: simple_parameter
+  (Random [Type Code])
+  (`` ($_ random.either
+          (~~ (template [<type> <random> <code>]
+                [(random#each (|>> <code> [<type>]) <random>)]
+
+                [.Bit random.bit code.bit]
+                [.Nat random.nat code.nat]
+                [.Int random.int code.int]
+                [.Rev random.rev code.rev]
+                [.Frac (random.only (|>> f.not_a_number? not) random.frac) code.frac]
+                [.Text (random.ascii/lower 1) code.text]
+                ))
+          )))
+
+(def: (analysed? expected actual)
+  (-> Code Analysis Bit)
+  (case [expected actual]
+    (^ [[_ {.#Tuple (list)}] (//analysis.unit)])
+    true
+
+    (^ [[_ {.#Tuple expected}] (//analysis.tuple actual)])
+    (and (n.= (list.size expected)
+              (list.size actual))
+         (list.every? (function (_ [expected actual])
+                        (analysed? expected actual))
+                      (list.zipped/2 expected actual)))
+    
+    (^template [<expected> <actual>]
+      [(^ [[_ {<expected> expected}] (<actual> actual)])
+       (same? expected actual)])
+    ([.#Bit //analysis.bit]
+     [.#Nat //analysis.nat]
+     [.#Int //analysis.int]
+     [.#Rev //analysis.rev]
+     [.#Frac //analysis.frac]
+     [.#Text //analysis.text])
+
+    _
+    false))
+
+(def: test|sum
+  (do [! random.monad]
+    [lux ..random_state
+     .let [state [//extension.#bundle (//extension/analysis.bundle ..eval)
+                  //extension.#state lux]]
+     name ($symbol.random 1 1)
+     arity (# ! each (|>> (n.% 5) (n.+ 2)) random.nat)
+     types/*,terms/* (random.list arity ..simple_parameter)
+     tag (# ! each (n.% arity) random.nat)
+     .let [[lefts right?] (//complex.choice arity tag)
+           [tagT tagC] (|> types/*,terms/*
+                           (list.item tag)
+                           (maybe.else [Any (' [])]))]]
+    ($_ _.and
+        (_.cover [/.sum]
+                 (let [variantT (type.variant (list#each product.left types/*,terms/*))
+                       sum? (: (-> Type Nat Bit Code Bit)
+                               (function (_ type lefts right? code)
+                                 (|> (do //phase.monad
+                                       [analysis (|> (/.sum ..analysis lefts right? archive.empty code)
+                                                     (//type.expecting type))]
+                                       (in (case analysis
+                                             (^ (//analysis.variant [lefts' right?' analysis]))
+                                             (and (n.= lefts lefts')
+                                                  (bit#= right? right?')
+                                                  (..analysed? code analysis))
+
+                                             _
+                                             false)))
+                                     (//module.with_module 0 (product.left name))
+                                     (//phase#each product.right)
+                                     (//phase.result state)
+                                     (try.else false))))]
+                   (and (sum? variantT lefts right? tagC)
+                        (sum? {.#Named name variantT} lefts right? tagC)
+                        (|> (do //phase.monad
+                              [[@var varT] (//type.check check.var)
+                               _ (//type.check (check.check varT variantT))
+                               analysis (|> (/.sum ..analysis lefts right? archive.empty tagC)
+                                            (//type.expecting varT))]
+                              (in (case analysis
+                                    (^ (//analysis.variant [lefts' right?' it]))
+                                    (and (n.= lefts lefts')
+                                         (bit#= right? right?')
+                                         (..analysed? tagC it))
+
+                                    _
+                                    false)))
+                            (//module.with_module 0 (product.left name))
+                            (//phase#each product.right)
+                            (//phase.result state)
+                            (try.else false))
+                        (and (sum? (type (Maybe tagT)) 0 #0 (` []))
+                             (sum? (type (Maybe tagT)) 0 #1 tagC))
+                        (and (sum? (type (All (_ a) (Maybe a))) 0 #0 (` []))
+                             (not (sum? (type (All (_ a) (Maybe a))) 0 #1 tagC)))
+                        (and (sum? (type (Ex (_ a) (Maybe a))) 0 #0 (` []))
+                             (sum? (type (Ex (_ a) (Maybe a))) 0 #1 tagC)))))
+        (_.for [/.cannot_analyse_variant]
+               (let [failure? (: (All (_ a) (-> (Exception a) (//analysis.Operation Any) Bit))
+                                 (function (_ exception analysis)
+                                   (let [it (//phase.result state analysis)]
+                                     (and (..failure? /.cannot_analyse_variant it)
+                                          (..failure? exception it)))))]
+                 ($_ _.and
+                     (_.cover [/.invalid_variant_type]
+                              (and (|> (/.sum ..analysis lefts right? archive.empty tagC)
+                                       (//type.expecting tagT)
+                                       (failure? /.invalid_variant_type))
+                                   (|> (do //phase.monad
+                                         [[@var varT] (//type.check check.var)]
+                                         (|> (/.sum ..analysis lefts right? archive.empty tagC)
+                                             (//type.expecting (type (varT tagT)))))
+                                       (failure? /.invalid_variant_type))))
+                     (_.cover [/.cannot_infer_sum]
+                              (|> (do //phase.monad
+                                    [[@var varT] (//type.check check.var)]
+                                    (|> (/.sum ..analysis lefts right? archive.empty tagC)
+                                        (//type.expecting varT)))
+                                  (failure? /.cannot_infer_sum)))
+                     )))
+        )))
+
+(def: test|variant
+  (do [! random.monad]
+    [lux ..random_state
+     .let [state [//extension.#bundle (//extension/analysis.bundle ..eval)
+                  //extension.#state lux]]
+     name ($symbol.random 1 1)
+     arity (# ! each (|>> (n.% 5) (n.+ 2)) random.nat)
+     types/*,terms/* (random.list arity ..simple_parameter)
+     tag (# ! each (n.% arity) random.nat)
+     .let [[lefts right?] (//complex.choice arity tag)]
+     tags (|> (random.ascii/lower 1)
+              (random.set text.hash arity)
+              (# ! each set.list))
+     .let [module (product.left name)
+           sumT (type.variant (list#each product.left types/*,terms/*))
+           variantT {.#Named name sumT}
+           [tagT tagC] (|> types/*,terms/*
+                           (list.item tag)
+                           (maybe.else [Any (' [])]))
+           tag (|> tags
+                   (list.item tag)
+                   (maybe.else ""))]]
+    ($_ _.and
+        ..test|sum
+        (_.cover [/.variant]
+                 (let [expected_variant? (: (-> Symbol Bit)
+                                            (function (_ tag)
+                                              (|> (do //phase.monad
+                                                    [_ (//module.declare_labels false tags false variantT)
+                                                     analysis (|> (/.variant ..analysis tag archive.empty tagC)
+                                                                  (//type.expecting variantT))]
+                                                    (in (case analysis
+                                                          (^ (//analysis.variant [lefts' right?' analysis]))
+                                                          (and (n.= lefts lefts')
+                                                               (bit#= right? right?')
+                                                               (..analysed? tagC analysis))
+
+                                                          _
+                                                          false)))
+                                                  (//module.with_module 0 module)
+                                                  (//phase#each product.right)
+                                                  (//phase.result state)
+                                                  (try.else false))))
+                       inferred_variant? (: (-> Symbol Bit)
+                                            (function (_ tag)
+                                              (|> (do //phase.monad
+                                                    [_ (//module.declare_labels false tags false variantT)
+                                                     [actualT analysis] (|> (/.variant ..analysis tag archive.empty tagC)
+                                                                            //type.inferring)]
+                                                    (in (case analysis
+                                                          (^ (//analysis.variant [lefts' right?' analysis]))
+                                                          (and (n.= lefts lefts')
+                                                               (bit#= right? right?')
+                                                               (..analysed? tagC analysis)
+                                                               (type#= variantT actualT))
+
+                                                          _
+                                                          false)))
+                                                  (//module.with_module 0 module)
+                                                  (//phase#each product.right)
+                                                  (//phase.result state)
+                                                  (try.else false))))]
+                   (and (expected_variant? [module tag])
+                        (expected_variant? ["" tag])
+                        (inferred_variant? [module tag])
+                        (inferred_variant? ["" tag])
+
+                        ... TODO: Test what happens when tags are shadowed by local bindings.
+                        )))
+        )))
+
+(type: (Triple a)
+  [a a a])
+
+(def: test|product
+  (do [! random.monad]
+    [lux ..random_state
+     .let [state [//extension.#bundle (//extension/analysis.bundle ..eval)
+                  //extension.#state lux]]
+     name ($symbol.random 1 1)
+     arity (# ! each (|>> (n.% 5) (n.+ 2)) random.nat)
+     types/*,terms/* (random.list arity ..simple_parameter)
+     [type/0 term/0] ..simple_parameter
+     [type/1 term/1] ..simple_parameter
+     [type/2 term/2] ..simple_parameter
+     .let [module (product.left name)
+           productT (type.tuple (list#each product.left types/*,terms/*))
+           expected (list#each product.right types/*,terms/*)]]
+    ($_ _.and
+        (_.cover [/.product]
+                 (let [product? (: (-> Type (List Code) Bit)
+                                   (function (_ type expected)
+                                     (|> (do //phase.monad
+                                           [analysis (|> expected
+                                                         (/.product ..analysis archive.empty)
+                                                         (//type.expecting type))]
+                                           (in (case analysis
+                                                 (^ (//analysis.tuple actual))
+                                                 (and (n.= (list.size expected)
+                                                           (list.size actual))
+                                                      (list.every? (function (_ [expected actual])
+                                                                     (..analysed? expected actual))
+                                                                   (list.zipped/2 expected actual)))
+
+                                                 _
+                                                 false)))
+                                         (//module.with_module 0 module)
+                                         (//phase#each product.right)
+                                         (//phase.result state)
+                                         (try.else false))))]
+                   (and (product? productT expected)
+                        (product? {.#Named name productT} expected)
+                        (product? (type (Ex (_ a) [a a])) (list term/0 term/0))
+                        (not (product? (type (All (_ a) [a a])) (list term/0 term/0)))
+                        (product? (type (Triple type/0)) (list term/0 term/0 term/0))
+                        (|> (do //phase.monad
+                              [[@var varT] (//type.check check.var)
+                               _ (//type.check (check.check varT productT))
+                               analysis (|> expected
+                                            (/.product ..analysis archive.empty)
+                                            (//type.expecting varT))]
+                              (in (case analysis
+                                    (^ (//analysis.tuple actual))
+                                    (and (n.= (list.size expected)
+                                              (list.size actual))
+                                         (list.every? (function (_ [expected actual])
+                                                        (..analysed? expected actual))
+                                                      (list.zipped/2 expected actual)))
+
+                                    _
+                                    false)))
+                            (//module.with_module 0 module)
+                            (//phase#each product.right)
+                            (//phase.result state)
+                            (try.else false))
+                        (|> (do //phase.monad
+                              [[:inferred: analysis] (|> expected
+                                                         (/.product ..analysis archive.empty)
+                                                         //type.inferring)]
+                              (in (case analysis
+                                    (^ (//analysis.tuple actual))
+                                    (and (n.= (list.size expected)
+                                              (list.size actual))
+                                         (list.every? (function (_ [expected actual])
+                                                        (..analysed? expected actual))
+                                                      (list.zipped/2 expected actual))
+                                         (type#= productT :inferred:))
+
+                                    _
+                                    false)))
+                            (//module.with_module 0 module)
+                            (//phase#each product.right)
+                            (//phase.result state)
+                            (try.else false))
+                        (|> (do [! //phase.monad]
+                              [[@var varT] (//type.check check.var)
+                               [:inferred: analysis] (//type.inferring
+                                                      (do !
+                                                        [_ (//type.inference (Tuple type/0 type/1 varT))]
+                                                        (/.product ..analysis archive.empty
+                                                                   (list term/0 term/1 term/2 term/2 term/2))))]
+                              (in (case analysis
+                                    (^ (//analysis.tuple (list analysis/0 analysis/1 (//analysis.tuple (list analysis/2 analysis/3 analysis/4)))))
+                                    (and (type#= (Tuple type/0 type/1 type/2 type/2 type/2)
+                                                 :inferred:)
+                                         (..analysed? term/0 analysis/0)
+                                         (..analysed? term/1 analysis/1)
+                                         (..analysed? term/2 analysis/2)
+                                         (..analysed? term/2 analysis/3)
+                                         (..analysed? term/2 analysis/4))
+
+                                    _
+                                    false)))
+                            (//module.with_module 0 module)
+                            (//phase#each product.right)
+                            (//phase.result state)
+                            (try.else false))
+                        (|> (do [! //phase.monad]
+                              [analysis (|> (list term/0 term/1 (code.tuple (list term/2 term/2 term/2)))
+                                            (/.product ..analysis archive.empty)
+                                            (//type.expecting (Tuple type/0 type/1 type/2 type/2 type/2)))]
+                              (in (case analysis
+                                    (^ (//analysis.tuple (list analysis/0 analysis/1 (//analysis.tuple (list analysis/2 analysis/3 analysis/4)))))
+                                    (and (..analysed? term/0 analysis/0)
+                                         (..analysed? term/1 analysis/1)
+                                         (..analysed? term/2 analysis/2)
+                                         (..analysed? term/2 analysis/3)
+                                         (..analysed? term/2 analysis/4))
+
+                                    _
+                                    false)))
+                            (//module.with_module 0 module)
+                            (//phase#each product.right)
+                            (//phase.result state)
+                            (try.else false)))))
+        (_.for [/.cannot_analyse_tuple]
+               (_.cover [/.invalid_tuple_type]
+                        (let [failure? (: (All (_ a) (-> (Exception a) (//analysis.Operation Any) Bit))
+                                          (function (_ exception operation)
+                                            (let [it (//phase.result state operation)]
+                                              (and (..failure? /.cannot_analyse_tuple it)
+                                                   (..failure? exception it)))))]
+                          (and (|> expected
+                                   (/.product ..analysis archive.empty)
+                                   (//type.expecting (|> types/*,terms/*
+                                                         list.head
+                                                         (maybe#each product.left)
+                                                         (maybe.else .Any)))
+                                   (failure? /.invalid_tuple_type))
+                               (|> (do //phase.monad
+                                     [[@var varT] (//type.check check.var)]
+                                     (|> expected
+                                         (/.product ..analysis archive.empty)
+                                         (//type.expecting (type (varT type/0)))))
+                                   (failure? /.invalid_tuple_type))))))
+        )))
+
+(def: test|record
+  (do [! random.monad]
+    [lux ..random_state
+     .let [state [//extension.#bundle (//extension/analysis.bundle ..eval)
+                  //extension.#state lux]]
+     name ($symbol.random 1 1)
+     arity (# ! each (|>> (n.% 5) (n.+ 2)) random.nat)
+     slice (# ! each (|>> (n.% (-- arity)) ++) random.nat)
+     [type/0 term/0] ..simple_parameter
+     slot/0 (random.ascii/lower 1)
+     types/*,terms/* (random.list arity ..simple_parameter)
+     slots/0 (|> (random.ascii/lower 1)
+                 (random.set text.hash arity))
+     slots/1 (|> (random.ascii/lower 1)
+                 (random.only (|>> (set.member? slots/0) not))
+                 (random.set text.hash arity))
+     .let [slots/0 (set.list slots/0)
+           slots/1 (set.list slots/1)
+           module (product.left name)
+           :record: {.#Named name (type.tuple (list#each product.left types/*,terms/*))}
+           tuple (list#each product.right types/*,terms/*)
+           local_record (|> tuple
+                            (list.zipped/2 (list#each (|>> [""] code.symbol) slots/0))
+                            (list#each (function (_ [slot value])
+                                         (list slot value)))
+                            list#conjoint)
+           global_record (|> tuple
+                             (list.zipped/2 (list#each (|>> [module] code.symbol) slots/0))
+                             (list#each (function (_ [slot value])
+                                          (list slot value)))
+                             list#conjoint)
+           expected_record (list.zipped/2 (list#each (|>> [module]) slots/0)
+                                          tuple)
+           head_slot/0 (|> slots/0 list.head maybe.trusted)
+           head_term/0 (|> types/*,terms/* list.head maybe.trusted product.right)
+           head_slot/1 (|> slots/1 list.head maybe.trusted)
+           slots/01 (case slots/1
+                      {.#Item _ tail}
+                      {.#Item head_slot/0 tail}
+
+                      _
+                      slots/0)]]
+    ($_ _.and
+        (_.cover [/.normal]
+                 (let [normal? (: (-> (List [Symbol Code]) (List Code) Bit)
+                                  (function (_ expected input)
+                                    (|> (do //phase.monad
+                                          [_ (//module.declare_labels true slots/0 false :record:)]
+                                          (/.normal input))
+                                        (//module.with_module 0 module)
+                                        (//phase#each product.right)
+                                        (//phase.result state)
+                                        (case> {try.#Success {.#Some actual}}
+                                               (let [(^open "list#[0]") (list.equivalence (product.equivalence symbol.equivalence code.equivalence))]
+                                                 (list#= expected (list.reversed actual)))
+                                               
+                                               _
+                                               false))))]
+                   (and (normal? (list) (list))
+                        (normal? expected_record global_record)
+                        (normal? expected_record local_record)
+                        (|> (/.normal tuple)
+                            (//phase.result state)
+                            (case> {try.#Success {.#None}}
+                                   true
+                        
+                                   _
+                                   false)))))
+        (_.cover [/.order]
+                 (let [local_record (list.zipped/2 (list#each (|>> [""]) slots/0) tuple)
+                       global_record (list.zipped/2 (list#each (|>> [module]) slots/0) tuple)
+                       ordered? (: (-> Bit (List [Symbol Code]) Bit)
+                                   (function (_ pattern_matching? input)
+                                     (|> (do //phase.monad
+                                           [_ (//module.declare_labels true slots/0 false :record:)]
+                                           (/.order pattern_matching? input))
+                                         //analysis.with_scope
+                                         (//module.with_module 0 module)
+                                         (//phase#each (|>> product.right product.right))
+                                         (//phase.result state)
+                                         (case> {try.#Success {.#Some [actual_arity actual_tuple actual_type]}}
+                                                (and (n.= arity actual_arity)
+                                                     (# code.equivalence = (code.tuple tuple) (code.tuple actual_tuple))
+                                                     (type#= :record: actual_type))
+
+                                                _
+                                                false))))
+                       unit? (: (-> Bit Bit)
+                                (function (_ pattern_matching?)
+                                  (|> (/.order false (list))
+                                      (//phase.result state)
+                                      (case> (^ {try.#Success {.#Some [0 (list) actual_type]}})
+                                             (same? .Any actual_type)
+
+                                             _
+                                             false))))]
+                   (and (ordered? false global_record)
+                        (ordered? false (list.reversed global_record))
+                        (ordered? false local_record)
+                        (ordered? false (list.reversed local_record))
+
+                        (ordered? true global_record)
+                        (ordered? true (list.reversed global_record))
+                        (not (ordered? true local_record))
+                        (not (ordered? true (list.reversed local_record)))
+
+                        (unit? false)
+                        (unit? true)
+
+                        ... TODO: Test what happens when slots are shadowed by local bindings.
+                        )))
+        (_.cover [/.cannot_repeat_slot]
+                 (let [repeated? (: (-> Bit Bit)
+                                    (function (_ pattern_matching?)
+                                      (|> (do //phase.monad
+                                            [_ (//module.declare_labels true slots/0 false :record:)]
+                                            (/.order pattern_matching? (list.repeated arity [[module head_slot/0] head_term/0])))
+                                          (//module.with_module 0 module)
+                                          (//phase#each product.right)
+                                          (//phase.result state)
+                                          (..failure? /.cannot_repeat_slot))))]
+                   (and (repeated? false)
+                        (repeated? true))))
+        (_.cover [/.record_size_mismatch]
+                 (let [local_record (list.zipped/2 (list#each (|>> [""]) slots/0) tuple)
+                       global_record (list.zipped/2 (list#each (|>> [module]) slots/0) tuple)
+                       mismatched? (: (-> Bit (List [Symbol Code]) Bit)
+                                      (function (_ pattern_matching? input)
+                                        (|> (do //phase.monad
+                                              [_ (//module.declare_labels true slots/0 false :record:)]
+                                              (/.order pattern_matching? input))
+                                            //analysis.with_scope
+                                            (//module.with_module 0 module)
+                                            (//phase.result state)
+                                            (..failure? /.record_size_mismatch))))]
+                   (and (mismatched? false (list.first slice local_record))
+                        (mismatched? false (list#composite local_record (list.first slice local_record)))
+
+                        (mismatched? false (list.first slice global_record))
+                        (mismatched? true (list.first slice global_record))
+                        (mismatched? false (list#composite global_record (list.first slice global_record)))
+                        (mismatched? true (list#composite global_record (list.first slice global_record))))))
+        (_.cover [/.slot_does_not_belong_to_record]
+                 (let [local_record (list.zipped/2 (list#each (|>> [""]) slots/01) tuple)
+                       global_record (list.zipped/2 (list#each (|>> [module]) slots/01) tuple)
+                       mismatched? (: (-> Bit (List [Symbol Code]) Bit)
+                                      (function (_ pattern_matching? input)
+                                        (|> (do //phase.monad
+                                              [_ (//module.declare_labels true slots/0 false :record:)
+                                               _ (//module.declare_labels true slots/1 false :record:)]
+                                              (/.order pattern_matching? input))
+                                            //analysis.with_scope
+                                            (//module.with_module 0 module)
+                                            (//phase.result state)
+                                            (..failure? /.slot_does_not_belong_to_record))))]
+                   (and (mismatched? false local_record)
+
+                        (mismatched? false global_record)
+                        (mismatched? true global_record))))
+        (_.cover [/.record]
+                 (let [record? (: (-> Type (List Text) (List Code) Code Bit)
+                                  (function (_ type slots tuple expected)
+                                    (|> (do //phase.monad
+                                          [_ (//module.declare_labels true slots false type)]
+                                          (/.record ..analysis archive.empty tuple))
+                                        (//type.expecting type)
+                                        //analysis.with_scope
+                                        (//module.with_module 0 module)
+                                        (//phase#each (|>> product.right product.right))
+                                        (//phase.result state)
+                                        (try#each (analysed? expected))
+                                        (try.else false))))
+                       inferred? (: (-> (List Code) Bit)
+                                    (function (_ record)
+                                      (|> (do //phase.monad
+                                            [_ (//module.declare_labels true slots/0 false :record:)]
+                                            (//type.inferring
+                                             (/.record ..analysis archive.empty record)))
+                                          //analysis.with_scope
+                                          (//module.with_module 0 module)
+                                          (//phase#each (|>> product.right product.right))
+                                          (//phase.result state)
+                                          (try#each (function (_ [actual_type actual_term])
+                                                      (and (same? :record: actual_type)
+                                                           (analysed? (code.tuple tuple) actual_term))))
+                                          (try.else false))))]
+                   (and (record? {.#Named name .Any} (list) (list) (' []))
+                        (record? {.#Named name type/0} (list) (list term/0) term/0)
+                        (record? {.#Named name type/0} (list slot/0) (list term/0) term/0)
+                        (record? :record: slots/0 tuple (code.tuple tuple))
+                        (record? :record: slots/0 local_record (code.tuple tuple))
+                        (record? :record: slots/0 global_record (code.tuple tuple))
+                        (inferred? local_record)
+                        (inferred? global_record))))
+        )))
+
+(def: .public test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [lux ..random_state
+         .let [state [//extension.#bundle (//extension/analysis.bundle ..eval)
+                      //extension.#state lux]]
+         arity (# ! each (|>> (n.% 5) (n.+ 2)) random.nat)
+         types/*,terms/* (random.list arity ..simple_parameter)
+         [type/0 term/0] ..simple_parameter
+         [type/1 term/1] ..simple_parameter
+         tag (# ! each (n.% arity) random.nat)
+         .let [[lefts right?] (//complex.choice arity tag)]]
+        ($_ _.and
+            ..test|sum
+            ..test|variant
+            ..test|product
+            ..test|record
+            (_.cover [/.not_a_quantified_type]
+                     (and (|> (/.sum ..analysis lefts right? archive.empty term/0)
+                              (//type.expecting (type (type/0 type/1)))
+                              (//phase.result state)
+                              (..failure? /.not_a_quantified_type))
+                          (|> types/*,terms/*
+                              (list#each product.right)
+                              (/.product ..analysis archive.empty)
+                              (//type.expecting (type (type/0 type/1)))
+                              (//phase.result state)
+                              (..failure? /.not_a_quantified_type))))
+            ))))
