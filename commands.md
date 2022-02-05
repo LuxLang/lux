@@ -47,8 +47,6 @@ cd ~/lux/lux-lein/ \
 
 ---
 
-[Patron License](https://github.com/licensezero/patron-license)
-
 [Deploy Clojure Projects to Maven Central with Leiningen](https://kpow.io/how-to/deploy-clojure-projects-to-maven-central/)
 [How to Generate PGP Signatures with Maven](https://blog.sonatype.com/2010/01/how-to-generate-pgp-signatures-with-maven/)
 https://central.sonatype.org/publish/requirements/gpg/
