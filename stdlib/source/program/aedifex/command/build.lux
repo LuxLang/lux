@@ -1,6 +1,6 @@
 (.using
  [library
-  [lux "*"
+  [lux {"-" Lux}
    ["[0]" ffi {"+" import:}]
    [abstract
     [order {"+" Order}]
@@ -20,12 +20,13 @@
      ["[0]" dictionary {"+" Dictionary}]
      ["[0]" set]]]
    [math
-    [number
+    [number {"+" hex}
      ["n" nat]
      ["i" int]]]
    [tool
     [compiler
      [meta
+      ["[0]" cli]
       ["[0]" packager
        ["[0]_[1]" ruby]]]]]
    [world
@@ -68,17 +69,17 @@
      Name
      <dependency>)]
 
-  ["lux-jvm" jvm_compiler_name]
-  ["lux-js" js_compiler_name]
-  ["lux-python" python_compiler_name]
-  ["lux-lua" lua_compiler_name]
-  ["lux-ruby" ruby_compiler_name]
+  ["lux-jvm" jvm_lux_name]
+  ["lux-js" js_lux_name]
+  ["lux-python" python_lux_name]
+  ["lux-lua" lua_lux_name]
+  ["lux-ruby" ruby_lux_name]
   )
 
-(exception: .public no_available_compiler)
+(exception: .public no_available_lux)
 (exception: .public no_specified_program)
 
-(type: .public Compiler
+(type: .public Lux
   (Variant
    {#JVM Dependency}
    {#JS Dependency}
@@ -92,27 +93,27 @@
        (list.only (|>> product.left (same? dependency) not))
        (dictionary.of_list ///dependency.hash)))
 
-(def: (compiler resolution compiler_dependency)
-  (-> Resolution Dependency (Try [Resolution Compiler]))
-  (let [[[compiler_group compiler_name compiler_version] compiler_type] compiler_dependency]
-    (case (..dependency_finder compiler_group compiler_name resolution)
+(def: (lux resolution lux_dependency)
+  (-> Resolution Dependency (Try [Resolution Lux]))
+  (let [[[lux_group lux_name lux_version] lux_type] lux_dependency]
+    (case (..dependency_finder lux_group lux_name resolution)
       {.#Some dependency}
-      (case compiler_name
+      (case lux_name
         (^template [<tag> <name>]
           [(^ (static <name>))
            {try.#Success [(..remove_dependency dependency resolution)
                           {<tag> dependency}]}])
-        ([#JVM ..jvm_compiler_name]
-         [#JS ..js_compiler_name]
-         [#Python ..python_compiler_name]
-         [#Lua ..lua_compiler_name]
-         [#Ruby ..ruby_compiler_name])
+        ([#JVM ..jvm_lux_name]
+         [#JS ..js_lux_name]
+         [#Python ..python_lux_name]
+         [#Lua ..lua_lux_name]
+         [#Ruby ..ruby_lux_name])
         
         _
-        (exception.except ..no_available_compiler []))
+        (exception.except ..no_available_lux []))
       
       _
-      (exception.except ..no_available_compiler []))))
+      (exception.except ..no_available_lux []))))
 
 (def: (path fs home dependency)
   (All (_ !) (-> (file.System !) Path Dependency Path))
@@ -266,7 +267,7 @@
               runtime)))
 
 (def: .public (do! console program fs shell resolution)
-  (-> (Console Async) (Program Async) (file.System Async) (Shell Async) Resolution (Command [Exit Compiler Path]))
+  (-> (Console Async) (Program Async) (file.System Async) (Shell Async) Resolution (Command [Exit Lux Path]))
   (function (_ profile)
     (let [target (value@ ///.#target profile)]
       (case (value@ ///.#program profile)
@@ -279,32 +280,33 @@
            .let [home (# program home)
                  working_directory (# program directory)]]
           (do ///action.monad
-            [[resolution compiler] (async#in (..compiler resolution (value@ ///.#compiler profile)))
+            [[resolution lux] (async#in (..lux resolution (value@ ///.#lux profile)))
              .let [host_dependencies (..host_dependencies fs home resolution)
-                   [[command compiler_params] output] (case compiler
-                                                        {#JVM dependency}
-                                                        [(|> (value@ ///.#java profile)
-                                                             (with@ ///runtime.#parameters (list "program._"))
-                                                             (with_jvm_class_path {.#Item (..path fs home dependency) host_dependencies}))
-                                                         "program.jar"]
-                                                        
-                                                        (^template [<tag> <runtime> <program>]
-                                                          [{<tag> dependency}
-                                                           [(|> dependency
-                                                                (..path fs home)
-                                                                (///runtime.for (value@ <runtime> profile)))
-                                                            <program>]])
-                                                        ([#JS ///.#js "program.js"]
-                                                         [#Python ///.#java "program.py"]
-                                                         [#Lua ///.#java "program.lua"]
-                                                         [#Ruby ///.#java (file.rooted fs "program" ruby_packager.main_file)]))
+                   [[command lux_params] output] (case lux
+                                                   {#JVM dependency}
+                                                   [(|> (value@ ///.#java profile)
+                                                        (with@ ///runtime.#parameters (list "program._"))
+                                                        (with_jvm_class_path {.#Item (..path fs home dependency) host_dependencies}))
+                                                    "program.jar"]
+                                                   
+                                                   (^template [<tag> <runtime> <program>]
+                                                     [{<tag> dependency}
+                                                      [(|> dependency
+                                                           (..path fs home)
+                                                           (///runtime.for (value@ <runtime> profile)))
+                                                       <program>]])
+                                                   ([#JS ///.#js "program.js"]
+                                                    [#Python ///.#java "program.py"]
+                                                    [#Lua ///.#java "program.lua"]
+                                                    [#Ruby ///.#java (file.rooted fs "program" ruby_packager.main_file)]))
                    / (# fs separator)
                    cache_directory (format working_directory / target)]
              _ (console.write_line ..start console)
-             .let [full_parameters (list.together (list compiler_params
+             .let [full_parameters (list.together (list lux_params
                                                         (list "build")
                                                         (..plural "--library" (..libraries fs home resolution))
                                                         (..plural "--host_dependency" host_dependencies)
+                                                        (..plural "--compiler" (list#each cli.compiler_format (value@ ///.#compilers profile)))
                                                         (..plural "--source" (set.list (value@ ///.#sources profile)))
                                                         (..singular "--target" cache_directory)
                                                         (..singular "--module" program_module)))]
@@ -320,5 +322,5 @@
                                      ..failure)
                                    console)]
             (in [exit
-                 compiler
+                 lux
                  (format cache_directory / output)])))))))

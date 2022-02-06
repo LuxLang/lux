@@ -1,10 +1,24 @@
 (.using
  [library
   [lux {"-" Module Source}
+   [abstract
+    [monad {"+" do}]
+    [equivalence {"+" Equivalence}]]
    [control
     [pipe {"+" case>}]
     ["<>" parser
-     ["<[0]>" cli {"+" Parser}]]]
+     ["<[0]>" cli {"+" Parser}]
+     ["<[0]>" text]]]
+   [data
+    ["[0]" product]
+    ["[0]" text
+     ["%" format]]
+    [collection
+     ["[0]" list ("[1]#[0]" functor)]]]
+   [math
+    [number {"+" hex}]]
+   [meta
+    ["[0]" symbol]]
    [tool
     [compiler
      [meta
@@ -14,13 +28,55 @@
    [world
     [file {"+" Path}]]]])
 
-(type: .public Source
-  Path)
-
 (type: .public Host_Dependency
   Path)
 
 (type: .public Library
+  Path)
+
+(type: .public Compiler
+  (Record
+   [#definition Symbol
+    #parameters (List Text)]))
+
+(def: .public compiler_equivalence
+  (Equivalence Compiler)
+  ($_ product.equivalence
+      symbol.equivalence
+      (list.equivalence text.equivalence)
+      ))
+
+(template [<ascii> <name>]
+  [(def: <name>
+     Text
+     (text.of_char (hex <ascii>)))]
+
+  ["02" parameter_start]
+  ["03" parameter_end]
+  )
+
+(def: compiler_parameter
+  (-> Text Text)
+  (text.enclosed [..parameter_start ..parameter_end]))
+
+(def: .public (compiler_format [[module short] parameters])
+  (%.Format Compiler)
+  (%.format (..compiler_parameter module) (..compiler_parameter short)
+            (text.together (list#each ..compiler_parameter parameters))))
+
+(def: compiler_parser'
+  (<text>.Parser Compiler)
+  (let [parameter (: (<text>.Parser Text)
+                     (<| (<>.after (<text>.this ..parameter_start))
+                         (<>.before (<text>.this ..parameter_end))
+                         (<text>.slice (<text>.many! (<text>.none_of! ..parameter_end)))))]
+    (do <>.monad
+      [module parameter
+       short parameter
+       parameters (<>.some parameter)]
+      (in [[module short] parameters]))))
+
+(type: .public Source
   Path)
 
 (type: .public Target
@@ -31,9 +87,10 @@
 
 (type: .public Compilation
   (Record
-   [#sources (List Source)
-    #host_dependencies (List Host_Dependency)
+   [#host_dependencies (List Host_Dependency)
     #libraries (List Library)
+    #compilers (List Compiler)
+    #sources (List Source)
     #target Target
     #module Module]))
 
@@ -49,44 +106,43 @@
    {#Interpretation Interpretation}
    {#Export Export}))
 
-(template [<name> <long> <type>]
+(template [<name> <long> <type> <parser>]
   [(def: <name>
      (Parser <type>)
-     (<cli>.named <long> <cli>.any))]
+     (<cli>.named <long> <parser>))]
 
-  [source_parser "--source" Source]
-  [host_dependency_parser "--host_dependency" Host_Dependency]
-  [library_parser "--library" Library]
-  [target_parser "--target" Target]
-  [module_parser "--module" Module]
+  [host_dependency_parser "--host_dependency" Host_Dependency <cli>.any]
+  [library_parser "--library" Library <cli>.any]
+  [compiler_parser "--compiler" Compiler (<text>.then ..compiler_parser' <cli>.any)]
+  [source_parser "--source" Source <cli>.any]
+  [target_parser "--target" Target <cli>.any]
+  [module_parser "--module" Module <cli>.any]
   )
 
 (def: .public service
   (Parser Service)
-  ($_ <>.or
-      (<>.after (<cli>.this "build")
-                ($_ <>.and
-                    (<>.some ..source_parser)
-                    (<>.some ..host_dependency_parser)
-                    (<>.some ..library_parser)
-                    ..target_parser
-                    ..module_parser))
-      (<>.after (<cli>.this "repl")
-                ($_ <>.and
-                    (<>.some ..source_parser)
-                    (<>.some ..host_dependency_parser)
-                    (<>.some ..library_parser)
-                    ..target_parser
-                    ..module_parser))
-      (<>.after (<cli>.this "export")
-                ($_ <>.and
-                    (<>.some ..source_parser)
-                    ..target_parser))
-      ))
+  (let [compiler (: (Parser Compilation)
+                    ($_ <>.and
+                        (<>.some ..host_dependency_parser)
+                        (<>.some ..library_parser)
+                        (<>.some ..compiler_parser)
+                        (<>.some ..source_parser)
+                        ..target_parser
+                        ..module_parser))]
+    ($_ <>.or
+        (<>.after (<cli>.this "build")
+                  compiler)
+        (<>.after (<cli>.this "repl")
+                  compiler)
+        (<>.after (<cli>.this "export")
+                  ($_ <>.and
+                      (<>.some ..source_parser)
+                      ..target_parser))
+        )))
 
 (def: .public target
   (-> Service Target)
-  (|>> (case> (^or {#Compilation [sources host_dependencies libraries target module]}
-                   {#Interpretation [sources host_dependencies libraries target module]}
+  (|>> (case> (^or {#Compilation [host_dependencies libraries compilers sources target module]}
+                   {#Interpretation [host_dependencies libraries compilers sources target module]}
                    {#Export [sources target]})
               target)))

@@ -1,27 +1,27 @@
 (.using
-  [library
-   [lux {"-" local}
-    [abstract
-     monad]
-    [control
-     ["[0]" maybe ("[1]#[0]" monad)]
-     ["[0]" try]
-     ["[0]" exception {"+" exception:}]]
-    [data
-     ["[0]" text ("[1]#[0]" equivalence)]
-     ["[0]" product]
-     [collection
-      ["[0]" list ("[1]#[0]" functor mix monoid)]
-      [dictionary
-       ["[0]" plist]]]]]]
-  ["[0]" /// "_"
-   ["[1][0]" extension]
-   [//
-    ["/" analysis {"+" Operation Phase}]
-    [///
-     [reference
-      ["[0]" variable {"+" Register Variable}]]
-     ["[1]" phase]]]])
+ [library
+  [lux {"-" local}
+   [abstract
+    monad]
+   [control
+    ["[0]" maybe ("[1]#[0]" monad)]
+    ["[0]" try]
+    ["[0]" exception {"+" exception:}]]
+   [data
+    ["[0]" text ("[1]#[0]" equivalence)]
+    ["[0]" product]
+    [collection
+     ["[0]" list ("[1]#[0]" functor mix monoid)]
+     [dictionary
+      ["[0]" plist]]]]]]
+ ["/" // {"+" Environment Operation Phase}
+  [//
+   [phase
+    ["[0]" extension]]
+   [///
+    ["[0]" phase]
+    [reference
+     ["[0]" variable {"+" Register Variable}]]]]])
 
 (type: Local
   (Bindings Text [Type Register]))
@@ -78,7 +78,7 @@
 
 (def: .public (find name)
   (-> Text (Operation (Maybe [Type Variable])))
-  (///extension.lifted
+  (extension.lifted
    (function (_ state)
      (let [[inner outer] (|> state
                              (value@ .#scopes)
@@ -106,8 +106,8 @@
                      {.#Some [ref_type ref]}]})
          )))))
 
-(exception: .public cannot_create_local_binding_without_a_scope)
-(exception: .public invalid_scope_alteration)
+(exception: .public no_scope)
+(exception: .public drained)
 
 (def: .public (with_local [name type] action)
   (All (_ a) (-> [Text Type] (Operation a) (Operation a)))
@@ -121,8 +121,8 @@
                                   (|>> (revised@ .#counter ++)
                                        (revised@ .#mappings (plist.has name [type new_var_id]))))
                                head)]
-        (case (///.result' [bundle (with@ .#scopes {.#Item new_head tail} state)]
-                           action)
+        (case (phase.result' [bundle (with@ .#scopes {.#Item new_head tail} state)]
+                             action)
           {try.#Success [[bundle' state'] output]}
           (case (value@ .#scopes state')
             {.#Item head' tail'}
@@ -132,77 +132,63 @@
                              output]})
 
             _
-            (exception.except ..invalid_scope_alteration []))
+            (exception.except ..drained []))
 
           {try.#Failure error}
           {try.#Failure error}))
 
       _
-      (exception.except ..cannot_create_local_binding_without_a_scope []))
-    ))
+      (exception.except ..no_scope []))))
 
-(template [<name> <val_type>]
-  [(def: <name>
-     (Bindings Text [Type <val_type>])
-     [.#counter 0
-      .#mappings (list)])]
+(def: empty
+  Scope
+  (let [bindings (: Bindings
+                    [.#counter 0
+                     .#mappings (list)])]
+    [.#name     (list)
+     .#inner    0
+     .#locals   bindings
+     .#captured bindings]))
 
-  [init_locals   Nat]
-  [init_captured Variable]
-  )
-
-(def: (scope parent_name child_name)
-  (-> (List Text) Text Scope)
-  [.#name     (list& child_name parent_name)
-   .#inner    0
-   .#locals   init_locals
-   .#captured init_captured])
-
-(def: .public (with_scope name action)
-  (All (_ a) (-> Text (Operation a) (Operation a)))
+(def: .public (reset action)
+  (All (_ a) (-> (Operation a) (Operation a)))
   (function (_ [bundle state])
-    (let [parent_name (case (value@ .#scopes state)
-                        {.#End}
-                        (list)
-                        
-                        {.#Item top _}
-                        (value@ .#name top))]
-      (case (action [bundle (revised@ .#scopes
-                                      (|>> {.#Item (scope parent_name name)})
-                                      state)])
-        {try.#Success [[bundle' state'] output]}
-        {try.#Success [[bundle' (revised@ .#scopes
-                                          (|>> list.tail (maybe.else (list)))
-                                          state')]
-                       output]}
+    (case (action [bundle (with@ .#scopes (list ..empty) state)])
+      {try.#Success [[bundle' state'] output]}
+      {try.#Success [[bundle' (with@ .#scopes (value@ .#scopes state) state')]
+                     output]}
 
-        {try.#Failure error}
-        {try.#Failure error}))))
+      failure
+      failure)))
 
-(exception: .public cannot_get_next_reference_when_there_is_no_scope)
+(def: .public (with action)
+  (All (_ a) (-> (Operation a) (Operation [Scope a])))
+  (function (_ [bundle state])
+    (case (action [bundle (revised@ .#scopes (|>> {.#Item ..empty}) state)])
+      {try.#Success [[bundle' state'] output]}
+      (case (value@ .#scopes state')
+        {.#Item head tail}
+        {try.#Success [[bundle' (with@ .#scopes tail state')]
+                       [head output]]}
 
-(def: .public next_local
+        {.#End}
+        (exception.except ..drained []))
+
+      {try.#Failure error}
+      {try.#Failure error})))
+
+(def: .public next
   (Operation Register)
-  (///extension.lifted
+  (extension.lifted
    (function (_ state)
      (case (value@ .#scopes state)
        {.#Item top _}
        {try.#Success [state (value@ [.#locals .#counter] top)]}
 
        {.#End}
-       (exception.except ..cannot_get_next_reference_when_there_is_no_scope [])))))
+       (exception.except ..no_scope [])))))
 
-(def: (ref_variable ref)
-  (-> Ref Variable)
-  (case ref
-    {.#Local register}
-    {variable.#Local register}
-    
-    {.#Captured register}
-    {variable.#Foreign register}))
-
-(def: .public (environment scope)
-  (-> Scope (List Variable))
-  (|> scope
-      (value@ [.#captured .#mappings])
-      (list#each (function (_ [_ [_ ref]]) (ref_variable ref)))))
+(def: .public environment
+  (-> Scope (Environment Variable))
+  (|>> (value@ [.#captured .#mappings])
+       (list#each (function (_ [_ [_ ref]]) ref))))

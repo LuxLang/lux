@@ -1,0 +1,203 @@
+(.using
+ [library
+  [lux "*"
+   ["_" test {"+" Test}]
+   [abstract
+    [monad {"+" do}]]
+   [control
+    [pipe {"+" case>}]
+    ["[0]" maybe ("[1]#[0]" functor)]
+    ["[0]" try ("[1]#[0]" functor)]
+    ["[0]" exception]]
+   [data
+    ["[0]" product]
+    [collection
+     ["[0]" list]]]
+   [math
+    ["[0]" random {"+" Random}]
+    [number
+     ["n" nat]]]
+   ["[0]" type "_"
+    ["$[1]" \\test]]]]
+ [\\library
+  ["[0]" /
+   ["/[1]" //
+    [//
+     [phase
+      ["[1][0]" extension]]
+     [///
+      ["[1][0]" phase ("[1]#[0]" monad)]
+      [reference
+       ["[1][0]" variable {"+" Register Variable}]]]]]]]
+ ["$[0]" // "_"
+  ["[1][0]" type]])
+
+(template [<name> <tag>]
+  [(def: (<name> expected_type expected_register [actual_type actual_var])
+     (-> Type Register [Type Variable] Bit)
+     (and (same? expected_type actual_type)
+          (case actual_var
+            {<tag> actual_register}
+            (n.= expected_register actual_register)
+            
+            _
+            false)))]
+
+  [local? //variable.#Local]
+  [foreign? //variable.#Foreign]
+  )
+
+(def: .public test
+  Test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [lux $//type.random_state
+         .let [state [//extension.#bundle //extension.empty
+                      //extension.#state lux]]
+         name/0 (random.ascii/lower 1)
+         name/1 (random.ascii/lower 2)
+         type/0 ($type.random 0)
+         type/1 ($type.random 0)]
+        ($_ _.and
+            (_.cover [/.find]
+                     (|> (/.find name/0)
+                         /.with
+                         (//phase.result state)
+                         (try#each (|>> product.right
+                                        (case> {.#None} true
+                                               {.#Some _} false)))
+                         (try.else false)))
+            (_.cover [/.with_local]
+                     (|> (/.with_local [name/0 type/0]
+                           (/.find name/0))
+                         /.with
+                         (//phase.result state)
+                         (try#each (|>> product.right
+                                        (maybe#each (..local? type/0 0))
+                                        (maybe.else false)))
+                         (try.else false)))
+            (_.cover [/.next]
+                     (|> (<| (do [! //phase.monad]
+                               [register/0 /.next])
+                             (/.with_local [name/0 type/0])
+                             (do !
+                               [var/0 (/.find name/0)])
+                             (do !
+                               [register/1 /.next])
+                             (/.with_local [name/1 type/1])
+                             (do !
+                               [var/1 (/.find name/1)])
+                             (in (do maybe.monad
+                                   [var/0 var/0
+                                    var/1 var/1]
+                                   (in [[register/0 var/0] [register/1 var/1]]))))
+                         /.with
+                         (//phase.result state)
+                         (try#each (|>> product.right
+                                        (maybe#each (function (_ [[register/0 var/0] [register/1 var/1]])
+                                                      (and (..local? type/0 register/0 var/0)
+                                                           (..local? type/1 register/1 var/1))))
+                                        (maybe.else false)))
+                         (try.else false)))
+            (_.cover [/.no_scope]
+                     (and (|> (/.with_local [name/0 type/0]
+                                (//phase#in false))
+                              (//phase.result state)
+                              (exception.otherwise (exception.match? /.no_scope)))
+                          (|> (do //phase.monad
+                                [_ /.next]
+                                (in false))
+                              (//phase.result state)
+                              (exception.otherwise (exception.match? /.no_scope)))))
+            (_.cover [/.reset]
+                     (and (|> /.next
+                              (/.with_local [name/0 type/0])
+                              /.with
+                              (//phase.result state)
+                              (try#each (|>> product.right
+                                             (n.= 1)))
+                              (try.else false))
+                          (|> /.next
+                              /.reset
+                              (/.with_local [name/0 type/0])
+                              /.with
+                              (//phase.result state)
+                              (try#each (|>> product.right
+                                             (n.= 0)))
+                              (try.else false))))
+            (_.cover [/.drained]
+                     (|> (function (_ [bundle state])
+                           {try.#Success [[bundle (with@ .#scopes (list) state)]
+                                          false]})
+                         (/.with_local [name/0 type/0])
+                         /.with
+                         (//phase#each product.right)
+                         (//phase.result state)
+                         (exception.otherwise (exception.match? /.drained))))
+            (_.cover [/.with]
+                     (|> (<| /.with
+                             (/.with_local [name/0 type/0])
+                             (do //phase.monad
+                               [var/0' (/.find name/0)
+                                [scope/1 var/0''] (/.with (/.find name/0))]
+                               (<| //phase.lifted
+                                   try.of_maybe
+                                   (do maybe.monad
+                                     [var/0' var/0'
+                                      var/0'' var/0'']
+                                     (in [var/0' scope/1 var/0''])))))
+                         (//phase.result state)
+                         (try#each (function (_ [scope/0 var/0' scope/1 var/0''])
+                                     (and (local? type/0 0 var/0')
+                                          (n.= 0 (list.size (value@ [.#locals .#mappings] scope/0)))
+                                          (n.= 0 (list.size (value@ [.#captured .#mappings] scope/0)))
+
+                                          (foreign? type/0 0 var/0'')
+                                          (n.= 0 (list.size (value@ [.#locals .#mappings] scope/1)))
+                                          (n.= 1 (list.size (value@ [.#captured .#mappings] scope/1))))))
+                         (try.else false)))
+            (_.cover [/.environment]
+                     (let [(^open "list#[0]") (list.equivalence //variable.equivalence)]
+                       (and (|> (<| /.with
+                                    (/.with_local [name/0 type/0])
+                                    (/.with_local [name/1 type/1])
+                                    (do //phase.monad
+                                      [[scope/1 _] (/.with (in []))]
+                                      (in (/.environment scope/1))))
+                                (//phase.result state)
+                                (try#each (|>> product.right
+                                               (list#= (list))))
+                                (try.else false))
+                            (|> (<| /.with
+                                    (do [! //phase.monad]
+                                      [register/0 /.next])
+                                    (/.with_local [name/0 type/0])
+                                    (/.with_local [name/1 type/1])
+                                    (do !
+                                      [[scope/1 _] (/.with (/.find name/0))]
+                                      (in [register/0 (/.environment scope/1)])))
+                                (//phase.result state)
+                                (try#each (function (_ [_ [register/0 environment]])
+                                            (list#= (list {//variable.#Local register/0})
+                                                    environment)))
+                                (try.else false))
+                            (|> (<| /.with
+                                    (do [! //phase.monad]
+                                      [register/0 /.next])
+                                    (/.with_local [name/0 type/0])
+                                    (do [! //phase.monad]
+                                      [register/1 /.next])
+                                    (/.with_local [name/1 type/1])
+                                    (do [! //phase.monad]
+                                      [[scope/1 _] (/.with (do !
+                                                             [_ (/.find name/1)
+                                                              _ (/.find name/0)]
+                                                             (in [])))]
+                                      (in [register/0 register/1 (/.environment scope/1)])))
+                                (//phase.result state)
+                                (try#each (function (_ [_ [register/0 register/1 environment]])
+                                            (list#= (list {//variable.#Local register/1}
+                                                          {//variable.#Local register/0})
+                                                    environment)))
+                                (try.else false)))))
+            ))))
