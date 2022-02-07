@@ -8,3 +8,7 @@
 0. [Type-and-resource Safety in Modern C++ - Bjarne Stroustrup - CppCon 2021](https://www.youtube.com/watch?v=l3rvjWfBzZI)
 0. [Exceptional C++ - Victor Ciura - CppCon 2021](https://www.youtube.com/watch?v=SjlfhyZn2yA)
 
+# Undefined behavior
+
+0. [Back To Basics: Undefined Behavior - Ansel Sermersheim & Barbara Geller - CppCon 2021](https://www.youtube.com/watch?v=NpL9YnxnOqM)
+

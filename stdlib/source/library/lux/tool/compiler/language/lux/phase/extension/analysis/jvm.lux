@@ -15,31 +15,45 @@
      ["<[0]>" code {"+" Parser}]
      ["<[0]>" text]]]
    [data
+    [binary {"+" Binary}]
     ["[0]" product]
     ["[0]" text ("[1]#[0]" equivalence)
      ["%" format {"+" format}]]
     [collection
      ["[0]" list ("[1]#[0]" mix monad monoid)]
      ["[0]" array]
-     ["[0]" dictionary {"+" Dictionary}]]]
+     ["[0]" dictionary {"+" Dictionary}]
+     ["[0]" sequence]]
+    ["[0]" format "_"
+     ["[1]" binary]]]
    [macro
     ["[0]" template]]
    [math
     [number
-     ["n" nat]]]
+     ["n" nat]
+     ["[0]" i32]]]
    [target
     ["[0]" jvm "_"
      ["[0]!" reflection]
+     ["_" bytecode {"+" Bytecode} ("[1]#[0]" monad)]
+     ["[0]" modifier {"+" Modifier} ("[1]#[0]" monoid)]
+     ["[0]" attribute]
+     ["[0]" field]
+     ["[0]" version]
+     ["[0]" method]
+     ["[0]" class]
+     ["[0]" constant
+      ["[0]" pool {"+" Resource}]]
      [encoding
-      [name {"+" External}]]
+      ["[0]" name {"+" External}]]
      ["[1]" type {"+" Type Argument Typed} ("[1]#[0]" equivalence)
       ["[0]" category {"+" Void Value' Value Return' Return Primitive Object Class Array Var Parameter Method}]
       ["[0]" box]
       ["[0]" reflection]
       ["[0]" descriptor]
       ["[0]" signature]
-      ["[1]_[0]" parser]
-      ["[1]_[0]" alias {"+" Aliasing}]
+      ["[0]" parser]
+      ["[0]" alias {"+" Aliasing}]
       ["[0]T" lux {"+" Mapping}]]]]
    ["[0]" type
     ["[0]" check {"+" Check} ("[1]#[0]" monad)]]]]
@@ -47,20 +61,25 @@
   ["[1][0]" lux {"+" custom}]
   ["/[1]" //
    ["[1][0]" bundle]
-   ["//[1]" /// "_"
-    ["[1][0]" synthesis]
-    ["[1][0]" analysis {"+" Analysis Operation Phase Handler Bundle}
-     ["[1]/[0]" complex]
-     ["[1]/[0]" pattern]
-     ["[0]A" type]
-     ["[0]A" inference]
-     ["[0]" scope]]
-    [///
-     ["[0]" phase ("[1]#[0]" monad)]
-     [meta
-      [archive {"+" Archive}
-       [module
-        [descriptor {"+" Module}]]]]]]]])
+   ["/[1]" // "_"
+    [generation
+     [jvm
+      ["[0]" runtime]]]
+    ["/[1]" // "_"
+     ["[0]" generation]
+     ["[0]" directive]
+     ["[1][0]" analysis {"+" Analysis Operation Phase Handler Bundle}
+      ["[0]" complex]
+      ["[0]" pattern]
+      ["[0]" inference]
+      ["[0]A" type]
+      ["[0]" scope]]
+     [///
+      ["[0]" phase ("[1]#[0]" monad)]
+      [meta
+       [archive {"+" Archive}
+        [module
+         [descriptor {"+" Module}]]]]]]]]])
 
 (import: java/lang/ClassLoader)
 
@@ -159,8 +178,7 @@
                          not))))
 
 (def: reflection
-  (All (_ category)
-    (-> (Type (<| Return' Value' category)) Text))
+  (All (_ category) (-> (Type (<| Return' Value' category)) Text))
   (|>> jvm.reflection reflection.reflection))
 
 (def: signature (|>> jvm.signature signature.signature))
@@ -168,12 +186,6 @@
 (def: object_class
   External
   "java.lang.Object")
-
-(def: inheritance_relationship_type_name "_jvm_inheritance")
-(def: .public (inheritance_relationship_type class super_class super_interfaces)
-  (-> .Type .Type (List .Type) .Type)
-  {.#Primitive ..inheritance_relationship_type_name
-               (list& class super_class super_interfaces)})
 
 ... TODO: Get rid of this template block and use the definition in
 ... lux/ffi.jvm.lux ASAP
@@ -399,7 +411,7 @@
                                      (function (_ parameterT)
                                        (do phase.monad
                                          [parameterJT (jvm_type parameterT)]
-                                         (case (jvm_parser.parameter? parameterJT)
+                                         (case (parser.parameter? parameterJT)
                                            {.#Some parameterJT}
                                            (in parameterJT)
                                            
@@ -420,7 +432,7 @@
     [objectJ (jvm_type objectT)]
     (|> objectJ
         ..signature
-        (<text>.result jvm_parser.array)
+        (<text>.result parser.array)
         phase.lifted)))
 
 (def: (primitive_array_length_handler primitive_type)
@@ -482,7 +494,7 @@
                      (analyse archive lengthC))
          expectedT (///.lifted meta.expected_type)
          expectedJT (jvm_array_type expectedT)
-         elementJT (case (jvm_parser.array? expectedJT)
+         elementJT (case (parser.array? expectedJT)
                      {.#Some elementJT}
                      (in elementJT)
                      
@@ -952,20 +964,16 @@
                                    _ (phase.assertion ..primitives_are_not_objects [target_name]
                                                       (not (dictionary.key? ..boxes target_name)))
                                    target_class (phase.lifted (reflection!.load class_loader target_name))
-                                   _ (if (text#= ..inheritance_relationship_type_name source_name)
-                                       (in [])
-                                       (do !
-                                         [source_class (phase.lifted (reflection!.load class_loader source_name))]
-                                         (phase.assertion ..cannot_cast [fromT toT fromC]
-                                                          (java/lang/Class::isAssignableFrom source_class target_class))))]
+                                   _ (do !
+                                       [source_class (phase.lifted (reflection!.load class_loader source_name))]
+                                       (phase.assertion ..cannot_cast [fromT toT fromC]
+                                                        (java/lang/Class::isAssignableFrom source_class target_class)))]
                                   (loop [[current_name currentT] [source_name fromT]]
                                     (if (text#= target_name current_name)
                                       (in true)
                                       (do !
                                         [candidate_parents (: (Operation (List [[Text .Type] Bit]))
-                                                              (if (text#= ..inheritance_relationship_type_name current_name)
-                                                                (inheritance_candidate_parents class_loader currentT target_class toT fromC)
-                                                                (class_candidate_parents class_loader current_name currentT target_name target_class)))]
+                                                              (class_candidate_parents class_loader current_name currentT target_name target_class))]
                                         (case (|> candidate_parents
                                                   (list.only product.right)
                                                   (list#each product.left))
@@ -1131,7 +1139,7 @@
                               (list#mix (function (_ [expectedJC actualJC] prev)
                                           (and prev
                                                (jvm#= expectedJC (: (Type Value)
-                                                                    (case (jvm_parser.var? actualJC)
+                                                                    (case (parser.var? actualJC)
                                                                       {.#Some name}
                                                                       (|> aliasing
                                                                           (dictionary.value name)
@@ -1160,7 +1168,7 @@
              (n.= (list.size inputsJT) (list.size parameters))
              (list.every? (function (_ [expectedJC actualJC])
                             (jvm#= expectedJC (: (Type Value)
-                                                 (case (jvm_parser.var? actualJC)
+                                                 (case (parser.var? actualJC)
                                                    {.#Some name}
                                                    (|> aliasing
                                                        (dictionary.value name)
@@ -1327,8 +1335,8 @@
 
 (def: (aliasing expected actual)
   (-> (List (Type Var)) (List (Type Var)) Aliasing)
-  (|> (list.zipped/2 (list#each jvm_parser.name actual)
-                     (list#each jvm_parser.name expected))
+  (|> (list.zipped/2 (list#each parser.name actual)
+                     (list#each parser.name expected))
       (dictionary.of_list text.hash)))
 
 (def: (method_candidate class_loader actual_class_tvars class_name actual_method_tvars method_name method_style inputsJT)
@@ -1398,10 +1406,10 @@
      (Parser (Type <category>))
      (<text>.then <parser> <code>.text))]
 
-  [var Var jvm_parser.var]
-  [class Class jvm_parser.class]
-  [type Value jvm_parser.value]
-  [return Return jvm_parser.return]
+  [var Var parser.var]
+  [class Class parser.class]
+  [type Value parser.value]
+  [return Return parser.return]
   )
 
 (def: input
@@ -1429,7 +1437,7 @@
          [methodT deprecated? exceptionsT] (..method_candidate class_loader class_tvars class method_tvars method {#Static} argsT)
          _ (phase.assertion ..deprecated_method [class method methodT]
                             (not deprecated?))
-         [outputT argsA] (inferenceA.general archive analyse methodT (list#each product.right argsTC))
+         [outputT argsA] (inference.general archive analyse methodT (list#each product.right argsTC))
          outputJT (check_return outputT)]
         (in {/////analysis.#Extension extension_name (list& (/////analysis.text (..signature (jvm.class class (list))))
                                                             (/////analysis.text method)
@@ -1447,7 +1455,7 @@
          [methodT deprecated? exceptionsT] (..method_candidate class_loader class_tvars class method_tvars method {#Virtual} argsT)
          _ (phase.assertion ..deprecated_method [class method methodT]
                             (not deprecated?))
-         [outputT allA] (inferenceA.general archive analyse methodT (list& objectC (list#each product.right argsTC)))
+         [outputT allA] (inference.general archive analyse methodT (list& objectC (list#each product.right argsTC)))
          .let [[objectA argsA] (case allA
                                  {.#Item objectA argsA}
                                  [objectA argsA]
@@ -1472,11 +1480,18 @@
          [methodT deprecated? exceptionsT] (..method_candidate class_loader class_tvars class method_tvars method {#Special} argsT)
          _ (phase.assertion ..deprecated_method [class method methodT]
                             (not deprecated?))
-         [outputT argsA] (inferenceA.general archive analyse methodT (list& objectC (list#each product.right argsTC)))
+         [outputT allA] (inference.general archive analyse methodT (list& objectC (list#each product.right argsTC)))
+         .let [[objectA argsA] (case allA
+                                 {.#Item objectA argsA}
+                                 [objectA argsA]
+
+                                 _
+                                 (undefined))]
          outputJT (check_return outputT)]
         (in {/////analysis.#Extension extension_name (list& (/////analysis.text (..signature (jvm.class class (list))))
                                                             (/////analysis.text method)
                                                             (/////analysis.text (..signature outputJT))
+                                                            objectA
                                                             (decorate_inputs argsT argsA))})))]))
 
 (def: (invoke::interface class_loader)
@@ -1493,7 +1508,7 @@
          [methodT deprecated? exceptionsT] (..method_candidate class_loader class_tvars class_name method_tvars method {#Interface} argsT)
          _ (phase.assertion ..deprecated_method [class_name method methodT]
                             (not deprecated?))
-         [outputT allA] (inferenceA.general archive analyse methodT (list& objectC (list#each product.right argsTC)))
+         [outputT allA] (inference.general archive analyse methodT (list& objectC (list#each product.right argsTC)))
          .let [[objectA argsA] (case allA
                                  {.#Item objectA argsA}
                                  [objectA argsA]
@@ -1519,7 +1534,7 @@
          [methodT deprecated? exceptionsT] (..constructor_candidate class_loader class_tvars class method_tvars argsT)
          _ (phase.assertion ..deprecated_method [class ..constructor_method methodT]
                             (not deprecated?))
-         [outputT argsA] (inferenceA.general archive analyse methodT (list#each product.right argsTC))]
+         [outputT argsA] (inference.general archive analyse methodT (list#each product.right argsTC))]
         (in {/////analysis.#Extension extension_name (list& (/////analysis.text (..signature (jvm.class class (list))))
                                                             (decorate_inputs argsT argsA))})))]))
 
@@ -2030,7 +2045,7 @@
                                     supers (List (Type Class))])
   (exception.report
    ["Name" (%.text name)]
-   ["Available" (exception.listing (|>> jvm_parser.read_class product.left) supers)]))
+   ["Available" (exception.listing (|>> parser.read_class product.left) supers)]))
 
 (exception: .public (mismatched_super_parameters [name Text
                                                   expected Nat
@@ -2042,9 +2057,9 @@
 
 (def: (override_mapping mapping supers parent_type)
   (-> Mapping (List (Type Class)) (Type Class) (Operation (List [Text .Type])))
-  (let [[parent_name parent_parameters] (jvm_parser.read_class parent_type)]
+  (let [[parent_name parent_parameters] (parser.read_class parent_type)]
     (case (list.one (function (_ super)
-                      (let [[super_name super_parameters] (jvm_parser.read_class super)]
+                      (let [[super_name super_parameters] (parser.read_class super)]
                         (if (text#= parent_name super_name)
                           {.#Some super_parameters}
                           {.#None})))
@@ -2055,7 +2070,7 @@
         (if (n.= expected_count actual_count)
           (do [! phase.monad]
             [parent_parameters (|> parent_parameters
-                                   (monad.each maybe.monad jvm_parser.var?)
+                                   (monad.each maybe.monad parser.var?)
                                    try.of_maybe
                                    phase.lifted)]
             (|> super_parameters
@@ -2075,7 +2090,7 @@
                                 (in [var exT])))
                           vars)]
     (in (list#mix (function (_ [varJ varT] mapping)
-                    (dictionary.has (jvm_parser.name varJ) varT mapping))
+                    (dictionary.has (parser.name varJ) varT mapping))
                   mapping
                   pairings))))
 
@@ -2099,7 +2114,7 @@
         2
         {/////analysis.#Case (/////analysis.unit)
                              [[/////analysis.#when
-                               {/////analysis/pattern.#Bind 2}
+                               {pattern.#Bind 2}
                                
                                /////analysis.#then
                                bodyA]
@@ -2108,11 +2123,11 @@
         _
         {/////analysis.#Case (/////analysis.unit)
                              [[/////analysis.#when
-                               {/////analysis/pattern.#Complex
-                                {/////analysis/complex.#Tuple
+                               {pattern.#Complex
+                                {complex.#Tuple
                                  (|> arity
                                      list.indices
-                                     (list#each (|>> (n.+ 2) {/////analysis/pattern.#Bind})))}}
+                                     (list#each (|>> (n.+ 2) {pattern.#Bind})))}}
                                
                                /////analysis.#then
                                bodyA]
@@ -2166,10 +2181,6 @@
                                       (..hidden_method_body (list.size arguments) bodyA)}
                                      ))))))
 
-(type: .public (Method_Definition a)
-  (Variant
-   {#Overriden_Method (Overriden_Method a)}))
-
 (def: .public parameter_types
   (-> (List (Type Var)) (Check (List [(Type Var) .Type])))
   (monad.each check.monad
@@ -2207,7 +2218,7 @@
 (def: (super_aliasing class_loader class)
   (-> java/lang/ClassLoader (Type Class) (Operation Aliasing))
   (do phase.monad
-    [.let [[name actual_parameters] (jvm_parser.read_class class)]
+    [.let [[name actual_parameters] (parser.read_class class)]
      jvm_class (phase.lifted (reflection!.load class_loader name))
      .let [expected_parameters (|> (java/lang/Class::getTypeParameters jvm_class)
                                    (array.list {.#None})
@@ -2217,13 +2228,13 @@
                              (list.size actual_parameters)))]
     (in (|> (list.zipped/2 expected_parameters actual_parameters)
             (list#mix (function (_ [expected actual] mapping)
-                        (case (jvm_parser.var? actual)
+                        (case (parser.var? actual)
                           {.#Some actual}
                           (dictionary.has actual expected mapping)
                           
                           {.#None}
                           mapping))
-                      jvm_alias.fresh)))))
+                      alias.fresh)))))
 
 (def: (anonymous_class_name module id)
   (-> Module Nat Text)
@@ -2246,7 +2257,7 @@
                                                               (list#each product.right arguments)
                                                               return
                                                               exceptions])
-                                                 (jvm_alias.method aliasing)
+                                                 (alias.method aliasing)
                                                  [parent_type method_name]))))
                                    methods)
      .let [missing_abstract_methods (mismatched_methods overriden_methods required_abstract_methods)
@@ -2257,8 +2268,237 @@
                         (list.empty? invalid_overriden_methods))]
     (in [])))
 
-(def: (class::anonymous class_loader)
-  (-> java/lang/ClassLoader Handler)
+(type: Declaration
+  [Text (List (Type Var))])
+
+(type: Constant
+  [Text (List Annotation) (Type Value) Code])
+
+(type: Variable
+  [Text (Modifier field.Field) (Modifier field.Field) (List Annotation) (Type Value)])
+
+(type: Field
+  (Variant
+   {#Constant Constant}
+   {#Variable Variable}))
+
+(type: (Method_Definition a)
+  (Variant
+   {#Constructor (..Constructor a)}
+   {#Virtual_Method (..Virtual_Method a)}
+   {#Static_Method (..Static_Method a)}
+   {#Overriden_Method (..Overriden_Method a)}
+   {#Abstract_Method (..Abstract_Method a)}))
+
+(def: class_name
+  (|>> parser.read_class product.left name.internal))
+
+(def: (mock_class [name parameters] super interfaces fields methods modifier)
+  (-> Declaration (Type Class) (List (Type Class))
+      (List (Resource field.Field)) (List (Resource method.Method)) (Modifier class.Class)
+      (Try [External Binary]))
+  (let [signature (signature.inheritance (list#each jvm.signature parameters)
+                                         (jvm.signature super)
+                                         (list#each jvm.signature interfaces))]
+    (try#each (|>> (format.result class.writer)
+                   [name])
+              (class.class version.v6_0
+                           ($_ modifier#composite
+                               class.public
+                               modifier)
+                           (name.internal name)
+                           {.#Some signature}
+                           (..class_name super)
+                           (list#each ..class_name interfaces)
+                           fields
+                           methods
+                           sequence.empty))))
+
+(def: constant::modifier
+  (Modifier field.Field)
+  ($_ modifier#composite
+      field.public
+      field.static
+      field.final
+      ))
+
+(def: (field_definition field)
+  (-> Field (Resource field.Field))
+  (case field
+    ... TODO: Handle annotations.
+    {#Constant [name annotations type value]}
+    (case value
+      (^template [<tag> <type> <constant>]
+        [[_ {<tag> value}]
+         (do pool.monad
+           [constant (`` (|> value (~~ (template.spliced <constant>))))
+            attribute (attribute.constant constant)]
+           (field.field ..constant::modifier name <type> true (sequence.sequence attribute)))])
+      ([.#Bit jvm.boolean [(case> #0 +0 #1 +1) .i64 i32.i32 constant.integer pool.integer]]
+       [.#Int jvm.byte [.i64 i32.i32 constant.integer pool.integer]]
+       [.#Int jvm.short [.i64 i32.i32 constant.integer pool.integer]]
+       [.#Int jvm.int [.i64 i32.i32 constant.integer pool.integer]]
+       [.#Int jvm.long [constant.long pool.long]]
+       [.#Frac jvm.float [ffi.double_to_float constant.float pool.float]]
+       [.#Frac jvm.double [constant.double pool.double]]
+       [.#Nat jvm.char [.i64 i32.i32 constant.integer pool.integer]]
+       [.#Text (jvm.class "java.lang.String" (list)) [pool.string]]
+       )
+
+      ... TODO: Tighten this pattern-matching so this catch-all clause isn't necessary.
+      _
+      (undefined))
+
+    ... TODO: Handle annotations.
+    {#Variable [name visibility state annotations type]}
+    (field.field (modifier#composite visibility state)
+                 name type true sequence.empty)))
+
+(def: method_privacy
+  (-> ffi.Privacy (Modifier method.Method))
+  (|>> (case> {ffi.#PublicP} method.public
+              {ffi.#PrivateP} method.private
+              {ffi.#ProtectedP} method.protected
+              {ffi.#DefaultP} modifier.empty)))
+
+(def: constructor_name
+  "<init>")
+
+(def: (mock_value valueT)
+  (-> (Type Value) (Bytecode Any))
+  (case (jvm.primitive? valueT)
+    {.#Left classT}
+    _.aconst_null
+    
+    {.#Right primitiveT}
+    (cond (# jvm.equivalence = jvm.long primitiveT)
+          _.lconst_0
+
+          (# jvm.equivalence = jvm.float primitiveT)
+          _.fconst_0
+
+          (# jvm.equivalence = jvm.double primitiveT)
+          _.dconst_0
+
+          ... jvm.boolean jvm.byte jvm.short jvm.int jvm.char
+          _.iconst_0)))
+
+(def: (mock_return returnT)
+  (-> (Type Return) (Bytecode Any))
+  (case (jvm.void? returnT)
+    {.#Right returnT}
+    _.return
+
+    {.#Left valueT}
+    ($_ _.composite
+        (mock_value valueT)
+        (case (jvm.primitive? valueT)
+          {.#Left classT}
+          _.areturn
+          
+          {.#Right primitiveT}
+          (cond (# jvm.equivalence = jvm.long primitiveT)
+                _.lreturn
+
+                (# jvm.equivalence = jvm.float primitiveT)
+                _.freturn
+
+                (# jvm.equivalence = jvm.double primitiveT)
+                _.dreturn
+
+                ... jvm.boolean jvm.byte jvm.short jvm.int jvm.char
+                _.ireturn)))))
+
+(def: (mock_method super method)
+  (-> (Type Class) (Method_Definition Code) (Resource method.Method))
+  (case method
+    {#Constructor [privacy strict_floating_point? annotations variables exceptions
+                   self arguments constructor_arguments
+                   body]}
+    (method.method ($_ modifier#composite
+                       (..method_privacy privacy)
+                       (if strict_floating_point?
+                         method.strict
+                         modifier.empty))
+                   ..constructor_name
+                   (jvm.method [variables (list#each product.right arguments) jvm.void exceptions])
+                   (list)
+                   {.#Some ($_ _.composite
+                               (_.aload 0)
+                               (|> constructor_arguments
+                                   (list#each (|>> product.left ..mock_value))
+                                   (monad.all _.monad))
+                               (|> (jvm.method [(list) (list#each product.left constructor_arguments) jvm.void (list)])
+                                   (_.invokespecial super ..constructor_name))
+                               _.return
+                               )})
+
+    {#Overriden_Method [super name strict_floating_point? annotations variables
+                        self arguments return exceptions
+                        body]}
+    (method.method ($_ modifier#composite
+                       method.public
+                       (if strict_floating_point?
+                         method.strict
+                         modifier.empty))
+                   name
+                   (jvm.method [variables (list#each product.right arguments) return exceptions])
+                   (list)
+                   {.#Some (..mock_return return)})
+
+    {#Virtual_Method [name privacy final? strict_floating_point? annotations variables
+                      self arguments return exceptions
+                      body]}
+    (method.method ($_ modifier#composite
+                       (..method_privacy privacy)
+                       (if strict_floating_point?
+                         method.strict
+                         modifier.empty)
+                       (if final?
+                         method.final
+                         modifier.empty))
+                   name
+                   (jvm.method [variables (list#each product.right arguments) return exceptions])
+                   (list)
+                   {.#Some (..mock_return return)})
+
+    {#Static_Method [name privacy strict_floating_point? annotations
+                     variables arguments return exceptions
+                     body]}
+    (method.method ($_ modifier#composite
+                       method.static
+                       (..method_privacy privacy)
+                       (if strict_floating_point?
+                         method.strict
+                         modifier.empty))
+                   name
+                   (jvm.method [variables (list#each product.right arguments) return exceptions])
+                   (list)
+                   {.#Some (..mock_return return)})
+
+    {#Abstract_Method [name privacy annotations
+                       variables arguments return exceptions]}
+    (method.method ($_ modifier#composite
+                       method.abstract
+                       (..method_privacy privacy))
+                   name
+                   (jvm.method [variables (list#each product.right arguments) return exceptions])
+                   (list)
+                   {.#None})
+    ))
+
+(def: (mock declaration super interfaces inheritance fields methods)
+  (-> Declaration
+      (Type Class) (List (Type Class))
+      (Modifier class.Class) (List ..Field) (List (Method_Definition Code))
+      (Try [External Binary]))
+  (mock_class declaration super interfaces
+              (list#each ..field_definition fields)
+              (list#each (..mock_method super) methods)
+              inheritance))
+
+(def: (class::anonymous class_loader host)
+  (-> java/lang/ClassLoader runtime.Host Handler)
   (..custom
    [($_ <>.and
         (<code>.tuple (<>.some ..var))
@@ -2274,9 +2514,25 @@
       (do [! phase.monad]
         [_ (..ensure_fresh_class! class_loader (..reflection super_class))
          _ (monad.each ! (|>> ..reflection (..ensure_fresh_class! class_loader)) super_interfaces)
+
+         self_name (///.lifted (do meta.monad
+                                 [where meta.current_module_name
+                                  id meta.seed]
+                                 (in (..anonymous_class_name where id))))
+         .let [selfT {.#Primitive self_name (list)}]
+         mock (<| phase.lifted
+                  (..mock [self_name parameters]
+                          super_class
+                          super_interfaces
+                          class.final
+                          (list)
+                          (list#each (|>> {#Overriden_Method}) methods)))
+         ... Necessary for reflection to work properly during analysis.
+         _ (phase.lifted (# host execute mock))
+         
          parameters (typeA.check (..parameter_types parameters))
          .let [mapping (list#mix (function (_ [parameterJ parameterT] mapping)
-                                   (dictionary.has (jvm_parser.name parameterJ)
+                                   (dictionary.has (parser.name parameterJ)
                                                    parameterT
                                                    mapping))
                                  luxT.fresh
@@ -2285,12 +2541,6 @@
          super_interfaceT+ (typeA.check (monad.each check.monad
                                                     (|>> ..signature (luxT.check (luxT.class mapping)))
                                                     super_interfaces))
-         selfT (///.lifted (do meta.monad
-                             [where meta.current_module_name
-                              id meta.seed]
-                             (in (inheritance_relationship_type {.#Primitive (..anonymous_class_name where id) (list)}
-                                                                super_classT
-                                                                super_interfaceT+))))
          _ (typeA.inference selfT)
          constructor_argsA+ (monad.each ! (function (_ [type term])
                                             (do !
@@ -2308,15 +2558,15 @@
                                             (/////analysis.tuple (list#each typed_analysis constructor_argsA+))
                                             (/////analysis.tuple methodsA))})))]))
 
-(def: (bundle::class class_loader)
-  (-> java/lang/ClassLoader Bundle)
+(def: (bundle::class class_loader host)
+  (-> java/lang/ClassLoader runtime.Host Bundle)
   (<| (///bundle.prefix "class")
       (|> ///bundle.empty
-          (///bundle.install "anonymous" (class::anonymous class_loader))
+          (///bundle.install "anonymous" (class::anonymous class_loader host))
           )))
 
-(def: .public (bundle class_loader)
-  (-> java/lang/ClassLoader Bundle)
+(def: .public (bundle class_loader host)
+  (-> java/lang/ClassLoader runtime.Host Bundle)
   (<| (///bundle.prefix "jvm")
       (|> ///bundle.empty
           (dictionary.merged bundle::conversion)
@@ -2328,5 +2578,5 @@
           (dictionary.merged bundle::array)
           (dictionary.merged (bundle::object class_loader))
           (dictionary.merged (bundle::member class_loader))
-          (dictionary.merged (bundle::class class_loader))
+          (dictionary.merged (bundle::class class_loader host))
           )))
