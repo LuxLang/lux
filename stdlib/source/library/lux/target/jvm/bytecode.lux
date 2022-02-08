@@ -1,55 +1,55 @@
 (.using
-  [library
-   [lux {"-" Type Label int try}
-    ["[0]" ffi {"+" import:}]
-    [abstract
-     [monoid {"+" Monoid}]
-     ["[0]" monad {"+" Monad do}]]
-    [control
-     ["[0]" writer {"+" Writer}]
-     ["[0]" state {"+" +State}]
-     ["[0]" function]
-     ["[0]" maybe]
-     ["[0]" try {"+" Try}]
-     ["[0]" exception {"+" exception:}]]
-    [data
-     ["[0]" product]
-     [text
-      ["%" format {"+" format}]]
-     [collection
-      ["[0]" list ("[1]#[0]" functor mix)]
-      ["[0]" dictionary {"+" Dictionary}]
-      ["[0]" sequence {"+" Sequence}]]]
-    [macro
-     ["[0]" template]]
-    [math
-     [number
-      ["n" nat]
-      ["i" int]
-      ["[0]" i32 {"+" I32}]]]]]
-  ["[0]" / "_"
-   ["[1][0]" address {"+" Address}]
-   ["[1][0]" jump {"+" Jump Big_Jump}]
-   ["_" instruction {"+" Primitive_Array_Type Instruction Estimator} ("[1]#[0]" monoid)]
-   ["[1][0]" environment {"+" Environment}
-    [limit
-     ["/[0]" registry {"+" Register Registry}]
-     ["/[0]" stack {"+" Stack}]]]
-   ["/[1]" // "_"
-    ["[1][0]" index {"+" Index}]
-    [encoding
-     ["[1][0]" name]
-     ["[1][0]" unsigned {"+" U1 U2}]
-     ["[1][0]" signed {"+" S1 S2 S4}]]
-    ["[1][0]" constant {"+" UTF8}
-     ["[1]/[0]" pool {"+" Pool Resource}]]
-    [attribute
-     [code
-      ["[1][0]" exception {"+" Exception}]]]
-    ["[0]" type {"+" Type}
-     [category {"+" Class Object Value' Value Return' Return Method}]
-     ["[0]" reflection]
-     ["[0]" parser]]]])
+ [library
+  [lux {"-" Type Label int try}
+   ["[0]" ffi {"+" import:}]
+   [abstract
+    [monoid {"+" Monoid}]
+    [functor {"+" Functor}]
+    ["[0]" monad {"+" Monad do}]]
+   [control
+    ["[0]" writer {"+" Writer}]
+    ["[0]" state {"+" +State}]
+    ["[0]" maybe]
+    ["[0]" try {"+" Try} ("[1]#[0]" monad)]
+    ["[0]" exception {"+" exception:}]]
+   [data
+    ["[0]" product]
+    [text
+     ["%" format {"+" format}]]
+    [collection
+     ["[0]" list ("[1]#[0]" functor mix)]
+     ["[0]" dictionary {"+" Dictionary}]
+     ["[0]" sequence {"+" Sequence}]]]
+   [macro
+    ["[0]" template]]
+   [math
+    [number
+     ["n" nat]
+     ["i" int]
+     ["[0]" i32 {"+" I32}]]]]]
+ ["[0]" / "_"
+  ["[1][0]" address {"+" Address}]
+  ["[1][0]" jump {"+" Jump Big_Jump}]
+  ["_" instruction {"+" Primitive_Array_Type Instruction Estimator} ("[1]#[0]" monoid)]
+  ["[1][0]" environment {"+" Environment}
+   [limit
+    ["/[0]" registry {"+" Register Registry}]
+    ["/[0]" stack {"+" Stack}]]]
+  ["/[1]" // "_"
+   ["[1][0]" index {"+" Index}]
+   [encoding
+    ["[1][0]" name]
+    ["[1][0]" unsigned {"+" U1 U2}]
+    ["[1][0]" signed {"+" S1 S2 S4}]]
+   ["[1][0]" constant {"+" UTF8}
+    ["[1]/[0]" pool {"+" Pool Resource}]]
+   [attribute
+    [code
+     ["[1][0]" exception {"+" Exception}]]]
+   ["[0]" type {"+" Type}
+    [category {"+" Class Object Value' Value Return' Return Method}]
+    ["[0]" reflection]
+    ["[0]" parser]]]])
 
 (type: .public Label
   Nat)
@@ -76,29 +76,42 @@
   (Sequence Exception)
   sequence.empty)
 
-(def: relative_identity
+(def: relative#identity
   Relative
-  (function.constant {try.#Success [..no_exceptions _.empty]}))
+  (function (_ _)
+    {try.#Success [..no_exceptions _.empty]}))
+
+(template: (try|do <binding> <term> <then>)
+  [(.case <term>
+     {try.#Success <binding>}
+     <then>
+
+     failure
+     (:expected failure))])
+
+(template: (try|in <it>)
+  [{try.#Success <it>}])
+
+(def: (relative#composite left right)
+  (-> Relative Relative Relative)
+  (cond (same? ..relative#identity left)
+        right
+
+        (same? ..relative#identity right)
+        left
+
+        ... else
+        (function (_ resolver)
+          (<| (try|do [left_exceptions left_instruction] (left resolver))
+              (try|do [right_exceptions right_instruction] (right resolver))
+              (try|in [(# sequence.monoid composite left_exceptions right_exceptions)
+                       (_#composite left_instruction right_instruction)])))))
 
 (implementation: relative_monoid
   (Monoid Relative)
 
-  (def: identity ..relative_identity)
-
-  (def: (composite left right)
-    (cond (same? ..relative_identity left)
-          right
-
-          (same? ..relative_identity right)
-          left
-
-          ... else
-          (function (_ resolver)
-            (do try.monad
-              [[left_exceptions left_instruction] (left resolver)
-               [right_exceptions right_instruction] (right resolver)]
-              (in [(# sequence.monoid composite left_exceptions right_exceptions)
-                   (_#composite left_instruction right_instruction)]))))))
+  (def: identity ..relative#identity)
+  (def: composite ..relative#composite))
 
 (type: .public (Bytecode a)
   (+State Try [Pool Environment Tracker] (Writer Relative a)))
@@ -109,7 +122,7 @@
     {try.#Success [[pool
                     environment
                     (revised@ #next ++ tracker)]
-                   [..relative_identity
+                   [..relative#identity
                     (value@ #next tracker)]]}))
 
 (exception: .public (label_has_already_been_set [label Label])
@@ -133,7 +146,7 @@
   (function (_ state)
     (let [[pool environment tracker] state]
       {try.#Success [state
-                     [..relative_identity
+                     [..relative#identity
                       (case (dictionary.value label (value@ #known tracker))
                         {.#Some [expected {.#Some address}]}
                         {.#Some [expected address]}
@@ -146,7 +159,7 @@
   (function (_ state)
     (let [[pool environment tracker] state]
       {try.#Success [state
-                     [..relative_identity
+                     [..relative#identity
                       (case (dictionary.value label (value@ #known tracker))
                         {.#Some [expected {.#None}]}
                         {.#Some expected}
@@ -159,16 +172,16 @@
   (function (_ state)
     (let [[pool environment tracker] state]
       {try.#Success [state
-                     [..relative_identity
+                     [..relative#identity
                       (value@ /environment.#stack environment)]]})))
 
-(with_expansions [<success> (as_is (in [[pool
-                                         environment
-                                         (revised@ #known
-                                                   (dictionary.has label [actual {.#Some @here}])
-                                                   tracker)]
-                                        [..relative_identity
-                                         []]]))]
+(with_expansions [<success> (as_is (try|in [[pool
+                                             environment
+                                             (revised@ #known
+                                                       (dictionary.has label [actual {.#Some @here}])
+                                                       tracker)]
+                                            [..relative#identity
+                                             []]]))]
   (def: .public (set_label label)
     (-> Label (Bytecode Any))
     (function (_ [pool environment tracker])
@@ -178,46 +191,82 @@
           (exception.except ..label_has_already_been_set [label])
           
           {.#Some [expected {.#None}]}
-          (do try.monad
-            [[actual environment] (/environment.continue expected environment)]
-            <success>)
+          (<| (try|do [actual environment] (/environment.continue expected environment))
+              <success>)
 
-          {.#None}
-          (do try.monad
-            [[actual environment] (/environment.continue (|> environment
-                                                             (value@ /environment.#stack)
-                                                             (maybe.else /stack.empty))
-                                                         environment)]
-            <success>))))))
+          ... {.#None}
+          _
+          (<| (try|do [actual environment] (/environment.continue (|> environment
+                                                                      (value@ /environment.#stack)
+                                                                      (maybe.else /stack.empty))
+                                                                  environment))
+              <success>))))))
 
-(def: .public monad
+(implementation: .public functor
+  (Functor Bytecode)
+  (def: (each $ it)
+    (function (_ state)
+      (case (it state)
+        {try.#Success [state' [relative it]]}
+        {try.#Success [state' [relative ($ it)]]}
+        
+        ... {try.#Failure error}
+        it
+        (:expected it)))))
+
+(implementation: .public monad
   (Monad Bytecode)
-  (<| (:as (Monad Bytecode))
-      (writer.with ..relative_monoid)
-      (: (Monad (+State Try [Pool Environment Tracker])))
-      state.with
-      (: (Monad Try))
-      try.monad))
+
+  (def: &functor ..functor)
+
+  (def: (in it)
+    (function (_ state)
+      {try.#Success [state [relative#identity it]]}))
+
+  (def: (conjoint ^^it)
+    (function (_ state)
+      (case (^^it state)
+        {try.#Success [state' [left ^it]]}
+        (case (^it state')
+          {try.#Success [state'' [right it]]}
+          {try.#Success [state'' [(relative#composite left right) it]]}
+          
+          ... {try.#Failure error}
+          it
+          (:expected it))
+        
+        ... {try.#Failure error}
+        it
+        (:expected it)))))
 
 (def: .public (when_continuous it)
   (-> (Bytecode Any) (Bytecode Any))
   (do ..monad
     [stack ..stack]
     (.case stack
-      {.#None} (in [])
-      {.#Some _} it)))
+      {.#Some _}
+      it
+
+      ... {.#None}
+      _
+      (in []))))
 
 (def: .public (when_acknowledged @ it)
   (-> Label (Bytecode Any) (Bytecode Any))
   (do ..monad
     [?@ (..acknowledged? @)]
     (.case ?@
-      {.#None} (in [])
-      {.#Some _} it)))
+      {.#Some _}
+      it
 
-(def: .public failure
+      ... {.#None}
+      _
+      (in []))))
+
+(def: .public (failure error)
   (-> Text Bytecode)
-  (|>> {try.#Failure} function.constant))
+  (function (_ _)
+    {try.#Failure error}))
 
 (def: .public (except exception value)
   (All (_ e) (-> (exception.Exception e) e Bytecode))
@@ -226,10 +275,9 @@
 (def: .public (resolve environment bytecode)
   (All (_ a) (-> Environment (Bytecode a) (Resource [Environment (Sequence Exception) Instruction a])))
   (function (_ pool)
-    (do try.monad
-      [[[pool environment tracker] [relative output]] (bytecode [pool environment ..fresh])
-       [exceptions instruction] (relative (value@ #known tracker))]
-      (in [pool [environment exceptions instruction output]]))))
+    (<| (try|do [[pool environment tracker] [relative output]] (bytecode [pool environment ..fresh]))
+        (try|do [exceptions instruction] (relative (value@ #known tracker)))
+        (try|in [pool [environment exceptions instruction output]]))))
 
 (def: (step estimator counter)
   (-> Estimator Address (Try Address))
@@ -238,17 +286,18 @@
 (def: (bytecode consumption production registry [estimator bytecode] input)
   (All (_ a) (-> U2 U2 Registry [Estimator (-> [a] Instruction)] a (Bytecode Any)))
   (function (_ [pool environment tracker])
-    (do [! try.monad]
-      [environment' (|> environment
-                        (/environment.consumes consumption)
-                        (monad.then ! (/environment.produces production))
-                        (monad.then ! (/environment.has registry)))
-       program_counter' (step estimator (value@ #program_counter tracker))]
-      (in [[pool
-            environment'
-            (with@ #program_counter program_counter' tracker)]
-           [(function.constant (in [..no_exceptions (bytecode input)]))
-            []]]))))
+    (<| (try|do environment' (|> environment
+                                 (/environment.consumes consumption)
+                                 (monad.then try.monad (|>> (/environment.produces production)
+                                                            (try#each (/environment.has registry))
+                                                            try#conjoint))))
+        (try|do program_counter' (step estimator (value@ #program_counter tracker)))
+        (try|in [[pool
+                  environment'
+                  (with@ #program_counter program_counter' tracker)]
+                 [(function (_ _)
+                    (try|in [..no_exceptions (bytecode input)]))
+                  []]]))))
 
 (template [<name> <frames>]
   [(def: <name> U2
@@ -461,13 +510,12 @@
 (def: discontinuity!
   (Bytecode Any)
   (function (_ [pool environment tracker])
-    (do try.monad
-      [_ (/environment.stack environment)]
-      (in [[pool
-            (/environment.discontinue environment)
-            tracker]
-           [..relative_identity
-            []]]))))
+    (<| (try|do _ (/environment.stack environment))
+        (try|in [[pool
+                  (/environment.discontinue environment)
+                  tracker]
+                 [..relative#identity
+                  []]]))))
 
 (template [<name> <consumption> <instruction>]
   [(def: .public <name>
@@ -495,11 +543,10 @@
     (-> (Resource a)
         (Bytecode a)))
   (function (_ [pool environment tracker])
-    (do try.monad
-      [[pool' output] (resource pool)]
-      (in [[pool' environment tracker]
-           [..relative_identity
-            output]]))))
+    (<| (try|do [pool' output] (resource pool))
+        (try|in [[pool' environment tracker]
+                 [..relative#identity
+                  output]]))))
 
 (def: .public (string value)
   (-> //constant.UTF8 (Bytecode Any))
@@ -747,16 +794,15 @@
 
 (def: (jump @from @to)
   (-> Address Address (Try Any_Jump))
-  (do [! try.monad]
-    [jump (# ! each //signed.value
-             (/address.jump @from @to))]
-    (let [big? (or (i.> (//signed.value //signed.maximum/2)
-                        jump)
-                   (i.< (//signed.value //signed.minimum/2)
-                        jump))]
+  (<| (try|do jump (try#each //signed.value
+                             (/address.jump @from @to)))
+      (let [big? (or (i.> (//signed.value //signed.maximum/2)
+                          jump)
+                     (i.< (//signed.value //signed.minimum/2)
+                          jump))])
       (if big?
-        (# ! each (|>> {.#Left}) (//signed.s4 jump))
-        (# ! each (|>> {.#Right}) (//signed.s2 jump))))))
+        (try#each (|>> {.#Left}) (//signed.s4 jump))
+        (try#each (|>> {.#Right}) (//signed.s2 jump)))))
 
 (exception: .public (unset_label [label Label])
   (exception.report
@@ -771,7 +817,8 @@
     {.#Some [actual {.#None}]}
     (exception.except ..unset_label [label])
     
-    {.#None}
+    ... {.#None}
+    _
     (exception.except ..unknown_label [label])))
 
 (def: (acknowledge_label stack label tracker)
@@ -780,7 +827,8 @@
     {.#Some _}
     tracker
 
-    {.#None}
+    ... {.#None}
+    _
     (revised@ #known (dictionary.has label [stack {.#None}]) tracker)))
 
 (template [<consumption> <name> <instruction>]
@@ -788,31 +836,29 @@
      (-> Label (Bytecode Any))
      (let [[estimator bytecode] <instruction>]
        (function (_ [pool environment tracker])
-         (let [@here (value@ #program_counter tracker)]
-           (do try.monad
-             [environment' (|> environment
-                               (/environment.consumes <consumption>))
-              actual (/environment.stack environment')
-              program_counter' (step estimator @here)]
-             (in (let [@from @here]
-                   [[pool
-                     environment'
-                     (|> tracker
-                         (..acknowledge_label actual label)
-                         (with@ #program_counter program_counter'))]
-                    [(function (_ resolver)
-                       (do try.monad
-                         [[expected @to] (..resolve_label label resolver)
-                          _ (exception.assertion ..mismatched_environments [(symbol <instruction>) label @here expected actual]
-                                                 (# /stack.equivalence = expected actual))
-                          jump (..jump @from @to)]
-                         (case jump
-                           {.#Left jump}
-                           (exception.except ..cannot_do_a_big_jump [label @from jump])
+         (<| (let [@here (value@ #program_counter tracker)])
+             (try|do environment' (|> environment
+                                      (/environment.consumes <consumption>)))
+             (try|do actual (/environment.stack environment'))
+             (try|do program_counter' (step estimator @here))
+             (try|in (let [@from @here]
+                       [[pool
+                         environment'
+                         (|> tracker
+                             (..acknowledge_label actual label)
+                             (with@ #program_counter program_counter'))]
+                        [(function (_ resolver)
+                           (<| (try|do [expected @to] (..resolve_label label resolver))
+                               (try|do _ (exception.assertion ..mismatched_environments [(symbol <instruction>) label @here expected actual]
+                                                              (# /stack.equivalence = expected actual)))
+                               (try|do jump (..jump @from @to))
+                               (case jump
+                                 {.#Left jump}
+                                 (exception.except ..cannot_do_a_big_jump [label @from jump])
 
-                           {.#Right jump}
-                           (in [..no_exceptions (bytecode jump)]))))
-                     []]])))))))]
+                                 {.#Right jump}
+                                 (try|in [..no_exceptions (bytecode jump)]))))
+                         []]]))))))]
 
   [$1 ifeq _.ifeq]
   [$1 ifne _.ifne]
@@ -840,43 +886,42 @@
      (-> Label (Bytecode Any))
      (let [[estimator bytecode] <instruction>]
        (function (_ [pool environment tracker])
-         (do try.monad
-           [actual (/environment.stack environment)
-            .let [@here (value@ #program_counter tracker)]
-            program_counter' (step estimator @here)]
-           (in (let [@from @here]
-                 [[pool
-                   (/environment.discontinue environment)
-                   (|> tracker
-                       (..acknowledge_label actual label)
-                       (with@ #program_counter program_counter'))]
-                  [(function (_ resolver)
-                     (case (dictionary.value label resolver)
-                       {.#Some [expected {.#Some @to}]}
-                       (do try.monad
-                         [_ (exception.assertion ..mismatched_environments [(symbol <instruction>) label @here expected actual]
-                                                 (# /stack.equivalence = expected actual))
-                          jump (..jump @from @to)]
-                         (case jump
-                           {.#Left jump}
-                           <on_long_jump>
+         (<| (try|do actual (/environment.stack environment))
+             (let [@here (value@ #program_counter tracker)])
+             (try|do program_counter' (step estimator @here))
+             (try|in (let [@from @here]
+                       [[pool
+                         (/environment.discontinue environment)
+                         (|> tracker
+                             (..acknowledge_label actual label)
+                             (with@ #program_counter program_counter'))]
+                        [(function (_ resolver)
+                           (case (dictionary.value label resolver)
+                             {.#Some [expected {.#Some @to}]}
+                             (<| (try|do _ (exception.assertion ..mismatched_environments [(symbol <instruction>) label @here expected actual]
+                                                                (# /stack.equivalence = expected actual)))
+                                 (try|do jump (..jump @from @to))
+                                 (case jump
+                                   {.#Left jump}
+                                   <on_long_jump>
 
-                           {.#Right jump}
-                           <on_short_jump>))
+                                   {.#Right jump}
+                                   <on_short_jump>))
 
-                       {.#Some [expected {.#None}]}
-                       (exception.except ..unset_label [label])
+                             {.#Some [expected {.#None}]}
+                             (exception.except ..unset_label [label])
 
-                       {.#None}
-                       (exception.except ..unknown_label [label])))
-                   []]]))))))]
+                             ... {.#None}
+                             _
+                             (exception.except ..unknown_label [label])))
+                         []]]))))))]
 
   [goto _.goto
    (exception.except ..cannot_do_a_big_jump [label @from jump])
-   (in [..no_exceptions (bytecode jump)])]
+   (try|in [..no_exceptions (bytecode jump)])]
   [goto_w _.goto_w
-   (in [..no_exceptions (bytecode jump)])
-   (in [..no_exceptions (bytecode (/jump.lifted jump))])]
+   (try|in [..no_exceptions (bytecode jump)])
+   (try|in [..no_exceptions (bytecode (/jump.lifted jump))])]
   )
 
 (def: (big_jump jump)
@@ -894,38 +939,37 @@
   (-> S4 Label [Label (List Label)] (Bytecode Any))
   (let [[estimator bytecode] _.tableswitch]
     (function (_ [pool environment tracker])
-      (do try.monad
-        [environment' (|> environment
-                          (/environment.consumes $1))
-         actual (/environment.stack environment')
-         program_counter' (step (estimator (list.size afterwards)) (value@ #program_counter tracker))]
-        (in (let [@from (value@ #program_counter tracker)]
-              [[pool
-                environment'
-                (|> (list#mix (..acknowledge_label actual) tracker (list& default at_minimum afterwards))
-                    (with@ #program_counter program_counter'))]
-               [(function (_ resolver)
-                  (let [get (: (-> Label (Maybe [Stack (Maybe Address)]))
-                               (function (_ label)
-                                 (dictionary.value label resolver)))]
-                    (case (do [! maybe.monad]
-                            [@default (|> default get (monad.then ! product.right))
-                             @at_minimum (|> at_minimum get (monad.then ! product.right))
-                             @afterwards (|> afterwards
-                                             (monad.each ! get)
-                                             (monad.then ! (monad.each ! product.right)))]
-                            (in [@default @at_minimum @afterwards]))
-                      {.#Some [@default @at_minimum @afterwards]}
-                      (do [! try.monad]
-                        [>default (# ! each ..big_jump (..jump @from @default))
-                         >at_minimum (# ! each ..big_jump (..jump @from @at_minimum))
-                         >afterwards (monad.each ! (|>> (..jump @from) (# ! each ..big_jump))
-                                                 @afterwards)]
-                        (in [..no_exceptions (bytecode minimum >default [>at_minimum >afterwards])]))
+      (<| (try|do environment' (|> environment
+                                   (/environment.consumes $1)))
+          (try|do actual (/environment.stack environment'))
+          (try|do program_counter' (step (estimator (list.size afterwards)) (value@ #program_counter tracker)))
+          (try|in (let [@from (value@ #program_counter tracker)]
+                    [[pool
+                      environment'
+                      (|> (list#mix (..acknowledge_label actual) tracker (list& default at_minimum afterwards))
+                          (with@ #program_counter program_counter'))]
+                     [(function (_ resolver)
+                        (let [get (: (-> Label (Maybe [Stack (Maybe Address)]))
+                                     (function (_ label)
+                                       (dictionary.value label resolver)))]
+                          (case (do [! maybe.monad]
+                                  [@default (|> default get (monad.then ! product.right))
+                                   @at_minimum (|> at_minimum get (monad.then ! product.right))]
+                                  (|> afterwards
+                                      (monad.each ! get)
+                                      (monad.then ! (monad.each ! product.right))
+                                      (# ! each (|>> [@default @at_minimum]))))
+                            {.#Some [@default @at_minimum @afterwards]}
+                            (<| (try|do >default (try#each ..big_jump (..jump @from @default)))
+                                (try|do >at_minimum (try#each ..big_jump (..jump @from @at_minimum)))
+                                (try|do >afterwards (monad.each try.monad (|>> (..jump @from) (try#each ..big_jump))
+                                                                @afterwards))
+                                (try|in [..no_exceptions (bytecode minimum >default [>at_minimum >afterwards])]))
 
-                      {.#None}
-                      (exception.except ..invalid_tableswitch []))))
-                []]]))))))
+                            ... {.#None}
+                            _
+                            (exception.except ..invalid_tableswitch []))))
+                      []]]))))))
 
 (exception: .public invalid_lookupswitch)
 
@@ -937,37 +981,36 @@
                            cases)
         [estimator bytecode] _.lookupswitch]
     (function (_ [pool environment tracker])
-      (do try.monad
-        [environment' (|> environment
-                          (/environment.consumes $1))
-         actual (/environment.stack environment')
-         program_counter' (step (estimator (list.size cases)) (value@ #program_counter tracker))]
-        (in (let [@from (value@ #program_counter tracker)]
-              [[pool
-                environment'
-                (|> (list#mix (..acknowledge_label actual) tracker (list& default (list#each product.right cases)))
-                    (with@ #program_counter program_counter'))]
-               [(function (_ resolver)
-                  (let [get (: (-> Label (Maybe [Stack (Maybe Address)]))
-                               (function (_ label)
-                                 (dictionary.value label resolver)))]
-                    (case (do [! maybe.monad]
-                            [@default (|> default get (monad.then ! product.right))
-                             @cases (|> cases
-                                        (monad.each ! (|>> product.right get))
-                                        (monad.then ! (monad.each ! product.right)))]
-                            (in [@default @cases]))
-                      {.#Some [@default @cases]}
-                      (do [! try.monad]
-                        [>default (# ! each ..big_jump (..jump @from @default))
-                         >cases (|> @cases
-                                    (monad.each ! (|>> (..jump @from) (# ! each ..big_jump)))
-                                    (# ! each (|>> (list.zipped/2 (list#each product.left cases)))))]
-                        (in [..no_exceptions (bytecode >default >cases)]))
+      (<| (try|do environment' (|> environment
+                                   (/environment.consumes $1)))
+          (try|do actual (/environment.stack environment'))
+          (try|do program_counter' (step (estimator (list.size cases)) (value@ #program_counter tracker)))
+          (try|in (let [@from (value@ #program_counter tracker)]
+                    [[pool
+                      environment'
+                      (|> (list#mix (..acknowledge_label actual) tracker (list& default (list#each product.right cases)))
+                          (with@ #program_counter program_counter'))]
+                     [(function (_ resolver)
+                        (let [get (: (-> Label (Maybe [Stack (Maybe Address)]))
+                                     (function (_ label)
+                                       (dictionary.value label resolver)))]
+                          (case (do [! maybe.monad]
+                                  [@default (|> default get (monad.then ! product.right))]
+                                  (|> cases
+                                      (monad.each ! (|>> product.right get))
+                                      (monad.then ! (monad.each ! product.right))
+                                      (# ! each (|>> [@default]))))
+                            {.#Some [@default @cases]}
+                            (<| (try|do >default (try#each ..big_jump (..jump @from @default)))
+                                (try|do >cases (|> @cases
+                                                   (monad.each try.monad (|>> (..jump @from) (try#each ..big_jump)))
+                                                   (try#each (|>> (list.zipped/2 (list#each product.left cases))))))
+                                (try|in [..no_exceptions (bytecode >default >cases)]))
 
-                      {.#None}
-                      (exception.except ..invalid_lookupswitch []))))
-                []]]))))))
+                            ... {.#None}
+                            _
+                            (exception.except ..invalid_lookupswitch []))))
+                      []]]))))))
 
 (def: reflection
   (All (_ category)
@@ -1080,24 +1123,34 @@
          environment
          (..acknowledge_label /stack.catch @handler tracker)]
         [(function (_ resolver)
-           (do try.monad
-             [[_ @start] (..resolve_label @start resolver)
-              [_ @end] (..resolve_label @end resolver)
-              _ (if (/address.after? @start @end)
-                  (in [])
-                  (exception.except ..invalid_range_for_try [@start @end]))
-              [_ @handler] (..resolve_label @handler resolver)]
-             (in [(sequence.sequence
-                   [//exception.#start @start
-                    //exception.#end @end
-                    //exception.#handler @handler
-                    //exception.#catch @catch])
-                  _.empty])))
+           (<| (try|do [_ @start] (..resolve_label @start resolver))
+               (try|do [_ @end] (..resolve_label @end resolver))
+               (try|do _ (if (/address.after? @start @end)
+                           (try|in [])
+                           (exception.except ..invalid_range_for_try [@start @end])))
+               (try|do [_ @handler] (..resolve_label @handler resolver))
+               (try|in [(sequence.sequence
+                         [//exception.#start @start
+                          //exception.#end @end
+                          //exception.#handler @handler
+                          //exception.#catch @catch])
+                        _.empty])))
          []]]})))
 
 (def: .public (composite pre post)
   (All (_ pre post)
     (-> (Bytecode pre) (Bytecode post) (Bytecode post)))
-  (do ..monad
-    [_ pre]
-    post))
+  (function (_ state)
+    (case (pre state)
+      {try.#Success [state' [left _]]}
+      (case (post state')
+        {try.#Success [state'' [right it]]}
+        {try.#Success [state'' [(relative#composite left right) it]]}
+
+        ... {try.#Failure error}
+        it
+        it)
+      
+      ... {try.#Failure error}
+      it
+      (:expected it))))
