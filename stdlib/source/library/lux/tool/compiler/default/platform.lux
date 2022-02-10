@@ -1,9 +1,9 @@
 (.using
  [library
   [lux "*"
-   [type {"+" :sharing}]
    ["@" target]
    ["[0]" debug]
+   ["[0]" meta]
    [abstract
     ["[0]" monad {"+" Monad do}]]
    [control
@@ -27,6 +27,8 @@
      ["[0]" list ("[1]#[0]" monoid functor mix)]]
     [format
      ["_" binary {"+" Writer}]]]
+   [type {"+" :sharing}
+    ["[0]" check]]
    [world
     ["[0]" file {"+" Path}]
     ["[0]" console]]]]
@@ -49,7 +51,8 @@
      [phase
       ["[0]" extension {"+" Extender}]]]]
    [meta
-    [cli {"+" Compilation Library}]
+    [cli {"+" Compilation Library}
+     ["[0]" compiler {"+" Compiler}]]
     ["[0]" archive {"+" Output Archive}
      ["[0]" registry {"+" Registry}]
      ["[0]" artifact]
@@ -716,6 +719,13 @@
                     [_ (ioW.freeze (value@ #&file_system platform) static archive)]
                     (async#in {try.#Failure error}))))))))
 
+      (exception: .public (invalid_custom_compiler [definition Symbol
+                                                    type Type])
+        (exception.report
+         ["Definition" (%.symbol definition)]
+         ["Expected Type" (%.type ///.Custom)]
+         ["Actual Type" (%.type type)]))
+
       (def: .public (compile phase_wrapper import static expander platform compilation context)
         (All (_ <type_vars>)
           (-> ///phase.Wrapper Import Static Expander <Platform> Compilation <Context> <Return>))
@@ -723,5 +733,28 @@
               compiler (|> (..compiler phase_wrapper expander platform)
                            (serial_compiler import static platform sources)
                            (..parallel context))]
-          (compiler descriptor.runtime module)))
+          (do [! ..monad]
+            [customs (|> compilers
+                         (list#each (function (_ it)
+                                      (let [/#definition (value@ compiler.#definition it)
+                                            [/#module /#name] /#definition
+                                            /#parameters (value@ compiler.#parameters it)]
+                                        (do !
+                                          [[archive state] (compiler descriptor.runtime /#module)
+                                           .let [meta_state (value@ [extension.#state
+                                                                     ///directive.#analysis
+                                                                     ///directive.#state
+                                                                     extension.#state]
+                                                                    state)]
+                                           [_ /#type /#value] (|> /#definition
+                                                                  meta.export
+                                                                  (meta.result meta_state)
+                                                                  async#in)]
+                                          (async#in (if (check.subsumes? ///.Custom /#type)
+                                                      (|> /#value
+                                                          (:as ///.Custom)
+                                                          (function.on /#parameters))
+                                                      (exception.except ..invalid_custom_compiler [/#definition /#type])))))))
+                         (monad.all !))]
+            (compiler descriptor.runtime module))))
       )))

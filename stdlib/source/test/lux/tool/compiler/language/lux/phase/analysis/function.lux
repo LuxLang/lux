@@ -1,133 +1,253 @@
 (.using
+ [library
   [lux "*"
-   [abstract
-    ["[0]" monad {"+" do}]]
-   [data
-    ["%" text/format {"+" format}]]
-   ["r" math/random {"+" Random}]
    ["_" test {"+" Test}]
+   [abstract
+    [monad {"+" do}]]
    [control
-    pipe
-    ["[0]" maybe]
-    ["[0]" try]]
+    [pipe {"+" case>}]
+    ["[0]" function]
+    ["[0]" try ("[1]#[0]" functor)]
+    ["[0]" exception]]
    [data
     ["[0]" product]
-    ["[0]" text ("[1]#[0]" equivalence)]
-    [number
-     ["n" nat]]
+    ["[0]" text
+     ["%" format]]
     [collection
-     ["[0]" list ("[1]#[0]" functor)]]]
-   ["[0]" type]
-   ["[0]" macro
+     ["[0]" list]]]
+   [macro
     ["[0]" code]]
+   [math
+    ["[0]" random]
+    [number
+     ["n" nat]]]
    [meta
-    ["[0]" symbol]]]
-  [//
-   ["_[0]" primitive]
-   ["_[0]" structure]]
-  [\\
-   ["[0]" /
-    ["/[1]" //
-     ["[1][0]" module]
-     ["[1][0]" type]
-     ["/[1]" // "_"
-      ["/[1]" //
-       ["[1][0]" analysis {"+" Analysis Operation}]
-       [///
-        ["[1][0]" reference]
-        ["[0]" phase]
-        [meta
-         ["[0]" archive]]]]]]]])
+    ["[0]" symbol "_"
+     ["$[1]" \\test]]]
+   ["[0]" type ("[1]#[0]" equivalence)
+    ["$[1]" \\test]
+    ["[0]" check]]]]
+ [\\library
+  ["[0]" /
+   ["/[1]" //
+    [//
+     ["[1][0]" extension
+      ["[1]/[0]" analysis "_"
+       ["[1]" lux]]]
+     [//
+      ["[1][0]" analysis {"+" Analysis}
+       [evaluation {"+" Eval}]
+       ["[2][0]" macro]
+       ["[2][0]" scope]
+       ["[2][0]" module]
+       ["[2][0]" type
+        ["$[1]" \\test]]
+       ["[2][0]" inference "_"
+        ["$[1]" \\test]]]
+      [///
+       ["[1][0]" phase ("[1]#[0]" monad)]
+       [meta
+        ["[0]" archive]]]]]]]])
 
-(def: (check_apply expectedT num_args analysis)
-  (-> Type Nat (Operation Analysis) Bit)
-  (|> analysis
-      (//type.with_type expectedT)
-      (phase.result _primitive.state)
-      (case> {try.#Success applyA}
-             (let [[funcA argsA] (////analysis.application applyA)]
-               (n.= num_args (list.size argsA)))
+(def: (eval archive type term)
+  Eval
+  (//phase#in []))
 
-             {try.#Failure _}
-             false)))
+(def: (expander macro inputs state)
+  //macro.Expander
+  {try.#Success ((.macro macro) inputs state)})
 
-(def: abstraction
-  (do r.monad
-    [func_name (r.unicode 5)
-     arg_name (|> (r.unicode 5) (r.only (|>> (text#= func_name) not)))
-     [outputT outputC] _primitive.primitive
-     [inputT _] _primitive.primitive
-     .let [g!arg (code.local_symbol arg_name)]]
-    (<| (_.context (%.symbol (symbol /.function)))
-        ($_ _.and
-            (_.test "Can analyse function."
-                    (and (|> (//type.with_type (All (_ a) (-> a outputT))
-                               (/.function _primitive.phase func_name arg_name archive.empty outputC))
-                             _structure.check_succeeds)
-                         (|> (//type.with_type (All (_ a) (-> a a))
-                               (/.function _primitive.phase func_name arg_name archive.empty g!arg))
-                             _structure.check_succeeds)))
-            (_.test "Generic functions can always be specialized."
-                    (and (|> (//type.with_type (-> inputT outputT)
-                               (/.function _primitive.phase func_name arg_name archive.empty outputC))
-                             _structure.check_succeeds)
-                         (|> (//type.with_type (-> inputT inputT)
-                               (/.function _primitive.phase func_name arg_name archive.empty g!arg))
-                             _structure.check_succeeds)))
-            (_.test "The function's name is bound to the function's type."
-                    (|> (//type.with_type (Rec self (-> inputT self))
-                          (/.function _primitive.phase func_name arg_name archive.empty (code.local_symbol func_name)))
-                        _structure.check_succeeds))
-            ))))
+(def: analysis
+  //analysis.Phase
+  (//.phase ..expander))
 
-(def: apply
-  (do [! r.monad]
-    [full_args (|> r.nat (# ! each (|>> (n.% 10) (n.max 2))))
-     partial_args (|> r.nat (# ! each (n.% full_args)))
-     var_idx (|> r.nat (# ! each (|>> (n.% full_args) (n.max 1))))
-     inputsTC (r.list full_args _primitive.primitive)
-     .let [inputsT (list#each product.left inputsTC)
-           inputsC (list#each product.right inputsTC)]
-     [outputT outputC] _primitive.primitive
-     .let [funcT (type.function inputsT outputT)
-           partialT (type.function (list.after partial_args inputsT) outputT)
-           varT {.#Parameter 1}
-           polyT (<| (type.univ_q 1)
-                     (type.function (list.together (list (list.first var_idx inputsT)
-                                                         (list varT)
-                                                         (list.after (++ var_idx) inputsT))))
-                     varT)
-           poly_inputT (maybe.trusted (list.item var_idx inputsT))
-           partial_poly_inputsT (list.after (++ var_idx) inputsT)
-           partial_polyT1 (<| (type.function partial_poly_inputsT)
-                              poly_inputT)
-           partial_polyT2 (<| (type.univ_q 1)
-                              (type.function {.#Item varT partial_poly_inputsT})
-                              varT)
-           dummy_function {////analysis.#Function (list) {////analysis.#Reference (////reference.local 1)}}]]
-    (<| (_.context (%.symbol (symbol /.apply)))
-        ($_ _.and
-            (_.test "Can analyse monomorphic type application."
-                    (|> (/.apply _primitive.phase inputsC funcT dummy_function archive.empty (' []))
-                        (check_apply outputT full_args)))
-            (_.test "Can partially apply functions."
-                    (|> (/.apply _primitive.phase (list.first partial_args inputsC) funcT dummy_function archive.empty (' []))
-                        (check_apply partialT partial_args)))
-            (_.test "Can apply polymorphic functions."
-                    (|> (/.apply _primitive.phase inputsC polyT dummy_function archive.empty (' []))
-                        (check_apply poly_inputT full_args)))
-            (_.test "Polymorphic partial application propagates found type-vars."
-                    (|> (/.apply _primitive.phase (list.first (++ var_idx) inputsC) polyT dummy_function archive.empty (' []))
-                        (check_apply partial_polyT1 (++ var_idx))))
-            (_.test "Polymorphic partial application preserves quantification for type-vars."
-                    (|> (/.apply _primitive.phase (list.first var_idx inputsC) polyT dummy_function archive.empty (' []))
-                        (check_apply partial_polyT2 var_idx)))
-            ))))
+(def: test|function
+  Test
+  (do [! random.monad]
+    [lux $//type.random_state
+     .let [state [//extension.#bundle (//extension/analysis.bundle ..eval)
+                  //extension.#state lux]]
+     input/0 ($type.random 0)
+     input/1 ($type.random 0)
+     function/0 (random.ascii/lower 1)
+     function/1 (random.ascii/lower 2)
+     argument/0 (random.ascii/lower 3)
+     argument/1 (random.ascii/lower 4)
+     module/0 (random.ascii/lower 5)
+     [output/0 term/0] $//inference.simple_parameter
+     [output/1 term/1] (random.only (|>> product.left (same? output/0) not)
+                                    $//inference.simple_parameter)
+     name/0 ($symbol.random 1 1)
+     .let [$function/0 (code.local_symbol function/0)
+           $function/1 (code.local_symbol function/1)
+           $argument/0 (code.local_symbol argument/0)
+           $argument/1 (code.local_symbol argument/1)]]
+    ($_ _.and
+        (_.cover [/.function]
+                 (let [function?' (: (-> Type Code (-> [(List Analysis) Analysis] Bit) Bit)
+                                     (function (_ function_type output_term ?)
+                                       (|> (do //phase.monad
+                                             [analysis (|> (/.function ..analysis function/0 argument/0 archive.empty
+                                                             output_term)
+                                                           (//type.expecting function_type))]
+                                             (in (case analysis
+                                                   {//analysis.#Function it}
+                                                   (? it)
+
+                                                   _
+                                                   false)))
+                                           (//module.with 0 module/0)
+                                           (//phase#each product.right)
+                                           (//phase.result state)
+                                           (try.else false))))
+                       function? (: (-> Type Code Bit)
+                                    (function (_ function_type output_term)
+                                      (function?' function_type output_term (function.constant true))))
+                       inferring? (: (-> Type Code Bit)
+                                     (function (_ :expected: term)
+                                       (|> (do //phase.monad
+                                             [[:actual: analysis] (|> (/.function ..analysis function/0 argument/0 archive.empty
+                                                                        term)
+                                                                      //type.inferring)]
+                                             (in (case analysis
+                                                   {//analysis.#Function [actual_env actual_body]}
+                                                   (type#= :expected: :actual:)
+
+                                                   _
+                                                   false)))
+                                           (//module.with 0 module/0)
+                                           (//phase#each product.right)
+                                           (//phase.result state)
+                                           (try.else false))))]
+                   (and (function? (-> input/0 output/0) term/0)
+                        (function? (-> input/0 input/0) $argument/0)
+
+                        (function? {.#Named name/0 (-> input/0 output/0)} term/0)
+                        
+                        (function? (All (_ a) (-> a a)) $argument/0)
+                        (function? (Ex (_ a) (-> a a)) $argument/0)
+                        (function? (Ex (_ a) (-> input/0 a)) term/0)
+                        (function? (Ex (_ a) (-> a a)) term/0)
+                        (function? (Rec self (-> input/0 self)) $function/0)
+
+                        (function? (type ((All (_ a) (-> a a)) output/0)) term/0)
+                        (not (function? (type ((All (_ a) (-> a a)) output/1)) term/0))
+
+                        (function? (type ((Ex (_ a) (-> a a)) output/0)) term/0)
+                        (not (function? (type ((Ex (_ a) (-> a a)) output/1)) term/0))
+
+                        (function?' (-> input/0 input/1 input/0) (` ([(~ $function/1) (~ $argument/1)] (~ $argument/0)))
+                                    (function (_ [outer body])
+                                      (and (list.empty? outer)
+                                           (case body
+                                             {//analysis.#Function [inner body]}
+                                             (n.= 1 (list.size inner))
+
+                                             _
+                                             false))))
+                        (function?' (-> input/0 input/1 input/1) (` ([(~ $function/1) (~ $argument/1)] (~ $argument/1)))
+                                    (function (_ [outer body])
+                                      (and (list.empty? outer)
+                                           (case body
+                                             {//analysis.#Function [inner body]}
+                                             (n.= 0 (list.size inner))
+
+                                             _
+                                             false))))
+
+                        (|> (do //phase.monad
+                              [[@var :var:] (//type.check check.var)
+                               _ (//type.check (check.check :var: (-> input/0 output/0)))
+                               analysis (|> (/.function ..analysis function/0 argument/0 archive.empty
+                                              term/0)
+                                            (//type.expecting :var:))]
+                              (in (case analysis
+                                    {//analysis.#Function [actual_env actual_body]}
+                                    true
+
+                                    _
+                                    false)))
+                            (//module.with 0 module/0)
+                            (//phase#each product.right)
+                            (//phase.result state)
+                            (try.else false))
+                        
+                        (inferring? (All (_ a) (-> a output/0)) term/0)
+                        (inferring? (All (_ a) (-> a a)) $argument/0)
+                        (inferring? (All (_ @0) (-> @0 @0 (And .Bit @0)))
+                                    (` ([(~ $function/1) (~ $argument/1)]
+                                        [("lux is" (~ $argument/0) (~ $argument/1))
+                                         (~ $argument/1)]))))))
+        (_.cover [/.cannot_analyse]
+                 (|> (do //phase.monad
+                       [analysis (|> (/.function ..analysis function/0 argument/0 archive.empty
+                                       term/1)
+                                     (//type.expecting (-> input/0 output/0)))]
+                       (in (case analysis
+                             {//analysis.#Function [actual_env actual_body]}
+                             true
+
+                             _
+                             false)))
+                     (//module.with 0 module/0)
+                     (//phase#each product.right)
+                     (//phase.result state)
+                     (exception.otherwise (text.contains? (value@ exception.#label /.cannot_analyse)))))
+        )))
 
 (def: .public test
   Test
-  (<| (_.context (symbol.module (symbol /._)))
-      ($_ _.and
-          ..abstraction
-          ..apply
-          )))
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [lux $//type.random_state
+         .let [state [//extension.#bundle (//extension/analysis.bundle ..eval)
+                      //extension.#state lux]]
+         [input/0 term/0] $//inference.simple_parameter
+         [input/1 term/1] $//inference.simple_parameter
+         output/0 ($type.random 0)
+         module/0 (random.ascii/lower 1)]
+        ($_ _.and
+            ..test|function
+            (_.cover [/.apply]
+                     (let [reification? (: (-> Type (List Code) Type Bit)
+                                           (function (_ :abstraction: terms :expected:)
+                                             (|> (do //phase.monad
+                                                   [[:actual: analysis] (|> (/.apply ..analysis terms
+                                                                                     :abstraction:
+                                                                                     (//analysis.unit)
+                                                                                     archive.empty
+                                                                                     (' []))
+                                                                            //type.inferring)]
+                                                   (in (and (check.subsumes? :expected: :actual:)
+                                                            (case analysis
+                                                              {//analysis.#Apply _}
+                                                              true
+
+                                                              _
+                                                              false))))
+                                                 (//module.with 0 module/0)
+                                                 (//phase#each product.right)
+                                                 (//phase.result state)
+                                                 (try.else false))))]
+                       (and (reification? (-> input/0 input/1 output/0) (list term/0 term/1) output/0)
+                            (reification? (-> input/0 input/1 output/0) (list term/0) (-> input/1 output/0))
+                            (reification? (All (_ a) (-> a a)) (list term/0) input/0)
+                            (reification? (All (_ a) (-> a a a)) (list term/0) (-> input/0 input/0))
+                            (reification? (All (_ a) (-> input/0 a)) (list term/0) .Nothing)
+                            (reification? (All (_ a b) (-> a b a)) (list term/0) (All (_ b) (-> b input/0)))
+                            (reification? (Ex (_ a) (-> a input/0)) (list (` ("lux io error" ""))) input/0)
+                            (reification? (Ex (_ a) (-> input/0 a)) (list term/0) .Any))))
+            (_.cover [/.cannot_apply]
+                     (|> (do //phase.monad
+                           [_ (|> (/.apply ..analysis (list term/1 term/0)
+                                           (-> input/0 input/1 output/0)
+                                           (//analysis.unit)
+                                           archive.empty
+                                           (' []))
+                                  (//type.expecting output/0))]
+                           (in false))
+                         (//module.with 0 module/0)
+                         (//phase#each product.right)
+                         (//phase.result state)
+                         (exception.otherwise (text.contains? (value@ exception.#label /.cannot_apply)))))
+            ))))

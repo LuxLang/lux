@@ -1,25 +1,25 @@
 (.using
-  [library
-   [lux "*"
-    ["@" target]
-    [abstract
-     [functor {"+" Functor}]
-     [apply {"+" Apply}]
-     ["[0]" monad {"+" Monad do}]]
-    [control
-     ["[0]" maybe]
-     ["[0]" try {"+" Try}]
-     ["[0]" exception {"+" Exception exception:}]]
-    [data
-     ["[0]" product]
-     ["[0]" text ("[1]#[0]" monoid equivalence)]
-     [collection
-      ["[0]" list]
-      ["[0]" set {"+" Set}]]]
-    [math
-     [number
-      ["n" nat ("[1]#[0]" decimal)]]]]]
-  ["[0]" // ("[1]#[0]" equivalence)])
+ [library
+  [lux {"-" try}
+   ["@" target]
+   [abstract
+    [functor {"+" Functor}]
+    [apply {"+" Apply}]
+    ["[0]" monad {"+" Monad do}]]
+   [control
+    ["[0]" maybe]
+    ["[0]" try {"+" Try}]
+    ["[0]" exception {"+" Exception exception:}]]
+   [data
+    ["[0]" product]
+    ["[0]" text ("[1]#[0]" monoid equivalence)]
+    [collection
+     ["[0]" list ("[1]#[0]" mix)]
+     ["[0]" set {"+" Set}]]]
+   [math
+    [number
+     ["n" nat ("[1]#[0]" decimal)]]]]]
+ ["[0]" // ("[1]#[0]" equivalence)])
 
 (template: (!n#= reference subject)
   [("lux i64 =" reference subject)])
@@ -249,16 +249,20 @@
       _
       (exception.except ..unknown_type_var id))))
 
-(def: (re_bind type id)
-  (-> Type Var (Check Any))
+(def: (re_bind' ?type id)
+  (-> (Maybe Type) Var (Check Any))
   (function (_ context)
     (case (|> context (value@ .#var_bindings) (var::get id))
       {.#Some _}
-      {try.#Success [(revised@ .#var_bindings (var::put id {.#Some type}) context)
+      {try.#Success [(revised@ .#var_bindings (var::put id ?type) context)
                      []]}
       
       _
       (exception.except ..unknown_type_var id))))
+
+(def: (re_bind type id)
+  (-> Type Var (Check Any))
+  (re_bind' {.#Some type} id))
 
 (def: .public var
   (Check [Var Type])
@@ -298,26 +302,21 @@
 (type: Ring
   (Set Var))
 
-(def: empty_ring
-  Ring
-  (set.empty n.hash))
-
-... TODO: Optimize this by not using sets anymore.
-(def: (ring start)
-  (-> Var (Check Ring))
+(def: (ring' start)
+  (-> Var (Check (List Var)))
   (function (_ context)
     (loop [current start
-           output (set.has start empty_ring)]
+           output (list start)]
       (case (|> context (value@ .#var_bindings) (var::get current))
         {.#Some {.#Some type}}
         (case type
-          {.#Var post}
-          (if (!n#= start post)
+          {.#Var next}
+          (if (!n#= start next)
             {try.#Success [context output]}
-            (again post (set.has post output)))
+            (again next (list& next output)))
           
           _
-          {try.#Success [context empty_ring]})
+          {try.#Success [context (list)]})
 
         {.#Some {.#None}}
         {try.#Success [context output]}
@@ -325,21 +324,113 @@
         {.#None}
         (exception.except ..unknown_type_var current)))))
 
+... TODO: Optimize this by not using sets anymore.
+(def: ring
+  (-> Var (Check Ring))
+  (|>> ..ring'
+       (check#each (set.of_list n.hash))))
+
+(def: .public (linked? @0 @1)
+  (-> Var Var (Check Bit))
+  (check#each (function (_ it)
+                (set.member? it @1))
+              (..ring @0)))
+
+(exception: (invalid_alias [var Var
+                            expected (List Var)
+                            actual (List Var)])
+  (exception.report
+   ["Var" (n#encoded var)]
+   ["Expected" (exception.listing n#encoded expected)]
+   ["Actual" (exception.listing n#encoded actual)]))
+
+(exception: (cannot_identify [var Var])
+  (exception.report
+   ["Var" (n#encoded var)]))
+
+(def: .public (identity aliases @)
+  (-> (List Var) Var (Check Type))
+  (do [! ..monad]
+    [:bound: (..peek @)]
+    (case :bound:
+      {.#Some :bound:}
+      (in :bound:)
+
+      {.#None}
+      (do !
+        [existing_aliases (..ring @)
+         _ (if (list.every? (set.member? existing_aliases) aliases)
+             (in [])
+             (..except ..invalid_alias [@ aliases (set.list existing_aliases)]))
+         .let [forbidden_aliases (set.of_list n.hash (list& @ aliases))
+               allowed_aliases (set.difference forbidden_aliases existing_aliases)]]
+        (case (set.list allowed_aliases)
+          {.#Item identity _}
+          (in {.#Var identity})
+          
+          {.#None}
+          (..except ..cannot_identify [@]))))))
+
+(def: (erase! @)
+  (-> Var (Check Any))
+  (function (_ context)
+    {try.#Success [(revised@ .#var_bindings
+                             (list#mix (: (:let [binding [Nat (Maybe Type)]]
+                                            (-> binding
+                                                (List binding)
+                                                (List binding)))
+                                          (function (_ in out)
+                                            (let [[@var :var:] in]
+                                              (if (n.= @ @var)
+                                                out
+                                                (list& in out)))))
+                                       (: (List [Nat (Maybe Type)])
+                                          (list)))
+                             context)
+                   []]}))
+
+(def: .public (forget! @)
+  (-> Var (Check Any))
+  (do [! ..monad]
+    [ring (..ring' @)]
+    (case ring
+      (^ (list))
+      (in [])
+      
+      (^ (list @me))
+      (erase! @me)
+      
+      (^ (list @other @me))
+      (do !
+        [_ (re_bind' {.#None} @other)]
+        (erase! @me))
+      
+      (^ (list& @prev _))
+      (case (list.reversed ring)
+        (^ (list& @me @next _))
+        (do !
+          [_ (re_bind {.#Var @next} @prev)
+           _ (re_bind {.#Var @prev} @next)]
+          (erase! @me))
+
+        _
+        (undefined)))))
+
+(def: .public (try it)
+  (All (_ a) (-> (Check a) (Check (Try a))))
+  (function (_ context)
+    (case (it context)
+      {try.#Success [context' output]}
+      {try.#Success [context' {try.#Success output}]}
+
+      {try.#Failure error}
+      {try.#Success [context {try.#Failure error}]})))
+
 (def: .public fresh_context
   Type_Context
   [.#var_counter 0
    .#ex_counter 0
    .#var_bindings (list)])
-
-(def: (attempt op)
-  (All (_ a) (-> (Check a) (Check (Maybe a))))
-  (function (_ context)
-    (case (op context)
-      {try.#Success [context' output]}
-      {try.#Success [context' {.#Some output}]}
-
-      {try.#Failure _}
-      {try.#Success [context {.#None}]})))
 
 (def: (either left right)
   (All (_ a) (-> (Check a) (Check a) (Check a)))
@@ -396,17 +487,17 @@
   (if (!n#= idE idA)
     (check#in assumptions)
     (do [! ..monad]
-      [ebound (attempt (..bound idE))
-       abound (attempt (..bound idA))]
+      [ebound (..try (..bound idE))
+       abound (..try (..bound idA))]
       (case [ebound abound]
         ... Link the 2 variables circularly
-        [{.#None} {.#None}]
+        [{try.#Failure _} {try.#Failure _}]
         (do !
           [_ (link/2 idE idA)]
           (in assumptions))
 
         ... Interpose new variable between 2 existing links
-        [{.#Some etype} {.#None}]
+        [{try.#Success etype} {try.#Failure _}]
         (case etype
           {.#Var targetE}
           (do !
@@ -417,7 +508,7 @@
           (check' assumptions etype {.#Var idA}))
 
         ... Interpose new variable between 2 existing links
-        [{.#None} {.#Some atype}]
+        [{try.#Failure _} {try.#Success atype}]
         (case atype
           {.#Var targetA}
           (do !
@@ -427,7 +518,7 @@
           _
           (check' assumptions {.#Var idE} atype))
 
-        [{.#Some etype} {.#Some atype}]
+        [{try.#Success etype} {try.#Success atype}]
         (case [etype atype]
           [{.#Var targetE} {.#Var targetA}]
           (do !
@@ -702,9 +793,9 @@
              (check#each (|>> {<tag> leftT'}))))])
     ([.#Sum] [.#Product] [.#Function] [.#Apply])
 
-    {.#Var id}
+    {.#Var @}
     (do ..monad
-      [?actualT (peek id)]
+      [?actualT (peek @)]
       (case ?actualT
         {.#Some actualT}
         (clean actualT)
@@ -715,7 +806,8 @@
     (^template [<tag>]
       [{<tag> envT+ unquantifiedT}
        (do [! ..monad]
-         [envT+' (monad.each ! clean envT+)]
-         (in {<tag> envT+' unquantifiedT}))])
+         [envT+' (monad.each ! clean envT+)
+          unquantifiedT' (clean unquantifiedT)]
+         (in {<tag> envT+' unquantifiedT'}))])
     ([.#UnivQ] [.#ExQ])
     ))

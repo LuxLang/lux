@@ -6,12 +6,16 @@
     monad]
    [control
     ["[0]" maybe]
-    ["ex" exception {"+" exception:}]]
+    ["[0]" try]
+    ["[0]" exception {"+" exception:}]]
    [data
     ["[0]" text
      ["%" format {"+" format}]]
     [collection
      ["[0]" list ("[1]#[0]" monoid monad)]]]
+   [math
+    [number
+     ["n" nat]]]
    ["[0]" type
     ["[0]" check]]]]
  ["[0]" /// "_"
@@ -30,29 +34,44 @@
                                      function Text
                                      argument Text
                                      body Code])
-  (ex.report ["Type" (%.type expected)]
-             ["Function" function]
-             ["Argument" argument]
-             ["Body" (%.code body)]))
+  (exception.report
+   ["Type" (%.type expected)]
+   ["Function" function]
+   ["Argument" argument]
+   ["Body" (%.code body)]))
 
-(exception: .public (cannot_apply [functionT Type
+(exception: .public (cannot_apply [:function: Type
                                    functionC Code
                                    arguments (List Code)])
-  (ex.report ["Function type" (%.type functionT)]
-             ["Function" (%.code functionC)]
-             ["Arguments" (|> arguments
-                              list.enumeration
-                              (list#each (.function (_ [idx argC])
-                                           (format (%.nat idx) " " (%.code argC))))
-                              (text.interposed text.new_line))]))
+  (exception.report
+   ["Function type" (%.type :function:)]
+   ["Function" (%.code functionC)]
+   ["Arguments" (|> arguments
+                    list.enumeration
+                    (list#each (.function (_ [idx argC])
+                                 (format (%.nat idx) " " (%.code argC))))
+                    (text.interposed text.new_line))]))
 
 (def: .public (function analyse function_name arg_name archive body)
   (-> Phase Text Text Phase)
   (do [! ///.monad]
-    [functionT (///extension.lifted meta.expected_type)]
-    (loop [expectedT functionT]
+    [:function: (///extension.lifted meta.expected_type)]
+    (loop [expectedT :function:]
       (/.with_exception ..cannot_analyse [expectedT function_name arg_name body]
         (case expectedT
+          {.#Function :input: :output:}
+          (<| (# ! each (.function (_ [scope bodyA])
+                          {/.#Function (list#each (|>> /.variable)
+                                                  (/scope.environment scope))
+                                       bodyA}))
+              /scope.with
+              ... Functions have access not only to their argument, but
+              ... also to themselves, through a local variable.
+              (/scope.with_local [function_name expectedT])
+              (/scope.with_local [arg_name :input:])
+              (/type.expecting :output:)
+              (analyse archive body))
+          
           {.#Named name unnamedT}
           (again unnamedT)
 
@@ -62,7 +81,7 @@
             (again value)
 
             {.#None}
-            (/.failure (ex.error cannot_analyse [expectedT function_name arg_name body])))
+            (/.failure (exception.error ..cannot_analyse [expectedT function_name arg_name body])))
 
           (^template [<tag> <instancer>]
             [{<tag> _}
@@ -82,33 +101,34 @@
               ... Inference
               _
               (do !
-                [[input_id inputT] (/type.check check.var)
-                 [output_id outputT] (/type.check check.var)
-                 .let [functionT {.#Function inputT outputT}]
-                 functionA (again functionT)
-                 _ (/type.check (check.check expectedT functionT))]
+                [[@input :input:] (/type.check check.var)
+                 [@output :output:] (/type.check check.var)
+                 .let [:function: {.#Function :input: :output:}]
+                 functionA (again :function:)
+                 specialization (/type.check (check.try (check.identity (list @output) @input)))
+                 :function: (case specialization
+                              {try.#Success :input:'}
+                              (in :function:)
+
+                              {try.#Failure _}
+                              (/type.check
+                               (do [! check.monad]
+                                 [? (check.linked? @input @output)]
+                                 (# ! each
+                                    (|>> {.#Function :input:} (/inference.quantified @input 1) {.#UnivQ (list)})
+                                    (if ?
+                                      (in :input:)
+                                      (check.identity (list @input) @output))))))
+                 _ (/type.check (check.check expectedT :function:))]
                 (in functionA))))
 
-          {.#Function inputT outputT}
-          (<| (# ! each (.function (_ [scope bodyA])
-                          {/.#Function (list#each (|>> /.variable)
-                                                  (/scope.environment scope))
-                                       bodyA}))
-              /scope.with
-              ... Functions have access not only to their argument, but
-              ... also to themselves, through a local variable.
-              (/scope.with_local [function_name expectedT])
-              (/scope.with_local [arg_name inputT])
-              (/type.expecting outputT)
-              (analyse archive body))
-          
           _
           (/.failure "")
           )))))
 
-(def: .public (apply analyse argsC+ functionT functionA archive functionC)
+(def: .public (apply analyse argsC+ :function: functionA archive functionC)
   (-> Phase (List Code) Type Analysis Phase)
-  (<| (/.with_exception ..cannot_apply [functionT functionC argsC+])
+  (<| (/.with_exception ..cannot_apply [:function: functionC argsC+])
       (do ///.monad
-        [[applyT argsA+] (/inference.general archive analyse functionT argsC+)])
+        [[applyT argsA+] (/inference.general archive analyse :function: argsC+)])
       (in (/.reified [functionA argsA+]))))
