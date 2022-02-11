@@ -3718,13 +3718,6 @@
                          cases)]
     output))
 
-(def: (on_either f x1 x2)
-  (All (_ a b)
-    (-> (-> a (Maybe b)) a a (Maybe b)))
-  (case (f x1)
-    {#None}   (f x2)
-    {#Some y} {#Some y}))
-
 (def: (in_env name state)
   (-> Text Lux (Maybe Type))
   (case state
@@ -3738,14 +3731,13 @@
                      [..#name _
                       ..#inner _
                       ..#locals [..#counter _ ..#mappings locals]
-                      ..#captured [..#counter _ ..#mappings closure]]
-                     (on_either (list#one (: (-> [Text [Type Any]] (Maybe Type))
-                                             (function (_ [bname [type _]])
-                                               (if (text#= name bname)
-                                                 {#Some type}
-                                                 {#None}))))
-                                (: (List [Text [Type Any]]) locals)
-                                (: (List [Text [Type Any]]) closure)))))
+                      ..#captured _]
+                     (list#one (: (-> [Text [Type Any]] (Maybe Type))
+                                  (function (_ [bname [type _]])
+                                    (if (text#= name bname)
+                                      {#Some type}
+                                      {#None})))
+                               locals))))
               scopes)))
 
 (def: (definition_type name state)
@@ -3839,24 +3831,25 @@
     [.let [[module name] full_name]
      current_module current_module_name]
     (function (_ compiler)
-      (let [temp (if (text#= "" module)
-                   (case (in_env name compiler)
-                     {#Some struct_type}
-                     {#Right [compiler struct_type]}
+      (let [temp (: (Either Text [Lux Type])
+                    (if (text#= "" module)
+                      (case (in_env name compiler)
+                        {#Some struct_type}
+                        {#Right [compiler struct_type]}
 
-                     _
-                     (case (definition_type [current_module name] compiler)
-                       {#Some struct_type}
-                       {#Right [compiler struct_type]}
+                        _
+                        (case (definition_type [current_module name] compiler)
+                          {#Some struct_type}
+                          {#Right [compiler struct_type]}
 
-                       _
-                       {#Left ($_ text#composite "Unknown var: " (symbol#encoded full_name))}))
-                   (case (definition_type full_name compiler)
-                     {#Some struct_type}
-                     {#Right [compiler struct_type]}
+                          _
+                          {#Left ($_ text#composite "Unknown var: " (symbol#encoded full_name))}))
+                      (case (definition_type full_name compiler)
+                        {#Some struct_type}
+                        {#Right [compiler struct_type]}
 
-                     _
-                     {#Left ($_ text#composite "Unknown var: " (symbol#encoded full_name))}))]
+                        _
+                        {#Left ($_ text#composite "Unknown var: " (symbol#encoded full_name))})))]
         (case temp
           {#Right [compiler {#Var type_id}]}
           (let [[..#info _ ..#source _ ..#current_module _ ..#modules _
@@ -4708,30 +4701,6 @@
     _
     (failure (..wrong_syntax_error [..prelude_module "symbol"]))))
 
-(def: (scope_type_vars state)
-  (Meta (List Nat))
-  (case state
-    [..#info info ..#source    source ..#current_module _   ..#modules modules
-     ..#scopes scopes ..#type_context types    ..#host    host
-     ..#seed seed ..#expected  expected ..#location  location ..#extensions extensions
-     ..#scope_type_vars scope_type_vars ..#eval _eval]
-    {#Right [state scope_type_vars]}))
-
-(macro: .public (:parameter tokens)
-  (case tokens
-    (^ (list [_ {#Nat idx}]))
-    (do meta_monad
-      [stvs ..scope_type_vars]
-      (case (..item idx (list#reversed stvs))
-        {#Some var_id}
-        (in (list (` {.#Ex (~ (nat$ var_id))})))
-
-        {#None}
-        (failure (text#composite "Indexed-type does not exist: " (nat#encoded idx)))))
-
-    _
-    (failure (..wrong_syntax_error (symbol ..$)))))
-
 (def: .public (same? reference sample)
   (All (_ a)
     (-> a a Bit))
@@ -4926,6 +4895,32 @@
 
       _
       (failure (..wrong_syntax_error (symbol ..for))))))
+
+... TODO: Delete "scope_type_vars" (including the #scope_type_vars Lux state) and ":parameter" ASAP.
+(for ["{old}" (as_is (def: (scope_type_vars state)
+                       (Meta (List Nat))
+                       (case state
+                         [..#info info ..#source    source ..#current_module _   ..#modules modules
+                          ..#scopes scopes ..#type_context types    ..#host    host
+                          ..#seed seed ..#expected  expected ..#location  location ..#extensions extensions
+                          ..#scope_type_vars scope_type_vars ..#eval _eval]
+                         {#Right [state scope_type_vars]}))
+
+                     (macro: .public (:parameter tokens)
+                       (case tokens
+                         (^ (list [_ {#Nat idx}]))
+                         (do meta_monad
+                           [stvs ..scope_type_vars]
+                           (case (..item idx (list#reversed stvs))
+                             {#Some var_id}
+                             (in (list (` {.#Ex (~ (nat$ var_id))})))
+
+                             {#None}
+                             (failure (text#composite "Indexed-type does not exist: " (nat#encoded idx)))))
+
+                         _
+                         (failure (..wrong_syntax_error (symbol ..$))))))]
+     (as_is))
 
 (macro: .public (using _imports)
   (do meta_monad

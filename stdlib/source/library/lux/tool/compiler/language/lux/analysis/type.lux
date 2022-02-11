@@ -3,10 +3,18 @@
   [lux "*"
    ["[0]" meta]
    [abstract
-    [monad {"+" do}]]
+    ["[0]" monad {"+" do}]]
    [control
     ["[0]" function]
     ["[0]" try]]
+   [data
+    ["[0]" text
+     ["%" format {"+" format}]]
+    [collection
+     ["[0]" list]]]
+   [math
+    [number
+     ["n" nat]]]
    [type
     ["[0]" check {"+" Check}]]]]
  ["/" // {"+" Operation}
@@ -15,11 +23,6 @@
     ["[0]" extension]]
    [///
     ["[0]" phase]]]])
-
-(def: .public (expecting expected)
-  (All (_ a) (-> Type (Operation a) (Operation a)))
-  (extension.localized (value@ .#expected) (with@ .#expected)
-                       (function.constant {.#Some expected})))
 
 (def: .public (check action)
   (All (_ a) (-> (Check a) (Operation a)))
@@ -32,6 +35,34 @@
       {try.#Failure error}
       ((/.failure error) stateE))))
 
+(def: prefix
+  (format (%.symbol (symbol ..type)) "#"))
+
+(def: .public (existential? type)
+  (-> Type Bit)
+  (case type
+    {.#Primitive actual {.#End}}
+    (text.starts_with? ..prefix actual)
+
+    _
+    false))
+
+(def: (existential' module id)
+  (-> Text Nat Type)
+  {.#Primitive (format ..prefix module "#" (%.nat id)) (list)})
+
+(def: .public existential
+  (Operation Type)
+  (do phase.monad
+    [module (extension.lifted meta.current_module_name)
+     [id _] (..check check.existential)]
+    (in (..existential' module id))))
+
+(def: .public (expecting expected)
+  (All (_ a) (-> Type (Operation a) (Operation a)))
+  (extension.localized (value@ .#expected) (with@ .#expected)
+                       (function.constant {.#Some expected})))
+
 (def: .public fresh
   (All (_ a) (-> (Operation a) (Operation a)))
   (extension.localized (value@ .#type_context) (with@ .#type_context)
@@ -40,8 +71,44 @@
 (def: .public (inference actualT)
   (-> Type (Operation Any))
   (do phase.monad
-    [expectedT (extension.lifted meta.expected_type)]
-    (..check (check.check expectedT actualT))))
+    [module (extension.lifted meta.current_module_name)
+     expectedT (extension.lifted meta.expected_type)]
+    (..check (check.check expectedT actualT)
+             ... (do [! check.monad]
+             ...   [pre check.context
+             ...    it (check.check expectedT actualT)
+             ...    post check.context
+             ...    .let [pre#var_counter (value@ .#var_counter pre)]]
+             ...   (if (n.< (value@ .#var_counter post)
+             ...            pre#var_counter)
+             ...     (do !
+             ...       [.let [new! (: (-> [Nat (Maybe Type)] (Maybe Nat))
+             ...                      (function (_ [id _])
+             ...                        (if (n.< id pre#var_counter)
+             ...                          {.#Some id}
+             ...                          {.#None})))
+             ...              new_vars (|> post
+             ...                           (value@ .#var_bindings)
+             ...                           (list.all new!))]
+             ...        _ (monad.each ! (function (_ @new)
+             ...                          (do !
+             ...                            [:new: (check.try (check.identity new_vars @new))]
+             ...                            (case :new:
+             ...                              {try.#Success :new:}
+             ...                              (in :new:)
+             
+             ...                              {try.#Failure error}
+             ...                              (do !
+             ...                                [[id _] check.existential
+             ...                                 .let [:new: (..existential' module id)]
+             ...                                 _ (check.bind :new: @new)]
+             ...                                (in :new:)))))
+             ...                      new_vars)
+             ...        expectedT' (check.clean new_vars expectedT)
+             ...        _ (check.with pre)]
+             ...       (check.check expectedT' actualT))
+             ...     (in it)))
+             )))
 
 (def: .public (with_var it)
   (All (_ a) (-> (-> [check.Var Type] (Operation a))
@@ -50,7 +117,8 @@
     [var (..check check.var)
      .let [[@it :it:] var]
      it (it var)
-     _ (..check (check.forget! @it))]
+     ... _ (..check (check.forget! @it))
+     ]
     (in it)))
 
 (def: .public (inferring action)
@@ -58,5 +126,10 @@
   (do phase.monad
     [[@it :it:] (..check check.var)
      it (..expecting :it: action)
-     :it: (..check (check.clean :it:))]
+     :it: (..check (check.clean (list) :it:))
+     ... :it: (..check (do check.monad
+     ...                 [:it: (check.identity (list) @it)
+     ...                  _ (check.forget! @it)]
+     ...                 (in :it:)))
+     ]
     (in [:it: it])))

@@ -3,7 +3,7 @@
   [lux "*"
    ["[0]" meta]
    [abstract
-    [monad {"+" do}]]
+    ["[0]" monad {"+" do}]]
    [control
     [pipe {"+" case>}]
     ["[0]" maybe]
@@ -53,25 +53,6 @@
   [invalid_type_application]
   )
 
-(def: prefix
-  (format (%.symbol (symbol ..type)) "#"))
-
-(def: .public (existential? type)
-  (-> Type Bit)
-  (case type
-    {.#Primitive actual {.#End}}
-    (text.starts_with? ..prefix actual)
-
-    _
-    false))
-
-(def: existential
-  (Operation Type)
-  (do phase.monad
-    [module (extension.lifted meta.current_module_name)
-     [id _] (/type.check check.existential)]
-    (in {.#Primitive (format ..prefix module "#" (%.nat id)) (list)})))
-
 (def: .public (quantified @var @parameter :it:)
   (-> check.Var Nat Type Type)
   (case :it:
@@ -111,33 +92,34 @@
 ... tagged variants).
 ... But, so long as the type being used for the inference can be treated
 ... as a function type, this method of inference should work.
-(def: .public (general archive analyse inferT args)
-  (-> Archive Phase Type (List Code) (Operation [Type (List Analysis)]))
+(def: (general' vars archive analyse inferT args)
+  (-> (List check.Var) Archive Phase Type (List Code) (Operation [Type_Context (List check.Var) Type (List Analysis)]))
   (case args
     {.#End}
     (do phase.monad
-      [_ (/type.inference inferT)]
-      (in [inferT (list)]))
+      [just_before (/type.check check.context)
+       _ (/type.inference inferT)]
+      (in [just_before vars inferT (list)]))
     
     {.#Item argC args'}
     (case inferT
       {.#Named name unnamedT}
-      (general archive analyse unnamedT args)
+      (general' vars archive analyse unnamedT args)
 
       {.#UnivQ _}
       (do phase.monad
         [[@var :var:] (/type.check check.var)]
-        (general archive analyse (maybe.trusted (type.applied (list :var:) inferT)) args))
+        (general' (list& @var vars) archive analyse (maybe.trusted (type.applied (list :var:) inferT)) args))
 
       {.#ExQ _}
       (do phase.monad
-        [:ex: ..existential]
-        (general archive analyse (maybe.trusted (type.applied (list :ex:) inferT)) args))
+        [:ex: /type.existential]
+        (general' vars archive analyse (maybe.trusted (type.applied (list :ex:) inferT)) args))
 
       {.#Apply inputT transT}
       (case (type.applied (list inputT) transT)
         {.#Some outputT}
-        (general archive analyse outputT args)
+        (general' vars archive analyse outputT args)
 
         {.#None}
         (/.except ..invalid_type_application [inferT]))
@@ -151,24 +133,58 @@
       ... things together more easily.
       {.#Function inputT outputT}
       (do phase.monad
-        [[outputT' args'A] (general archive analyse outputT args')
+        [[just_before vars outputT' args'A] (general' vars archive analyse outputT args')
          argA (<| (/.with_exception ..cannot_infer_argument [inputT argC])
                   (/type.expecting inputT)
                   (analyse archive argC))]
-        (in [outputT' (list& argA args'A)]))
+        (in [just_before vars outputT' (list& argA args'A)]))
 
       {.#Var infer_id}
       (do phase.monad
         [?inferT' (/type.check (check.peek infer_id))]
         (case ?inferT'
           {.#Some inferT'}
-          (general archive analyse inferT' args)
+          (general' vars archive analyse inferT' args)
 
           _
           (/.except ..cannot_infer [inferT args])))
 
       _
       (/.except ..cannot_infer [inferT args]))
+    ))
+
+(def: .public (general archive analyse inferT args)
+  (-> Archive Phase Type (List Code) (Operation [Type (List Analysis)]))
+  (do [! phase.monad]
+    [[just_before vars :inference: terms] (general' (list) archive analyse inferT args)]
+    (in [:inference: terms])
+    ... (case vars
+    ...   (^ (list))
+    ...   (in [:inference: terms])
+
+    ...   _
+    ...   (do !
+    ...     [:inference: (/type.check
+    ...                   (do [! check.monad]
+    ...                     [quantifications (monad.mix ! (function (_ @var level)
+    ...                                                     (do !
+    ...                                                       [:var: (check.try (check.identity vars @var))]
+    ...                                                       (case :var:
+    ...                                                         {try.#Success _}
+    ...                                                         (in level)
+
+    ...                                                         {try.#Failure _}
+    ...                                                         (do !
+    ...                                                           [.let [:var: (|> level (n.* 2) ++ {.#Parameter})]
+    ...                                                            _ (check.bind :var: @var)]
+    ...                                                           (in (++ level))))))
+    ...                                                 0
+    ...                                                 vars)
+    ...                      :inference:' (# ! each (type.univ_q quantifications) (check.clean vars :inference:))
+    ...                      _ (check.with just_before)]
+    ...                     (in :inference:')))
+    ...      _ (/type.inference :inference:)]
+    ...     (in [:inference: terms])))
     ))
 
 (def: (with_recursion @self recursion)

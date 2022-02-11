@@ -299,10 +299,7 @@
       _
       (except ..invalid_type_application [funcT argT]))))
 
-(type: Ring
-  (Set Var))
-
-(def: (ring' start)
+(def: .public (ring' start)
   (-> Var (Check (List Var)))
   (function (_ context)
     (loop [current start
@@ -326,7 +323,7 @@
 
 ... TODO: Optimize this by not using sets anymore.
 (def: ring
-  (-> Var (Check Ring))
+  (-> Var (Check (Set Var)))
   (|>> ..ring'
        (check#each (set.of_list n.hash))))
 
@@ -336,15 +333,7 @@
                 (set.member? it @1))
               (..ring @0)))
 
-(exception: (invalid_alias [var Var
-                            expected (List Var)
-                            actual (List Var)])
-  (exception.report
-   ["Var" (n#encoded var)]
-   ["Expected" (exception.listing n#encoded expected)]
-   ["Actual" (exception.listing n#encoded actual)]))
-
-(exception: (cannot_identify [var Var])
+(exception: .public (cannot_identify [var Var])
   (exception.report
    ["Var" (n#encoded var)]))
 
@@ -358,18 +347,18 @@
 
       {.#None}
       (do !
-        [existing_aliases (..ring @)
-         _ (if (list.every? (set.member? existing_aliases) aliases)
-             (in [])
-             (..except ..invalid_alias [@ aliases (set.list existing_aliases)]))
-         .let [forbidden_aliases (set.of_list n.hash (list& @ aliases))
-               allowed_aliases (set.difference forbidden_aliases existing_aliases)]]
-        (case (set.list allowed_aliases)
-          {.#Item identity _}
-          (in {.#Var identity})
-          
-          {.#None}
-          (..except ..cannot_identify [@]))))))
+        [existing_aliases (..ring @)]
+        (if (n.< 2 (set.size existing_aliases))
+          (..except ..cannot_identify [@])
+          (do !
+            [.let [forbidden_aliases (set.of_list n.hash (list& @ aliases))
+                   allowed_aliases (set.difference forbidden_aliases existing_aliases)]]
+            (case (set.list allowed_aliases)
+              {.#Item identity _}
+              (in {.#Var identity})
+              
+              {.#None}
+              (..except ..cannot_identify [@]))))))))
 
 (def: (erase! @)
   (-> Var (Check Any))
@@ -639,7 +628,7 @@
       _
       ..silent_failure!)))
 
-(def: (with exception parameter check)
+(def: (with_exception exception parameter check)
   (All (_ e a) (-> (Exception e) e (Check a) (Check a)))
   (|>> check
        (exception.with exception parameter)))
@@ -652,7 +641,7 @@
             @.php false]
            (same? expected actual))
     (check#in assumptions)
-    (with ..type_check_failed [expected actual]
+    (with_exception ..type_check_failed [expected actual]
       (case [expected actual]
         [{.#Var idE} {.#Var idA}]
         (check_vars check' assumptions idE idA)
@@ -774,12 +763,17 @@
   (function (_ context)
     {try.#Success [context context]}))
 
-(def: .public (clean inputT)
-  (-> Type (Check Type))
+(def: .public (with context)
+  (-> Type_Context (Check Any))
+  (function (_ _)
+    {try.#Success [context []]}))
+
+(def: .public (clean aliases inputT)
+  (-> (List Var) Type (Check Type))
   (case inputT
     {.#Primitive name paramsT+}
     (|> paramsT+
-        (monad.each ..monad clean)
+        (monad.each ..monad (clean aliases))
         (check#each (|>> {.#Primitive name})))
 
     (^or {.#Parameter _} {.#Ex _} {.#Named _})
@@ -788,26 +782,43 @@
     (^template [<tag>]
       [{<tag> leftT rightT}
        (do ..monad
-         [leftT' (clean leftT)]
-         (|> (clean rightT)
+         [leftT' (clean aliases leftT)]
+         (|> (clean aliases rightT)
              (check#each (|>> {<tag> leftT'}))))])
     ([.#Sum] [.#Product] [.#Function] [.#Apply])
 
     {.#Var @}
-    (do ..monad
-      [?actualT (peek @)]
-      (case ?actualT
-        {.#Some actualT}
-        (clean actualT)
+    (case aliases
+      (^ (list))
+      (do ..monad
+        [?actualT (peek @)]
+        (case ?actualT
+          {.#Some actualT}
+          (clean aliases actualT)
 
-        _
-        (in inputT)))
+          _
+          (in inputT)))
+
+      _
+      (do ..monad
+        [:it: (..try (..identity aliases @))]
+        (case :it:
+          {try.#Success :it:}
+          (case :it:
+            {.#Var _}
+            (in inputT)
+
+            _
+            (clean aliases :it:))
+
+          failure
+          (in inputT))))
 
     (^template [<tag>]
       [{<tag> envT+ unquantifiedT}
        (do [! ..monad]
-         [envT+' (monad.each ! clean envT+)
-          unquantifiedT' (clean unquantifiedT)]
+         [envT+' (monad.each ! (clean aliases) envT+)
+          unquantifiedT' (clean aliases unquantifiedT)]
          (in {<tag> envT+' unquantifiedT'}))])
     ([.#UnivQ] [.#ExQ])
     ))
