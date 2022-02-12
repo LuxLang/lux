@@ -1,5 +1,6 @@
 # Reference
 
+0. [Design and Implementation of Highly Scalable Quantifiable Data Structures in C++ - CppCon 2021](https://www.youtube.com/watch?v=ECWsLj0pgbI)
 0. [Building a Lock-free Multi-producer, Multi-consumer Queue for Tcmalloc - Matt Kulukundis - CppCon 21](https://www.youtube.com/watch?v=_qaKkHuHYE0)
 0. [Fear and Loathing in Lock-Free Programming](https://medium.com/@tylerneely/fear-and-loathing-in-lock-free-programming-7158b1cdd50c)
 0. [Transactional Memory: Architectural Support for Lock-Free Data Structures](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.491.1948&rep=rep1&type=pdf)

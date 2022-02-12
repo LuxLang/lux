@@ -1,0 +1,314 @@
+(.using
+ [library
+  [lux "*"
+   ["@" target]
+   ["[0]" ffi]
+   [control
+    [function
+     [inline {"+" inline:}]]]
+   [data
+    [collection
+     ["[0]" array]]]
+   [math
+    [number {"+" hex}
+     ["[0]" i64]]]]])
+
+(with_expansions [<jvm> (as_is (type: .public Binary
+                                 (ffi.type [byte]))
+
+                               (ffi.import: java/lang/Object)
+                               
+                               (ffi.import: java/lang/System
+                                 ["[1]::[0]"
+                                  ("static" arraycopy [java/lang/Object int java/lang/Object int int] void)])
+
+                               (ffi.import: java/util/Arrays
+                                 ["[1]::[0]"
+                                  ("static" copyOfRange [[byte] int int] [byte])
+                                  ("static" equals [[byte] [byte]] boolean)]))]
+  (for [@.old (as_is <jvm>)
+        @.jvm (as_is <jvm>)
+
+        @.js
+        (as_is (ffi.import: ArrayBuffer
+                 ["[1]::[0]"
+                  (new [ffi.Number])])
+               
+               (ffi.import: Uint8Array
+                 ["[1]::[0]"
+                  (new [ArrayBuffer])
+                  (length ffi.Number)])
+               
+               (type: .public Binary
+                 Uint8Array))
+
+        @.python
+        (type: .public Binary
+          (Primitive "bytearray"))
+
+        @.scheme
+        (as_is (type: .public Binary
+                 (Primitive "bytevector"))
+               
+               (ffi.import: (make-bytevector [Nat] Binary))
+               (ffi.import: (bytevector-u8-ref [Binary Nat] I64))
+               (ffi.import: (bytevector-u8-set! [Binary Nat (I64 Any)] Any))
+               (ffi.import: (bytevector-length [Binary] Nat)))]
+
+       ... Default
+       (type: .public Binary
+         (array.Array (I64 Any)))))
+
+(template: .public (empty size)
+  [(with_expansions [<size> (: Nat size)
+                     <jvm> (|> <size>
+                               (ffi.array byte)
+                               (: ..Binary))]
+     (: ..Binary
+        (for [@.old <jvm>
+              @.jvm <jvm>
+
+              @.js
+              (|> <size>
+                  .int
+                  "lux i64 f64"
+                  ArrayBuffer::new
+                  Uint8Array::new)
+
+              @.python
+              (|> <size>
+                  ("python apply" (:as ffi.Function ("python constant" "bytearray")))
+                  (:as ..Binary))
+
+              @.scheme
+              (..make-bytevector <size>)]
+
+             ... Default
+             (array.empty <size>))))])
+
+(template: .public (size it)
+  [(with_expansions [<it> (: ..Binary it)
+                     <jvm> (ffi.length <it>)]
+     (: Nat
+        (for [@.old <jvm>
+              @.jvm <jvm>
+
+              @.js
+              (|> <it>
+                  Uint8Array::length
+                  (: Frac)
+                  "lux f64 i64"
+                  .nat)
+
+              @.python
+              (|> <it>
+                  (:as (array.Array (I64 Any)))
+                  "python array length")
+
+              @.scheme
+              (..bytevector-length [<it>])]
+
+             ... Default
+             (array.size <it>))))])
+
+(def: byte_mask
+  Nat
+  (i64.mask i64.bits_per_byte))
+
+(with_expansions [<byte_mask> (.static ..byte_mask)]
+  (template: .public (bytes/1 index it)
+    [(with_expansions [<it> (: ..Binary it)
+                       <index> (: Nat index)
+                       <jvm> (|> <it>
+                                 (ffi.read! <index>)
+                                 ffi.byte_to_long
+                                 (:as I64)
+                                 ("lux i64 and" <byte_mask>))]
+       (: I64
+          (`` (for [@.old (~~ <jvm>)
+                    @.jvm (~~ <jvm>)
+
+                    @.js
+                    (|> <it>
+                        (:as (array.Array .Frac))
+                        ("js array read" <index>)
+                        "lux f64 i64"
+                        .i64)
+
+                    @.python
+                    (|> <it>
+                        (:as (array.Array .I64))
+                        ("python array read" <index>))
+
+                    @.scheme
+                    (..bytevector-u8-ref [<it> <index>])]
+
+                   ... Default
+                   (.case (array.read! <index> <it>)
+                     {.#Some it}
+                     it
+
+                     {.#None}
+                     (.i64 (: (I64 Any) 0)))))))]))
+
+(template: .public (bytes/2 index' it')
+  [(let [index (: Nat index')
+         it (: ..Binary it')]
+     (: I64
+        ($_ "lux i64 or"
+            ("lux i64 left-shift" 8 (..bytes/1 index it))
+            (..bytes/1 ("lux i64 +" 1 index) it))))])
+
+(template: .public (bytes/4 index' it')
+  [(let [index (: Nat index')
+         it (: ..Binary it')]
+     (: I64
+        ($_ "lux i64 or"
+            ("lux i64 left-shift" 24 (..bytes/1 index it))
+            ("lux i64 left-shift" 16 (..bytes/1 ("lux i64 +" 1 index) it))
+            ("lux i64 left-shift" 8 (..bytes/1 ("lux i64 +" 2 index) it))
+            (..bytes/1 ("lux i64 +" 3 index) it))))])
+
+(template: .public (bytes/8 index' it')
+  [(let [index (: Nat index')
+         it (: ..Binary it')]
+     (: I64
+        ($_ "lux i64 or"
+            ("lux i64 left-shift" 56 (..bytes/1 index it))
+            ("lux i64 left-shift" 48 (..bytes/1 ("lux i64 +" 1 index) it))
+            ("lux i64 left-shift" 40 (..bytes/1 ("lux i64 +" 2 index) it))
+            ("lux i64 left-shift" 32 (..bytes/1 ("lux i64 +" 3 index) it))
+            ("lux i64 left-shift" 24 (..bytes/1 ("lux i64 +" 4 index) it))
+            ("lux i64 left-shift" 16 (..bytes/1 ("lux i64 +" 5 index) it))
+            ("lux i64 left-shift" 8 (..bytes/1 ("lux i64 +" 6 index) it))
+            (..bytes/1 ("lux i64 +" 7 index) it))))])
+
+(with_expansions [<byte> (hex "FF")]
+  (template: .public (with/1! index value it)
+    [(with_expansions [<it> (: ..Binary it)
+                       <index> (: Nat index)
+                       <value> (: (I64 Any) value)
+                       <value> (for [@.old
+                                     (|> <value> (:as Int) ffi.long_to_byte)
+
+                                     @.jvm
+                                     (|> <value> (:as (Primitive "java.lang.Long")) ffi.long_to_byte)]
+                                    <value>)
+                       <jvm> (ffi.write! <index> <value> <it>)]
+       (: ..Binary
+          (for [@.old <jvm>
+                @.jvm <jvm>
+
+                @.js
+                (|> <it>
+                    (: ..Binary)
+                    (:as (array.Array .Frac))
+                    ("js array write" <index>
+                     (|> <value>
+                         .int
+                         ("lux i64 and" (.int <byte>))
+                         "lux i64 f64"))
+                    (:as ..Binary))
+                
+                @.python
+                (|> <it>
+                    (: ..Binary)
+                    (:as (array.Array (I64 Any)))
+                    ("python array write" <index> (|> <value> ("lux i64 and" <byte>) (: (I64 Any))))
+                    (:as ..Binary))
+                
+                @.scheme
+                (let [it' <it>]
+                  (exec
+                    (..bytevector-u8-set! [it' <index> <value>])
+                    it'))]
+
+               ... Default
+               (array.write! <index> (|> <value> .int ("lux i64 and" (.int <byte>))) <it>))))]))
+
+(template: .public (with/2! index' value' it)
+  [(let [index (: Nat index')
+         value (: (I64 Any) value')]
+     (|> it
+         (..with/1! index ("lux i64 right-shift" 8 value))
+         (..with/1! ("lux i64 +" 1 index) value)))])
+
+(template: .public (with/4! index' value' it)
+  [(let [index (: Nat index')
+         value (: (I64 Any) value')]
+     (|> it
+         (..with/1! index ("lux i64 right-shift" 24 value))
+         (..with/1! ("lux i64 +" 1 index) ("lux i64 right-shift" 16 value))
+         (..with/1! ("lux i64 +" 2 index) ("lux i64 right-shift" 8 value))
+         (..with/1! ("lux i64 +" 3 index) value)))])
+
+(template: .public (with/8! index' value' it)
+  [(let [index (: Nat index')
+         value (: (I64 Any) value')]
+     (for [@.scheme (let [write_high (: (-> ..Binary ..Binary)
+                                        (|>> (..with/1! index ("lux i64 right-shift" 56 value))
+                                             (..with/1! ("lux i64 +" 1 index) ("lux i64 right-shift" 48 value))
+                                             (..with/1! ("lux i64 +" 2 index) ("lux i64 right-shift" 40 value))
+                                             (..with/1! ("lux i64 +" 3 index) ("lux i64 right-shift" 32 value))))
+                          write_low (: (-> ..Binary ..Binary)
+                                       (|>> (..with/1! ("lux i64 +" 4 index) ("lux i64 right-shift" 24 value))
+                                            (..with/1! ("lux i64 +" 5 index) ("lux i64 right-shift" 16 value))
+                                            (..with/1! ("lux i64 +" 6 index) ("lux i64 right-shift" 8 value))
+                                            (..with/1! ("lux i64 +" 7 index) value)))]
+                      (|> it
+                          write_high
+                          write_low))]
+          (|> it
+              (..with/1! index ("lux i64 right-shift" 56 value))
+              (..with/1! ("lux i64 +" 1 index) ("lux i64 right-shift" 48 value))
+              (..with/1! ("lux i64 +" 2 index) ("lux i64 right-shift" 40 value))
+              (..with/1! ("lux i64 +" 3 index) ("lux i64 right-shift" 32 value))
+              (..with/1! ("lux i64 +" 4 index) ("lux i64 right-shift" 24 value))
+              (..with/1! ("lux i64 +" 5 index) ("lux i64 right-shift" 16 value))
+              (..with/1! ("lux i64 +" 6 index) ("lux i64 right-shift" 8 value))
+              (..with/1! ("lux i64 +" 7 index) value))))])
+
+(def: .public (= reference sample)
+  (-> ..Binary ..Binary Bit)
+  (with_expansions [<jvm> (java/util/Arrays::equals reference sample)]
+    (for [@.old <jvm>
+          @.jvm <jvm>]
+         (let [limit (..size reference)]
+           (and ("lux i64 =" limit (..size sample))
+                (loop [index 0]
+                  (if ("lux i64 =" limit index)
+                    (and ("lux i64 ="
+                          (..bytes/1 index reference)
+                          (..bytes/1 index sample))
+                         (again (++ index)))
+                    true)))))))
+
+(def: .public (copy! bytes source_offset source target_offset target)
+  (-> Nat Nat ..Binary Nat ..Binary ..Binary)
+  (with_expansions [<jvm> (as_is (exec
+                                   (java/lang/System::arraycopy source (.int source_offset)
+                                                                target (.int target_offset)
+                                                                (.int bytes))
+                                   target))]
+    (for [@.old <jvm>
+          @.jvm <jvm>]
+         
+         ... Default
+         (loop [index 0]
+           (if ("lux i64 <" (.int bytes) (.int index))
+             (exec
+               (..with/1! ("lux i64 +" target_offset index)
+                          (..bytes/1 ("lux i64 +" source_offset index) source)
+                          target)
+               (again (++ index)))
+             target)))))
+
+(def: .public (slice offset size binary)
+  (-> Nat Nat ..Binary ..Binary)
+  (let [limit ("lux i64 +" size offset)]
+    (with_expansions [<jvm> (as_is (java/util/Arrays::copyOfRange binary (.int offset) (.int limit)))]
+      (for [@.old <jvm>
+            @.jvm <jvm>]
+           
+           ... Default
+           (..copy! size offset binary 0 (..empty size))))))

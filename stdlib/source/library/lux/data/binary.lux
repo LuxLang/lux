@@ -1,32 +1,98 @@
 (.using
-  [library
-   [lux {"-" i64}
-    ["@" target]
-    ["[0]" ffi]
-    [abstract
-     [monad {"+" do}]
-     [equivalence {"+" Equivalence}]
-     [monoid {"+" Monoid}]]
-    [control
-     ["[0]" maybe]
-     ["[0]" try {"+" Try}]
-     ["[0]" exception {"+" exception:}]]
-    [data
-     [text
-      ["%" format {"+" format}]]
-     [collection
-      ["[0]" array]]]
-    [math
-     [number {"+" hex}
-      ["n" nat]
-      ["f" frac]
-      ["[0]" i64]]]]])
+ [library
+  [lux "*"
+   ["@" target]
+   ["[0]" ffi]
+   [abstract
+    [equivalence {"+" Equivalence}]
+    [monoid {"+" Monoid}]]
+   [control
+    ["[0]" try {"+" Try}]
+    ["[0]" exception {"+" exception:}]]
+   [data
+    [text
+     ["%" format]]
+    [collection
+     ["[0]" array]]]
+   [math
+    [number
+     ["n" nat]]]]]
+ ["[0]" / "_"
+  ["[1]" \\unsafe]])
+
+(type: .public Binary
+  /.Binary)
+
+(def: .public size
+  (-> Binary Nat)
+  (|>> /.size))
+
+(def: .public (empty size)
+  (-> Nat Binary)
+  (/.empty size))
+
+(def: .public (aggregate $ init it)
+  (All (_ a) (-> (-> I64 a a) a Binary a))
+  (let [size (/.size it)]
+    (loop [index 0
+           output init]
+      (if (n.< size index)
+        (again (++ index) ($ (/.bytes/1 index it) output))
+        output))))
 
 (exception: .public (index_out_of_bounds [size Nat
                                           index Nat])
   (exception.report
    ["Size" (%.nat size)]
    ["Index" (%.nat index)]))
+
+(template [<safe> <unsafe> <shift>]
+  [(def: .public (<safe> index it)
+     (-> Nat Binary (Try I64))
+     (if (n.< (/.size it) (|> index <shift>))
+       {try.#Success (<unsafe> index it)}
+       (exception.except ..index_out_of_bounds [(/.size it) index])))]
+
+  [read/8! /.bytes/1 (|>)]
+  [read/16! /.bytes/2 (n.+ 1)]
+  [read/32! /.bytes/4 (n.+ 3)]
+  [read/64! /.bytes/8 (n.+ 7)]
+  )
+
+(template [<safe> <unsafe> <shift>]
+  [(def: .public (<safe> index value it)
+     (-> Nat (I64 Any) Binary (Try Binary))
+     (if (n.< (/.size it) (|> index <shift>))
+       {try.#Success (<unsafe> index value it)}
+       (exception.except ..index_out_of_bounds [(/.size it) index])))]
+
+  [write/8! /.with/1! (|>)]
+  [write/16! /.with/2! (n.+ 1)]
+  [write/32! /.with/4! (n.+ 3)]
+  [write/64! /.with/8! (n.+ 7)]
+  )
+
+(implementation: .public equivalence
+  (Equivalence Binary)
+  
+  (def: (= reference sample)
+    (/.= reference sample)))
+
+(exception: .public (cannot_copy_bytes [bytes Nat
+                                        source_input Nat
+                                        target_output Nat])
+  (exception.report
+   ["Bytes" (%.nat bytes)]
+   ["Source input space" (%.nat source_input)]
+   ["Target output space" (%.nat target_output)]))
+
+(def: .public (copy bytes source_offset source target_offset target)
+  (-> Nat Nat Binary Nat Binary (Try Binary))
+  (let [source_input (n.- source_offset (/.size source))]
+    (if (n.< bytes source_input)
+      (let [target_output (n.- target_offset (/.size target))]
+        (exception.except ..cannot_copy_bytes [bytes source_input target_output]))
+      {try.#Success (/.copy! bytes source_offset source target_offset target)})))
 
 (exception: .public (slice_out_of_bounds [size Nat
                                           offset Nat
@@ -36,337 +102,36 @@
    ["Offset" (%.nat offset)]
    ["Length" (%.nat length)]))
 
-(with_expansions [<jvm> (as_is (type: .public Binary
-                                 (ffi.type [byte]))
-
-                               (ffi.import: java/lang/Object)
-                               
-                               (ffi.import: java/lang/System
-                                 ["[1]::[0]"
-                                  ("static" arraycopy [java/lang/Object int java/lang/Object int int] "try" void)])
-
-                               (ffi.import: java/util/Arrays
-                                 ["[1]::[0]"
-                                  ("static" copyOfRange [[byte] int int] [byte])
-                                  ("static" equals [[byte] [byte]] boolean)])
-
-                               (def: byte_mask
-                                 I64
-                                 (|> i64.bits_per_byte i64.mask .i64))
-
-                               (def: i64
-                                 (-> (Primitive "java.lang.Byte") I64)
-                                 (|>> ffi.byte_to_long (:as I64) (i64.and ..byte_mask)))
-
-                               (def: byte
-                                 (-> (I64 Any) (Primitive "java.lang.Byte"))
-                                 (for [@.old
-                                       (|>> .int ffi.long_to_byte)
-
-                                       @.jvm
-                                       (|>> .int (:as (Primitive "java.lang.Long")) ffi.long_to_byte)])))]
-  (for [@.old (as_is <jvm>)
-        @.jvm (as_is <jvm>)
-
-        @.js
-        (as_is (ffi.import: ArrayBuffer
-                 ["[1]::[0]"
-                  (new [ffi.Number])])
-               
-               (ffi.import: Uint8Array
-                 ["[1]::[0]"
-                  (new [ArrayBuffer])
-                  (length ffi.Number)])
-               
-               (type: .public Binary
-                 Uint8Array))
-
-        @.python
-        (type: .public Binary
-          (Primitive "bytearray"))
-
-        @.scheme
-        (as_is (type: .public Binary
-                 (Primitive "bytevector"))
-               
-               (ffi.import: (make-bytevector [Nat] Binary))
-               (ffi.import: (bytevector-u8-ref [Binary Nat] I64))
-               (ffi.import: (bytevector-u8-set! [Binary Nat (I64 Any)] Any))
-               (ffi.import: (bytevector-length [Binary] Nat)))]
-
-       ... Default
-       (type: .public Binary
-         (array.Array (I64 Any)))))
-
-(template: (!size binary)
-  [(for [@.old (ffi.length binary)
-         @.jvm (ffi.length binary)
-
-         @.js
-         (|> binary
-             Uint8Array::length
-             f.nat)
-
-         @.python
-         (|> binary
-             (:as (array.Array (I64 Any)))
-             "python array length")
-
-         @.scheme
-         (..bytevector-length [binary])]
-
-        ... Default
-        (array.size binary))])
-
-(template: (!read index binary)
-  [(for [@.old (..i64 (ffi.read! index binary))
-         @.jvm (..i64 (ffi.read! index binary))
-
-         @.js
-         (|> binary
-             (: ..Binary)
-             (:as (array.Array .Frac))
-             ("js array read" index)
-             f.nat
-             .i64)
-
-         @.python
-         (|> binary
-             (:as (array.Array .I64))
-             ("python array read" index))
-
-         @.scheme
-         (..bytevector-u8-ref [binary index])]
-
-        ... Default
-        (|> binary
-            (array.read! index)
-            (maybe.else (: (I64 Any) 0))
-            (:as I64)))])
-
-(template: (!!write <byte_type> <post> <write> index value binary)
-  [(|> binary
-       (: ..Binary)
-       (:as (array.Array <byte_type>))
-       (<write> index (|> value .nat (n.% (hex "100")) <post>))
-       (:as ..Binary))])
-
-(template: (!write index value binary)
-  [(for [@.old (ffi.write! index (..byte value) binary)
-         @.jvm (ffi.write! index (..byte value) binary)
-
-         @.js (!!write .Frac n.frac "js array write" index value binary)
-         @.python (!!write (I64 Any) (:as (I64 Any)) "python array write" index value binary)
-         @.scheme (exec (..bytevector-u8-set! [binary index value])
-                    binary)]
-
-        ... Default
-        (array.write! index (|> value .nat (n.% (hex "100"))) binary))])
-
-(def: .public size
-  (-> Binary Nat)
-  (|>> !size))
-
-(def: .public (empty size)
-  (-> Nat Binary)
-  (for [@.old (ffi.array byte size)
-        @.jvm (ffi.array byte size)
-
-        @.js
-        (|> size n.frac ArrayBuffer::new Uint8Array::new)
-
-        @.python
-        (|> size
-            ("python apply" (:as ffi.Function ("python constant" "bytearray")))
-            (:as Binary))
-
-        @.scheme
-        (..make-bytevector size)]
-
-       ... Default
-       (array.empty size)))
-
-(def: .public (aggregate f init binary)
-  (All (_ a) (-> (-> I64 a a) a Binary a))
-  (let [size (..!size binary)]
-    (loop [index 0
-           output init]
-      (if (n.< size index)
-        (again (++ index) (f (!read index binary) output))
-        output))))
-
-(def: .public (read/8! index binary)
-  (-> Nat Binary (Try I64))
-  (if (n.< (..!size binary) index)
-    {try.#Success (!read index binary)}
-    (exception.except ..index_out_of_bounds [(..!size binary) index])))
-
-(def: .public (read/16! index binary)
-  (-> Nat Binary (Try I64))
-  (if (n.< (..!size binary) (n.+ 1 index))
-    {try.#Success ($_ i64.or
-                      (i64.left_shifted 8 (!read index binary))
-                      (!read (n.+ 1 index) binary))}
-    (exception.except ..index_out_of_bounds [(..!size binary) index])))
-
-(def: .public (read/32! index binary)
-  (-> Nat Binary (Try I64))
-  (if (n.< (..!size binary) (n.+ 3 index))
-    {try.#Success ($_ i64.or
-                      (i64.left_shifted 24 (!read index binary))
-                      (i64.left_shifted 16 (!read (n.+ 1 index) binary))
-                      (i64.left_shifted 8 (!read (n.+ 2 index) binary))
-                      (!read (n.+ 3 index) binary))}
-    (exception.except ..index_out_of_bounds [(..!size binary) index])))
-
-(def: .public (read/64! index binary)
-  (-> Nat Binary (Try I64))
-  (if (n.< (..!size binary) (n.+ 7 index))
-    {try.#Success ($_ i64.or
-                      (i64.left_shifted 56 (!read index binary))
-                      (i64.left_shifted 48 (!read (n.+ 1 index) binary))
-                      (i64.left_shifted 40 (!read (n.+ 2 index) binary))
-                      (i64.left_shifted 32 (!read (n.+ 3 index) binary))
-                      (i64.left_shifted 24 (!read (n.+ 4 index) binary))
-                      (i64.left_shifted 16 (!read (n.+ 5 index) binary))
-                      (i64.left_shifted 8 (!read (n.+ 6 index) binary))
-                      (!read (n.+ 7 index) binary))}
-    (exception.except ..index_out_of_bounds [(..!size binary) index])))
-
-(def: .public (write/8! index value binary)
-  (-> Nat (I64 Any) Binary (Try Binary))
-  (if (n.< (..!size binary) index)
-    {try.#Success (|> binary
-                      (!write index value))}
-    (exception.except ..index_out_of_bounds [(..!size binary) index])))
-
-(def: .public (write/16! index value binary)
-  (-> Nat (I64 Any) Binary (Try Binary))
-  (if (n.< (..!size binary) (n.+ 1 index))
-    {try.#Success (|> binary
-                      (!write index (i64.right_shifted 8 value))
-                      (!write (n.+ 1 index) value))}
-    (exception.except ..index_out_of_bounds [(..!size binary) index])))
-
-(def: .public (write/32! index value binary)
-  (-> Nat (I64 Any) Binary (Try Binary))
-  (if (n.< (..!size binary) (n.+ 3 index))
-    {try.#Success (|> binary
-                      (!write index (i64.right_shifted 24 value))
-                      (!write (n.+ 1 index) (i64.right_shifted 16 value))
-                      (!write (n.+ 2 index) (i64.right_shifted 8 value))
-                      (!write (n.+ 3 index) value))}
-    (exception.except ..index_out_of_bounds [(..!size binary) index])))
-
-(def: .public (write/64! index value binary)
-  (-> Nat (I64 Any) Binary (Try Binary))
-  (if (n.< (..!size binary) (n.+ 7 index))
-    (for [@.scheme (let [write_high (|>> (!write index (i64.right_shifted 56 value))
-                                         (!write (n.+ 1 index) (i64.right_shifted 48 value))
-                                         (!write (n.+ 2 index) (i64.right_shifted 40 value))
-                                         (!write (n.+ 3 index) (i64.right_shifted 32 value)))
-                         write_low (|>> (!write (n.+ 4 index) (i64.right_shifted 24 value))
-                                        (!write (n.+ 5 index) (i64.right_shifted 16 value))
-                                        (!write (n.+ 6 index) (i64.right_shifted 8 value))
-                                        (!write (n.+ 7 index) value))]
-                     (|> binary write_high write_low {try.#Success}))]
-         {try.#Success (|> binary
-                           (!write index (i64.right_shifted 56 value))
-                           (!write (n.+ 1 index) (i64.right_shifted 48 value))
-                           (!write (n.+ 2 index) (i64.right_shifted 40 value))
-                           (!write (n.+ 3 index) (i64.right_shifted 32 value))
-                           (!write (n.+ 4 index) (i64.right_shifted 24 value))
-                           (!write (n.+ 5 index) (i64.right_shifted 16 value))
-                           (!write (n.+ 6 index) (i64.right_shifted 8 value))
-                           (!write (n.+ 7 index) value))})
-    (exception.except ..index_out_of_bounds [(..!size binary) index])))
-
-(implementation: .public equivalence
-  (Equivalence Binary)
-  
-  (def: (= reference sample)
-    (with_expansions [<jvm> (java/util/Arrays::equals reference sample)]
-      (for [@.old <jvm>
-            @.jvm <jvm>]
-           (let [limit (!size reference)]
-             (and (n.= limit
-                       (!size sample))
-                  (loop [index 0]
-                    (if (n.< limit index)
-                      (and (n.= (!read index reference)
-                                (!read index sample))
-                           (again (++ index)))
-                      true))))))))
-
-(for [@.old (as_is)
-      @.jvm (as_is)]
-
-     ... Default
-     (exception: .public (cannot_copy_bytes [bytes Nat
-                                             source_input Nat
-                                             target_output Nat])
-       (exception.report
-        ["Bytes" (%.nat bytes)]
-        ["Source input space" (%.nat source_input)]
-        ["Target output space" (%.nat target_output)])))
-
-(def: .public (copy bytes source_offset source target_offset target)
-  (-> Nat Nat Binary Nat Binary (Try Binary))
-  (with_expansions [<jvm> (as_is (do try.monad
-                                   [_ (java/lang/System::arraycopy source (.int source_offset) target (.int target_offset) (.int bytes))]
-                                   (in target)))]
-    (for [@.old <jvm>
-          @.jvm <jvm>]
-         
-         ... Default
-         (let [source_input (n.- source_offset (!size source))
-               target_output (n.- target_offset (!size target))]
-           (if (n.> source_input bytes)
-             (exception.except ..cannot_copy_bytes [bytes source_input target_output])
-             (loop [index 0]
-               (if (n.< bytes index)
-                 (exec (!write (n.+ target_offset index)
-                               (!read (n.+ source_offset index) source)
-                               target)
-                   (again (++ index)))
-                 {try.#Success target})))))))
-
 (def: .public (slice offset length binary)
   (-> Nat Nat Binary (Try Binary))
-  (let [size (..!size binary)
+  (let [size (/.size binary)
         limit (n.+ length offset)]
-    (if (n.> size limit)
+    (if (n.< limit size)
       (exception.except ..slice_out_of_bounds [size offset length])
-      (with_expansions [<jvm> (as_is {try.#Success (java/util/Arrays::copyOfRange binary (.int offset) (.int limit))})]
-        (for [@.old <jvm>
-              @.jvm <jvm>]
-             
-             ... Default
-             (..copy length offset binary 0 (..empty length)))))))
+      {try.#Success (/.slice offset length binary)})))
 
 (def: .public (after bytes binary)
   (-> Nat Binary Binary)
-  (case bytes
-    0 binary
-    _ (let [distance (n.- bytes (..!size binary))]
-        (case (..slice bytes distance binary)
-          {try.#Success slice}
-          slice
-          
-          {try.#Failure _}
-          (..empty 0)))))
+  (cond (n.= 0 bytes)
+        binary
+
+        (n.< bytes (/.size binary))
+        (/.empty 0)
+
+        ... else
+        (/.slice bytes (n.- bytes (/.size binary)) binary)))
 
 (implementation: .public monoid
   (Monoid Binary)
 
   (def: identity
-    (..empty 0))
+    (/.empty 0))
 
   (def: (composite left right)
-    (let [sizeL (!size left)
-          sizeR (!size right)
-          output (..empty (n.+ sizeL sizeR))]
+    (let [sizeL (/.size left)
+          sizeR (/.size right)
+          output (/.empty (n.+ sizeL sizeR))]
       (exec
-        (..copy sizeL 0 left 0 output)
-        (..copy sizeR 0 right sizeL output)
+        (/.copy! sizeL 0 left 0 output)
+        (/.copy! sizeR 0 right sizeL output)
         output))))

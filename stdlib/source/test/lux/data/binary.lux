@@ -1,26 +1,29 @@
 (.using
-  [library
-   [lux "*"
-    ["_" test {"+" Test}]
-    [abstract
-     ["[0]" monad {"+" do}]
-     ["[0]" enum]
-     [\\specification
-      ["$[0]" equivalence]
-      ["$[0]" monoid]]]
-    [control
-     ["[0]" try {"+" Try}]
-     ["[0]" exception {"+" Exception}]]
-    [data
-     [collection
-      ["[0]" list]]]
-    [math
-     ["[0]" random {"+" Random}]
-     [number
-      ["[0]" i64]
-      ["n" nat]]]]]
-  [\\library
-   ["[0]" / {"+" Binary}]])
+ [library
+  [lux "*"
+   [ffi {"+"}]
+   ["_" test {"+" Test}]
+   [abstract
+    ["[0]" monad {"+" do}]
+    ["[0]" enum]
+    [\\specification
+     ["$[0]" equivalence]
+     ["$[0]" monoid]]]
+   [control
+    ["[0]" try {"+" Try}]
+    ["[0]" exception {"+" Exception}]]
+   [data
+    [collection
+     [array {"+"}]
+     ["[0]" list ("[1]#[0]" functor)]]]
+   [math
+    ["[0]" random {"+" Random}]
+    [number
+     ["[0]" i64]
+     ["n" nat]]]]]
+ [\\library
+  ["[0]" /
+   ["!" \\unsafe]]])
 
 (def: (succeed result)
   (-> (Try Bit) Bit)
@@ -32,7 +35,7 @@
     output))
 
 (def: .public (random size)
-  (-> Nat (Random Binary))
+  (-> Nat (Random /.Binary))
   (let [output (/.empty size)]
     (loop [idx 0]
       (if (n.< size idx)
@@ -52,7 +55,7 @@
     false))
 
 (def: (binary_io power read write value)
-  (-> Nat (-> Nat Binary (Try Nat)) (-> Nat Nat Binary (Try Any)) Nat Bit)
+  (-> Nat (-> Nat /.Binary (Try Nat)) (-> Nat Nat /.Binary (Try Any)) Nat Bit)
   (let [bytes (i64.left_shifted power 1)
         binary (/.empty bytes)
         cap (case bytes
@@ -75,9 +78,10 @@
                  {.#Item head tail})
                (list)))
 
-(def: .public test
+(def: test|unsafe
   Test
-  (<| (_.covering /._)
+  (<| (_.covering !._)
+      (_.for [!.Binary])
       (do [! random.monad]
         [.let [gen_size (|> random.nat (# ! each (|>> (n.% 100) (n.max 8))))]
          size gen_size
@@ -86,78 +90,143 @@
          .let [gen_idx (|> random.nat (# ! each (n.% size)))]
          offset gen_idx
          length (# ! each (n.% (n.- offset size)) random.nat)]
-        (_.for [/.Binary]
-               ($_ _.and
-                   (_.for [/.equivalence]
-                          ($equivalence.spec /.equivalence (..random size)))
-                   (_.for [/.monoid]
-                          ($monoid.spec /.equivalence /.monoid (..random size)))
-                   (_.cover [/.aggregate]
-                            (n.= (# list.mix mix n.+ 0 (..as_list sample))
-                                 (/.aggregate n.+ 0 sample)))
-                   
-                   (_.cover [/.empty]
-                            (# /.equivalence =
-                               (/.empty size)
-                               (/.empty size)))
-                   (_.cover [/.size]
-                            (|> (/.empty size) /.size (n.= size)))
-                   (_.for [/.index_out_of_bounds]
-                          ($_ _.and
-                              (_.cover [/.read/8! /.write/8!]
-                                       (..binary_io 0 /.read/8! /.write/8! value))
-                              (_.cover [/.read/16! /.write/16!]
-                                       (..binary_io 1 /.read/16! /.write/16! value))
-                              (_.cover [/.read/32! /.write/32!]
-                                       (..binary_io 2 /.read/32! /.write/32! value))
-                              (_.cover [/.read/64! /.write/64!]
-                                       (..binary_io 3 /.read/64! /.write/64! value))))
-                   (_.cover [/.slice]
-                            (let [random_slice (try.trusted (/.slice offset length sample))
-                                  idxs (: (List Nat)
-                                          (case length
-                                            0 (list)
-                                            _ (enum.range n.enum 0 (-- length))))
-                                  reader (function (_ binary idx)
-                                           (/.read/8! idx binary))]
-                              (and (n.= length (/.size random_slice))
-                                   (case [(monad.each try.monad (|>> (n.+ offset) (reader sample)) idxs)
-                                          (monad.each try.monad (reader random_slice) idxs)]
-                                     [{try.#Success binary_vals} {try.#Success slice_vals}]
-                                     (# (list.equivalence n.equivalence) = binary_vals slice_vals)
+        (`` ($_ _.and
+                (_.for [!.=]
+                       ($equivalence.spec (function (_ left right)
+                                            (!.= left right))
+                                          (..random size)))
+                (_.cover [!.empty]
+                         (!.= (!.empty size) (!.empty size)))
+                (_.cover [!.size]
+                         (|> (!.empty size) !.size (n.= size)))
+                (~~ (template [<power> <bytes/?> <with/?>]
+                      [(_.cover [<bytes/?> <with/?>]
+                                (let [bytes (i64.left_shifted <power> 1)
+                                      binary (!.empty bytes)
+                                      cap (case bytes
+                                            8 (-- 0)
+                                            _ (|> 1 (i64.left_shifted (n.* 8 bytes)) --))
+                                      capped_value (i64.and cap value)
+                                      
+                                      pre (<bytes/?> 0 binary)
+                                      _ (<with/?> 0 value binary)
+                                      post (<bytes/?> 0 binary)]
+                                  (and (n.= 0 pre)
+                                       (n.= capped_value post))))]
 
-                                     _
-                                     #0))))
-                   (_.cover [/.slice_out_of_bounds]
-                            (and (throws? /.slice_out_of_bounds (/.slice size size sample))
-                                 (let [verdict (throws? /.slice_out_of_bounds (/.slice offset size sample))]
-                                   (case offset
-                                     0 (not verdict)
-                                     _ verdict))))
-                   (_.cover [/.after]
-                            (and (# /.equivalence = sample (/.after 0 sample))
-                                 (# /.equivalence = (/.empty 0) (/.after size sample))
-                                 (case (list.reversed (..as_list sample))
-                                   {.#End}
-                                   false
+                      [0 !.bytes/1 !.with/1!]
+                      [1 !.bytes/2 !.with/2!]
+                      [2 !.bytes/4 !.with/4!]
+                      [3 !.bytes/8 !.with/8!]))
+                (_.cover [!.slice]
+                         (let [random_slice (!.slice offset length sample)
+                               idxs (: (List Nat)
+                                       (case length
+                                         0 (list)
+                                         _ (enum.range n.enum 0 (-- length))))
+                               reader (function (_ binary idx)
+                                        (!.bytes/1 idx binary))]
+                           (and (n.= length (!.size random_slice))
+                                (# (list.equivalence n.equivalence) =
+                                   (list#each (|>> (n.+ offset) (reader sample)) idxs)
+                                   (list#each (reader random_slice) idxs)))))
+                (_.cover [!.copy!]
+                         (and (let [it (!.copy! size 0 sample 0 (!.empty size))]
+                                (and (not (same? sample it))
+                                     (!.= sample it)))
+                              (let [sample/0 (!.bytes/1 0 sample)
+                                    copy (!.copy! 1 0 sample 0 (!.empty 2))
+                                    copy/0 (!.bytes/1 0 copy)
+                                    copy/1 (!.bytes/1 1 copy)]
+                                (and (n.= sample/0 copy/0)
+                                     (n.= 0 copy/1)))))
+                )))))
 
-                                   {.#Item head tail}
-                                   (n.= (list.mix n.+ 0 tail)
-                                        (/.aggregate n.+ 0 (/.after 1 sample))))))
-                   (_.cover [/.copy]
-                            (and (case (/.copy size 0 sample 0 (/.empty size))
-                                   {try.#Success output}
-                                   (and (not (same? sample output))
-                                        (# /.equivalence = sample output))
+(def: .public test
+  Test
+  (<| (_.covering /._)
+      (_.for [/.Binary])
+      (do [! random.monad]
+        [.let [gen_size (|> random.nat (# ! each (|>> (n.% 100) (n.max 8))))]
+         size gen_size
+         sample (..random size)
+         value random.nat
+         .let [gen_idx (|> random.nat (# ! each (n.% size)))]
+         offset gen_idx
+         length (# ! each (n.% (n.- offset size)) random.nat)]
+        ($_ _.and
+            (_.for [/.equivalence]
+                   ($equivalence.spec /.equivalence (..random size)))
+            (_.for [/.monoid]
+                   ($monoid.spec /.equivalence /.monoid (..random size)))
+            (_.cover [/.aggregate]
+                     (n.= (# list.mix mix n.+ 0 (..as_list sample))
+                          (/.aggregate n.+ 0 sample)))
+            
+            (_.cover [/.empty]
+                     (# /.equivalence =
+                        (/.empty size)
+                        (/.empty size)))
+            (_.cover [/.size]
+                     (|> (/.empty size) /.size (n.= size)))
+            (_.for [/.index_out_of_bounds]
+                   ($_ _.and
+                       (_.cover [/.read/8! /.write/8!]
+                                (..binary_io 0 /.read/8! /.write/8! value))
+                       (_.cover [/.read/16! /.write/16!]
+                                (..binary_io 1 /.read/16! /.write/16! value))
+                       (_.cover [/.read/32! /.write/32!]
+                                (..binary_io 2 /.read/32! /.write/32! value))
+                       (_.cover [/.read/64! /.write/64!]
+                                (..binary_io 3 /.read/64! /.write/64! value))))
+            (_.cover [/.slice]
+                     (let [random_slice (try.trusted (/.slice offset length sample))
+                           idxs (: (List Nat)
+                                   (case length
+                                     0 (list)
+                                     _ (enum.range n.enum 0 (-- length))))
+                           reader (function (_ binary idx)
+                                    (/.read/8! idx binary))]
+                       (and (n.= length (/.size random_slice))
+                            (case [(monad.each try.monad (|>> (n.+ offset) (reader sample)) idxs)
+                                   (monad.each try.monad (reader random_slice) idxs)]
+                              [{try.#Success binary_vals} {try.#Success slice_vals}]
+                              (# (list.equivalence n.equivalence) = binary_vals slice_vals)
 
-                                   {try.#Failure _}
-                                   false)
-                                 (succeed
-                                  (do try.monad
-                                    [sample/0 (/.read/8! 0 sample)
-                                     copy (/.copy 1 0 sample 0 (/.empty 2))
-                                     copy/0 (/.read/8! 0 copy)
-                                     copy/1 (/.read/8! 1 copy)]
-                                    (in (and (n.= sample/0 copy/0)
-                                             (n.= 0 copy/1)))))))
-                   )))))
+                              _
+                              #0))))
+            (_.cover [/.slice_out_of_bounds]
+                     (and (throws? /.slice_out_of_bounds (/.slice size size sample))
+                          (let [verdict (throws? /.slice_out_of_bounds (/.slice offset size sample))]
+                            (case offset
+                              0 (not verdict)
+                              _ verdict))))
+            (_.cover [/.after]
+                     (and (# /.equivalence = sample (/.after 0 sample))
+                          (# /.equivalence = (/.empty 0) (/.after size sample))
+                          (case (list.reversed (..as_list sample))
+                            {.#End}
+                            false
+
+                            {.#Item head tail}
+                            (n.= (list.mix n.+ 0 tail)
+                                 (/.aggregate n.+ 0 (/.after 1 sample))))))
+            (_.cover [/.copy]
+                     (and (case (/.copy size 0 sample 0 (/.empty size))
+                            {try.#Success output}
+                            (and (not (same? sample output))
+                                 (# /.equivalence = sample output))
+
+                            {try.#Failure _}
+                            false)
+                          (succeed
+                           (do try.monad
+                             [sample/0 (/.read/8! 0 sample)
+                              copy (/.copy 1 0 sample 0 (/.empty 2))
+                              copy/0 (/.read/8! 0 copy)
+                              copy/1 (/.read/8! 1 copy)]
+                             (in (and (n.= sample/0 copy/0)
+                                      (n.= 0 copy/1)))))))
+
+            ..test|unsafe
+            ))))
