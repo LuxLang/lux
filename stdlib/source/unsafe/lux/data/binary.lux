@@ -59,12 +59,11 @@
        (type: .public Binary
          (array.Array (I64 Any)))))
 
-(template: .public (empty size)
-  [(with_expansions [<size> (: Nat size)
-                     <jvm> (|> <size>
-                               (ffi.array byte)
-                               (: ..Binary))]
-     (: ..Binary
+(with_expansions [<size> (: Nat size)
+                  <jvm> (ffi.array byte <size>)
+                  <jvm> (: ..Binary <jvm>)]
+  (template: .public (empty size)
+    [(: ..Binary
         (for [@.old <jvm>
               @.jvm <jvm>
 
@@ -84,12 +83,12 @@
               (..make-bytevector <size>)]
 
              ... Default
-             (array.empty <size>))))])
+             (array.empty <size>)))]))
 
-(template: .public (size it)
-  [(with_expansions [<it> (: ..Binary it)
-                     <jvm> (ffi.length <it>)]
-     (: Nat
+(with_expansions [<it> (: ..Binary it)
+                  <jvm> (ffi.length <it>)]
+  (template: .public (size it)
+    [(: Nat
         (for [@.old <jvm>
               @.jvm <jvm>
 
@@ -109,47 +108,47 @@
               (..bytevector-length [<it>])]
 
              ... Default
-             (array.size <it>))))])
+             (array.size <it>)))]))
 
 (def: byte_mask
   Nat
   (i64.mask i64.bits_per_byte))
 
-(with_expansions [<byte_mask> (.static ..byte_mask)]
+(with_expansions [<byte_mask> (.static ..byte_mask)
+                  <it> (: ..Binary it)
+                  <index> (: Nat index)
+                  <jvm> (ffi.read! <index> <it>)
+                  <jvm> (ffi.byte_to_long <jvm>)
+                  <jvm> (|> <jvm>
+                            (:as I64)
+                            ("lux i64 and" <byte_mask>))]
   (template: .public (bytes/1 index it)
-    [(with_expansions [<it> (: ..Binary it)
-                       <index> (: Nat index)
-                       <jvm> (|> <it>
-                                 (ffi.read! <index>)
-                                 ffi.byte_to_long
-                                 (:as I64)
-                                 ("lux i64 and" <byte_mask>))]
-       (: I64
-          (`` (for [@.old (~~ <jvm>)
-                    @.jvm (~~ <jvm>)
+    [(: I64
+        (`` (for [@.old (~~ <jvm>)
+                  @.jvm (~~ <jvm>)
 
-                    @.js
-                    (|> <it>
-                        (:as (array.Array .Frac))
-                        ("js array read" <index>)
-                        "lux f64 i64"
-                        .i64)
+                  @.js
+                  (|> <it>
+                      (:as (array.Array .Frac))
+                      ("js array read" <index>)
+                      "lux f64 i64"
+                      .i64)
 
-                    @.python
-                    (|> <it>
-                        (:as (array.Array .I64))
-                        ("python array read" <index>))
+                  @.python
+                  (|> <it>
+                      (:as (array.Array .I64))
+                      ("python array read" <index>))
 
-                    @.scheme
-                    (..bytevector-u8-ref [<it> <index>])]
+                  @.scheme
+                  (..bytevector-u8-ref [<it> <index>])]
 
-                   ... Default
-                   (.case (array.read! <index> <it>)
-                     {.#Some it}
-                     it
+                 ... Default
+                 (.case (array.read! <index> <it>)
+                   {.#Some it}
+                   it
 
-                     {.#None}
-                     (.i64 (: (I64 Any) 0)))))))]))
+                   {.#None}
+                   (.i64 (: (I64 Any) 0))))))]))
 
 (template: .public (bytes/2 index' it')
   [(let [index (: Nat index')
@@ -183,48 +182,49 @@
             ("lux i64 left-shift" 8 (..bytes/1 ("lux i64 +" 6 index) it))
             (..bytes/1 ("lux i64 +" 7 index) it))))])
 
-(with_expansions [<byte> (hex "FF")]
+(with_expansions [<byte> (hex "FF")
+                  <it> (: ..Binary it)
+                  <index> (: Nat index)
+                  <value> (: (I64 Any) value)
+                  <jvm_value> (for [@.old
+                                    (:as Int <value>)
+
+                                    @.jvm
+                                    (:as (Primitive "java.lang.Long") <value>)]
+                                   <value>)
+                  <jvm_value> (ffi.long_to_byte <jvm_value>)
+                  <jvm> (ffi.write! <index> <jvm_value> <it>)]
   (template: .public (with/1! index value it)
-    [(with_expansions [<it> (: ..Binary it)
-                       <index> (: Nat index)
-                       <value> (: (I64 Any) value)
-                       <value> (for [@.old
-                                     (|> <value> (:as Int) ffi.long_to_byte)
+    [(: ..Binary
+        (for [@.old <jvm>
+              @.jvm <jvm>
 
-                                     @.jvm
-                                     (|> <value> (:as (Primitive "java.lang.Long")) ffi.long_to_byte)]
-                                    <value>)
-                       <jvm> (ffi.write! <index> <value> <it>)]
-       (: ..Binary
-          (for [@.old <jvm>
-                @.jvm <jvm>
+              @.js
+              (|> <it>
+                  (: ..Binary)
+                  (:as (array.Array .Frac))
+                  ("js array write" <index>
+                   (|> <value>
+                       .int
+                       ("lux i64 and" (.int <byte>))
+                       "lux i64 f64"))
+                  (:as ..Binary))
+              
+              @.python
+              (|> <it>
+                  (: ..Binary)
+                  (:as (array.Array (I64 Any)))
+                  ("python array write" <index> (|> <value> ("lux i64 and" <byte>) (: (I64 Any))))
+                  (:as ..Binary))
+              
+              @.scheme
+              (let [it' <it>]
+                (exec
+                  (..bytevector-u8-set! [it' <index> <value>])
+                  it'))]
 
-                @.js
-                (|> <it>
-                    (: ..Binary)
-                    (:as (array.Array .Frac))
-                    ("js array write" <index>
-                     (|> <value>
-                         .int
-                         ("lux i64 and" (.int <byte>))
-                         "lux i64 f64"))
-                    (:as ..Binary))
-                
-                @.python
-                (|> <it>
-                    (: ..Binary)
-                    (:as (array.Array (I64 Any)))
-                    ("python array write" <index> (|> <value> ("lux i64 and" <byte>) (: (I64 Any))))
-                    (:as ..Binary))
-                
-                @.scheme
-                (let [it' <it>]
-                  (exec
-                    (..bytevector-u8-set! [it' <index> <value>])
-                    it'))]
-
-               ... Default
-               (array.write! <index> (|> <value> .int ("lux i64 and" (.int <byte>))) <it>))))]))
+             ... Default
+             (array.write! <index> (|> <value> .int ("lux i64 and" (.int <byte>))) <it>)))]))
 
 (template: .public (with/2! index' value' it)
   [(let [index (: Nat index')
@@ -268,28 +268,33 @@
               (..with/1! ("lux i64 +" 6 index) ("lux i64 right-shift" 8 value))
               (..with/1! ("lux i64 +" 7 index) value))))])
 
-(def: .public (= reference sample)
-  (-> ..Binary ..Binary Bit)
-  (with_expansions [<jvm> (java/util/Arrays::equals reference sample)]
-    (for [@.old <jvm>
-          @.jvm <jvm>]
-         (let [limit (..size reference)]
-           (and ("lux i64 =" limit (..size sample))
-                (loop [index 0]
-                  (if ("lux i64 =" limit index)
-                    (and ("lux i64 ="
-                          (..bytes/1 index reference)
-                          (..bytes/1 index sample))
-                         (again (++ index)))
-                    true)))))))
+(with_expansions [<reference> (: ..Binary reference')
+                  <sample> (: ..Binary sample')
+                  <jvm> (java/util/Arrays::equals <reference> <sample>)]
+  (template: .public (= reference' sample')
+    [(for [@.old <jvm>
+           @.jvm <jvm>]
+          (let [reference <reference>
+                sample <sample>
+                limit (..size reference)]
+            (and ("lux i64 =" limit (..size sample))
+                 (loop [index 0]
+                   (if ("lux i64 =" limit index)
+                     (and ("lux i64 ="
+                           (..bytes/1 index reference)
+                           (..bytes/1 index sample))
+                          (again (++ index)))
+                     true)))))]))
 
-(def: .public (copy! bytes source_offset source target_offset target)
+... TODO: Turn into a template ASAP.
+(inline: .public (copy! bytes source_offset source target_offset target)
   (-> Nat Nat ..Binary Nat ..Binary ..Binary)
-  (with_expansions [<jvm> (as_is (exec
-                                   (java/lang/System::arraycopy source (.int source_offset)
-                                                                target (.int target_offset)
-                                                                (.int bytes))
-                                   target))]
+  (with_expansions [<jvm> (java/lang/System::arraycopy source (.int source_offset)
+                                                       target (.int target_offset)
+                                                       (.int bytes))
+                    <jvm> (exec
+                            <jvm>
+                            target)]
     (for [@.old <jvm>
           @.jvm <jvm>]
          
@@ -303,12 +308,16 @@
                (again (++ index)))
              target)))))
 
-(def: .public (slice offset size binary)
-  (-> Nat Nat ..Binary ..Binary)
-  (let [limit ("lux i64 +" size offset)]
-    (with_expansions [<jvm> (as_is (java/util/Arrays::copyOfRange binary (.int offset) (.int limit)))]
-      (for [@.old <jvm>
-            @.jvm <jvm>]
-           
-           ... Default
-           (..copy! size offset binary 0 (..empty size))))))
+... TODO: Turn into a template ASAP.
+(with_expansions [<jvm> (java/util/Arrays::copyOfRange binary
+                                                       (.int offset)
+                                                       (.int limit))
+                  <jvm> (let [limit ("lux i64 +" size offset)]
+                          <jvm>)]
+  (inline: .public (slice offset size binary)
+    (-> Nat Nat ..Binary ..Binary)
+    (for [@.old <jvm>
+          @.jvm <jvm>]
+         
+         ... Default
+         (..copy! size offset binary 0 (..empty size)))))

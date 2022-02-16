@@ -1,0 +1,453 @@
+(.using
+ [library
+  [lux "*"
+   ["_" test {"+" Test}]
+   [abstract
+    ["[0]" monad {"+" do}]
+    ["[0]" predicate]
+    [\\specification
+     ["$[0]" equivalence]]]
+   [control
+    [pipe {"+" case>}]
+    ["[0]" try {"+" Try} ("[1]#[0]" functor)]
+    ["[0]" exception {"+" Exception}]]
+   [data
+    ["[0]" product]
+    ["[0]" bit ("[1]#[0]" equivalence)]
+    ["[0]" text ("[1]#[0]" equivalence)
+     ["%" format]]
+    [collection
+     ["[0]" set]
+     ["[0]" dictionary]
+     ["[0]" list ("[1]#[0]" functor mix)]]]
+   [math
+    ["[0]" random {"+" Random} ("[1]#[0]" monad)]
+    [number
+     ["n" nat ("[1]#[0]" interval)]
+     ["i" int]
+     ["r" rev]
+     ["f" frac]]]]]
+ [\\library
+  ["[0]" /
+   ["/[1]" // "_"
+    ["[1][0]" simple]
+    ["[1][0]" complex]
+    ["[1][0]" pattern {"+" Pattern}]]]])
+
+(def: spread 16)
+
+(def: random_tag
+  (Random Nat)
+  (random#each (n.% ..spread) random.nat))
+
+(def: .public random
+  (Random /.Coverage)
+  (<| random.rec
+      (function (_ again))
+      ($_ random.or
+          (random#in [])
+          random.bit
+          (random.set n.hash ..spread random.nat)
+          (random.set i.hash ..spread random.int)
+          (random.set r.hash ..spread random.rev)
+          (random.set f.hash ..spread random.frac)
+          (random.set text.hash ..spread (random.unicode 1))
+          ($_ random.and
+              (random.maybe (random#in ..spread))
+              (do [! random.monad]
+                [cases ..random_tag
+                 cases (random.set n.hash cases ..random_tag)]
+                (|> cases
+                    set.list
+                    (monad.each ! (function (_ case) (# ! each (|>> [case]) again)))
+                    (# ! each (dictionary.of_list n.hash))))
+              )
+          (random.and again again)
+          (random.and again again)
+          )))
+
+(def: (ranged min range)
+  (-> Nat Nat (Random Nat))
+  (random#each (|>> (n.% (++ range)) (n.+ min))
+               random.nat))
+
+(def: random_pattern
+  (Random [/.Coverage Pattern])
+  (<| random.rec
+      (function (_ again))
+      (`` ($_ random.either
+              (random#in [{/.#Exhaustive}
+                          {//pattern.#Simple {//simple.#Unit}}])
+              (do random.monad
+                [it random.bit]
+                (in [{/.#Bit it}
+                     {//pattern.#Simple {//simple.#Bit it}}]))
+              (~~ (template [<random> <hash> <coverage> <pattern>]
+                    [(do random.monad
+                       [it <random>]
+                       (in [{<coverage> (set.of_list <hash> (list it))}
+                            {//pattern.#Simple {<pattern> it}}]))]
+
+                    [random.nat n.hash /.#Nat //simple.#Nat]
+                    [random.int i.hash /.#Int //simple.#Int]
+                    [random.rev r.hash /.#Rev //simple.#Rev]
+                    [random.frac f.hash /.#Frac //simple.#Frac]
+                    [(random.unicode 1) text.hash /.#Text //simple.#Text]
+                    ))
+              
+              (do [! random.monad]
+                [tag (# ! each ++ ..random_tag)
+                 right? random.bit
+                 .let [lefts (//complex.lefts right? tag)]
+                 [sub_coverage sub_pattern] again]
+                (in [{/.#Variant (if right? {.#Some tag} {.#None})
+                                 (dictionary.of_list n.hash (list [tag sub_coverage]))}
+                     {//pattern.#Complex
+                      {//complex.#Variant
+                       [//complex.#lefts lefts
+                        //complex.#right? right?
+                        //complex.#value sub_pattern]}}]))
+              
+              (do [! random.monad]
+                [arity (..ranged 2 (n.- 2 ..spread))
+                 it (random.list arity again)
+                 .let [coverages (list#each product.left it)
+                       patterns (list#each product.right it)]]
+                (in [(|> coverages
+                         (list.only (|>> /.exhaustive? not))
+                         list.reversed
+                         (case> {.#End}
+                                {/.#Exhaustive}
+                                
+                                {.#Item last prevs}
+                                (list#mix (function (_ left right)
+                                            {/.#Seq left right})
+                                          last
+                                          prevs)))
+                     {//pattern.#Complex {//complex.#Tuple patterns}}]))
+              
+              (do random.monad
+                [register random.nat]
+                (in [{/.#Exhaustive}
+                     {//pattern.#Bind register}]))
+              ))))
+
+(def: (failure? exception it)
+  (All (_ a) (-> (Exception a) (Try /.Coverage) Bit))
+  (case it
+    {try.#Failure error}
+    (exception.match? exception error)
+
+    _
+    false))
+
+(def: test|value
+  Test
+  (<| (let [(^open "/#[0]") /.equivalence])
+      (do [! random.monad]
+        [left ..random
+         right ..random]
+        ($_ _.and
+            (_.for [/.equivalence]
+                   ($equivalence.spec /.equivalence ..random))
+
+            (_.cover [/.exhaustive?]
+                     (bit#= (/#= {/.#Exhaustive} left)
+                            (/.exhaustive? left)))
+            (_.cover [/.format]
+                     (bit#= (/#= left right)
+                            (text#= (/.format left) (/.format right))))
+            ))))
+
+(def: test|coverage
+  Test
+  (<| (let [(^open "/#[0]") /.equivalence])
+      (do [! random.monad]
+        [[expected pattern] ..random_pattern]
+        ($_ _.and
+            (_.cover [/.coverage]
+                     (|> pattern
+                         /.coverage
+                         (try#each (/#= expected))
+                         (try.else false)))
+            (_.cover [/.invalid_tuple]
+                     (let [invalid? (..failure? /.invalid_tuple)]
+                       (and (|> (list)
+                                {//complex.#Tuple}
+                                {//pattern.#Complex}
+                                /.coverage
+                                invalid?)
+                            (|> (list pattern)
+                                {//complex.#Tuple}
+                                {//pattern.#Complex}
+                                /.coverage
+                                invalid?)
+                            (|> (list pattern pattern)
+                                {//complex.#Tuple}
+                                {//pattern.#Complex}
+                                /.coverage
+                                invalid?
+                                not))))
+            ))))
+
+(def: random_partial_pattern
+  (Random [/.Coverage Pattern])
+  (random.only (|>> product.left /.exhaustive? not)
+               ..random_pattern))
+
+(def: test|variant
+  Test
+  (<| (let [(^open "/#[0]") /.equivalence])
+      (do [! random.monad]
+        [[expected/0 pattern/0] ..random_partial_pattern
+         [expected/1 pattern/1] (random.only (|>> product.left (/#= expected/0) not)
+                                             ..random_partial_pattern)
+         expected_maximum (# ! each (n.+ 2) ..random_tag)
+         .let [random_tag (random#each (n.% expected_maximum) random.nat)]
+         tag/0 random_tag
+         tag/1 (random.only (|>> (n.= tag/0) not) random_tag)
+         .let [cases (dictionary.of_list n.hash (list [tag/0 expected/0]
+                                                      [tag/1 expected/1]))
+               expected_minimum (++ (n.max tag/0 tag/1))]]
+        ($_ _.and
+            (_.cover [/.minimum]
+                     (and (n.= expected_minimum (/.minimum [{.#None} cases]))
+                          (n.= expected_maximum (/.minimum [{.#Some expected_maximum} cases]))))
+            (_.cover [/.maximum]
+                     (and (n.= n#top (/.maximum [{.#None} cases]))
+                          (n.= expected_maximum (/.maximum [{.#Some expected_maximum} cases]))))
+            ))))
+
+(def: test|composite
+  Test
+  (<| (let [(^open "/#[0]") /.equivalence])
+      (do [! random.monad]
+        [[expected/0 pattern/0] ..random_partial_pattern
+         [expected/1 pattern/1] (random.only (|>> product.left (/#= expected/0) not)
+                                             ..random_partial_pattern)
+         [expected/2 pattern/2] (random.only ($_ predicate.and
+                                                 (|>> product.left (/#= expected/0) not)
+                                                 (|>> product.left (/#= expected/1) not)
+                                                 (|>> product.left (case> {/.#Variant _} false _ true)))
+                                             ..random_partial_pattern)
+
+         bit random.bit
+         nat random.nat
+         int random.int
+         rev random.rev
+         frac random.frac
+         text (random.unicode 1)
+         
+         arity (# ! each (n.+ 2) ..random_tag)
+         .let [random_tag (random#each (n.% arity) random.nat)]
+         tag/0 random_tag
+         tag/1 (random.only (|>> (n.= tag/0) not) random_tag)]
+        ($_ _.and
+            (_.cover [/.composite]
+                     (let [composes_simples!
+                           (`` (and (|> (/.composite {/.#Bit bit} {/.#Bit (not bit)})
+                                        (try#each (/#= {/.#Exhaustive}))
+                                        (try.else false))
+                                    (|> {/.#Bit bit}
+                                        (/.composite {/.#Exhaustive})
+                                        (try#each (/#= {/.#Exhaustive}))
+                                        (try.else false))
+                                    (~~ (template [<tag> <hash> <value> <next>]
+                                          [(|> (/.composite {<tag> (set.of_list <hash> (list <value>))}
+                                                            {<tag> (set.of_list <hash> (list (|> <value> <next>)))})
+                                               (try#each (/#= {<tag> (set.of_list <hash> (list <value> (|> <value> <next>)))}))
+                                               (try.else false))
+                                           (|> {<tag> (set.of_list <hash> (list <value>))}
+                                               (/.composite {/.#Exhaustive})
+                                               (try#each (/#= {/.#Exhaustive}))
+                                               (try.else false))]
+
+                                          [/.#Nat n.hash nat ++]
+                                          [/.#Int i.hash int ++]
+                                          [/.#Rev r.hash rev ++]
+                                          [/.#Frac f.hash frac (f.+ frac)]
+                                          [/.#Text text.hash text (%.format text)]
+                                          ))))
+
+                           composes_variants!
+                           (let [composes_different_variants!
+                                 (let [composes? (: (-> (Maybe Nat) (Maybe Nat) (Maybe Nat) Bit)
+                                                    (function (_ left right both)
+                                                      (|> (/.composite {/.#Variant left (dictionary.of_list n.hash (list [tag/0 expected/0]))}
+                                                                       {/.#Variant right (dictionary.of_list n.hash (list [tag/1 expected/1]))})
+                                                          (try#each (/#= {/.#Variant both (dictionary.of_list n.hash (list [tag/0 expected/0]
+                                                                                                                           [tag/1 expected/1]))}))
+                                                          (try.else false))))]
+                                   (and (composes? {.#None} {.#None} {.#None})
+                                        (composes? {.#Some arity} {.#None} {.#Some arity})
+                                        (composes? {.#None} {.#Some arity} {.#Some arity})
+                                        (composes? {.#Some arity} {.#Some arity} {.#Some arity})))
+
+                                 composes_same_variants!
+                                 (let [composes? (: (-> (Maybe Nat) (Maybe Nat) (Maybe Nat) Bit)
+                                                    (function (_ left right both)
+                                                      (|> (do try.monad
+                                                            [variant (/.composite {/.#Variant left (dictionary.of_list n.hash (list [tag/0 expected/0]))}
+                                                                                  {/.#Variant right (dictionary.of_list n.hash (list [tag/0 expected/1]))})
+                                                             expected (/.composite expected/0 expected/1)]
+                                                            (in (/#= {/.#Variant both (dictionary.of_list n.hash (list [tag/0 expected]))}
+                                                                     variant)))
+                                                          (try.else false))))]
+                                   (and (composes? {.#None} {.#None} {.#None})
+                                        (composes? {.#Some arity} {.#None} {.#Some arity})
+                                        (composes? {.#None} {.#Some arity} {.#Some arity})
+                                        (composes? {.#Some arity} {.#Some arity} {.#Some arity})))]
+                             (and composes_different_variants!
+                                  composes_same_variants!
+                                  (and (|> {/.#Variant {.#None} (dictionary.of_list n.hash (list [tag/0 expected/0]))}
+                                           (/.composite {/.#Exhaustive})
+                                           (try#each (/#= {/.#Exhaustive}))
+                                           (try.else false))
+                                       (|> {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/0 expected/0]))}
+                                           (/.composite {/.#Exhaustive})
+                                           (try#each (/#= {/.#Exhaustive}))
+                                           (try.else false)))))
+
+                           composes_sequences!
+                           (and (|> (/.composite {/.#Seq expected/0 expected/1}
+                                                 {/.#Seq expected/1 expected/0})
+                                    (try#each (/#= {/.#Alt {/.#Seq expected/0 expected/1}
+                                                           {/.#Seq expected/1 expected/0}}))
+                                    (try.else false))
+                                (|> (do try.monad
+                                      [seq (/.composite {/.#Seq expected/0 expected/0}
+                                                        {/.#Seq expected/0 expected/1})
+                                       expected (/.composite expected/0 expected/1)]
+                                      (in (/#= (if (/.exhaustive? expected)
+                                                 expected/0
+                                                 {/.#Seq expected/0 expected})
+                                               seq)))
+                                    (try.else false))
+                                (|> (do try.monad
+                                      [seq (/.composite {/.#Seq expected/0 expected/0}
+                                                        {/.#Seq expected/1 expected/0})
+                                       expected (/.composite expected/0 expected/1)]
+                                      (in (/#= {/.#Seq expected expected/0}
+                                               seq)))
+                                    (try.else false))
+                                (|> (/.composite {/.#Seq expected/0 expected/1}
+                                                 expected/1)
+                                    (try#each (/#= {/.#Alt {/.#Seq expected/0 expected/1}
+                                                           expected/1}))
+                                    (try.else false))
+                                (|> (/.composite expected/1
+                                                 {/.#Seq expected/0 expected/1})
+                                    (try#each (/#= {/.#Alt expected/1
+                                                           {/.#Seq expected/0 expected/1}}))
+                                    (try.else false))
+                                (|> (/.composite expected/0
+                                                 {/.#Seq expected/0 expected/1})
+                                    (try#each (/#= expected/0))
+                                    (try.else false)))
+
+                           composes_alts!
+                           (and (|> (do try.monad
+                                      [alt (/.composite {/.#Exhaustive}
+                                                        {/.#Alt expected/0
+                                                                expected/1})]
+                                      (in (/#= {/.#Exhaustive}
+                                               alt)))
+                                    (try.else false))
+                                (|> (do try.monad
+                                      [alt (/.composite {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/0 {/.#Exhaustive}]))}
+                                                        {/.#Alt {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/0 expected/0]))}
+                                                                {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/0 expected/1]))}})]
+                                      (in (/#= {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/0 {/.#Exhaustive}]))}
+                                               alt)))
+                                    (try.else false))
+                                (|> (do try.monad
+                                      [alt (/.composite {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/0 {/.#Exhaustive}]))}
+                                                        {/.#Alt {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/0 expected/0]))}
+                                                                {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/1 expected/1]))}})]
+                                      (in (/#= {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/0 {/.#Exhaustive}]
+                                                                                                           [tag/1 expected/1]))}
+                                               alt)))
+                                    (try.else false))
+                                (|> (do try.monad
+                                      [alt (/.composite {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/0 expected/2]))}
+                                                        {/.#Alt {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/0 expected/0]))}
+                                                                {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/1 expected/1]))}})
+                                       expected (/.composite expected/2 expected/0)]
+                                      (in (/#= {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/0 expected]
+                                                                                                           [tag/1 expected/1]))}
+                                               alt)))
+                                    (try.else false))
+                                (|> (do try.monad
+                                      [alt (/.composite {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/1 expected/2]))}
+                                                        {/.#Alt {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/0 expected/0]))}
+                                                                {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/1 expected/1]))}})
+                                       expected (/.composite expected/2 expected/1)]
+                                      (in (/#= {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/0 expected/0]
+                                                                                                           [tag/1 expected]))}
+                                               alt)))
+                                    (try.else false))
+                                (|> (do try.monad
+                                      [alt (/.composite {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/1 expected/1]))}
+                                                        {/.#Alt {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/0 expected/0]))}
+                                                                expected/2})]
+                                      (in (/#= {/.#Alt expected/2
+                                                       {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/0 expected/0]
+                                                                                                                   [tag/1 expected/1]))}}
+                                               alt)))
+                                    (try.else false)))]
+                       (and composes_simples!
+                            composes_variants!
+                            composes_sequences!
+                            composes_alts!)))
+            (_.cover [/.redundancy]
+                     (let [redundant? (..failure? /.redundancy)]
+                       (`` (and (redundant? (/.composite {/.#Exhaustive} {/.#Exhaustive}))
+                                (~~ (template [<it>]
+                                      [(redundant? (/.composite <it> <it>))
+                                       (redundant? (/.composite <it> {/.#Exhaustive}))]
+                                      
+                                      [{/.#Bit bit}]
+                                      [{/.#Nat (set.of_list n.hash (list nat))}]
+                                      [{/.#Int (set.of_list i.hash (list int))}]
+                                      [{/.#Rev (set.of_list r.hash (list rev))}]
+                                      [{/.#Frac (set.of_list f.hash (list frac))}]
+                                      [{/.#Text (set.of_list text.hash (list text))}]
+                                      [{/.#Variant {.#None} (dictionary.of_list n.hash (list [tag/0 expected/0]))}]
+                                      [{/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/0 expected/0]))}]
+                                      [{/.#Seq expected/0 expected/1}]
+                                      ))
+                                (redundant? (/.composite {/.#Seq expected/0 expected/1} expected/0))))))
+            (_.cover [/.variant_mismatch]
+                     (let [mismatch? (..failure? /.variant_mismatch)]
+                       (and (not (mismatch? (/.composite {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/0 expected/0]))}
+                                                         {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/1 expected/1]))})))
+                            
+                            (mismatch? (/.composite {/.#Variant {.#Some (++ arity)} (dictionary.of_list n.hash (list [tag/0 expected/0]))}
+                                                    {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/1 expected/1]))}))
+                            (mismatch? (/.composite {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/0 expected/0]))}
+                                                    {/.#Variant {.#Some (++ arity)} (dictionary.of_list n.hash (list [tag/1 expected/1]))}))
+                            
+                            (mismatch? (/.composite {/.#Variant {.#Some (-- arity)} (dictionary.of_list n.hash (list [tag/0 expected/0]))}
+                                                    {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/1 expected/1]))}))
+                            (mismatch? (/.composite {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/0 expected/0]))}
+                                                    {/.#Variant {.#Some (-- arity)} (dictionary.of_list n.hash (list [tag/1 expected/1]))}))
+                            
+                            (not (mismatch? (/.composite {/.#Variant {.#None} (dictionary.of_list n.hash (list [tag/0 expected/0]))}
+                                                         {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/1 expected/1]))})))
+                            (mismatch? (/.composite {/.#Variant {.#None} (dictionary.of_list n.hash (list [arity expected/0]))}
+                                                    {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/1 expected/1]))}))
+                            (not (mismatch? (/.composite {/.#Variant {.#None} (dictionary.of_list n.hash (list [(-- arity) expected/0]))}
+                                                         {/.#Variant {.#Some arity} (dictionary.of_list n.hash (list [tag/1 expected/1]))}))))))
+            ))))
+
+(def: .public test
+  Test
+  (<| (_.covering /._)
+      (_.for [/.Coverage])
+      ($_ _.and
+          ..test|value
+          ..test|coverage
+          (_.for [/.Variant]
+                 ..test|variant)
+          ..test|composite
+          )))

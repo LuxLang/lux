@@ -1,18 +1,22 @@
 (.using
  [library
   [lux "*"
+   [type {"+" :sharing}]
    ["[0]" meta]
    [abstract
     [monad {"+" do}]]
    [control
-    ["[0]" try {"+" Try}]]
+    ["[0]" maybe]
+    ["[0]" try]
+    ["[0]" io]
+    [concurrency
+     ["[0]" atom {"+" Atom}]]]
    [data
-    [text
-     ["%" format]]]
+    [collection
+     ["[0]" dictionary {"+" Dictionary}]]]
    [math
-    [number {"+" hex}
-     ["n" nat]
-     ["[0]" i64]]]]]
+    [number
+     ["n" nat]]]]]
  ["[0]" // {"+" Operation}
   [macro {"+" Expander}]
   ["[1][0]" type]
@@ -28,10 +32,15 @@
      [///
       ["[0]" phase]
       [meta
-       ["[0]" archive {"+" Archive}]]]]]]])
+       ["[0]" archive {"+" Archive}
+        ["[0]" module]]]]]]]])
 
 (type: .public Eval
   (-> Archive Type Code (Operation Any)))
+
+(def: evals
+  (Atom (Dictionary module.ID Nat))
+  (atom.atom (dictionary.empty n.hash)))
 
 (def: .public (evaluator expander synthesis_state generation_state generate)
   (All (_ anchor expression artifact)
@@ -43,9 +52,7 @@
   (let [analyze (analysisP.phase expander)]
     (function (eval archive type exprC)
       (do phase.monad
-        [count (extensionP.lifted
-                meta.seed)
-         exprA (<| (//type.expecting type)
+        [exprA (<| (//type.expecting type)
                    //scope.reset
                    (analyze archive exprC))
          module (extensionP.lifted
@@ -54,11 +61,18 @@
             (do try.monad
               [exprS (|> exprA (synthesisP.phase archive) (phase.result synthesis_state))])
             (phase.result generation_state)
-            (let [shift (|> count
-                            (i64.left_shifted 32)
-                            (i64.or (hex "FF,FF,FF,FF")))])
             (do phase.monad
-              [exprO (generation.with_registry_shift shift
-                       (generate archive exprS))
-               module_id (generation.module_id module archive)]
-              (generation.evaluate! [module_id count] exprO)))))))
+              [@module (:sharing [anchor expression artifact]
+                                 (generation.Phase anchor expression artifact)
+                                 generate
+
+                                 (generation.Operation anchor expression artifact module.ID)
+                                 (generation.module_id module archive))
+               .let [[evals _] (io.run! (atom.update! (dictionary.revised' @module 0 ++) ..evals))
+                     @eval (maybe.else 0 (dictionary.value @module evals))]
+               exprO (<| (generation.with_registry_shift (|> @module
+                                                             ("lux i64 left-shift" 16)
+                                                             ("lux i64 or" @eval)
+                                                             ("lux i64 left-shift" 32)))
+                         (generate archive exprS))]
+              (generation.evaluate! [@module @eval] exprO)))))))
