@@ -12,3 +12,7 @@
 
 0. [Back To Basics: Undefined Behavior - Ansel Sermersheim & Barbara Geller - CppCon 2021](https://www.youtube.com/watch?v=NpL9YnxnOqM)
 
+# Dependency management
+
+0. [vcpkg](https://vcpkg.io/en/index.html)
+

@@ -1,8 +1,9 @@
 (.using
  [library
-  [lux "*"
+  [lux {"-" exec}
    ["_" test {"+" Test}]
    ["[0]" ffi]
+   ["[0]" static]
    [abstract
     [monad {"+" do}]
     ["[0]" predicate]
@@ -10,6 +11,7 @@
      ["$[0]" equivalence]
      ["$[0]" hash]]]
    [control
+    [pipe {"+" case>}]
     ["[0]" function]
     ["[0]" maybe ("[1]#[0]" functor)]
     ["[0]" try {"+" Try} ("[1]#[0]" functor)]]
@@ -19,6 +21,8 @@
      ["%" format {"+" format}]]
     [collection
      ["[0]" list ("[1]#[0]" functor)]]]
+   [macro
+    ["[0]" code]]
    ["[0]" math
     ["[0]" random {"+" Random} ("[1]#[0]" monad)]
     [number
@@ -27,7 +31,7 @@
      ["f" frac]
      ["[0]" i64]]]]]
  [\\library
-  ["[0]" /]])
+  ["[0]" / ("[1]#[0]" equivalence)]])
 
 (ffi.import: (eval [Text] "try" "?" Any))
 
@@ -46,7 +50,7 @@
     [bool random.bit
      float random.frac
      int random.int
-     string (random.ascii/upper 5)]
+     string (random.ascii/upper 1)]
     ($_ _.and
         (_.cover [/.none]
                  (|> /.none
@@ -257,7 +261,9 @@
      float (random.only (|>> f.not_a_number? not) random.frac)
      string (random.ascii/upper 5)
 
-     comment (random.ascii/upper 10)]
+     comment (random.ascii/upper 10)
+     $arg/0 (# ! each /.var (random.ascii/lower 10))
+     $arg/1 (# ! each /.var (random.ascii/lower 11))]
     ($_ _.and
         ..test|bool
         ..test|float
@@ -282,6 +288,16 @@
                  (expression (|>> (:as Frac) (f.= (math.ceil float)))
                              (|> (/.__import__/1 (/.string "math"))
                                  (/.do "ceil" (list (/.float float))))))
+        (_.cover [/.is]
+                 (and (expression (|>> (:as Bit))
+                                  (/.apply/* (/.lambda (list $arg/0)
+                                                       (/.is $arg/0 $arg/0))
+                                             (list (/.string (format string string)))))
+                      (expression (|>> (:as Bit) not)
+                                  (/.apply/* (/.lambda (list $arg/0 $arg/1)
+                                                       (/.is $arg/0 (/.+ $arg/1 $arg/1)))
+                                             (list (/.string (format string string))
+                                                   (/.string string))))))
         )))
 
 (def: test|function
@@ -344,13 +360,24 @@
                  (expression (|>> (:as Frac) (f.= expected/0))
                              (/.apply/* (/.lambda (list $var) $var)
                                         (list (/.float expected/0)))))
-        (_.cover [/.Poly /.PVar /.poly]
-                 (expression (|>> (:as Frac) (f.= expected/?))
-                             (/.apply/* (/.lambda (list $choice (/.poly $var))
-                                                  (/.item $choice $var))
-                                        (list (/.int (.int poly_choice))
-                                              (/.float expected/0)
-                                              (/.float expected/1)))))
+        (_.for [/.Poly /.PVar]
+               ($_ _.and
+                   (_.cover [/.poly]
+                            (expression (|>> (:as Frac) (f.= expected/?))
+                                        (/.apply/* (/.lambda (list $choice (/.poly $var))
+                                                             (/.item $choice $var))
+                                                   (list (/.int (.int poly_choice))
+                                                         (/.float expected/0)
+                                                         (/.float expected/1)))))
+                   (_.cover [/.splat_poly]
+                            (expression (|>> (:as Frac) (f.= expected/?))
+                                        (/.apply/* (/.lambda (list $choice (/.poly $var))
+                                                             (/.item $choice $var))
+                                                   (list (/.int (.int poly_choice))
+                                                         (/.splat_poly
+                                                          (/.list (list (/.float expected/0)
+                                                                        (/.float expected/1))))))))
+                   ))
         (_.for [/.Keyword /.KVar]
                ($_ _.and
                    (_.cover [/.keyword]
@@ -387,18 +414,68 @@
                    ..test|var)
             ))))
 
+(ffi.import: Dict
+  ["[1]::[0]"
+   (get [ffi.String] Any)])
+
+(ffi.import: (dict [] ..Dict))
+
+(def: (statement it)
+  (-> (-> /.SVar (/.Statement Any)) Any)
+  (let [$output (static.random (|>> %.nat (format "output_") code.text)
+                               random.nat)
+        environment (..dict [])]
+    (.exec
+      ("python exec" (/.code (it (/.var $output))) (:expected environment))
+      (Dict::get [$output] environment))))
+
+(def: test|statement
+  Test
+  (do [! random.monad]
+    [prefix (# ! each (|>> %.nat (text.enclosed ["def_" "_"])) random.nat)
+     $input/0 (# ! each (|>> %.nat (format "input_") /.var) random.nat)
+     expected/0 random.safe_frac
+     .let [def (: (-> Nat /.SVar)
+                  (|>> %.nat (format prefix) /.var))]]
+    ($_ _.and
+        (_.cover [/.def]
+                 (|> (..statement
+                      (function (_ $output)
+                        ($_ /.then
+                            (/.def (def 0) (list $input/0) (/.return $input/0))
+                            (/.set (list $output)
+                                   (/.apply/* (def 0) (list (/.float expected/0)))))))
+                     (:as Frac)
+                     (f.= expected/0)))
+        )))
+
+(def: random_expression
+  (Random /.Literal)
+  ($_ random.either
+      (random#each /.bool random.bit)
+      (random#each /.float random.frac)
+      (random#each /.int random.int)
+      (random#each /.string (random.ascii/lower 1))
+      ))
+
 (def: .public test
   Test
   (do [! random.monad]
-    [.let [random (# ! each /.int random.int)]]
+    [expected ..random_expression]
     (<| (_.covering /._)
-        (_.for [/.Code /.code])
+        (_.for [/.Code])
         ($_ _.and
             (_.for [/.equivalence]
-                   ($equivalence.spec /.equivalence random))
+                   ($equivalence.spec /.equivalence ..random_expression))
             (_.for [/.hash]
-                   ($hash.spec /.hash random))
+                   ($hash.spec /.hash ..random_expression))
             
+            (_.cover [/.code /.manual]
+                     (|> (/.manual (/.code expected))
+                         (: /.Expression)
+                         (/#= expected)))
             (_.for [/.Expression]
                    ..test|expression)
+            (_.for [/.Statement]
+                   ..test|statement)
             ))))

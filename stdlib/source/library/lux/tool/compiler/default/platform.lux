@@ -42,16 +42,17 @@
      ["$" /]
      ["[1][0]" version]
      ["[0]" syntax]
-     ["[1][0]" analysis
-      [macro {"+" Expander}]
-      ["[0]A" module]]
      ["[1][0]" synthesis]
      ["[1][0]" generation {"+" Buffer}]
      ["[1][0]" directive]
+     ["[1][0]" analysis
+      [macro {"+" Expander}]
+      ["[0]A" module]]
      [phase
       ["[0]" extension {"+" Extender}]]]]
    [meta
     [import {"+" Import}]
+    ["[0]" context {"+" Context}]
     [cli {"+" Compilation Library}
      ["[0]" compiler {"+" Compiler}]]
     ["[0]" archive {"+" Output Archive}
@@ -60,12 +61,10 @@
      ["[0]" module
       ["[0]" descriptor {"+" Descriptor}]
       ["[0]" document {"+" Document}]]]
-    [io {"+" Context}
-     ["[0]" context]
-     ["ioW" archive]]]]]
- [program
-  [compositor
-   ["[0]" static {"+" Static}]]])
+    ["[0]" io "_"
+     ["_[1]" /]
+     ["[1]" context]
+     ["ioW" archive]]]]])
 
 (with_expansions [<type_vars> (as_is anchor expression directive)
                   <Operation> (as_is ///generation.Operation <type_vars>)]
@@ -101,16 +100,16 @@
           registry.writer
           ))
 
-    (def: (cache_module static platform module_id entry)
+    (def: (cache_module context platform module_id entry)
       (All (_ <type_vars>)
-        (-> Static <Platform> module.ID (archive.Entry Any)
+        (-> Context <Platform> module.ID (archive.Entry Any)
             (Async (Try Any))))
       (let [system (value@ #&file_system platform)
             write_artifact! (: (-> [artifact.ID (Maybe Text) Binary] (Action Any))
                                (function (_ [artifact_id custom content])
-                                 (ioW.write system static module_id artifact_id content)))]
+                                 (ioW.write system context module_id artifact_id content)))]
         (do [! ..monad]
-          [_ (ioW.prepare system static module_id)
+          [_ (ioW.prepare system context module_id)
            _ (for [@.python (|> entry
                                 (value@ archive.#output)
                                 sequence.list
@@ -129,7 +128,7 @@
                    (with@ module.#document document))
                (value@ archive.#registry entry)]
               (_.result ..writer)
-              (ioW.cache system static module_id)))))
+              (ioW.cache system context module_id)))))
 
     ... TODO: Inline ASAP
     (def: initialize_buffer!
@@ -239,10 +238,10 @@
        generators
        (dictionary.merged directives (host_directive_bundle phase_wrapper))])
 
-    (def: .public (initialize static module expander host_analysis platform generation_bundle host_directive_bundle program anchorT,expressionT,directiveT extender
+    (def: .public (initialize context module expander host_analysis platform generation_bundle host_directive_bundle program anchorT,expressionT,directiveT extender
                               import compilation_sources)
       (All (_ <type_vars>)
-        (-> Static
+        (-> Context
             descriptor.Module
             Expander
             ///analysis.Bundle
@@ -251,18 +250,18 @@
             (-> ///phase.Wrapper (///directive.Bundle <type_vars>))
             (Program expression directive)
             [Type Type Type] (-> ///phase.Wrapper Extender)
-            Import (List Context)
+            Import (List _io.Context)
             (Async (Try [<State+> Archive ///phase.Wrapper]))))
       (do [! (try.with async.monad)]
-        [.let [state (//init.state (value@ static.#host static)
+        [.let [state (//init.state (value@ context.#host context)
                                    module
                                    expander
                                    host_analysis
                                    (value@ #host platform)
                                    (value@ #phase platform)
                                    generation_bundle)]
-         _ (ioW.enable (value@ #&file_system platform) static)
-         [archive analysis_state bundles] (ioW.thaw (value@ #host platform) (value@ #&file_system platform) static import compilation_sources)
+         _ (ioW.enable (value@ #&file_system platform) context)
+         [archive analysis_state bundles] (ioW.thaw (value@ #host platform) (value@ #&file_system platform) context import compilation_sources)
          .let [with_missing_extensions
                (: (All (_ <type_vars>)
                     (-> <Platform> (Program expression directive) <State+>
@@ -285,7 +284,7 @@
             [[state [archive payload]] (|> (..process_runtime archive platform)
                                            (///phase.result' state)
                                            async#in)
-             _ (..cache_module static platform 0 payload)
+             _ (..cache_module context platform 0 payload)
              
              [phase_wrapper state] (with_missing_extensions platform program state)]
             (in [state archive phase_wrapper])))))
@@ -660,18 +659,18 @@
         (let [instancer (//init.compiler phase_wrapper expander syntax.prelude (value@ #write platform))]
           (instancer $.key (list))))
 
-      (def: (serial_compiler import static platform compilation_sources compiler)
+      (def: (serial_compiler import context platform compilation_sources compiler)
         (All (_ <type_vars>)
-          (-> Import Static <Platform> (List Context) (///.Compiler <State+> .Module Any)
+          (-> Import Context <Platform> (List _io.Context) (///.Compiler <State+> .Module Any)
               <Compiler>))
         (function (_ importer import! module_id [archive state] module)
           (do [! (try.with async.monad)]
-            [input (context.read (value@ #&file_system platform)
-                                 importer
-                                 import
-                                 compilation_sources
-                                 (value@ static.#host_module_extension static)
-                                 module)]
+            [input (io.read (value@ #&file_system platform)
+                            importer
+                            import
+                            compilation_sources
+                            (value@ context.#host_module_extension context)
+                            module)]
             (loop [[archive state] [archive (..set_current_module module state)]
                    compilation (compiler input)
                    all_dependencies (: (Set descriptor.Module)
@@ -705,7 +704,7 @@
                                           (console.write_line report console))]
                                   <else>)))
                        .let [entry (with@ [archive.#module module.#descriptor descriptor.#references] all_dependencies entry)]
-                       _ (..cache_module static platform module_id entry)]
+                       _ (..cache_module context platform module_id entry)]
                       (case (archive.has module entry archive)
                         {try.#Success archive}
                         (in [archive
@@ -716,7 +715,7 @@
 
                   {try.#Failure error}
                   (do !
-                    [_ (ioW.freeze (value@ #&file_system platform) static archive)]
+                    [_ (ioW.freeze (value@ #&file_system platform) context archive)]
                     (async#in {try.#Failure error}))))))))
 
       (exception: .public (invalid_custom_compiler [definition Symbol
@@ -726,35 +725,45 @@
          ["Expected Type" (%.type ///.Custom)]
          ["Actual Type" (%.type type)]))
 
-      (def: .public (compile phase_wrapper import static expander platform compilation context)
+      (def: (custom_compiler importer it)
         (All (_ <type_vars>)
-          (-> ///phase.Wrapper Import Static Expander <Platform> Compilation <Context> <Return>))
+          (-> <Importer> Compiler (Async (Try [<Context> (List Text) ///.Custom]))))
+        (let [/#definition (value@ compiler.#definition it)
+              [/#module /#name] /#definition]
+          (do ..monad
+            [context (importer descriptor.runtime /#module)
+             .let [[archive state] context
+                   meta_state (value@ [extension.#state
+                                       ///directive.#analysis
+                                       ///directive.#state
+                                       extension.#state]
+                                      state)]
+             [_ /#type /#value] (|> /#definition
+                                    meta.export
+                                    (meta.result meta_state)
+                                    async#in)]
+            (async#in (if (check.subsumes? ///.Custom /#type)
+                        (|> /#value
+                            (:as ///.Custom)
+                            [context (value@ compiler.#parameters it)]
+                            {try.#Success})
+                        (exception.except ..invalid_custom_compiler [/#definition /#type]))))))
+
+      (def: .public (compile phase_wrapper import file_context expander platform compilation context)
+        (All (_ <type_vars>)
+          (-> ///phase.Wrapper Import Context Expander <Platform> Compilation <Context> <Return>))
         (let [[host_dependencies libraries compilers sources target module] compilation
-              compiler (|> (..compiler phase_wrapper expander platform)
-                           (serial_compiler import static platform sources)
+              importer (|> (..compiler phase_wrapper expander platform)
+                           (serial_compiler import file_context platform sources)
                            (..parallel context))]
           (do [! ..monad]
             [customs (|> compilers
                          (list#each (function (_ it)
-                                      (let [/#definition (value@ compiler.#definition it)
-                                            [/#module /#name] /#definition
-                                            /#parameters (value@ compiler.#parameters it)]
-                                        (do !
-                                          [[archive state] (compiler descriptor.runtime /#module)
-                                           .let [meta_state (value@ [extension.#state
-                                                                     ///directive.#analysis
-                                                                     ///directive.#state
-                                                                     extension.#state]
-                                                                    state)]
-                                           [_ /#type /#value] (|> /#definition
-                                                                  meta.export
-                                                                  (meta.result meta_state)
-                                                                  async#in)]
-                                          (async#in (if (check.subsumes? ///.Custom /#type)
-                                                      (|> /#value
-                                                          (:as ///.Custom)
-                                                          (function.on /#parameters))
-                                                      (exception.except ..invalid_custom_compiler [/#definition /#type])))))))
+                                      (do !
+                                        [[context parameters custom] (custom_compiler importer it)]
+                                        (async#in (|> custom
+                                                      (:as ///.Custom)
+                                                      (function.on parameters))))))
                          (monad.all !))]
-            (compiler descriptor.runtime module))))
+            (importer descriptor.runtime module))))
       )))
