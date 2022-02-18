@@ -142,7 +142,9 @@
    (getDeclaredField [java/lang/String] "try" java/lang/reflect/Field)
    (getConstructors [] [(java/lang/reflect/Constructor java/lang/Object)])
    (getDeclaredMethods [] [java/lang/reflect/Method])
-   (getDeclaredAnnotations [] [java/lang/annotation/Annotation])])
+   (getDeclaredAnnotations [] [java/lang/annotation/Annotation])
+   (getSuperclass [] "?" (java/lang/Class java/lang/Object))
+   (getInterfaces [] [(java/lang/Class java/lang/Object)])])
 
 (template [<name>]
   [(exception: .public (<name> [class External
@@ -456,15 +458,16 @@
   (function (_ extension_name analyse archive args)
     (case args
       (^ (list arrayC))
-      (do phase.monad
-        [_ (typeA.inference ..int)
-         [var_id varT] (typeA.check check.var)
-         arrayA (<| (typeA.expecting (.type (array.Array varT)))
-                    (analyse archive arrayC))
-         varT (typeA.check (check.clean (list) varT))
-         arrayJT (jvm_array_type (.type (array.Array varT)))]
-        (in {/////analysis.#Extension extension_name (list (/////analysis.text (..signature arrayJT))
-                                                           arrayA)}))
+      (<| typeA.with_var
+          (function (_ [@var :var:]))
+          (do phase.monad
+            [_ (typeA.inference ..int)
+             arrayA (<| (typeA.expecting (.type (array.Array :var:)))
+                        (analyse archive arrayC))
+             :var: (typeA.check (check.clean (list) :var:))
+             arrayJT (jvm_array_type (.type (array.Array :var:)))]
+            (in {/////analysis.#Extension extension_name (list (/////analysis.text (..signature arrayJT))
+                                                               arrayA)})))
 
       _
       (/////analysis.except ///.incorrect_arity [extension_name 1 (list.size args)]))))
@@ -662,18 +665,19 @@
   (function (_ extension_name analyse archive args)
     (case args
       (^ (list idxC arrayC))
-      (do phase.monad
-        [[var_id varT] (typeA.check check.var)
-         _ (typeA.inference varT)
-         arrayA (<| (typeA.expecting (.type (array.Array varT)))
-                    (analyse archive arrayC))
-         varT (typeA.check (check.clean (list) varT))
-         arrayJT (jvm_array_type (.type (array.Array varT)))
-         idxA (<| (typeA.expecting ..int)
-                  (analyse archive idxC))]
-        (in {/////analysis.#Extension extension_name (list (/////analysis.text (..signature arrayJT))
-                                                           idxA
-                                                           arrayA)}))
+      (<| typeA.with_var
+          (function (_ [@var :var:]))
+          (do phase.monad
+            [_ (typeA.inference :var:)
+             arrayA (<| (typeA.expecting (.type (array.Array :var:)))
+                        (analyse archive arrayC))
+             :var: (typeA.check (check.clean (list) :var:))
+             arrayJT (jvm_array_type (.type (array.Array :var:)))
+             idxA (<| (typeA.expecting ..int)
+                      (analyse archive idxC))]
+            (in {/////analysis.#Extension extension_name (list (/////analysis.text (..signature arrayJT))
+                                                               idxA
+                                                               arrayA)})))
 
       _
       (/////analysis.except ///.incorrect_arity [extension_name 2 (list.size args)]))))
@@ -705,21 +709,22 @@
   (function (_ extension_name analyse archive args)
     (case args
       (^ (list idxC valueC arrayC))
-      (do phase.monad
-        [[var_id varT] (typeA.check check.var)
-         _ (typeA.inference (.type (array.Array varT)))
-         arrayA (<| (typeA.expecting (.type (array.Array varT)))
-                    (analyse archive arrayC))
-         varT (typeA.check (check.clean (list) varT))
-         arrayJT (jvm_array_type (.type (array.Array varT)))
-         idxA (<| (typeA.expecting ..int)
-                  (analyse archive idxC))
-         valueA (<| (typeA.expecting varT)
-                    (analyse archive valueC))]
-        (in {/////analysis.#Extension extension_name (list (/////analysis.text (..signature arrayJT))
-                                                           idxA
-                                                           valueA
-                                                           arrayA)}))
+      (<| typeA.with_var
+          (function (_ [@var :var:]))
+          (do phase.monad
+            [_ (typeA.inference (.type (array.Array :var:)))
+             arrayA (<| (typeA.expecting (.type (array.Array :var:)))
+                        (analyse archive arrayC))
+             :var: (typeA.check (check.clean (list) :var:))
+             arrayJT (jvm_array_type (.type (array.Array :var:)))
+             idxA (<| (typeA.expecting ..int)
+                      (analyse archive idxC))
+             valueA (<| (typeA.expecting :var:)
+                        (analyse archive valueC))]
+            (in {/////analysis.#Extension extension_name (list (/////analysis.text (..signature arrayJT))
+                                                               idxA
+                                                               valueA
+                                                               arrayA)})))
 
       _
       (/////analysis.except ///.incorrect_arity [extension_name 3 (list.size args)]))))
@@ -1608,13 +1613,45 @@
    (list (/////analysis.text argument)
          (value_analysis argumentJT))))
 
-(template [<name> <only>]
+(def: (family_tree' it)
+  (-> (java/lang/Class java/lang/Object)
+      (List (java/lang/Class java/lang/Object)))
+  (let [interfaces (array.list {.#None} (java/lang/Class::getInterfaces it))
+        supers (case (java/lang/Class::getSuperclass it)
+                 {.#Some class}
+                 (list& class interfaces)
+                 
+                 {.#None}
+                 interfaces)]
+    (|> supers
+        (list#each family_tree')
+        list#conjoint
+        (list& it))))
+
+(def: family_tree
+  (-> (java/lang/Class java/lang/Object)
+      (List (java/lang/Class java/lang/Object)))
+  (|>> ..family_tree'
+       ... De-duplication
+       (list#mix (function (_ class all)
+                   (dictionary.has (java/lang/Class::getName class) class all))
+                 (dictionary.empty text.hash))
+       dictionary.values))
+
+(def: (all_declared_methods it)
+  (-> (java/lang/Class java/lang/Object)
+      (List java/lang/reflect/Method))
+  (|> it
+      ..family_tree
+      (list#each (|>> java/lang/Class::getDeclaredMethods (array.list {.#None})))
+      list#conjoint))
+
+(template [<name> <only> <methods>]
   [(def: (<name> [type class])
      (-> [(Type Class) (java/lang/Class java/lang/Object)]
          (Try (List [(Type Class) Text (Type Method)])))
      (|> class
-         java/lang/Class::getDeclaredMethods
-         (array.list {.#None})
+         <methods>
          (list.only (|>> java/lang/reflect/Method::getModifiers
                          (predicate.or (|>> java/lang/reflect/Modifier::isPublic)
                                        (|>> java/lang/reflect/Modifier::isProtected))))
@@ -1640,8 +1677,10 @@
                                                                           concrete_exceptions
                                                                           generic_exceptions)])]))))))]
 
-  [abstract_methods (list.only (|>> java/lang/reflect/Method::getModifiers java/lang/reflect/Modifier::isAbstract))]
-  [methods (<|)]
+  [abstract_methods (list.only (|>> java/lang/reflect/Method::getModifiers java/lang/reflect/Modifier::isAbstract))
+   (<| (array.list {.#None}) java/lang/Class::getDeclaredMethods)]
+  [methods (<|)
+   ..all_declared_methods]
   )
 
 (def: jvm_package_separator ".")
@@ -2089,8 +2128,8 @@
                                 [[_ exT] (typeA.check check.existential)]
                                 (in [var exT])))
                           vars)]
-    (in (list#mix (function (_ [varJ varT] mapping)
-                    (dictionary.has (parser.name varJ) varT mapping))
+    (in (list#mix (function (_ [varJ :var:] mapping)
+                    (dictionary.has (parser.name varJ) :var: mapping))
                   mapping
                   pairings))))
 

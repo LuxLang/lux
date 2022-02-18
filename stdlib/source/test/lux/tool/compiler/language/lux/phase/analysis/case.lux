@@ -1,210 +1,636 @@
 (.using
+ [library
   [lux "*"
-   [abstract
-    ["[0]" monad {"+" do}]]
-   [data
-    ["%" text/format {"+" format}]]
-   ["r" math/random {"+" Random} ("[1]#[0]" monad)]
    ["_" test {"+" Test}]
+   [abstract
+    [monad {"+" do}]]
    [control
-    pipe
-    ["[0]" maybe]]
+    [pipe {"+" case>}]
+    ["[0]" try {"+" Try} ("[1]#[0]" functor)]
+    ["[0]" exception]]
    [data
     ["[0]" product]
-    ["[0]" text ("[1]#[0]" equivalence)]
-    [number
-     ["n" nat]]
-    [collection
-     ["[0]" list ("[1]#[0]" monad)]
-     ["[0]" set]]]
-   ["[0]" type
-    ["[0]" check]]
+    ["[0]" text
+     ["%" format]]]
    [macro
     ["[0]" code]]
-   [meta
-    ["[0]" symbol]]]
-  [//
-   ["_[0]" primitive]
-   ["_[0]" structure]]
-  [\\
-   ["[0]" /
-    ["/[1]" //
-     ["[1][0]" module]
-     ["[1][0]" type]
-     ["/[1]" // "_"
-      ["/[1]" //
-       ["[1][0]" analysis {"+" Analysis Variant Tag Operation}]
-       [///
-        ["[0]" phase]
-        [meta
-         ["[0]" archive]]]]]]]])
+   [math
+    ["[0]" random]]
+   ["[0]" type ("[1]#[0]" equivalence)
+    ["[0]" check]]]]
+ [\\library
+  ["[0]" /
+   ["/[1]" //
+    [//
+     ["[1][0]" extension
+      ["[1]/[0]" analysis "_"
+       ["[1]" lux]]]
+     [//
+      ["[1][0]" analysis
+       [evaluation {"+" Eval}]
+       ["[2][0]" macro]
+       ["[2][0]" scope]
+       ["[2][0]" module]
+       ["[2][0]" coverage]
+       ["[2][0]" type
+        ["$[1]" \\test]]
+       ["[2][0]" inference "_"
+        ["$[1]" \\test]]]
+      [///
+       ["[1][0]" phase ("[1]#[0]" monad)]
+       [meta
+        ["[0]" archive]]]]]]]])
 
-(def: (exhaustive_weaving branchings)
-  (-> (List (List Code)) (List (List Code)))
-  (case branchings
-    {.#End}
-    {.#End}
+(def: (eval archive type term)
+  Eval
+  (//phase#in []))
 
-    {.#Item head+ {.#End}}
-    (list#each (|>> list) head+)
+(def: (expander macro inputs state)
+  //macro.Expander
+  {try.#Success ((.macro macro) inputs state)})
 
-    {.#Item head+ tail++}
-    (do list.monad
-      [tail+ (exhaustive_weaving tail++)
-       head head+]
-      (in {.#Item head tail+}))))
+(def: analysis
+  //analysis.Phase
+  (//.phase ..expander))
 
-(def: .public (exhaustive_branches allow_literals? variantTC inputC)
-  (-> Bit (List [Code Code]) Code (Random (List Code)))
-  (case inputC
-    [_ {.#Bit _}]
-    (r#in (list (' #0) (' #1)))
+(def: test|tuple
+  Test
+  (do [! random.monad]
+    [lux $//type.random_state
+     .let [state [//extension.#bundle (//extension/analysis.bundle ..eval)
+                  //extension.#state lux]]
+     module/0 (random.ascii/lower 1)
+     name/0 (# ! each (|>> [module/0]) (random.ascii/lower 2))
+     [input/0 simple/0] $//inference.simple_parameter
+     [input/1 simple/1] $//inference.simple_parameter
+     [input/2 simple/2] $//inference.simple_parameter
+     $binding/0 (# ! each code.local_symbol (random.ascii/lower 3))
+     $binding/1 (# ! each code.local_symbol (random.ascii/lower 4))
+     $binding/2 (# ! each code.local_symbol (random.ascii/lower 5))]
+    ($_ _.and
+        (_.cover [/.tuple]
+                 (let [tuple? (: (-> Type Type Bit)
+                                 (function (_ :input: :expected:)
+                                   (and (|> :input:
+                                            /.tuple
+                                            (check.result check.fresh_context)
+                                            (try#each (|>> product.right (type#= :expected:)))
+                                            (try.else false))
+                                        (|> (do check.monad
+                                              [[@var :var:] check.var
+                                               _ (check.check :var: :input:)]
+                                              (/.tuple :var:))
+                                            (check.result check.fresh_context)
+                                            (try#each (|>> product.right (type#= :expected:)))
+                                            (try.else false)))))]
+                   (and (tuple? input/0
+                                (type.anonymous input/0))
+                        (tuple? (Tuple input/0 input/1 input/2)
+                                (Tuple input/0 input/1 input/2))
+                        (tuple? {.#Named name/0 (Tuple input/0 input/1 input/2)}
+                                (Tuple input/0 input/1 input/2))
+                        (tuple? (All (_ a b c) (Tuple input/0 input/1 input/2))
+                                (Tuple (All (_ a b c) input/0)
+                                       (All (_ a b c) input/1)
+                                       (All (_ a b c) input/2)))
+                        (tuple? (type ((All (_ a b c) (Tuple a b c)) input/0 input/1 input/2))
+                                (Tuple input/0 input/1 input/2))
+                        (|> (do check.monad
+                              [[@var :var:] check.var
+                               _ (check.bind (All (_ a b c) (Tuple a b c)) @var)]
+                              (/.tuple (type (:var: input/0 input/1 input/2))))
+                            (check.result check.fresh_context)
+                            (try#each (|>> product.right (type#= (Tuple input/0 input/1 input/2))))
+                            (try.else false))
+                        (|> (do check.monad
+                              [[@0 :0:] check.existential
+                               [@1 :1:] check.existential
+                               [_ :tuple:] (/.tuple (Ex (_ a b c) (Tuple a input/1 c)))
+                               context check.context
+                               _ (check.with context)
+                               _ (check.check (Tuple :0: input/1 :1:) :tuple:)
+                               _ (check.with context)
+                               _ (check.check :tuple: (Tuple :0: input/1 :1:))]
+                              (in true))
+                            (check.result check.fresh_context)
+                            (try.else false)))))
+        (_.cover [/.non_tuple]
+                 (and (|> (do check.monad
+                            [[@var :var:] check.var
+                             _ (/.tuple :var:)]
+                            (in false))
+                          (check.result check.fresh_context)
+                          (exception.otherwise (text.contains? (value@ exception.#label /.non_tuple))))
+                      (|> (do check.monad
+                            [[@var :var:] check.var
+                             _ (/.tuple (type (:var: input/0 input/1 input/2)))]
+                            (in false))
+                          (check.result check.fresh_context)
+                          (exception.otherwise (text.contains? (value@ exception.#label /.non_tuple))))
+                      (|> (do check.monad
+                            [_ (/.tuple (type (input/0 input/1 input/2)))]
+                            (in false))
+                          (check.result check.fresh_context)
+                          (exception.otherwise (text.contains? (value@ exception.#label /.non_tuple))))
+                      (|> (do check.monad
+                            [[@var :var:] check.var
+                             _ (check.bind input/0 @var)
+                             _ (/.tuple (type (:var: input/1 input/2)))]
+                            (in false))
+                          (check.result check.fresh_context)
+                          (exception.otherwise (text.contains? (value@ exception.#label /.non_tuple))))))
+        )))
 
-    (^template [<tag> <gen> <wrapper>]
-      [[_ {<tag> _}]
-       (if allow_literals?
-         (do [! r.monad]
-           [?sample (r.maybe <gen>)]
-           (case ?sample
-             {.#Some sample}
-             (do !
-               [else (exhaustive_branches allow_literals? variantTC inputC)]
-               (in (list& (<wrapper> sample) else)))
+(def: (test|case lux [module/0 name/0] [input/0 simple/0] [input/1 simple/1] [input/2 simple/2] [$binding/0 $binding/1 $binding/2] [output/0 body/0] [output/1 body/1] [bit/0 nat/0])
+  (-> Lux Symbol [Type Code] [Type Code] [Type Code] [Code Code Code] [Type Code] [Type Code] [Bit Nat] Bit)
+  (let [state [//extension.#bundle (//extension/analysis.bundle ..eval)
+               //extension.#state lux]
+        case? (: (-> Code (List [Code Code]) Bit)
+                 (function (_ input branches)
+                   (|> (do //phase.monad
+                         [analysis (|> (/.case ..analysis branches archive.empty input)
+                                       (//type.expecting output/0))]
+                         (in true))
+                       //scope.with
+                       (//module.with 0 module/0)
+                       (//phase#each (|>> product.right product.right))
+                       (//phase.result state)
+                       (try.else false))))
 
-             {.#None}
-             (in (list (' _)))))
-         (r#in (list (' _))))])
-    ([.#Nat  r.nat         code.nat]
-     [.#Int  r.int         code.int]
-     [.#Rev  r.rev         code.rev]
-     [.#Frac r.frac        code.frac]
-     [.#Text (r.unicode 5) code.text])
-    
-    (^ [_ {.#Tuple (list)}])
-    (r#in (list (' [])))
+        body_types_mismatch!
+        (and (not (case? (code.bit bit/0) (list [(` #0) body/1]
+                                                [(` #1) body/1])))
+             (not (case? (code.bit bit/0) (list [(` #0) body/0]
+                                                [(` #1) body/1]))))
 
-    [_ {.#Tuple members}]
-    (do [! r.monad]
-      [member_wise_patterns (monad.each ! (exhaustive_branches allow_literals? variantTC) members)]
-      (in (|> member_wise_patterns
-              exhaustive_weaving
-              (list#each code.tuple))))
+        input_types_mismatch!
+        (and (not (case? (code.nat nat/0) (list [(` #0) body/0]
+                                                [(` #1) body/0])))
+             (not (case? (code.bit bit/0) (list [(code.nat nat/0) body/0]
+                                                [$binding/0 body/0]))))
 
-    (^ [_ {.#Record (list)}])
-    (r#in (list (' {})))
+        handles_singletons!
+        (and (case? simple/0 (list [(` [(~ $binding/0)]) body/0]))
+             (case? simple/0 (list [(` [(~ simple/0)]) body/0]
+                                   [(` [(~ $binding/0)]) body/0]))
+             (case? (code.bit bit/0) (list [(` [#0]) body/0]
+                                           [(` [#1]) body/0])))
 
-    [_ {.#Record kvs}]
-    (do [! r.monad]
-      [.let [ks (list#each product.left kvs)
-             vs (list#each product.right kvs)]
-       member_wise_patterns (monad.each ! (exhaustive_branches allow_literals? variantTC) vs)]
-      (in (|> member_wise_patterns
-              exhaustive_weaving
-              (list#each (|>> (list.zipped/2 ks) code.record)))))
+        can_infer_body!
+        (|> (do //phase.monad
+              [[:actual: analysis] (|> (code.bit bit/0)
+                                       (/.case ..analysis
+                                         (list [(` #0) body/0]
+                                               [(` #1) body/0])
+                                         archive.empty)
+                                       //type.inferring)]
+              (in (type#= output/0 :actual:)))
+            //scope.with
+            (//module.with 0 module/0)
+            (//phase#each (|>> product.right product.right))
+            (//phase.result state)
+            (try.else false))
 
-    (^ [_ {.#Form (list [_ {.#Tag _}] _)}])
-    (do [! r.monad]
-      [bundles (monad.each !
-                           (function (_ [_tag _code])
-                             (do !
-                               [v_branches (exhaustive_branches allow_literals? variantTC _code)]
-                               (in (list#each (function (_ pattern) (` ((~ _tag) (~ pattern))))
-                                              v_branches))))
-                           variantTC)]
-      (in (list#conjoint bundles)))
+        ensures_consistent_bodies!
+        (|> (do //phase.monad
+              [[:actual: analysis] (|> (code.bit bit/0)
+                                       (/.case ..analysis
+                                         (list [(` #0) body/0]
+                                               [(` #1) body/1])
+                                         archive.empty)
+                                       //type.inferring)]
+              (in false))
+            //scope.with
+            (//module.with 0 module/0)
+            (//phase#each (|>> product.right product.right))
+            (//phase.result state)
+            (try.else true))]
+    (and body_types_mismatch!
+         input_types_mismatch!
+         handles_singletons!
+         can_infer_body!
+         ensures_consistent_bodies!
 
-    _
-    (r#in (list))
-    ))
+         (case? (` [])
+                (list [(` []) body/0]))
+         (case? (` [])
+                (list [$binding/0 body/0]))
 
-(def: .public (input variant_tags record_tags primitivesC)
-  (-> (List Code) (List Code) (List Code) (Random Code))
-  (r.rec
-   (function (_ input)
-     ($_ r.either
-         (r#each product.right _primitive.primitive)
-         (do [! r.monad]
-           [choice (|> r.nat (# ! each (n.% (list.size variant_tags))))
-            .let [choiceT (maybe.trusted (list.item choice variant_tags))
-                  choiceC (maybe.trusted (list.item choice primitivesC))]]
-           (in (` ((~ choiceT) (~ choiceC)))))
-         (do [! r.monad]
-           [size (|> r.nat (# ! each (n.% 3)))
-            elems (r.list size input)]
-           (in (code.tuple elems)))
-         (r#in (code.record (list.zipped/2 record_tags primitivesC)))
-         ))))
+         (case? (code.bit bit/0) (list [(` #0) body/0]
+                                       [(` #1) body/0]))
+         (case? (code.bit bit/0) (list [(` #1) body/0]
+                                       [(` #0) body/0]))
 
-(def: (branch body pattern)
-  (-> Code Code [Code Code])
-  [pattern body])
+         (case? simple/0 (list [$binding/0 body/0]))
+         (case? simple/0 (list [simple/0 body/0]
+                               [$binding/0 body/0]))
+         
+         (case? (` [(~ simple/0) (~ simple/1) (~ simple/2)])
+                (list [$binding/0 body/0]))
+         (case? (` [(~ simple/0) (~ simple/1) (~ simple/2)])
+                (list [(` [(~ $binding/0) (~ $binding/1)]) body/0]))
+         (case? (` [(~ simple/0) (~ simple/1) (~ simple/2)])
+                (list [(` [(~ simple/0) (~ simple/1) (~ simple/2)]) body/0]
+                      ... 000
+                      [(` [(~ $binding/0) (~ simple/1) (~ simple/2)]) body/0]
+                      ... 001
+                      [(` [(~ simple/0) (~ $binding/1) (~ simple/2)]) body/0]
+                      ... 010
+                      [(` [(~ $binding/0) (~ $binding/1) (~ simple/2)]) body/0]
+                      ... 011
+                      [(` [(~ simple/0) (~ simple/1) (~ $binding/2)]) body/0]
+                      ... 100
+                      [(` [(~ $binding/0) (~ simple/1) (~ $binding/2)]) body/0]
+                      ... 101
+                      [(` [(~ simple/0) (~ $binding/1) (~ $binding/2)]) body/0]
+                      ... 110
+                      [(` [(~ $binding/0) (~ $binding/1) (~ $binding/2)]) body/0]
+                      ... 111
+                      )))))
+
+(def: (test|redundancy lux [module/0 name/0] [input/0 simple/0] [input/1 simple/1] [input/2 simple/2] [$binding/0 $binding/1 $binding/2] [output/0 body/0] bit/0)
+  (-> Lux Symbol [Type Code] [Type Code] [Type Code] [Code Code Code] [Type Code] Bit Bit)
+  (let [state [//extension.#bundle (//extension/analysis.bundle ..eval)
+               //extension.#state lux]
+        redundant? (: (-> Code (List [Code Code]) Bit)
+                      (function (_ input branches)
+                        (|> (do //phase.monad
+                              [analysis (|> (/.case ..analysis branches archive.empty input)
+                                            (//type.expecting output/0))]
+                              (in true))
+                            //scope.with
+                            (//module.with 0 module/0)
+                            (//phase#each (|>> product.right product.right))
+                            (//phase.result state)
+                            (exception.otherwise (text.contains? (value@ exception.#label //coverage.redundancy))))))]
+    (and (redundant? (` [])
+                     (list [(` []) body/0]
+                           [(` []) body/0]))
+         (redundant? (` [])
+                     (list [$binding/0 body/0]
+                           [$binding/0 body/0]))
+         (redundant? (code.bit bit/0) (list [(` #0) body/0]
+                                            [(` #1) body/0]
+                                            [(` #0) body/0]))
+         (redundant? (code.bit bit/0) (list [(` #0) body/0]
+                                            [(` #1) body/0]
+                                            [(` #1) body/0]))
+         (redundant? (code.bit bit/0) (list [(` #0) body/0]
+                                            [(` #1) body/0]
+                                            [$binding/0 body/0]))
+         (redundant? simple/0 (list [$binding/0 body/0]
+                                    [$binding/0 body/0]))
+         (redundant? simple/0 (list [simple/0 body/0]
+                                    [$binding/0 body/0]
+                                    [$binding/0 body/0]))
+         (redundant? simple/0 (list [$binding/0 body/0]
+                                    [simple/0 body/0]))
+         (redundant? (` [(~ simple/0) (~ simple/1) (~ simple/2)])
+                     (list [$binding/0 body/0]
+                           [$binding/0 body/0]))
+         (redundant? (` [(~ simple/0) (~ simple/1) (~ simple/2)])
+                     (list [(` [(~ $binding/0) (~ $binding/1)]) body/0]
+                           [(` [(~ $binding/0) (~ $binding/1)]) body/0]))
+         (redundant? (` [(~ simple/0) (~ simple/1) (~ simple/2)])
+                     (list [(` [(~ $binding/0) (~ $binding/1)]) body/0]
+                           [$binding/0 body/0]))
+         (redundant? (` [(~ simple/0) (~ simple/1) (~ simple/2)])
+                     (list [$binding/0 body/0]
+                           [(` [(~ $binding/0) (~ $binding/1)]) body/0])))))
+
+(def: (test|variant lux [module/0 name/0] [input/0 simple/0] [input/1 simple/1] [input/2 simple/2] [$binding/0 $binding/1 $binding/2] [output/0 body/0] [output/1 body/1] [bit/0 nat/0])
+  (-> Lux Symbol [Type Code] [Type Code] [Type Code] [Code Code Code] [Type Code] [Type Code] [Bit Nat] Bit)
+  (let [state [//extension.#bundle (//extension/analysis.bundle ..eval)
+               //extension.#state lux]
+        
+        tag/0 (%.code $binding/0)
+        tag/1 (%.code $binding/1)
+        tag/2 (%.code $binding/2)
+
+        tags/* (list tag/0 tag/1 tag/2)
+        :variant: {.#Named [module/0 name/0] (type.variant (list input/0 input/1 input/2))}
+
+        tag/0 (code.symbol [module/0 tag/0])
+        tag/1 (code.symbol [module/0 tag/1])
+        tag/2 (code.symbol [module/0 tag/2])
+        
+        variant? (: (-> Code (List [Code Code]) Bit)
+                    (function (_ input branches)
+                      (|> (do //phase.monad
+                            [_ (//module.declare_labels false tags/* false :variant:)
+                             analysis (|> (/.case ..analysis branches archive.empty input)
+                                          (//type.expecting output/0))]
+                            (in true))
+                          //scope.with
+                          (//module.with 0 module/0)
+                          (//phase#each (|>> product.right product.right))
+                          (//phase.result state)
+                          (try.else false))))
+
+        can_bind!
+        (and (variant? (` {(~ tag/0) (~ simple/0)})
+                       (list [$binding/0 body/0]))
+             (variant? (` {(~ tag/1) (~ simple/1)})
+                       (list [$binding/0 body/0]))
+             (variant? (` {(~ tag/2) (~ simple/2)})
+                       (list [$binding/0 body/0])))
+
+        can_bind_variant!
+        (variant? (` {(~ tag/0) (~ simple/0)})
+                  (list [(` {(~ tag/0) (~ $binding/0)}) body/0]
+                        [(` {(~ tag/1) (~ $binding/1)}) body/0]
+                        [(` {(~ tag/2) (~ $binding/2)}) body/0]))
+
+        can_bind_sum!
+        (variant? (` {(~ tag/0) (~ simple/0)})
+                  (list [(` {0 #0 (~ $binding/0)}) body/0]
+                        [(` {1 #0 (~ $binding/1)}) body/0]
+                        [(` {1 #1 (~ $binding/2)}) body/0]))
+
+        can_check_exhaustiveness!
+        (variant? (` {(~ tag/0) (~ simple/0)})
+                  (list [(` {(~ tag/0) (~ simple/0)}) body/0]
+                        [(` {(~ tag/0) (~ $binding/0)}) body/0]
+
+                        [(` {(~ tag/1) (~ simple/1)}) body/0]
+                        [(` {(~ tag/1) (~ $binding/1)}) body/0]
+
+                        [(` {(~ tag/2) (~ simple/2)}) body/0]
+                        [(` {(~ tag/2) (~ $binding/2)}) body/0]))
+
+        can_bind_partial_variant!
+        (variant? (` {(~ tag/0) (~ simple/0)})
+                  (list [(` {(~ tag/0) (~ $binding/0)}) body/0]
+                        [(` {0 #1 (~ $binding/1)}) body/0]))]
+    (and can_bind!
+         can_bind_variant!
+         can_bind_sum!
+         can_check_exhaustiveness!
+         can_bind_partial_variant!
+         )))
+
+(def: (test|record lux [module/0 name/0] [input/0 simple/0] [input/1 simple/1] [input/2 simple/2] [$binding/0 $binding/1 $binding/2] [output/0 body/0] [output/1 body/1] [bit/0 nat/0])
+  (-> Lux Symbol [Type Code] [Type Code] [Type Code] [Code Code Code] [Type Code] [Type Code] [Bit Nat] Bit)
+  (let [state [//extension.#bundle (//extension/analysis.bundle ..eval)
+               //extension.#state lux]
+        
+        slot/0 (%.code $binding/0)
+        slot/1 (%.code $binding/1)
+        slot/2 (%.code $binding/2)
+
+        slots/* (list slot/0 slot/1 slot/2)
+        :record: {.#Named [module/0 name/0] (type.tuple (list input/0 input/1 input/2))}
+
+        slot/0 (code.symbol [module/0 slot/0])
+        slot/1 (code.symbol [module/0 slot/1])
+        slot/2 (code.symbol [module/0 slot/2])
+        
+        record? (: (-> Code (List [Code Code]) Bit)
+                   (function (_ input branches)
+                     (|> (do //phase.monad
+                           [_ (//module.declare_labels true slots/* false :record:)
+                            analysis (|> (/.case ..analysis branches archive.empty input)
+                                         (//type.expecting output/0))]
+                           (in true))
+                         //scope.with
+                         (//module.with 0 module/0)
+                         (//phase#each (|>> product.right product.right))
+                         (//phase.result state)
+                         (try.else false))))
+
+        can_bind!
+        (record? (` [(~ slot/0) (~ simple/0)
+                     (~ slot/1) (~ simple/1)
+                     (~ slot/2) (~ simple/2)])
+                 (list [$binding/0 body/0]))
+
+        can_bind_record!
+        (record? (` [(~ slot/0) (~ simple/0)
+                     (~ slot/1) (~ simple/1)
+                     (~ slot/2) (~ simple/2)])
+                 (list [(` [(~ slot/0) (~ $binding/0)
+                            (~ slot/1) (~ $binding/1)
+                            (~ slot/2) (~ $binding/2)]) body/0]))
+
+        can_bind_tuple!
+        (record? (` [(~ slot/0) (~ simple/0)
+                     (~ slot/1) (~ simple/1)
+                     (~ slot/2) (~ simple/2)])
+                 (list [(` [(~ $binding/0) (~ $binding/1) (~ $binding/2)]) body/0]))
+
+        can_deduce_record!
+        (record? (` [(~ simple/0)
+                     (~ simple/1)
+                     (~ simple/2)])
+                 (list [(` [(~ slot/0) (~ $binding/0)
+                            (~ slot/1) (~ $binding/1)
+                            (~ slot/2) (~ $binding/2)]) body/0]))
+
+        can_check_exhaustiveness!
+        (record? (` [(~ slot/0) (~ simple/0)
+                     (~ slot/1) (~ simple/1)
+                     (~ slot/2) (~ simple/2)])
+                 (list [(` [(~ slot/0) (~ simple/0)
+                            (~ slot/1) (~ simple/1)
+                            (~ slot/2) (~ simple/2)]) body/0]
+                       ... 000
+                       [(` [(~ slot/0) (~ $binding/0)
+                            (~ slot/1) (~ simple/1)
+                            (~ slot/2) (~ simple/2)]) body/0]
+                       ... 001
+                       [(` [(~ slot/0) (~ simple/0)
+                            (~ slot/1) (~ $binding/1)
+                            (~ slot/2) (~ simple/2)]) body/0]
+                       ... 010
+                       [(` [(~ slot/0) (~ $binding/0)
+                            (~ slot/1) (~ $binding/1)
+                            (~ slot/2) (~ simple/2)]) body/0]
+                       ... 011
+                       [(` [(~ slot/0) (~ simple/0)
+                            (~ slot/1) (~ simple/1)
+                            (~ slot/2) (~ $binding/2)]) body/0]
+                       ... 100
+                       [(` [(~ slot/0) (~ $binding/0)
+                            (~ slot/1) (~ simple/1)
+                            (~ slot/2) (~ $binding/2)]) body/0]
+                       ... 101
+                       [(` [(~ slot/0) (~ simple/0)
+                            (~ slot/1) (~ $binding/1)
+                            (~ slot/2) (~ $binding/2)]) body/0]
+                       ... 110
+                       [(` [(~ slot/0) (~ $binding/0)
+                            (~ slot/1) (~ $binding/1)
+                            (~ slot/2) (~ $binding/2)]) body/0]
+                       ... 111
+                       ))
+
+        cannot_repeat_slot!
+        (not (record? (` [(~ slot/0) (~ simple/0)
+                          (~ slot/1) (~ simple/1)
+                          (~ slot/2) (~ simple/2)])
+                      (list [(` [(~ slot/0) (~ $binding/0)
+                                 (~ slot/1) (~ $binding/1)
+                                 (~ slot/2) (~ $binding/2)
+                                 (~ slot/2) (~ $binding/2)]) body/0])))
+
+        cannot_omit_slot!
+        (not (record? (` [(~ slot/0) (~ simple/0)
+                          (~ slot/1) (~ simple/1)
+                          (~ slot/2) (~ simple/2)])
+                      (list [(` [(~ slot/0) (~ $binding/0)
+                                 (~ slot/1) (~ $binding/1)]) body/0])))
+
+        can_bind_partial_tuple!
+        (record? (` [(~ slot/0) (~ simple/0)
+                     (~ slot/1) (~ simple/1)
+                     (~ slot/2) (~ simple/2)])
+                 (list [(` [(~ $binding/0) (~ $binding/1)]) body/0]))]
+    (and can_bind!
+         can_bind_record!
+         can_bind_tuple!
+         can_deduce_record!
+         can_check_exhaustiveness!
+         cannot_repeat_slot!
+         cannot_omit_slot!
+         can_bind_partial_tuple!)))
 
 (def: .public test
-  (<| (_.context (symbol.module (symbol /._)))
-      (do [! r.monad]
-        [module_name (r.unicode 5)
-         variant_name (r.unicode 5)
-         record_name (|> (r.unicode 5) (r.only (|>> (text#= variant_name) not)))
-         size (|> r.nat (# ! each (|>> (n.% 10) (n.max 2))))
-         variant_tags (|> (r.set text.hash size (r.unicode 5)) (# ! each set.list))
-         record_tags (|> (r.set text.hash size (r.unicode 5)) (# ! each set.list))
-         primitivesTC (r.list size _primitive.primitive)
-         .let [primitivesT (list#each product.left primitivesTC)
-               primitivesC (list#each product.right primitivesTC)
-               code_tag (|>> [module_name] code.tag)
-               variant_tags+ (list#each code_tag variant_tags)
-               record_tags+ (list#each code_tag record_tags)
-               variantTC (list.zipped/2 variant_tags+ primitivesC)]
-         inputC (input variant_tags+ record_tags+ primitivesC)
-         [outputT outputC] (r.only (|>> product.left (same? Any) not)
-                                   _primitive.primitive)
-         .let [analyse_pm (function (_ branches)
-                            (|> (/.case _primitive.phase branches archive.empty inputC)
-                                (//type.with_type outputT)
-                                ////analysis.with_scope
-                                (do phase.monad
-                                  [_ (//module.declare_tags variant_tags false
-                                                            {.#Named [module_name variant_name]
-                                                                     (type.variant primitivesT)})
-                                   _ (//module.declare_tags record_tags false
-                                                            {.#Named [module_name record_name]
-                                                                     (type.tuple primitivesT)})])
-                                (//module.with_module 0 module_name)))]
-         exhaustive_patterns (exhaustive_branches true variantTC inputC)
-         .let [exhaustive_branchesC (list#each (branch outputC)
-                                               exhaustive_patterns)]]
+  Test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [lux $//type.random_state
+         .let [state [//extension.#bundle (//extension/analysis.bundle ..eval)
+                      //extension.#state lux]]
+         module/0 (random.ascii/lower 1)
+         name/0 (random.ascii/lower 2)
+         [input/0 simple/0] $//inference.simple_parameter
+         [input/1 simple/1] $//inference.simple_parameter
+         [input/2 simple/2] $//inference.simple_parameter
+         [output/0 body/0] $//inference.simple_parameter
+         [output/1 body/1] (random.only (|>> product.left (same? output/0) not)
+                                        $//inference.simple_parameter)
+         $binding/0 (# ! each code.local_symbol (random.ascii/lower 3))
+         $binding/1 (# ! each code.local_symbol (random.ascii/lower 4))
+         $binding/2 (# ! each code.local_symbol (random.ascii/lower 5))
+         extension/0 (# ! each code.text (random.ascii/lower 6))
+         bit/0 random.bit
+         nat/0 random.nat]
         ($_ _.and
-            (_.test "Will reject empty pattern-matching (no branches)."
-                    (|> (analyse_pm (list))
-                        _structure.check_fails))
-            (_.test "Can analyse exhaustive pattern-matching."
-                    (|> (analyse_pm exhaustive_branchesC)
-                        _structure.check_succeeds))
-            (let [non_exhaustive_branchesC (list.first (-- (list.size exhaustive_branchesC))
-                                                       exhaustive_branchesC)]
-              (_.test "Will reject non-exhaustive pattern-matching."
-                      (|> (analyse_pm non_exhaustive_branchesC)
-                          _structure.check_fails)))
-            (do !
-              [redundant_patterns (exhaustive_branches false variantTC inputC)
-               redundancy_idx (|> r.nat (# ! each (n.% (list.size redundant_patterns))))
-               .let [redundant_branchesC (<| (list!each (branch outputC))
-                                             list.together
-                                             (list (list.first redundancy_idx redundant_patterns)
-                                                   (list (maybe.trusted (list.item redundancy_idx redundant_patterns)))
-                                                   (list.after redundancy_idx redundant_patterns)))]]
-              (_.test "Will reject redundant pattern-matching."
-                      (|> (analyse_pm redundant_branchesC)
-                          _structure.check_fails)))
-            (do !
-              [[heterogeneousT heterogeneousC] (r.only (|>> product.left (check.subsumes? outputT) not)
-                                                       _primitive.primitive)
-               heterogeneous_idx (|> r.nat (# ! each (n.% (list.size exhaustive_patterns))))
-               .let [heterogeneous_branchesC (list.together (list (list.first heterogeneous_idx exhaustive_branchesC)
-                                                                  (list (let [[_pattern _body] (maybe.trusted (list.item heterogeneous_idx exhaustive_branchesC))]
-                                                                          [_pattern heterogeneousC]))
-                                                                  (list.after (++ heterogeneous_idx) exhaustive_branchesC)))]]
-              (_.test "Will reject pattern-matching if the bodies of the branches do not all have the same type."
-                      (|> (analyse_pm heterogeneous_branchesC)
-                          _structure.check_fails)))
+            (_.cover [/.case]
+                     (and (test|case lux [module/0 name/0] [input/0 simple/0] [input/1 simple/1] [input/2 simple/2] [$binding/0 $binding/1 $binding/2] [output/0 body/0] [output/1 body/1] [bit/0 nat/0])
+                          (test|redundancy lux [module/0 name/0] [input/0 simple/0] [input/1 simple/1] [input/2 simple/1] [$binding/0 $binding/1 $binding/2] [output/0 body/0] [bit/0])
+                          (test|variant lux [module/0 name/0] [input/0 simple/0] [input/1 simple/1] [input/2 simple/2] [$binding/0 $binding/1 $binding/2] [output/0 body/0] [output/1 body/1] [bit/0 nat/0])
+                          (test|record lux [module/0 name/0] [input/0 simple/0] [input/1 simple/1] [input/2 simple/2] [$binding/0 $binding/1 $binding/2] [output/0 body/0] [output/1 body/1] [bit/0 nat/0])))
+            (_.cover [/.empty_branches]
+                     (|> (do //phase.monad
+                           [analysis (|> (/.case ..analysis (list) archive.empty simple/0)
+                                         (//type.expecting output/0))]
+                           (in false))
+                         //scope.with
+                         (//module.with 0 module/0)
+                         (//phase#each (|>> product.right product.right))
+                         (//phase.result state)
+                         (exception.otherwise (text.contains? (value@ exception.#label /.empty_branches)))))
+            (_.cover [/.non_exhaustive]
+                     (let [non_exhaustive? (: (-> (List [Code Code]) Bit)
+                                              (function (_ branches)
+                                                (|> (do //phase.monad
+                                                      [analysis (|> (/.case ..analysis branches archive.empty simple/0)
+                                                                    (//type.expecting output/0))]
+                                                      (in false))
+                                                    //scope.with
+                                                    (//module.with 0 module/0)
+                                                    (//phase#each (|>> product.right product.right))
+                                                    (//phase.result state)
+                                                    (exception.otherwise (text.contains? (value@ exception.#label /.non_exhaustive))))))]
+                       (and (non_exhaustive? (list [simple/0 body/0]))
+                            (not (non_exhaustive? (list [simple/0 body/0]
+                                                        [$binding/0 body/0]))))))
+            (_.cover [/.invalid]
+                     (let [invalid? (: (-> (List [Code Code]) Bit)
+                                       (function (_ branches)
+                                         (|> (do //phase.monad
+                                               [analysis (|> (/.case ..analysis branches archive.empty simple/0)
+                                                             (//type.expecting output/0))]
+                                               (in false))
+                                             //scope.with
+                                             (//module.with 0 module/0)
+                                             (//phase#each (|>> product.right product.right))
+                                             (//phase.result state)
+                                             (exception.otherwise (text.contains? (value@ exception.#label /.invalid))))))]
+                       (and (invalid? (list [(` ((~ extension/0) (~ $binding/0) (~ $binding/1) (~ $binding/2)))
+                                             body/0]))
+                            (invalid? (list [(` {(~ extension/0) (~ $binding/0) (~ $binding/1) (~ $binding/2)})
+                                             body/0]))
+                            (invalid? (list [(` {[] (~ $binding/0) (~ $binding/1) (~ $binding/2)})
+                                             body/0])))))
+            (_.cover [/.sum_has_no_case]
+                     (let [tag/0 (%.code $binding/0)
+                           tag/1 (%.code $binding/1)
+                           tag/2 (%.code $binding/2)
+
+                           tags/* (list tag/0 tag/1 tag/2)
+                           :variant: {.#Named [module/0 name/0] (type.variant (list input/0 input/1 input/2))}
+
+                           tag/0 (code.symbol [module/0 tag/0])
+                           tag/1 (code.symbol [module/0 tag/1])
+                           tag/2 (code.symbol [module/0 tag/2])]
+                       (|> (do //phase.monad
+                             [_ (//module.declare_labels false tags/* false :variant:)
+                              analysis (|> (` {(~ tag/0) (~ simple/0)})
+                                           (/.case ..analysis
+                                             (list [(` {0 #0 (~ $binding/0)}) body/0]
+                                                   [(` {1 #0 (~ $binding/1)}) body/0]
+                                                   [(` {2 #0 (~ $binding/2)}) body/0]
+                                                   [(` {2 #1 (~ $binding/2)}) body/0])
+                                             archive.empty)
+                                           (//type.expecting output/0))]
+                             (in false))
+                           //scope.with
+                           (//module.with 0 module/0)
+                           (//phase#each (|>> product.right product.right))
+                           (//phase.result state)
+                           (exception.otherwise (text.contains? (value@ exception.#label /.sum_has_no_case))))))
+            (_.cover [/.mismatch]
+                     (let [slot/0 (%.code $binding/0)
+                           slot/1 (%.code $binding/1)
+                           slot/2 (%.code $binding/2)
+
+                           slots/* (list slot/0 slot/1 slot/2)
+                           :record: {.#Named [module/0 name/0] (type.tuple (list input/0 input/1 input/2))}
+
+                           slot/0 (code.symbol [module/0 slot/0])
+                           slot/1 (code.symbol [module/0 slot/1])
+                           slot/2 (code.symbol [module/0 slot/2])]
+                       (and (|> (do //phase.monad
+                                  [analysis (|> (` (~ simple/0))
+                                                (/.case ..analysis
+                                                  (list [(` {0 #0 (~ $binding/0)}) body/0]
+                                                        [(` {1 #0 (~ $binding/1)}) body/0]
+                                                        [(` {1 #1 (~ $binding/2)}) body/0])
+                                                  archive.empty)
+                                                (//type.expecting output/0))]
+                                  (in false))
+                                //scope.with
+                                (//module.with 0 module/0)
+                                (//phase#each (|>> product.right product.right))
+                                (//phase.result state)
+                                (exception.otherwise (text.contains? (value@ exception.#label /.mismatch))))
+                            (|> (do //phase.monad
+                                  [_ (//module.declare_labels true slots/* false :record:)
+                                   analysis (|> (` (~ simple/0))
+                                                (/.case ..analysis
+                                                  (list [(` [(~ slot/0) (~ $binding/0)
+                                                             (~ slot/1) (~ $binding/1)
+                                                             (~ slot/2) (~ $binding/2)]) body/0])
+                                                  archive.empty)
+                                                (//type.expecting output/0))]
+                                  (in false))
+                                //scope.with
+                                (//module.with 0 module/0)
+                                (//phase#each (|>> product.right product.right))
+                                (//phase.result state)
+                                (exception.otherwise (text.contains? (value@ exception.#label /.mismatch)))))))
+            
+            ..test|tuple
             ))))
