@@ -46,7 +46,9 @@
       [archive
        ["[0]" unit]]]]]]]
  ["[0]" // "_"
-  ["[1][0]" runtime {"+" Definition}]]
+  ["[1][0]" runtime {"+" Definition}]
+  ["[1][0]" type]
+  ["[1][0]" value]]
  )
 
 (import: java/lang/reflect/Field
@@ -63,8 +65,6 @@
 
 (import: java/lang/ClassLoader)
 
-(def: value::field "value")
-(def: value::type (type.class "java.lang.Object" (list)))
 (def: value::modifier ($_ modifier#composite field.public field.final field.static))
 
 (def: init::type (type.method [(list) (list) type.void (list)]))
@@ -90,7 +90,7 @@
 
 (def: (class_value class_name class)
   (-> Text (java/lang/Class java/lang/Object) (Try Any))
-  (case (java/lang/Class::getField ..value::field class)
+  (case (java/lang/Class::getField //value.field class)
     {try.#Success field}
     (case (java/lang/reflect/Field::get {.#None} field)
       {try.#Success ?value}
@@ -105,34 +105,33 @@
       (exception.except ..cannot_load [class_name error]))
     
     {try.#Failure error}
-    (exception.except ..invalid_field [class_name ..value::field error])))
+    (exception.except ..invalid_field [class_name //value.field error])))
 
 (def: class_path_separator
   ".")
 
-(def: .public (class_name [module_id artifact_id])
-  (-> unit.ID Text)
-  (format lux_context
-          ..class_path_separator (%.nat version)
-          ..class_path_separator (%.nat module_id)
-          ..class_path_separator (%.nat artifact_id)))
-
-(def: (evaluate! library loader eval_class valueG)
-  (-> Library java/lang/ClassLoader Text (Bytecode Any) (Try [Any Definition]))
+(def: (evaluate! library loader eval_class [@it valueG])
+  (-> Library java/lang/ClassLoader Text [(Maybe unit.ID) (Bytecode Any)] (Try [Any Definition]))
   (let [bytecode_name (text.replaced class_path_separator .module_separator eval_class)
+        :value: (case @it
+                  {.#Some @it}
+                  (type.class (//runtime.class_name @it) (list))
+
+                  {.#None}
+                  //type.value)
         bytecode (class.class version.v6_0
                               class.public
                               (encoding/name.internal bytecode_name)
                               {.#None}
                               (encoding/name.internal "java.lang.Object") (list)
-                              (list (field.field ..value::modifier ..value::field #0 ..value::type (sequence.sequence)))
+                              (list (field.field ..value::modifier //value.field #0 :value: (sequence.sequence)))
                               (list (method.method ..init::modifier "<clinit>"
                                                    #0 ..init::type
                                                    (list)
                                                    {.#Some
                                                     ($_ _.composite
                                                         valueG
-                                                        (_.putstatic (type.class bytecode_name (list)) ..value::field ..value::type)
+                                                        (_.putstatic (type.class bytecode_name (list)) //value.field :value:)
                                                         _.return)}))
                               (sequence.sequence))]
     (io.run! (do [! (try.with io.monad)]
@@ -157,12 +156,12 @@
                   (loader.store class_name class_bytecode library))]
              (loader.load class_name loader))))
 
-(def: (define! library loader context custom valueG)
-  (-> Library java/lang/ClassLoader unit.ID (Maybe Text) (Bytecode Any) (Try [Text Any Definition]))
-  (let [class_name (maybe.else (..class_name context)
+(def: (define! library loader context custom @it,valueG)
+  (-> Library java/lang/ClassLoader unit.ID (Maybe Text) [(Maybe unit.ID) (Bytecode Any)] (Try [Text Any Definition]))
+  (let [class_name (maybe.else (//runtime.class_name context)
                                custom)]
     (do try.monad
-      [[value definition] (evaluate! library loader class_name valueG)]
+      [[value definition] (evaluate! library loader class_name @it,valueG)]
       (in [class_name value definition]))))
 
 (def: .public host
@@ -172,9 +171,9 @@
         [loader
          (: //runtime.Host
             (implementation
-             (def: (evaluate context valueG)
+             (def: (evaluate context @it,valueG)
                (# try.monad each product.left
-                  (..evaluate! library loader (format "E" (..class_name context)) valueG)))
+                  (..evaluate! library loader (format "E" (//runtime.class_name context)) @it,valueG)))
              
              (def: execute
                (..execute! library loader))
@@ -183,15 +182,15 @@
                (..define! library loader))
 
              (def: (ingest context bytecode)
-               [(..class_name context) bytecode])
+               [(//runtime.class_name context) bytecode])
 
              (def: (re_learn context custom [_ bytecode])
-               (io.run! (loader.store (maybe.else (..class_name context) custom) bytecode library)))
+               (io.run! (loader.store (maybe.else (//runtime.class_name context) custom) bytecode library)))
              
              (def: (re_load context custom [directive_name bytecode])
                (io.run!
                 (do (try.with io.monad)
-                  [.let [class_name (maybe.else (..class_name context)
+                  [.let [class_name (maybe.else (//runtime.class_name context)
                                                 custom)]
                    _ (loader.store class_name bytecode library)
                    class (loader.load class_name loader)]
