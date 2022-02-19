@@ -41,7 +41,7 @@
     ["[0]" module
      ["[0]" descriptor {"+" Descriptor}]
      ["[0]" document {"+" Document}]]]
-   ["[0]" cache "_"
+   ["[0]" cache
     ["[1]/[0]" module]]
    ["/[1]" // {"+" Input}
     [language
@@ -61,27 +61,9 @@
    ["Module ID" (%.nat module_id)]
    ["Error" error]))
 
-(def: (archive fs context)
-  (All (_ !) (-> (file.System !) Context file.Path))
-  (format (value@ context.#target context)
-          (# fs separator)
-          (value@ context.#host context)))
-
-(def: (unversioned_lux_archive fs context)
-  (All (_ !) (-> (file.System !) Context file.Path))
-  (format (..archive fs context)
-          (# fs separator)
-          //.lux_context))
-
-(def: (versioned_lux_archive fs context)
-  (All (_ !) (-> (file.System !) Context file.Path))
-  (format (..unversioned_lux_archive fs context)
-          (# fs separator)
-          (%.nat version.version)))
-
 (def: (module fs context module_id)
   (All (_ !) (-> (file.System !) Context module.ID file.Path))
-  (format (..versioned_lux_archive fs context)
+  (format (cache.path fs context)
           (# fs separator)
           (%.nat module_id)))
 
@@ -108,15 +90,14 @@
     (if module_exists?
       (in {try.#Success []})
       (do (try.with !)
-        [_ (ensure_directory fs (..unversioned_lux_archive fs context))
-         _ (ensure_directory fs (..versioned_lux_archive fs context))]
+        [_ (cache.enable! fs context)]
         (|> module
             (# fs make_directory)
             (# ! each (|>> (case> {try.#Success output}
                                   {try.#Success []}
 
                                   {try.#Failure error}
-                                  (exception.except ..cannot_prepare [(..archive fs context)
+                                  (exception.except ..cannot_prepare [(cache.path fs context)
                                                                       module_id
                                                                       error])))))))))
 
@@ -124,15 +105,9 @@
   (-> (file.System Async) Context module.ID artifact.ID Binary (Async (Try Any)))
   (# fs write content (..artifact fs context module_id artifact_id)))
 
-(def: .public (enable fs context)
-  (-> (file.System Async) Context (Async (Try Any)))
-  (do (try.with async.monad)
-    [_ (..ensure_directory fs (value@ context.#target context))]
-    (..ensure_directory fs (..archive fs context))))
-
 (def: (general_descriptor fs context)
   (-> (file.System Async) Context file.Path)
-  (format (..archive fs context)
+  (format (cache.path fs context)
           (# fs separator)
           "general_descriptor"))
 
@@ -252,7 +227,7 @@
                                                       directives]
                                                      output]))
                                               
-                                              {category.#Definition name}
+                                              {category.#Definition [name function_artifact]}
                                               (let [output (sequence.suffix [artifact_id {.#None} data] output)]
                                                 (if (text#= $/program.name name)
                                                   (in [definitions

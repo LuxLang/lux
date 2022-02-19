@@ -52,13 +52,17 @@
    ["[1][0]" apply]]
   ["/[1]" // "_"
    ["[1][0]" runtime {"+" Operation Phase Generator}]
+   ["[1][0]" reference]
    [////
     [analysis {"+" Environment}]
-    [synthesis {"+" Synthesis Abstraction Apply}]
+    ["[0]" synthesis {"+" Synthesis Abstraction Apply}]
     ["[0]" generation]
     [///
      ["[0]" arity {"+" Arity}]
      ["[0]" phase]
+     [meta
+      [archive
+       ["[0]" unit]]]
      [reference
       [variable {"+" Register}]]]]]])
 
@@ -79,7 +83,8 @@
                                 list.indices
                                 (list#each (|>> ++ (/apply.method classT environment arity @begin body)))
                                 (list& (/implementation.method arity @begin body)))
-                            (list (/implementation.method' //runtime.apply::name arity @begin body)))))]
+                            (list (/implementation.method arity @begin body)
+                                  (/apply.method classT environment arity @begin body 1)))))]
     (do phase.monad
       [instance (/new.instance generate archive classT environment arity)]
       (in [fields methods instance]))))
@@ -121,11 +126,10 @@
      _ (generation.save! (product.right function_context) {.#None} bytecode)]
     (in instance)))
 
-(def: .public (apply generate archive [abstractionS inputsS])
-  (Generator Apply)
+(def: (apply/?' generate archive [abstractionG inputsS])
+  (Generator [(Bytecode Any) (List Synthesis)])
   (do [! phase.monad]
-    [abstractionG (generate archive abstractionS)
-     inputsG (monad.each ! (generate archive) inputsS)]
+    [inputsG (monad.each ! (generate archive) inputsS)]
     (in ($_ _.composite
             abstractionG
             (|> inputsG
@@ -138,3 +142,52 @@
                                   (_.invokevirtual /abstract.class //runtime.apply::name (//runtime.apply::type (list.size batchG)))
                                   ))))
             ))))
+
+(def: (apply/? generate archive [abstractionS inputsS])
+  (Generator Apply)
+  (do [! phase.monad]
+    [abstractionG (generate archive abstractionS)]
+    (apply/?' generate archive [abstractionG inputsS])))
+
+(def: (apply/= generate archive [$abstraction @abstraction arity inputsS])
+  (Generator [Symbol unit.ID Arity (List Synthesis)])
+  (do [! phase.monad]
+    [.let [:abstraction: (type.class (//runtime.class_name @abstraction) (list))]
+     abstractionG (//reference.constant archive $abstraction)
+     inputsG (monad.each ! (generate archive) inputsS)]
+    (in ($_ _.composite
+            abstractionG
+            (_.checkcast :abstraction:)
+            (monad.all _.monad inputsG)
+            (/implementation.call @abstraction arity)
+            ))))
+
+(def: (apply/> generate archive [$abstraction @abstraction arity inputsS])
+  (Generator [Symbol unit.ID Arity (List Synthesis)])
+  (do [! phase.monad]
+    [=G (apply/= generate archive [$abstraction @abstraction arity (list.first arity inputsS)])]
+    (apply/?' generate archive [=G (list.after arity inputsS)])))
+
+(def: .public (apply generate archive [abstractionS inputsS])
+  (Generator Apply)
+  (case abstractionS
+    (^ (synthesis.constant $abstraction))
+    (do [! phase.monad]
+      [[@definition |abstraction|] (generation.definition archive $abstraction)
+       .let [actual_arity (list.size inputsS)]]
+      (case |abstraction|
+        {.#Some [_ {.#Some [expected_arity @abstraction]}]}
+        (cond (n.< expected_arity actual_arity)
+              (apply/? generate archive [abstractionS inputsS])
+              
+              (n.= expected_arity actual_arity)
+              (apply/= generate archive [$abstraction @abstraction expected_arity inputsS])
+              
+              ... (n.> expected_arity actual_arity)
+              (apply/> generate archive [$abstraction @abstraction expected_arity inputsS]))
+        
+        _
+        (apply/? generate archive [abstractionS inputsS])))
+
+    _
+    (apply/? generate archive [abstractionS inputsS])))

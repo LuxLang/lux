@@ -31,9 +31,10 @@
    ["[0]" phase]
    [meta
     ["[0]" archive {"+" Archive}
-     ["[0]" artifact]
      ["[0]" registry {"+" Registry}]
      ["[0]" unit]
+     ["[0]" artifact
+      ["[0]" category]]
      ["[0]" module
       ["[0]" descriptor]]]]]])
 
@@ -248,29 +249,29 @@
       {.#None}
       (phase.except ..no_buffer_for_saving_code [artifact_id]))))
 
-(template [<mandatory?> <inputs> <input_types> <name> <artifact>]
-  [(`` (def: .public (<name> name (~~ (template.spliced <inputs>)) dependencies)
+(template [<type> <mandatory?> <inputs> <input_types> <name> <artifact>]
+  [(`` (def: .public (<name> it (~~ (template.spliced <inputs>)) dependencies)
          (All (_ anchor expression directive)
-           (-> Text (~~ (template.spliced <input_types>)) (Set unit.ID) (Operation anchor expression directive artifact.ID)))
+           (-> <type> (~~ (template.spliced <input_types>)) (Set unit.ID) (Operation anchor expression directive artifact.ID)))
          (function (_ (^@ stateE [bundle state]))
-           (let [[id registry'] (<artifact> name <mandatory?> dependencies (value@ #registry state))]
+           (let [[id registry'] (<artifact> it <mandatory?> dependencies (value@ #registry state))]
              {try.#Success [[bundle (with@ #registry registry' state)]
                             id]}))))]
 
-  [mandatory? [mandatory?] [Bit] learn registry.definition]
-  [#1 [] [] learn_custom registry.custom]
-  [#0 [] [] learn_analyser registry.analyser]
-  [#0 [] [] learn_synthesizer registry.synthesizer]
-  [#0 [] [] learn_generator registry.generator]
-  [#0 [] [] learn_directive registry.directive]
+  [category.Definition mandatory? [mandatory?] [Bit] learn registry.definition]
+  [Text #1 [] [] learn_custom registry.custom]
+  [Text #0 [] [] learn_analyser registry.analyser]
+  [Text #0 [] [] learn_synthesizer registry.synthesizer]
+  [Text #0 [] [] learn_generator registry.generator]
+  [Text #0 [] [] learn_directive registry.directive]
   )
 
 (exception: .public (unknown_definition [name Symbol
-                                         known_definitions (List Text)])
+                                         known_definitions (List category.Definition)])
   (exception.report
    ["Definition" (symbol.short name)]
    ["Module" (symbol.module name)]
-   ["Known Definitions" (exception.listing function.identity known_definitions)]))
+   ["Known Definitions" (exception.listing product.left known_definitions)]))
 
 (def: .public (remember archive name)
   (All (_ anchor expression directive)
@@ -278,7 +279,7 @@
   (function (_ (^@ stateE [bundle state]))
     (let [[_module _name] name]
       (do try.monad
-        [module_id (archive.id _module archive)
+        [@module (archive.id _module archive)
          registry (if (text#= (value@ #module state) _module)
                     {try.#Success (value@ #registry state)}
                     (do try.monad
@@ -289,7 +290,26 @@
           (exception.except ..unknown_definition [name (registry.definitions registry)])
           
           {.#Some id}
-          {try.#Success [stateE [module_id id]]})))))
+          {try.#Success [stateE [@module id]]})))))
+
+(def: .public (definition archive name)
+  (All (_ anchor expression directive)
+    (-> Archive Symbol (Operation anchor expression directive [unit.ID (Maybe category.Definition)])))
+  (function (_ (^@ stateE [bundle state]))
+    (let [[_module _name] name]
+      (do try.monad
+        [@module (archive.id _module archive)
+         registry (if (text#= (value@ #module state) _module)
+                    {try.#Success (value@ #registry state)}
+                    (do try.monad
+                      [[_module output registry] (archive.find _module archive)]
+                      {try.#Success registry}))]
+        (case (registry.find_definition _name registry)
+          {.#None}
+          (exception.except ..unknown_definition [name (registry.definitions registry)])
+          
+          {.#Some [@artifact def]}
+          {try.#Success [stateE [[@module @artifact] def]]})))))
 
 (exception: .public no_context)
 
@@ -298,8 +318,8 @@
     (-> descriptor.Module Archive (Operation anchor expression directive module.ID)))
   (function (_ (^@ stateE [bundle state]))
     (do try.monad
-      [module_id (archive.id module archive)]
-      (in [stateE module_id]))))
+      [@module (archive.id module archive)]
+      (in [stateE @module]))))
 
 (def: .public (context archive)
   (All (_ anchor expression directive)
@@ -311,17 +331,17 @@
       
       {.#Some id}
       (do try.monad
-        [module_id (archive.id (value@ #module state) archive)]
-        (in [stateE [module_id id]])))))
+        [@module (archive.id (value@ #module state) archive)]
+        (in [stateE [@module id]])))))
 
-(def: .public (with_context id body)
+(def: .public (with_context @artifact body)
   (All (_ anchor expression directive a)
     (-> artifact.ID
         (Operation anchor expression directive a)
         (Operation anchor expression directive a)))
   (function (_ [bundle state])
     (do try.monad
-      [[[bundle' state'] output] (body [bundle (with@ #context {.#Some id} state)])]
+      [[[bundle' state'] output] (body [bundle (with@ #context {.#Some @artifact} state)])]
       (in [[bundle' (with@ #context (value@ #context state) state')]
            output]))))
 
@@ -341,16 +361,16 @@
     (-> Archive (Set unit.ID) (Operation anchor expression directive a)
         (Operation anchor expression directive [unit.ID a])))
   (function (_ (^@ stateE [bundle state]))
-    (let [[id registry'] (registry.resource false dependencies (value@ #registry state))
-          id (n.+ id (value@ #registry_shift state))]
+    (let [[@artifact registry'] (registry.resource false dependencies (value@ #registry state))
+          @artifact (n.+ @artifact (value@ #registry_shift state))]
       (do try.monad
         [[[bundle' state'] output] (body [bundle (|> state
                                                      (with@ #registry registry')
-                                                     (with@ #context {.#Some id})
-                                                     (revised@ #interim_artifacts (|>> {.#Item id})))])
-         module_id (archive.id (value@ #module state) archive)]
+                                                     (with@ #context {.#Some @artifact})
+                                                     (revised@ #interim_artifacts (|>> {.#Item @artifact})))])
+         @module (archive.id (value@ #module state) archive)]
         (in [[bundle' (with@ #context (value@ #context state) state')]
-             [[module_id id]
+             [[@module @artifact]
               output]])))))
 
 (def: .public (log! message)
@@ -364,17 +384,14 @@
 (def: .public (with_interim_artifacts archive body)
   (All (_ anchor expression directive a)
     (-> Archive (Operation anchor expression directive a)
-        (Operation anchor expression directive [(Set unit.ID) a])))
+        (Operation anchor expression directive [(List unit.ID) a])))
   (do phase.monad
     [module (extension.read (value@ #module))]
     (function (_ state+)
       (do try.monad
-        [module_id (archive.id module archive)
+        [@module (archive.id module archive)
          [[bundle' state'] output] (body state+)]
         (in [[bundle'
               (with@ #interim_artifacts (list) state')]
-             [(list#mix (function (_ artifact_id dependencies)
-                          (set.has [module_id artifact_id] dependencies))
-                        unit.none
-                        (value@ #interim_artifacts state'))
+             [(list#each (|>> [@module]) (value@ #interim_artifacts state'))
               output]])))))
