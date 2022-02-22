@@ -1,3 +1,7 @@
+# Interoperability
+
+0. [js-wasm: JavaScript and WebAssembly should be a joy to use together.](https://wasm.js.org/)
+
 # Concurrency
 
 0. [Wasm threads are now available in all browsers](https://old.reddit.com/r/WebAssembly/comments/rk83mr/wasm_threads_are_now_available_in_all_browsers/)
@@ -17,6 +21,8 @@
 
 # Reference
 
+0. [Building host implementations for WebAssembly interfaces](https://radu-matei.com/blog/wasm-components-host-implementations/)
+0. [WebAssembly Techniques to Speed Up Matrix Multiplication by 120x](https://jott.live/markdown/mm_wasm)
 0. [Chasing Memory Bugs through V8 and WebAssembly](https://blog.stackblitz.com/posts/debugging-v8-webassembly/)
 0. [Wasm needs a better memory management story](https://github.com/WebAssembly/design/issues/1397)
 0. https://bytecodealliance.org/

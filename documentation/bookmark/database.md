@@ -136,7 +136,6 @@
 0. https://learndb.net/
 0. http://orientdb.com/
 0. https://ignite.apache.org/
-0. http://www.datomic.com/
 0. https://eventsourcing.com/
 0. https://geteventstore.com/
 0. http://cassandra.apache.org/
@@ -182,11 +181,15 @@
 0. https://tech.marksblogg.com/minimalist-guide-tutorial-foundationdb.html
 0. https://www.foundationdb.org/blog/announcing-document-layer/
 0. https://www.foundationdb.org/
-
 	0. https://en.wikipedia.org/wiki/FoundationDB
 0. https://github.com/orbitdb/orbit-db
 0. https://www.aerospike.com/
 0. https://sirix.io/
+
+## Immutable
+
+0. [immudb: OPEN SOURCE IMMUTABLE DATABASE](https://codenotary.com/technologies/immudb/)
+0. http://www.datomic.com/
 
 ## Data-flow
 

@@ -1,39 +1,39 @@
 (.using
-  [library
-   [lux "*"
-    ["@" target]
-    ["[0]" ffi {"+" import:}]
-    [abstract
-     ["[0]" monad {"+" Monad do}]]
-    [control
-     ["[0]" function]
-     ["[0]" io {"+" IO}]
-     ["[0]" maybe]
-     ["[0]" try {"+" Try}]
-     ["[0]" exception {"+" exception:}]
-     [concurrency
-      ["[0]" atom]
-      ["[0]" async {"+" Async}]]
-     [parser
-      ["[0]" environment {"+" Environment}]]]
-    [data
-     ["[0]" bit ("[1]#[0]" equivalence)]
-     ["[0]" text
-      ["%" format {"+" format}]]
-     [collection
-      ["[0]" array {"+" Array}]
-      ["[0]" dictionary {"+" Dictionary}]
-      ["[0]" list ("[1]#[0]" functor)]]]
-    ["[0]" macro
-     ["[0]" template]]
-    [math
-     [number
-      ["i" int]]]
-    [type
-     abstract]]]
-  [//
-   [file {"+" Path}]
-   [shell {"+" Exit}]])
+ [library
+  [lux "*"
+   ["@" target]
+   ["[0]" ffi {"+" import:}]
+   [abstract
+    ["[0]" monad {"+" Monad do}]]
+   [control
+    ["[0]" function]
+    ["[0]" io {"+" IO}]
+    ["[0]" maybe ("[1]#[0]" functor)]
+    ["[0]" try {"+" Try}]
+    ["[0]" exception {"+" exception:}]
+    [concurrency
+     ["[0]" atom]
+     ["[0]" async {"+" Async}]]
+    [parser
+     ["[0]" environment {"+" Environment}]]]
+   [data
+    ["[0]" bit ("[1]#[0]" equivalence)]
+    ["[0]" text
+     ["%" format {"+" format}]]
+    [collection
+     ["[0]" array {"+" Array}]
+     ["[0]" dictionary {"+" Dictionary}]
+     ["[0]" list ("[1]#[0]" functor)]]]
+   ["[0]" macro
+    ["[0]" template]]
+   [math
+    [number
+     ["i" int]]]
+   [type
+    abstract]]]
+ [//
+  [file {"+" Path}]
+  [shell {"+" Exit}]])
 
 (exception: .public (unknown_environment_variable [name Text])
   (exception.report
@@ -136,7 +136,7 @@
 
                                (def: (jvm##consume iterator)
                                  (All (_ a) (-> (java/util/Iterator a) (List a)))
-                                 (if (java/util/Iterator::hasNext iterator)
+                                 (if (ffi.of_boolean (java/util/Iterator::hasNext iterator))
                                    {.#Item (java/util/Iterator::next iterator)
                                            (jvm##consume iterator)}
                                    {.#End}))
@@ -347,16 +347,16 @@
             ])))
 
   (def: (variable name)
-    (template.let [(!fetch <method>)
+    (template.let [(!fetch <method> <post>)
                    [(do io.monad
-                      [value (<method> name)]
+                      [value (|> name <method>)]
                       (in (case value
                             {.#Some value}
-                            {try.#Success value}
+                            {try.#Success (<post> value)}
 
                             {.#None}
                             (exception.except ..unknown_environment_variable [name]))))]]
-      (with_expansions [<jvm> (!fetch java/lang/System::resolveEnv)]
+      (with_expansions [<jvm> (!fetch (<| java/lang/System::resolveEnv ffi.as_string) ffi.of_string)]
         (for [@.old <jvm>
               @.jvm <jvm>
               @.js (io.io (if ffi.on_node_js?
@@ -370,15 +370,18 @@
                               {.#None}
                               (exception.except ..unknown_environment_variable [name]))
                             (exception.except ..unknown_environment_variable [name])))
-              @.python (!fetch os/environ::get)
-              @.lua (!fetch os/getenv)
-              @.ruby (!fetch RubyEnv::fetch)
+              @.python (!fetch os/environ::get |>)
+              @.lua (!fetch os/getenv |>)
+              @.ruby (!fetch RubyEnv::fetch |>)
               ]))))
   
   (def: home
     (io.run!
      (with_expansions [<default> (io.io "~")
-                       <jvm> (io.io (maybe.else "" (java/lang/System::getProperty "user.home")))]
+                       <jvm> (|> (java/lang/System::getProperty (ffi.as_string "user.home"))
+                                 (maybe#each (|>> ffi.of_string))
+                                 (maybe.else "")
+                                 io.io)]
        (for [@.old <jvm>
              @.jvm <jvm>
              @.js (if ffi.on_node_js?
@@ -401,7 +404,10 @@
   (def: directory
     (io.run!
      (with_expansions [<default> "."
-                       <jvm> (io.io (maybe.else "" (java/lang/System::getProperty "user.dir")))]
+                       <jvm> (|> (java/lang/System::getProperty (ffi.as_string "user.dir"))
+                                 (maybe#each (|>> ffi.of_string))
+                                 (maybe.else "")
+                                 io.io)]
        (for [@.old <jvm>
              @.jvm <jvm>
              @.js (if ffi.on_node_js?
@@ -431,7 +437,7 @@
   
   (def: (exit code)
     (with_expansions [<jvm> (do io.monad
-                              [_ (java/lang/System::exit code)]
+                              [_ (java/lang/System::exit (ffi.as_int code))]
                               (in (undefined)))]
       (for [@.old <jvm>
             @.jvm <jvm>

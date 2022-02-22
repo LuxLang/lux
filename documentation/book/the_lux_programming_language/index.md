@@ -6,9 +6,9 @@
 * [Chapter 2: The basics](chapter_2.md)
 	_Where you will learn the fundamentals of Lux programming._
 * [Chapter 3: Syntax and data-types](chapter_3.md)
-	_Where you will learn the what Lux code is made of._
+	_Where you will learn what Lux code is made of._
 * [Chapter 4: Functions and definitions](chapter_4.md)
-	_Where you will learn how to build your own Lux code._
+	_Where you will learn how to build your own Lux programs._
 * [Chapter 5: Control flow](chapter_5.md)
 	_Where you will learn how to give intelligence to your code._
 * [Chapter 6: Types in detail](chapter_6.md)

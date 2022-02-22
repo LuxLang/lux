@@ -4,6 +4,7 @@
 
 # Allocation
 
+0. [How to allocate memory](https://geocar.sdf1.org/alloc.html)
 0. [Always Bump Downwards](https://fitzgeraldnick.com/2019/11/01/always-bump-downwards.html)
 
 # Compaction

@@ -155,17 +155,9 @@
 
   [cannot_make_directory]
   [cannot_find_directory]
-  
-  [cannot_read_all_data]
   )
 
-(with_expansions [<for_jvm> (as_is (exception: .public (cannot_modify_file [instant Instant
-                                                                            file Path])
-                                     (exception.report
-                                      ["Instant" (%.instant instant)]
-                                      ["Path" file]))
-
-                                   (ffi.import: java/lang/String)
+(with_expansions [<for_jvm> (as_is (ffi.import: java/lang/String)
 
                                    (`` (ffi.import: java/io/File
                                          ["[1]::[0]"
@@ -211,33 +203,34 @@
                                          (System IO)
 
                                          (def: separator
-                                           (java/io/File::separator))
+                                           (ffi.of_string (java/io/File::separator)))
 
                                          (~~ (template [<name> <method>]
                                                [(def: <name>
-                                                  (|>> java/io/File::new
+                                                  (|>> ffi.as_string
+                                                       java/io/File::new
                                                        <method>
-                                                       (io#each (|>> (try.else false)))))]
+                                                       (io#each (|>> (try#each (|>> ffi.of_boolean)) (try.else false)))))]
 
                                                [file? java/io/File::isFile]
                                                [directory? java/io/File::isDirectory]
                                                ))
 
-                                         (def: (make_directory path)
-                                           (|> path
-                                               java/io/File::new
-                                               java/io/File::mkdir))
+                                         (def: make_directory
+                                           (|>> ffi.as_string
+                                                java/io/File::new
+                                                java/io/File::mkdir))
 
                                          (~~ (template [<name> <method>]
                                                [(def: (<name> path)
                                                   (do [! (try.with io.monad)]
-                                                    [?children (java/io/File::listFiles (java/io/File::new path))]
+                                                    [?children (java/io/File::listFiles (java/io/File::new (ffi.as_string path)))]
                                                     (case ?children
                                                       {.#Some children}
                                                       (|> children
                                                           (array.list {.#None})
-                                                          (monad.only ! (|>> <method>))
-                                                          (# ! each (monad.each ! (|>> java/io/File::getAbsolutePath)))
+                                                          (monad.only ! (|>> <method> (# ! each (|>> ffi.of_boolean))))
+                                                          (# ! each (monad.each ! (|>> java/io/File::getAbsolutePath (# ! each (|>> ffi.of_string)))))
                                                           (# ! conjoint))
 
                                                       {.#None}
@@ -248,57 +241,62 @@
                                                ))
 
                                          (def: file_size
-                                           (|>> java/io/File::new
+                                           (|>> ffi.as_string
+                                                java/io/File::new
                                                 java/io/File::length
-                                                (# (try.with io.monad) each .nat)))
+                                                (# (try.with io.monad) each (|>> ffi.of_long .nat))))
 
                                          (def: last_modified
-                                           (|>> java/io/File::new
+                                           (|>> ffi.as_string
+                                                java/io/File::new
                                                 (java/io/File::lastModified)
-                                                (# (try.with io.monad) each (|>> duration.of_millis instant.absolute))))
+                                                (# (try.with io.monad) each (|>> ffi.of_long duration.of_millis instant.absolute))))
 
                                          (def: can_execute?
-                                           (|>> java/io/File::new
-                                                java/io/File::canExecute))
+                                           (|>> ffi.as_string
+                                                java/io/File::new
+                                                java/io/File::canExecute
+                                                (io#each (try#each (|>> ffi.of_boolean)))))
 
                                          (def: (read path)
                                            (do (try.with io.monad)
-                                             [.let [file (java/io/File::new path)]
+                                             [.let [file (java/io/File::new (ffi.as_string path))]
                                               size (java/io/File::length file)
-                                              .let [data (binary.empty (.nat size))]
                                               stream (java/io/FileInputStream::new file)
+                                              .let [data (binary.empty (.nat (ffi.of_long size)))]
                                               bytes_read (java/io/InputStream::read data stream)
                                               _ (java/lang/AutoCloseable::close stream)]
-                                             (if (i.= size bytes_read)
-                                               (in data)
-                                               (# io.monad in (exception.except ..cannot_read_all_data path)))))
+                                             (in data)))
 
                                          (def: (delete path)
                                            (|> path
+                                               ffi.as_string
                                                java/io/File::new
                                                java/io/File::delete))
 
                                          (def: (modify time_stamp path)
                                            (|> path
+                                               ffi.as_string
                                                java/io/File::new
-                                               (java/io/File::setLastModified (|> time_stamp instant.relative duration.millis))))
+                                               (java/io/File::setLastModified (|> time_stamp instant.relative duration.millis ffi.as_long))))
                                          
-                                         (~~ (template [<name> <flag>]
+                                         (~~ (template [<flag> <name>]
                                                [(def: (<name> data path)
                                                   (do (try.with io.monad)
-                                                    [stream (java/io/FileOutputStream::new (java/io/File::new path) <flag>)
+                                                    [stream (java/io/FileOutputStream::new (java/io/File::new (ffi.as_string path)) (ffi.as_boolean <flag>))
                                                      _ (java/io/OutputStream::write data stream)
                                                      _ (java/io/OutputStream::flush stream)]
                                                     (java/lang/AutoCloseable::close stream)))]
 
-                                               [write #0]
-                                               [append #1]
+                                               [#0 write]
+                                               [#1 append]
                                                ))
 
                                          (def: (move destination origin)
                                            (|> origin
+                                               ffi.as_string
                                                java/io/File::new
-                                               (java/io/File::renameTo (java/io/File::new destination))))
+                                               (java/io/File::renameTo (java/io/File::new (ffi.as_string destination)))))
                                          )))]
   (for [@.old (as_is <for_jvm>)
         @.jvm (as_is <for_jvm>)

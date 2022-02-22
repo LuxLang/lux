@@ -10,6 +10,8 @@
      ["%" format {"+" format}]]
     [collection
      ["[0]" list]]]
+   [macro
+    ["[0]" code]]
    [math
     [number
      ["n" nat]]]
@@ -33,105 +35,97 @@
      [meta
       [archive {"+" Archive}]]]]]])
 
-(exception: .public (unrecognized_syntax [code Code])
+(exception: .public (invalid [syntax Code])
   (exception.report
-   ["Code" (%.code code)]))
+   ["Syntax" (%.code syntax)]))
 
-... TODO: Had to split the 'compile' function due to compilation issues
-... with old-luxc. Must re-combine all the code ASAP
+(template: (variant_analysis analysis archive tag values)
+  ... (-> Phase Archive Symbol (List Code) (Operation Analysis))
+  [(case values
+     (^ (list value))
+     (/complex.variant analysis tag archive value)
 
-(type: (Fix a)
-  (-> a a))
+     _
+     (/complex.variant analysis tag archive (code.tuple values)))])
 
-(def: (compile|literal archive compile else code')
-  (-> Archive Phase (Fix (-> (Code' (Ann Location)) (Operation Analysis))))
-  (case code'
-    (^template [<tag> <analyser>]
-      [{<tag> value}
-       (<analyser> value)])
-    ([.#Bit  /simple.bit]
-     [.#Nat  /simple.nat]
-     [.#Int  /simple.int]
-     [.#Rev  /simple.rev]
-     [.#Frac /simple.frac]
-     [.#Text /simple.text])
+(template: (sum_analysis analysis archive lefts right? values)
+  ... (-> Phase Archive Nat Bit (List Code) (Operation Analysis))
+  [(case values
+     (^ (list value))
+     (/complex.sum analysis lefts right? archive value)
 
-    (^ {.#Variant (list& [_ {.#Symbol tag}]
-                         values)})
-    (case values
-      {.#Item value {.#End}}
-      (/complex.variant compile tag archive value)
+     _
+     (/complex.sum analysis lefts right? archive (code.tuple values)))])
 
-      _
-      (/complex.variant compile tag archive (` [(~+ values)])))
+(template: (case_analysis analysis archive input branches code)
+  ... (-> Phase Archive Code (List Code) Code (Operation Analysis))
+  [(case (list.pairs branches)
+     {.#Some branches}
+     (/case.case analysis branches archive input)
 
-    (^ {.#Variant (list& [_ {.#Nat lefts}] [_ {.#Bit right?}]
-                         values)})
-    (case values
-      {.#Item value {.#End}}
-      (/complex.sum compile lefts right? archive value)
+     {.#None}
+     (//.except ..invalid [code]))])
 
-      _
-      (/complex.sum compile lefts right? archive (` [(~+ values)])))
+(template: (apply_analysis expander analysis archive functionC argsC+)
+  ... (-> Expander Phase Archive Code (List Code) (Operation Analysis))
+  [(do [! //.monad]
+     [[functionT functionA] (/type.inferring
+                             (analysis archive functionC))]
+     (case functionA
+       (^ (/.constant def_name))
+       (do !
+         [?macro (//extension.lifted (meta.macro def_name))]
+         (case ?macro
+           {.#Some macro}
+           (do !
+             [expansion (//extension.lifted (/macro.single_expansion expander def_name macro argsC+))]
+             (analysis archive expansion))
 
-    (^ {.#Tuple elems})
-    (/complex.record compile archive elems)
+           _
+           (/function.apply analysis argsC+ functionT functionA archive functionC)))
 
-    _
-    (else code')))
-
-(def: (compile|others expander archive compile code')
-  (-> Expander Archive Phase (-> (Code' (Ann Location)) (Operation Analysis)))
-  (case code'
-    {.#Symbol reference}
-    (/reference.reference reference)
-
-    (^ {.#Form (list [_ {.#Variant branches}] input)})
-    (case (list.pairs branches)
-      {.#Some branches}
-      (/case.case compile branches archive input)
-
-      {.#None}
-      (//.except ..unrecognized_syntax [location.dummy code']))
-
-    (^ {.#Form (list& [_ {.#Text extension_name}] extension_args)})
-    (//extension.apply archive compile [extension_name extension_args])
-
-    (^ {.#Form (list [_ {.#Tuple (list [_ {.#Symbol ["" function_name]}]
-                                       [_ {.#Symbol ["" arg_name]}])}]
-                     body)})
-    (/function.function compile function_name arg_name archive body)
-
-    (^ {.#Form (list& functionC argsC+)})
-    (do [! //.monad]
-      [[functionT functionA] (/type.inferring
-                              (compile archive functionC))]
-      (case functionA
-        {/.#Reference {reference.#Constant def_name}}
-        (do !
-          [?macro (//extension.lifted (meta.macro def_name))]
-          (case ?macro
-            {.#Some macro}
-            (do !
-              [expansion (//extension.lifted (/macro.single_expansion expander def_name macro argsC+))]
-              (compile archive expansion))
-
-            _
-            (/function.apply compile argsC+ functionT functionA archive functionC)))
-
-        _
-        (/function.apply compile argsC+ functionT functionA archive functionC)))
-
-    _
-    (//.except ..unrecognized_syntax [location.dummy code'])))
+       _
+       (/function.apply analysis argsC+ functionT functionA archive functionC)))])
 
 (def: .public (phase expander)
   (-> Expander Phase)
-  (function (compile archive code)
-    (let [[location code'] code]
-      ... The location must be set in the state for the sake
-      ... of having useful error messages.
-      (/.with_location location
-        (compile|literal archive compile
-                         (compile|others expander archive compile)
-                         code')))))
+  (function (analysis archive code)
+    (<| (let [[location code'] code])
+        ... The location must be set in the state for the sake
+        ... of having useful error messages.
+        (/.with_location location)
+        (case code
+          (^template [<tag> <analyser>]
+            [[_ {<tag> value}]
+             (<analyser> value)])
+          ([.#Symbol /reference.reference]
+           [.#Text /simple.text]
+           [.#Nat  /simple.nat]
+           [.#Bit  /simple.bit]
+           [.#Frac /simple.frac]
+           [.#Int  /simple.int]
+           [.#Rev  /simple.rev])
+
+          (^code [(~+ elems)])
+          (/complex.record analysis archive elems)
+
+          (^code {(~ [_ {.#Symbol tag}]) (~+ values)})
+          (..variant_analysis analysis archive tag values)
+
+          (^code ({(~+ branches)} (~ input)))
+          (..case_analysis analysis archive input branches code)
+
+          (^code ([(~ [_ {.#Symbol ["" function_name]}]) (~ [_ {.#Symbol ["" arg_name]}])] (~ body)))
+          (/function.function analysis function_name arg_name archive body)
+
+          (^code ((~ [_ {.#Text extension_name}]) (~+ extension_args)))
+          (//extension.apply archive analysis [extension_name extension_args])
+
+          (^code ((~ functionC) (~+ argsC+)))
+          (..apply_analysis expander analysis archive functionC argsC+)
+
+          (^code {(~ [_ {.#Nat lefts}]) (~ [_ {.#Bit right?}]) (~+ values)})
+          (..sum_analysis analysis archive lefts right? values)
+
+          _
+          (//.except ..invalid [code])))))

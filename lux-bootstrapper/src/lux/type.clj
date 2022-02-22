@@ -377,10 +377,10 @@
     (&/$Primitive name params)
     (|case params
       (&/$End)
-      (str "(primitive " (pr-str name) ")")
+      (str "(Primitive " (pr-str name) ")")
 
       _
-      (str "(primitive " (pr-str name) " " (->> params (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
+      (str "(Primitive " (pr-str name) " " (->> params (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
 
     (&/$Product _)
     (str "[" (->> (flatten-prod type) (&/|map show-type) (&/|interpose " ") (&/fold str "")) "]")
