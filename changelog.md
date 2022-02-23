@@ -3,6 +3,9 @@
 ## [Un-released]
 ### Added
 * Inline functions.
+* Can pass configuration parameters from the build description to the compiler.
+* Can select code based on configuration parameters.
+* Can select code based on compiler version.
 ### Changed
 ### Removed
 ### Fixed

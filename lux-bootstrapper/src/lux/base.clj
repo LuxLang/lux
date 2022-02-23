@@ -140,7 +140,8 @@
 (deftuple
   ["target"
    "version"
-   "mode"])
+   "mode"
+   "configuration"])
 
 ;; Hosts
 (defvariant
@@ -229,7 +230,7 @@
 (def ^:const module-class-name "_")
 (def ^:const +name-separator+ ".")
 
-(def ^:const ^String version "0.6.0")
+(def ^:const ^String version "00.07.00")
 
 ;; Constructors
 (def empty-location (T ["" -1 -1]))
@@ -832,7 +833,9 @@
       ;; version
       version
       ;; mode
-      mode]
+      mode
+      ;; configuration
+      $End]
      ))
 
 (defn init-state [name mode host-data]

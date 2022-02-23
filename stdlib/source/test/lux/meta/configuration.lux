@@ -1,0 +1,90 @@
+(.using
+ [library
+  [lux "*"
+   ["_" test {"+" Test}]
+   ["[0]" meta]
+   [abstract
+    [monad {"+" do}]
+    [\\specification
+     ["$[0]" equivalence]
+     ["$[0]" monoid]]]
+   [control
+    ["[0]" try ("[1]#[0]" functor)]
+    ["[0]" exception]
+    ["<>" parser
+     ["<[0]>" text]
+     ["<[0]>" code]]]
+   [data
+    ["[0]" text]
+    [collection
+     ["[0]" list]]]
+   ["[0]" macro
+    [syntax {"+" syntax:}]
+    ["[0]" code]]
+   [math
+    ["[0]" random {"+" Random} ("[1]#[0]" monad)]]]]
+ [\\library
+  ["[0]" /]])
+
+(def: .public (random amount)
+  (-> Nat (Random /.Configuration))
+  (case amount
+    0 (random#in /.empty)
+    _ (do [! random.monad]
+        [feature (random.ascii/upper amount)
+         value (random.ascii/lower amount)]
+        (# ! each (|>> (list& [feature value]))
+           (random (-- amount))))))
+
+(syntax: (failure [it <code>.any])
+  (function (_ lux)
+    (case (macro.expansion it lux)
+      {try.#Failure error}
+      {try.#Success [lux (list (code.text error))]}
+      
+      {try.#Success _}
+      {try.#Failure ""})))
+
+(def: .public test
+  Test
+  (<| (_.covering /._)
+      (_.for [/.Configuration])
+      (do [! random.monad]
+        [expected (..random 5)]
+        ($_ _.and
+            (_.for [/.equivalence]
+                   ($equivalence.spec /.equivalence (..random 5)))
+            (_.for [/.monoid]
+                   ($monoid.spec /.equivalence /.monoid (..random 5)))
+
+            (_.cover [/.empty]
+                     (list.empty? /.empty))
+            (_.cover [/.format /.parser]
+                     (|> expected
+                         /.format
+                         (<text>.result /.parser)
+                         (try#each (# /.equivalence = expected))
+                         (try.else false)))
+            (_.cover [/.for]
+                     (and (and (/.for [["left" "<<<"
+                                        "right" ">>>"]
+                                       true]
+                                      false)
+                               (/.for [["left" "<<<"]
+                                       true]
+                                      false)
+                               (/.for [["right" ">>>"]
+                                       true]
+                                      false))
+                          (and (/.for [["yolo" ""]
+                                       false]
+                                      true)
+                               (/.for [["left" "yolo"]
+                                       false]
+                                      true))))
+            (_.cover [/.invalid]
+                     (and (text.contains? (value@ exception.#label /.invalid)
+                                          (..failure (/.for [])))
+                          (text.contains? (value@ exception.#label /.invalid)
+                                          (..failure (/.for [["left" "yolo"] false])))))
+            ))))

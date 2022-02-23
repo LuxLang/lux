@@ -26,6 +26,9 @@
    [math
     [number
      ["n" nat]]]
+   [meta
+    ["[0]" configuration {"+" Configuration}]
+    ["[0]" version]]
    [world
     ["[0]" file]]]]
  ["[0]" //
@@ -46,7 +49,6 @@
    ["/[1]" // {"+" Input}
     [language
      ["$" lux
-      ["[0]" version]
       ["[0]" analysis]
       ["[0]" synthesis]
       ["[0]" generation]
@@ -145,12 +147,12 @@
       ..module_parser
       registry.parser))
 
-(def: (fresh_analysis_state host)
-  (-> Target .Lux)
-  (analysis.state (analysis.info version.version host)))
+(def: (fresh_analysis_state host configuration)
+  (-> Target Configuration .Lux)
+  (analysis.state (analysis.info version.latest host configuration)))
 
-(def: (analysis_state host archive)
-  (-> Target Archive (Try .Lux))
+(def: (analysis_state host configuration archive)
+  (-> Target Configuration Archive (Try .Lux))
   (do [! try.monad]
     [modules (: (Try (List [descriptor.Module .Module]))
                 (monad.each ! (function (_ module)
@@ -161,7 +163,7 @@
                                                (document.content $.key))]
                                   (in [module content])))
                             (archive.archived archive)))]
-    (in (with@ .#modules modules (fresh_analysis_state host)))))
+    (in (with@ .#modules modules (fresh_analysis_state host configuration)))))
 
 (def: (cached_artifacts fs context module_id)
   (-> (file.System Async) Context module.ID (Async (Try (Dictionary Text Binary))))
@@ -463,9 +465,9 @@
                                    bundles])))))]
     (in it)))
 
-(def: (load_every_reserved_module host_environment fs context import contexts archive)
+(def: (load_every_reserved_module configuration host_environment fs context import contexts archive)
   (All (_ expression directive)
-    (-> (generation.Host expression directive) (file.System Async) Context Import (List //.Context) Archive
+    (-> Configuration (generation.Host expression directive) (file.System Async) Context Import (List //.Context) Archive
         (Async (Try [Archive .Lux Bundles]))))
   (do [! (try.with async.monad)]
     [pre_loaded_caches (..pre_loaded_caches fs context import contexts archive)
@@ -482,7 +484,7 @@
                              (archive.has module entry archive))
                            archive
                            loaded_caches)
-        analysis_state (..analysis_state (value@ context.#host context) archive)]
+        analysis_state (..analysis_state (value@ context.#host context) configuration archive)]
        (in [archive
             analysis_state
             (list#mix (function (_ [_ [+analysers +synthesizers +generators +directives]]
@@ -494,9 +496,9 @@
                       ..empty_bundles
                       loaded_caches)])))))
 
-(def: .public (thaw host_environment fs context import contexts)
+(def: .public (thaw configuration host_environment fs context import contexts)
   (All (_ expression directive)
-    (-> (generation.Host expression directive) (file.System Async) Context Import (List //.Context)
+    (-> Configuration (generation.Host expression directive) (file.System Async) Context Import (List //.Context)
         (Async (Try [Archive .Lux Bundles]))))
   (do async.monad
     [binary (# fs read (..general_descriptor fs context))]
@@ -504,9 +506,9 @@
       {try.#Success binary}
       (do (try.with async.monad)
         [archive (async#in (archive.import ///.version binary))]
-        (..load_every_reserved_module host_environment fs context import contexts archive))
+        (..load_every_reserved_module configuration host_environment fs context import contexts archive))
       
       {try.#Failure error}
       (in {try.#Success [archive.empty
-                         (fresh_analysis_state (value@ context.#host context))
+                         (fresh_analysis_state (value@ context.#host context) configuration)
                          ..empty_bundles]}))))

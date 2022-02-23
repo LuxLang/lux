@@ -1,0 +1,103 @@
+(.using
+ [library
+  [lux {"-" for}
+   ["[0]" meta]
+   [abstract
+    [equivalence {"+" Equivalence}]
+    [monoid {"+" Monoid}]
+    [monad {"+" do}]]
+   [control
+    ["[0]" maybe ("[1]#[0]" functor)]
+    ["[0]" exception {"+" exception:}]
+    ["<>" parser
+     ["<[0]>" text {"+" Parser}]
+     ["<[0]>" code]]]
+   [data
+    ["[0]" text ("[1]#[0]" equivalence)
+     ["%" format]]
+    [collection
+     ["[0]" list ("[1]#[0]" functor mix)]
+     [dictionary
+      ["/" plist]]]]
+   [macro
+    [syntax {"+" syntax:}]
+    ["[0]" code]]
+   [math
+    [number {"+" hex}]]]])
+
+(type: .public Configuration
+  (/.PList Text))
+
+(def: .public equivalence
+  (Equivalence Configuration)
+  (/.equivalence text.equivalence))
+
+(def: .public monoid
+  (Monoid Configuration)
+  /.monoid)
+
+(def: .public empty
+  Configuration
+  /.empty)
+
+(template [<ascii> <name>]
+  [(def: <name>
+     Text
+     (text.of_char (hex <ascii>)))]
+
+  ["02" start]
+  ["03" end]
+  )
+
+(def: format'
+  (-> Text Text)
+  (text.enclosed [..start ..end]))
+
+(def: .public format
+  (%.Format Configuration)
+  (|>> (list#each (function (_ [feature value])
+                    (%.format (..format' feature) (..format' value))))
+       text.together))
+
+(def: .public parser
+  (Parser Configuration)
+  (let [parser' (: (Parser Text)
+                   (<| (<>.after (<text>.this ..start))
+                       (<>.before (<text>.this ..end))
+                       (<text>.slice (<text>.some! (<text>.none_of! ..end)))))]
+    (<>.some (<>.and parser' parser'))))
+
+(exception: .public invalid)
+
+(def: configuration
+  (<code>.Parser Configuration)
+  (<code>.tuple (<>.some (<>.and <code>.text <code>.text))))
+
+(def: (subsumes? actual expected)
+  (-> Configuration Configuration Bit)
+  (case expected
+    {.#End}
+    true
+
+    {.#Item [feature value] tail}
+    (and (|> actual
+             (/.value feature)
+             (maybe#each (text#= value))
+             (maybe.else false))
+         (subsumes? expected tail))))
+
+(syntax: .public (for [specializations (<code>.tuple (<>.some (<>.and ..configuration <code>.any)))
+                       default (<>.maybe <code>.any)])
+  (do meta.monad
+    [actual meta.configuration]
+    (case (list#mix (function (_ [expected then] choice)
+                      (if (subsumes? actual expected)
+                        {.#Some then}
+                        choice))
+                    default
+                    specializations)
+      {.#Some it}
+      (in (list it))
+      
+      {.#None}
+      (meta.failure (exception.error ..invalid [])))))
