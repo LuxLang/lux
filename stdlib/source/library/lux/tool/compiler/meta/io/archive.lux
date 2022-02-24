@@ -45,7 +45,9 @@
      ["[0]" descriptor {"+" Descriptor}]
      ["[0]" document {"+" Document}]]]
    ["[0]" cache
-    ["[1]/[0]" module]]
+    ["[1]/[0]" module]
+    ["[0]" dependency "_"
+     ["[1]" module]]]
    ["/[1]" // {"+" Input}
     [language
      ["$" lux
@@ -55,53 +57,12 @@
       ["[0]" directive]
       ["[1]/[0]" program]]]]]])
 
-(exception: .public (cannot_prepare [archive file.Path
-                                     module_id module.ID
-                                     error Text])
-  (exception.report
-   ["Archive" archive]
-   ["Module ID" (%.nat module_id)]
-   ["Error" error]))
-
-(def: (module fs context module_id)
-  (All (_ !) (-> (file.System !) Context module.ID file.Path))
-  (format (cache.path fs context)
-          (# fs separator)
-          (%.nat module_id)))
-
 (def: .public (artifact fs context module_id artifact_id)
   (All (_ !) (-> (file.System !) Context module.ID artifact.ID file.Path))
-  (format (..module fs context module_id)
+  (format (cache/module.path fs context module_id)
           (# fs separator)
           (%.nat artifact_id)
           (value@ context.#artifact_extension context)))
-
-(def: (ensure_directory fs path)
-  (-> (file.System Async) file.Path (Async (Try Any)))
-  (do async.monad
-    [? (# fs directory? path)]
-    (if ?
-      (in {try.#Success []})
-      (# fs make_directory path))))
-
-(def: .public (prepare fs context module_id)
-  (-> (file.System Async) Context module.ID (Async (Try Any)))
-  (do [! async.monad]
-    [.let [module (..module fs context module_id)]
-     module_exists? (# fs directory? module)]
-    (if module_exists?
-      (in {try.#Success []})
-      (do (try.with !)
-        [_ (cache.enable! fs context)]
-        (|> module
-            (# fs make_directory)
-            (# ! each (|>> (case> {try.#Success output}
-                                  {try.#Success []}
-
-                                  {try.#Failure error}
-                                  (exception.except ..cannot_prepare [(cache.path fs context)
-                                                                      module_id
-                                                                      error])))))))))
 
 (def: .public (write fs context module_id artifact_id content)
   (-> (file.System Async) Context module.ID artifact.ID Binary (Async (Try Any)))
@@ -122,7 +83,7 @@
 
 (def: (module_descriptor fs context module_id)
   (-> (file.System Async) Context module.ID file.Path)
-  (format (..module fs context module_id)
+  (format (cache/module.path fs context module_id)
           (# fs separator)
           ..module_descriptor_file))
 
@@ -168,7 +129,7 @@
 (def: (cached_artifacts fs context module_id)
   (-> (file.System Async) Context module.ID (Async (Try (Dictionary Text Binary))))
   (let [! (try.with async.monad)]
-    (|> (..module fs context module_id)
+    (|> (cache/module.path fs context module_id)
         (# fs directory_files)
         (# ! each (|>> (list#each (function (_ file)
                                     [(file.name fs file) file]))
@@ -356,7 +317,7 @@
 (def: (purge! fs context [module_name module_id])
   (-> (file.System Async) Context [descriptor.Module module.ID] (Async (Try Any)))
   (do [! (try.with async.monad)]
-    [.let [cache (..module fs context module_id)]
+    [.let [cache (cache/module.path fs context module_id)]
      _ (|> cache
            (# fs directory_files)
            (# ! each (monad.each ! (# fs delete)))
@@ -389,7 +350,7 @@
 
 (def: (full_purge caches load_order)
   (-> (List [Bit Cache])
-      (cache/module.Order .Module)
+      (dependency.Order .Module)
       Purge)
   (list#mix (function (_ [module_name [module_id entry]] purge)
               (let [purged? (: (Predicate descriptor.Module)
@@ -436,7 +397,7 @@
 
 (def: (load_order archive pre_loaded_caches)
   (-> Archive (List [Bit Cache])
-      (Try (cache/module.Order .Module)))
+      (Try (dependency.Order .Module)))
   (|> pre_loaded_caches
       (monad.mix try.monad
                  (function (_ [_ [module [module_id [|module| registry]]]] archive)
@@ -446,13 +407,13 @@
                                  archive.#registry registry]
                                 archive))
                  archive)
-      (# try.monad each (cache/module.load_order $.key))
+      (# try.monad each (dependency.load_order $.key))
       (# try.monad conjoint)))
 
 (def: (loaded_caches host_environment fs context purge load_order)
   (All (_ expression directive)
     (-> (generation.Host expression directive) (file.System Async) Context
-        Purge (cache/module.Order .Module)
+        Purge (dependency.Order .Module)
         (Async (Try (List [[descriptor.Module (archive.Entry .Module)] Bundles])))))
   (do [! (try.with async.monad)]
     [... TODO: Stop needing to wrap this expression in an unnecessary "do" expression.

@@ -146,23 +146,23 @@
       _
       (# check.monad in [(list) (..quantified envs :it:)]))))
 
-(def: (simple_pattern_analysis type inputT location output next)
+(def: (simple_pattern_analysis type :input: location output next)
   (All (_ a) (-> Type Type Location Pattern (Operation a) (Operation [Pattern a])))
   (/.with_location location
     (do ///.monad
-      [_ (/type.check (check.check inputT type))
+      [_ (/type.check (check.check :input: type))
        outputA next]
       (in [output outputA]))))
 
-(def: (tuple_pattern_analysis pattern_analysis inputT sub_patterns next)
+(def: (tuple_pattern_analysis pattern_analysis :input: sub_patterns next)
   (All (_ a)
     (-> (-> (Maybe Nat) Type Code (Operation a) (Operation [Pattern a]))
         Type (List Code) (Operation a) (Operation [Pattern a])))
   (do [! ///.monad]
-    [[@ex_var+ inputT'] (/type.check (..tuple inputT))]
-    (.case inputT'
+    [[@ex_var+ :input:'] (/type.check (..tuple :input:))]
+    (.case :input:'
       {.#Product _}
-      (let [matches (loop [types (type.flat_tuple inputT')
+      (let [matches (loop [types (type.flat_tuple :input:')
                            patterns sub_patterns
                            output (: (List [Type Code])
                                      {.#End})]
@@ -203,7 +203,7 @@
                thenA])))
 
       _
-      (/.except ..mismatch [inputT' (code.tuple sub_patterns)]))))
+      (/.except ..mismatch [:input:' (code.tuple sub_patterns)]))))
 
 ... This function handles several concerns at once, but it must be that
 ... way because those concerns are interleaved when doing
@@ -221,20 +221,20 @@
 ... body expressions.
 ... That is why the body must be analysed in the context of the
 ... pattern, and not separately.
-(def: (pattern_analysis num_tags inputT pattern next)
+(def: (pattern_analysis num_tags :input: pattern next)
   (All (_ a) (-> (Maybe Nat) Type Code (Operation a) (Operation [Pattern a])))
   (.case pattern
     [location {.#Symbol ["" name]}]
     (/.with_location location
       (do ///.monad
-        [outputA (/scope.with_local [name inputT]
+        [outputA (/scope.with_local [name :input:]
                    next)
          idx /scope.next]
         (in [{/pattern.#Bind idx} outputA])))
 
     (^template [<type> <input> <output>]
       [[location <input>]
-       (simple_pattern_analysis <type> inputT location {/pattern.#Simple <output>} next)])
+       (simple_pattern_analysis <type> :input: location {/pattern.#Simple <output>} next)])
     ([Bit  {.#Bit pattern_value}  {/simple.#Bit pattern_value}]
      [Nat  {.#Nat pattern_value}  {/simple.#Nat pattern_value}]
      [Int  {.#Int pattern_value}  {/simple.#Int pattern_value}]
@@ -244,7 +244,7 @@
      [Any  {.#Tuple {.#End}}      {/simple.#Unit}])
     
     (^ [location {.#Tuple (list singleton)}])
-    (pattern_analysis {.#None} inputT singleton next)
+    (pattern_analysis {.#None} :input: singleton next)
     
     [location {.#Tuple sub_patterns}]
     (/.with_location location
@@ -260,29 +260,33 @@
         (.case record_size,members,recordT
           {.#Some [record_size members recordT]}
           (do !
-            [_ (.case inputT
-                 {.#Var _id}
-                 (/type.check (check.check inputT recordT))
+            [_ (.case :input:
+                 {.#Var @input}
+                 (/type.check (do check.monad
+                                [? (check.bound? @input)]
+                                (if ?
+                                  (in [])
+                                  (check.check :input: recordT))))
 
                  _
                  (in []))]
             (.case members
               (^ (list singleton))
-              (pattern_analysis {.#None} inputT singleton next)
+              (pattern_analysis {.#None} :input: singleton next)
 
               _
-              (..tuple_pattern_analysis pattern_analysis inputT members next)))
+              (..tuple_pattern_analysis pattern_analysis :input: members next)))
           
           {.#None}
-          (..tuple_pattern_analysis pattern_analysis inputT sub_patterns next))))
+          (..tuple_pattern_analysis pattern_analysis :input: sub_patterns next))))
 
     (^ [location {.#Variant (list& [_ {.#Nat lefts}] [_ {.#Bit right?}] values)}])
     (/.with_location location
       (do ///.monad
-        [[@ex_var+ inputT'] (/type.check (..tuple inputT))]
-        (.case inputT'
+        [[@ex_var+ :input:'] (/type.check (..tuple :input:))]
+        (.case :input:'
           {.#Sum _}
-          (let [flat_sum (type.flat_variant inputT')
+          (let [flat_sum (type.flat_variant :input:')
                 size_sum (list.size flat_sum)
                 num_cases (maybe.else size_sum num_tags)
                 idx (/complex.tag right? lefts)]
@@ -302,29 +306,29 @@
                      nextA]))
 
               _
-              (/.except ..sum_has_no_case [idx inputT])))
+              (/.except ..sum_has_no_case [idx :input:])))
 
           {.#UnivQ _}
           (do ///.monad
             [[ex_id exT] (/type.check check.existential)
              it (pattern_analysis num_tags
-                                  (maybe.trusted (type.applied (list exT) inputT'))
+                                  (maybe.trusted (type.applied (list exT) :input:'))
                                   pattern
                                   next)
              _ (/type.check (monad.each check.monad check.forget! @ex_var+))]
             (in it))
           
           _
-          (/.except ..mismatch [inputT' pattern]))))
+          (/.except ..mismatch [:input:' pattern]))))
 
     (^ [location {.#Variant (list& [_ {.#Symbol tag}] values)}])
     (/.with_location location
       (do ///.monad
         [tag (///extension.lifted (meta.normal tag))
          [idx group variantT] (///extension.lifted (meta.tag tag))
-         _ (/type.check (check.check inputT variantT))
+         _ (/type.check (check.check :input: variantT))
          .let [[lefts right?] (/complex.choice (list.size group) idx)]]
-        (pattern_analysis {.#Some (list.size group)} inputT (` {(~ (code.nat lefts)) (~ (code.bit right?)) (~+ values)}) next)))
+        (pattern_analysis {.#Some (list.size group)} :input: (` {(~ (code.nat lefts)) (~ (code.bit right?)) (~+ values)}) next)))
 
     _
     (/.except ..invalid [pattern])
@@ -335,12 +339,12 @@
   (.case branches
     {.#Item [patternH bodyH] branchesT}
     (do [! ///.monad]
-      [[inputT inputA] (/type.inferring
-                        (analyse archive inputC))
-       outputH (pattern_analysis {.#None} inputT patternH (analyse archive bodyH))
+      [[:input: inputA] (<| /type.inferring
+                            (analyse archive inputC))
+       outputH (pattern_analysis {.#None} :input: patternH (analyse archive bodyH))
        outputT (monad.each !
                            (function (_ [patternT bodyT])
-                             (pattern_analysis {.#None} inputT patternT (analyse archive bodyT)))
+                             (pattern_analysis {.#None} :input: patternT (analyse archive bodyT)))
                            branchesT)
        outputHC (|> outputH product.left /coverage.coverage /.of_try)
        outputTC (monad.each ! (|>> product.left /coverage.coverage /.of_try) outputT)

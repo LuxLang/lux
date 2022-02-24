@@ -537,11 +537,18 @@
     {.#Named name anonymous}
     (check_parameter anonymous)
 
-    (^template [<tag>]
-      [{<tag> id}
-       (phase#in (jvm.class ..object_class (list)))])
-    ([.#Var]
-     [.#Ex])
+    {.#Var @var}
+    (do phase.monad
+      [:var: (typeA.check (check.peek @var))]
+      (case :var:
+        {.#Some :var:}
+        (check_parameter :var:)
+        
+        {.#None}
+        (in (jvm.class ..object_class (list)))))
+
+    {.#Ex id}
+    (phase#in (jvm.class ..object_class (list)))
 
     (^template [<tag>]
       [{<tag> env unquantified}
@@ -629,13 +636,32 @@
     _
     (check_parameter objectT)))
 
+(template [<name> <category> <parser>]
+  [(def: .public (<name> mapping typeJ)
+     (-> Mapping (Type <category>) (Operation .Type))
+     (case (|> typeJ ..signature (<text>.result (<parser> mapping)))
+       {try.#Success check}
+       (typeA.check check)
+       
+       {try.#Failure error}
+       (phase.failure error)))]
+
+  [boxed_reflection_type Value luxT.boxed_type]
+  [reflection_type Value luxT.type]
+  [boxed_reflection_return Return luxT.boxed_return]
+  [reflection_return Return luxT.return]
+  )
+
 (def: (check_object objectT)
-  (-> .Type (Operation External))
+  (-> .Type (Operation [External .Type]))
   (do [! phase.monad]
-    [name (# ! each ..reflection (check_jvm objectT))]
+    [:object: (check_jvm objectT)
+     .let [name (..reflection :object:)]]
     (if (dictionary.key? ..boxes name)
       (/////analysis.except ..primitives_are_not_objects [name])
-      (phase#in name))))
+      (do !
+        [:object: (reflection_type luxT.fresh :object:)]
+        (phase#in [name :object:])))))
 
 (def: (check_return type)
   (-> .Type (Operation (Type Return)))
@@ -786,7 +812,8 @@
       (^ (list))
       (do phase.monad
         [expectedT (///.lifted meta.expected_type)
-         _ (check_object expectedT)]
+         [_ :object:] (check_object expectedT)
+         _ (typeA.inference :object:)]
         (in {/////analysis.#Extension extension_name (list)}))
 
       _
@@ -798,7 +825,7 @@
     (case args
       (^ (list objectC))
       (do phase.monad
-        [_ (typeA.inference Bit)
+        [_ (typeA.inference .Bit)
          [objectT objectA] (typeA.inferring
                             (analyse archive objectC))
          _ (check_object objectT)]
@@ -831,7 +858,7 @@
         [_ (typeA.inference Nothing)
          [exceptionT exceptionA] (typeA.inferring
                                   (analyse archive exceptionC))
-         exception_class (check_object exceptionT)
+         [exception_class _] (check_object exceptionT)
          ? (phase.lifted (reflection!.sub? class_loader "java.lang.Throwable" exception_class))
          _ (: (Operation Any)
               (if ?
@@ -871,27 +898,11 @@
          _ (typeA.inference Bit)
          [objectT objectA] (typeA.inferring
                             (analyse archive objectC))
-         object_class (check_object objectT)
+         [object_class _] (check_object objectT)
          ? (phase.lifted (reflection!.sub? class_loader object_class sub_class))]
         (if ?
           (in {/////analysis.#Extension extension_name (list (/////analysis.text sub_class) objectA)})
           (/////analysis.except cannot_possibly_be_an_instance (format sub_class " !<= "  object_class)))))]))
-
-(template [<name> <category> <parser>]
-  [(def: .public (<name> mapping typeJ)
-     (-> Mapping (Type <category>) (Operation .Type))
-     (case (|> typeJ ..signature (<text>.result (<parser> mapping)))
-       {try.#Success check}
-       (typeA.check check)
-       
-       {try.#Failure error}
-       (phase.failure error)))]
-
-  [boxed_reflection_type Value luxT.boxed_type]
-  [reflection_type Value luxT.type]
-  [boxed_reflection_return Return luxT.boxed_return]
-  [reflection_return Return luxT.return]
-  )
 
 (def: (class_candidate_parents class_loader source_name fromT target_name target_class)
   (-> java/lang/ClassLoader External .Type External (java/lang/Class java/lang/Object) (Operation (List [[Text .Type] Bit])))

@@ -53,7 +53,8 @@
    [meta
     [import {"+" Import}]
     ["[0]" context {"+" Context}]
-    ["[0]" cache]
+    ["[0]" cache
+     ["[1]/[0]" module]]
     [cli {"+" Compilation Library}
      ["[0]" compiler {"+" Compiler}]]
     ["[0]" archive {"+" Output Archive}
@@ -110,7 +111,7 @@
                                (function (_ [artifact_id custom content])
                                  (ioW.write system context module_id artifact_id content)))]
         (do [! ..monad]
-          [_ (ioW.prepare system context module_id)
+          [_ (cache/module.enable! system context module_id)
            _ (for [@.python (|> entry
                                 (value@ archive.#output)
                                 sequence.list
@@ -729,7 +730,7 @@
 
       (def: (custom_compiler importer it)
         (All (_ <type_vars>)
-          (-> <Importer> Compiler (Async (Try [<Context> (List Text) ///.Custom]))))
+          (-> <Importer> Compiler (Async (Try [<Context> (List Text) Any]))))
         (let [/#definition (value@ compiler.#definition it)
               [/#module /#name] /#definition]
           (do ..monad
@@ -745,15 +746,12 @@
                                     (meta.result meta_state)
                                     async#in)]
             (async#in (if (check.subsumes? ///.Custom /#type)
-                        (|> /#value
-                            (:as ///.Custom)
-                            [context (value@ compiler.#parameters it)]
-                            {try.#Success})
+                        {try.#Success [context (value@ compiler.#parameters it) /#value]}
                         (exception.except ..invalid_custom_compiler [/#definition /#type]))))))
 
-      (def: .public (compile phase_wrapper import file_context expander platform compilation context)
+      (def: .public (compile lux_compiler phase_wrapper import file_context expander platform compilation context)
         (All (_ <type_vars>)
-          (-> ///phase.Wrapper Import Context Expander <Platform> Compilation <Context> <Return>))
+          (-> (-> Any ///.Custom) ///phase.Wrapper Import Context Expander <Platform> Compilation <Context> <Return>))
         (let [[host_dependencies libraries compilers sources target module configuration] compilation
               importer (|> (..compiler phase_wrapper expander platform)
                            (serial_compiler import file_context platform sources)
@@ -764,7 +762,7 @@
                                       (do !
                                         [[context parameters custom] (custom_compiler importer it)]
                                         (async#in (|> custom
-                                                      (:as ///.Custom)
+                                                      lux_compiler
                                                       (function.on parameters))))))
                          (monad.all !))]
             (importer descriptor.runtime module))))

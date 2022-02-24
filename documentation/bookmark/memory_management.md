@@ -23,6 +23,7 @@
 
 # Garbage collection
 
+0. [Destroy All Values: Designing Deinitialization in Programming Languages](https://gankra.github.io/blah/deinitialize-me-maybe/)
 0. [Deconstructing the Garbage-First Collector](https://users.cecs.anu.edu.au/~steveb/pubs/papers/g1-vee-2020.pdf)
 0. [The Garbage Collection Handbook](http://gchandbook.org/)
 0. [Baby's First Garbage Collector](http://journal.stuffwithstuff.com/2013/12/08/babys-first-garbage-collector/)

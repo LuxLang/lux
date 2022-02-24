@@ -138,33 +138,33 @@
 
                                (def: (read_tuple read host_object)
                                  (-> Translator Translator)
-                                 (let [size (|> host_object org/python/core/PyObject::__len__ .nat)]
+                                 (let [size (|> host_object org/python/core/PyObject::__len__ ffi.of_int .nat)]
                                    (loop [idx 0
                                           output (:as (Array Any)
                                                       (array.empty size))]
                                      (if (n.< size idx)
-                                       (case (org/python/core/PyObject::__getitem__ (.int idx) host_object)
-                                         {try.#Failure try}
-                                         {try.#Failure try}
-                                         
+                                       (case (org/python/core/PyObject::__getitem__ (ffi.as_int (.int idx)) host_object)
                                          {try.#Success value}
                                          (case (read value)
-                                           {try.#Failure try}
-                                           {try.#Failure try}
-
                                            {try.#Success lux_value}
-                                           (again (++ idx) (array.write! idx lux_value output))))
+                                           (again (++ idx) (array.write! idx lux_value output))
+
+                                           failure
+                                           failure)
+
+                                         failure
+                                         failure)
                                        {try.#Success output}))))
 
                                (exception: (unknown_kind_of_object [object java/lang/Object])
                                  (exception.report
-                                  ["Object" (java/lang/Object::toString object)]))
+                                  ["Object" (ffi.of_string (java/lang/Object::toString object))]))
 
                                (def: (read_variant read host_object)
                                  (-> Translator Translator)
-                                 (case [(org/python/core/PyObject::__getitem__ +0 host_object)
-                                        (org/python/core/PyObject::__getitem__ +1 host_object)
-                                        (org/python/core/PyObject::__getitem__ +2 host_object)]
+                                 (case [(org/python/core/PyObject::__getitem__ (ffi.as_int +0) host_object)
+                                        (org/python/core/PyObject::__getitem__ (ffi.as_int +1) host_object)
+                                        (org/python/core/PyObject::__getitem__ (ffi.as_int +2) host_object)]
                                    (^or [{try.#Failure try} _ _]
                                         [_ {try.#Failure try} _]
                                         [_ _ {try.#Failure try}])
@@ -327,7 +327,7 @@
                                                [(case (ffi.check <jvm> (:as java/lang/Object it))
                                                   {.#Some it}
                                                   (:as org/python/core/PyObject
-                                                       (<python> [(:expected it)]))
+                                                       (<python> [it]))
 
                                                   {.#None})]
 
@@ -361,8 +361,8 @@
 
                                (exception: (cannot_apply_a_non_function [object java/lang/Object])
                                  (exception.report
-                                  ["Object" (java/lang/Object::toString object)]
-                                  ["Class" (java/lang/Class::getName (java/lang/Object::getClass object))]))
+                                  ["Object" (ffi.of_string (java/lang/Object::toString object))]
+                                  ["Class" (ffi.of_string (java/lang/Class::getName (java/lang/Object::getClass object)))]))
 
                                (def: (expander macro inputs lux)
                                  Expander
@@ -379,7 +379,7 @@
                                      {try.#Failure error})
 
                                    {.#None}
-                                   (exception.except ..cannot_apply_a_non_function (:as java/lang/Object macro)))))]
+                                   (exception.except ..cannot_apply_a_non_function [(:as java/lang/Object macro)]))))]
   (for [@.old (as_is <jvm>)
         @.jvm (as_is <jvm>)
 
@@ -391,14 +391,14 @@
 (with_expansions [<jvm> (def: host
                           (IO (Host (_.Expression Any) (_.Statement Any)))
                           (io (let [interpreter (org/python/util/PythonInterpreter::new)
-                                    evaluate! (: (-> unit.ID (_.Expression Any) (Try Any))
-                                                 (function (evaluate! context input)
+                                    evaluate! (: (-> unit.ID [(Maybe unit.ID) (_.Expression Any)] (Try Any))
+                                                 (function (evaluate! context [_ input])
                                                    (do try.monad
-                                                     [output (org/python/util/PythonInterpreter::eval (_.code input) interpreter)]
+                                                     [output (org/python/util/PythonInterpreter::eval (ffi.as_string (_.code input)) interpreter)]
                                                      (..read output))))
                                     execute! (: (-> (_.Statement Any) (Try Any))
                                                 (function (execute! input)
-                                                  (case (org/python/util/PythonInterpreter::exec (_.code input) interpreter)
+                                                  (case (org/python/util/PythonInterpreter::exec (ffi.as_string (_.code input)) interpreter)
                                                     {try.#Failure error}
                                                     (if (text.contains? "maximum recursion depth exceeded" error)
                                                       (execute! input)
@@ -410,14 +410,14 @@
                                    (implementation
                                     (def: evaluate evaluate!)
                                     (def: execute execute!)
-                                    (def: (define context custom input)
+                                    (def: (define context custom [@def input])
                                       (let [global (maybe.else (reference.artifact context)
                                                                custom)
                                             @global (_.var global)]
                                         (do try.monad
                                           [.let [definition (_.set (list @global) input)]
                                            _ (execute! definition)
-                                           value (evaluate! context @global)]
+                                           value (evaluate! context [@def @global])]
                                           (in [global value definition]))))
 
                                     (def: (ingest context content)
@@ -432,7 +432,7 @@
                                     (def: (re_load context custom content)
                                       (do try.monad
                                         [_ (execute! content)]
-                                        (evaluate! context (_.var (reference.artifact context))))))))))]
+                                        (evaluate! context [{.#None} (_.var (reference.artifact context))]))))))))]
   (for [@.old <jvm>
         @.jvm <jvm>
 
@@ -492,7 +492,7 @@
                                      (do try.monad
                                        [handler (try.of_maybe (..python_function! handler))
                                         output (org/python/core/PyFunction::__call__ (|> (ffi.array org/python/core/PyObject 5)
-                                                                                         (ffi.write! 0 (:as org/python/core/PyObject (org/python/core/PyString::new name)))
+                                                                                         (ffi.write! 0 (:as org/python/core/PyObject (org/python/core/PyString::new (ffi.as_string name))))
                                                                                          (ffi.write! 1 (:as org/python/core/PyObject (phase_wrapper phase)))
                                                                                          (ffi.write! 2 (..to_host archive))
                                                                                          (ffi.write! 3 (..to_host parameters))

@@ -2,98 +2,63 @@
  [library
   [lux "*"
    [abstract
-    ["[0]" monad {"+" do}]]
+    [monad {"+" do}]]
    [control
-    ["[0]" maybe ("[1]#[0]" functor)]
+    [pipe {"+" case>}]
     ["[0]" try {"+" Try}]
-    ["[0]" state]
-    [function
-     ["[0]" memo {"+" Memo}]]]
+    ["[0]" exception {"+" exception:}]
+    [concurrency
+     ["[0]" async {"+" Async}]]]
    [data
-    ["[0]" text
-     ["%" format {"+" format}]]
-    [collection
-     ["[0]" list ("[1]#[0]" functor mix)]
-     ["[0]" dictionary {"+" Dictionary}]
-     ["[0]" set {"+" Set}]]]]]
- [///
-  ["[0]" archive {"+" Output Archive}
-   [key {"+" Key}]
-   ["[0]" module
-    ["[0]" descriptor {"+" Descriptor}]
-    ["[0]" document {"+" Document}]]]])
+    [text
+     ["%" format {"+" format}]]]
+   [world
+    ["[0]" file]]]]
+ ["[0]" //
+  [//
+   [context {"+" Context}]
+   [archive
+    ["[0]" module]]]])
 
-(type: .public Ancestry
-  (Set descriptor.Module))
+(exception: .public (cannot_enable [archive file.Path
+                                    @module module.ID
+                                    error Text])
+  (exception.report
+   ["Archive" archive]
+   ["Module ID" (%.nat @module)]
+   ["Error" error]))
 
-(def: fresh
-  Ancestry
-  (set.empty text.hash))
+(def: .public (path fs context @module)
+  (All (_ !) (-> (file.System !) Context module.ID file.Path))
+  (format (//.path fs context)
+          (# fs separator)
+          (%.nat @module)))
 
-(type: .public Graph
-  (Dictionary descriptor.Module Ancestry))
+(def: .public (enabled? fs context @module)
+  (All (_ !) (-> (file.System !) Context module.ID (! Bit)))
+  (# fs directory? (..path fs context @module)))
 
-(def: empty
-  Graph
-  (dictionary.empty text.hash))
+(def: .public (enable! fs context @module)
+  (-> (file.System Async) Context module.ID (Async (Try Any)))
+  (do [! async.monad]
+    [.let [path (..path fs context @module)]
+     module_exists? (# fs directory? path)]
+    (if module_exists?
+      (in {try.#Success []})
+      (with_expansions [<failure> (exception.except ..cannot_enable [(//.path fs context)
+                                                                     @module
+                                                                     error])]
+        (do !
+          [? (//.enable! fs context)]
+          (case ?
+            {try.#Failure error}
+            (in <failure>)
+            
+            success
+            (|> path
+                (# fs make_directory)
+                (# ! each (|>> (case> {try.#Failure error}
+                                      <failure>
 
-(def: .public modules
-  (-> Graph (List descriptor.Module))
-  dictionary.keys)
-
-(type: .public Dependency
-  (Record
-   [#module descriptor.Module
-    #imports Ancestry]))
-
-(def: .public graph
-  (-> (List Dependency) Graph)
-  (list#mix (function (_ [module imports] graph)
-              (dictionary.has module imports graph))
-            ..empty))
-
-(def: (ancestry archive)
-  (-> Archive Graph)
-  (let [memo (: (Memo descriptor.Module Ancestry)
-                (function (_ again module)
-                  (do [! state.monad]
-                    [.let [parents (case (archive.find module archive)
-                                     {try.#Success [module output registry]}
-                                     (value@ [module.#descriptor descriptor.#references] module)
-                                     
-                                     {try.#Failure error}
-                                     ..fresh)]
-                     ancestors (monad.each ! again (set.list parents))]
-                    (in (list#mix set.union parents ancestors)))))
-        ancestry (memo.open memo)]
-    (list#mix (function (_ module memory)
-                (if (dictionary.key? memory module)
-                  memory
-                  (let [[memory _] (ancestry [memory module])]
-                    memory)))
-              ..empty
-              (archive.archived archive))))
-
-(def: (dependency? ancestry target source)
-  (-> Graph descriptor.Module descriptor.Module Bit)
-  (let [target_ancestry (|> ancestry
-                            (dictionary.value target)
-                            (maybe.else ..fresh))]
-    (set.member? target_ancestry source)))
-
-(type: .public (Order a)
-  (List [descriptor.Module [module.ID (archive.Entry a)]]))
-
-(def: .public (load_order key archive)
-  (All (_ a) (-> (Key a) Archive (Try (Order a))))
-  (let [ancestry (..ancestry archive)]
-    (|> ancestry
-        dictionary.keys
-        (list.sorted (..dependency? ancestry))
-        (monad.each try.monad
-                    (function (_ module)
-                      (do try.monad
-                        [module_id (archive.id module archive)
-                         entry (archive.find module archive)
-                         document (document.marked? key (value@ [archive.#module module.#document] entry))]
-                        (in [module [module_id (with@ [archive.#module module.#document] document entry)]])))))))
+                                      success
+                                      success))))))))))
