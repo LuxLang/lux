@@ -11,8 +11,8 @@ cd ~/lux/lux-lua/ && lein clean && lein lux auto test
 ## Develop
 ## NOTE: Must set lux/control/concurrency/thread.parallelism = 1 before compiling to make sure Rembulan doesn't cause trouble.
 cd ~/lux/lux-lua/ \
-&& lein clean \
-&& lein lux auto build
+&& lux clean \
+&& lux auto build
 ```
 
 # Try

@@ -186,6 +186,10 @@
 0. https://www.aerospike.com/
 0. https://sirix.io/
 
+## Relational
+
+0. [dqlite: Embeddable, replicated and fault tolerant SQL engine.](https://github.com/canonical/dqlite)
+
 ## Immutable
 
 0. [immudb: OPEN SOURCE IMMUTABLE DATABASE](https://codenotary.com/technologies/immudb/)

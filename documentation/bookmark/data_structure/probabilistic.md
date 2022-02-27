@@ -5,6 +5,7 @@
 
 # Reference
 
+0. [Ribbon Filter](http://rocksdb.org/blog/2021/12/29/ribbon-filter.html)
 0. [Binary Fuse Filters: Fast and Smaller Than Xor Filters](https://arxiv.org/abs/2201.01174)
 0. [Ribbon filter: practically smaller than Bloom and Xor](https://arxiv.org/abs/2103.02515)
 0. [Xor Filters: Faster and Smaller Than Bloom Filters](https://lemire.me/blog/2019/12/19/xor-filters-faster-and-smaller-than-bloom-filters/)
