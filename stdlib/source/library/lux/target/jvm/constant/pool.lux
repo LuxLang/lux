@@ -1,39 +1,36 @@
 (.using
-  [library
-   [lux "*"
-    ["[0]" ffi]
-    [abstract
-     [equivalence {"+" Equivalence}]
-     [monad {"+" Monad do}]]
-    [control
-     ["[0]" state {"+" +State}]
-     ["[0]" try {"+" Try}]]
-    [data
-     ["[0]" product]
-     ["[0]" text]
-     ["[0]" format "_"
-      ["[1]" binary {"+" Writer} ("specification#[0]" monoid)]]
-     [collection
-      ["[0]" sequence {"+" Sequence} ("[1]#[0]" mix)]]]
-    [macro
-     ["[0]" template]]
-    [math
-     [number
-      ["[0]" i32]
-      ["n" nat]
-      ["[0]" int]
-      ["[0]" frac]]]
-    [type
-     abstract]]]
-  ["[0]" // {"+" UTF8 String Class Integer Float Long Double Constant Name_And_Type Reference}
-   [//
-    [encoding
-     ["[1][0]" name {"+" Internal External}]
-     ["[1][0]" unsigned]]
-    ["[1][0]" index {"+" Index}]
-    [type
-     [category {"+" Value Method}]
-     ["[1][0]" descriptor {"+" Descriptor}]]]])
+ [library
+  [lux "*"
+   ["[0]" ffi]
+   [abstract
+    [equivalence {"+" Equivalence}]
+    [functor {"+" Functor}]
+    [monad {"+" Monad do}]]
+   [control
+    [pipe {"+" case>}]
+    ["[0]" state {"+" +State}]
+    ["[0]" try {"+" Try}]]
+   [data
+    ["[0]" product]
+    ["[0]" text]
+    ["[0]" format "_"
+     ["[1]" binary {"+" Writer} ("specification#[0]" monoid)]]
+    [collection
+     ["[0]" sequence {"+" Sequence} ("[1]#[0]" mix)]]]
+   [math
+    [number
+     ["[0]" int]
+     ["[0]" frac]
+     ["[0]" i32]]]]]
+ ["[0]" // {"+" UTF8 String Class Integer Float Long Double Constant Name_And_Type Reference}
+  [//
+   ["[1][0]" index {"+" Index}]
+   [encoding
+    ["[1][0]" name {"+" Internal External}]
+    ["[1][0]" unsigned]]
+   [type
+    [category {"+" Value Method}]
+    ["[1][0]" descriptor {"+" Descriptor}]]]])
 
 (type: .public Pool
   [Index (Sequence [Index Constant])])
@@ -47,42 +44,90 @@
 (type: .public (Resource a)
   (+State Try Pool a))
 
-(def: .public monad
-  (Monad Resource)
-  (state.with try.monad))
+(implementation: .public functor
+  (Functor Resource)
 
-(template: (!add <tag> <equivalence> <value>)
-  [(function (_ [current pool])
-     (let [<value>' <value>]
-       (with_expansions [<try_again> (as_is (again (.++ idx)))]
-         (loop [idx 0]
-           (case (sequence.item idx pool)
-             {try.#Success entry}
-             (case entry
-               [index {<tag> reference}]
-               (if (# <equivalence> = reference <value>')
-                 {try.#Success [[current pool]
-                                index]}
-                 <try_again>)
-               
-               _
+  (def: (each $ it)
+    (|>> it
+         (case> {try.#Success [state output]}
+                {try.#Success [state ($ output)]}
+                
+                ... {try.#Failure error}
+                failure
+                (:expected failure)))))
+
+(implementation: .public monad
+  (Monad Resource)
+
+  (def: &functor ..functor)
+  
+  (def: (in it)
+    (function (_ state)
+      {try.#Success [state it]}))
+  
+  (def: (conjoint it)
+    (function (_ state)
+      (case (it state)
+        {try.#Success [state' it']}
+        (it' state')
+
+        ... {try.#Failure error}
+        failure
+        (:expected failure)))))
+
+(template: (try|each <binding> <value> <body>)
+  [(case <value>
+     {try.#Success <binding>}
+     <body>
+
+     ... {try.#Failure error}
+     failure
+     (:expected failure))])
+
+(template: (try|in <it>)
+  [{try.#Success <it>}])
+
+(template: (!add <state> <tag> <equivalence> <value>)
+  [(let [[current pool] <state>
+         <value>' <value>]
+     (with_expansions [<try_again> (as_is (again (.++ idx)))]
+       (loop [idx 0]
+         (case (sequence.item idx pool)
+           {try.#Success entry}
+           (case entry
+             [index {<tag> reference}]
+             (if (# <equivalence> = reference <value>')
+               {try.#Success [[current pool]
+                              index]}
                <try_again>)
              
-             {try.#Failure _}
-             (let [new {<tag> <value>'}]
-               (do [! try.monad]
-                 [@new (//unsigned.u2 (//.size new))
-                  next (: (Try Index)
-                          (|> current
-                              //index.value
-                              (//unsigned.+/2 @new)
-                              (# ! each //index.index)))]
-                 (in [[next
-                       (sequence.suffix [current new] pool)]
-                      current]))))))))])
+             _
+             <try_again>)
+           
+           {try.#Failure _}
+           (<| (let [new {<tag> <value>'}])
+               (try|each @new (//unsigned.u2 (//.size new)))
+               (try|each next (: (Try Index)
+                                 (|> current
+                                     //index.value
+                                     (//unsigned.+/2 @new)
+                                     (# try.monad each //index.index))))
+               (try|in [[next
+                         (sequence.suffix [current new] pool)]
+                        current]))))))])
 
-(template: (!index <index>)
-  [(|> <index> //index.value //unsigned.value)])
+(template: (/|do <state> <body>)
+  [(function (_ <state>)
+     <body>)])
+
+(template: (/|each <state> <binding> <value> <body>)
+  [(case (<value> <state>)
+     {try.#Success [<state> <binding>]}
+     <body>
+
+     ... {try.#Failure error}
+     failure
+     (:expected failure))])
 
 (type: (Adder of)
   (-> of (Resource (Index of))))
@@ -90,7 +135,8 @@
 (template [<name> <type> <tag> <equivalence>]
   [(def: .public (<name> value)
      (Adder <type>)
-     (!add <tag> <equivalence> value))]
+     (<| (/|do %)
+         (!add % <tag> <equivalence> value)))]
 
   [integer Integer //.#Integer (//.value_equivalence i32.equivalence)]
   [float Float //.#Float (//.value_equivalence //.float_equivalence)]
@@ -101,24 +147,25 @@
 
 (def: .public (string value)
   (-> Text (Resource (Index String)))
-  (do ..monad
-    [@value (utf8 value)
-     .let [value (//.string @value)]]
-    (!add //.#String (//.value_equivalence //index.equivalence) value)))
+  (<| (/|do %)
+      (/|each % @value (utf8 value))
+      (let [value (//.string @value)])
+      (!add % //.#String (//.value_equivalence //index.equivalence) value)))
 
 (def: .public (class name)
   (-> Internal (Resource (Index Class)))
-  (do ..monad
-    [@name (utf8 (//name.read name))
-     .let [value (//.class @name)]]
-    (!add //.#Class //.class_equivalence value)))
+  (<| (/|do %)
+      (/|each % @name (utf8 (//name.read name)))
+      (let [value (//.class @name)])
+      (!add % //.#Class //.class_equivalence value)))
 
 (def: .public (descriptor value)
   (All (_ kind)
     (-> (Descriptor kind)
         (Resource (Index (Descriptor kind)))))
-  (let [value (//descriptor.descriptor value)]
-    (!add //.#UTF8 text.equivalence value)))
+  (<| (let [value (//descriptor.descriptor value)])
+      (/|do %)
+      (!add % //.#UTF8 text.equivalence value)))
 
 (type: .public (Member of)
   (Record
@@ -128,23 +175,26 @@
 (def: .public (name_and_type [name descriptor])
   (All (_ of)
     (-> (Member of) (Resource (Index (Name_And_Type of)))))
-  (do ..monad
-    [@name (utf8 name)
-     @descriptor (..descriptor descriptor)]
-    (!add //.#Name_And_Type //.name_and_type_equivalence [//.#name @name //.#descriptor @descriptor])))
+  (<| (/|do %)
+      (/|each % @name (utf8 name))
+      (/|each % @descriptor (..descriptor descriptor))
+      (!add % //.#Name_And_Type //.name_and_type_equivalence [//.#name @name //.#descriptor @descriptor])))
 
 (template [<name> <tag> <of>]
   [(def: .public (<name> class member)
      (-> External (Member <of>) (Resource (Index (Reference <of>))))
-     (do ..monad
-       [@class (..class (//name.internal class))
-        @name_and_type (name_and_type member)]
-       (!add <tag> //.reference_equivalence [//.#class @class //.#name_and_type @name_and_type])))]
+     (<| (/|do %)
+         (/|each % @class (..class (//name.internal class)))
+         (/|each % @name_and_type (name_and_type member))
+         (!add % <tag> //.reference_equivalence [//.#class @class //.#name_and_type @name_and_type])))]
 
   [field //.#Field Value]
   [method //.#Method Method]
   [interface_method //.#Interface_Method Method]
   )
+
+(template: (!index <index>)
+  [(|> <index> //index.value //unsigned.value)])
 
 (def: .public writer
   (Writer Pool)
