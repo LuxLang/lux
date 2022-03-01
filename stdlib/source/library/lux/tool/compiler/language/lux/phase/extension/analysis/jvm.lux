@@ -8,7 +8,7 @@
     ["[0]" predicate]]
    [control
     pipe
-    ["[0]" maybe]
+    ["[0]" maybe ("[1]#[0]" functor)]
     ["[0]" try {"+" Try} ("[1]#[0]" monad)]
     ["[0]" exception {"+" exception:}]
     ["<>" parser
@@ -255,13 +255,17 @@
   )
 
 (template [<name>]
-  [(exception: .public (<name> [class External
+  [(exception: .public (<name> [class_variables (List (Type Var))
+                                class External
                                 method Text
+                                method_variables (List (Type Var))
                                 inputsJT (List (Type Value))
                                 hints (List Method_Signature)])
      (exception.report
+      ["Class Variables" (exception.listing ..signature class_variables)]
       ["Class" class]
       ["Method" method]
+      ["Method Variables" (exception.listing ..signature method_variables)]
       ["Arguments" (exception.listing ..signature inputsJT)]
       ["Hints" (exception.listing %.type (list#each product.left hints))]))]
 
@@ -1127,6 +1131,34 @@
    {#Special}
    {#Interface}))
 
+(def: (de_aliased aliasing)
+  (-> Aliasing (Type Value) (Type Value))
+  (function (again it)
+    (`` (<| (case (parser.var? it)
+              {.#Some name}
+              (|> aliasing
+                  (dictionary.value name)
+                  (maybe#each jvm.var)
+                  (maybe.else it))
+              {.#None})
+            (case (parser.class? it)
+              {.#Some [name parameters]}
+              (|> parameters
+                  (list#each (|>> again (:as (Type Parameter))))
+                  (jvm.class name))
+              {.#None})
+            (~~ (template [<read> <as> <write>]
+                  [(case (<read> it)
+                     {.#Some :sub:}
+                     (<write> (:as (Type <as>) (again :sub:)))
+                     {.#None})]
+
+                  [parser.array? Value jvm.array]
+                  [parser.lower? Class jvm.lower]
+                  [parser.upper? Class jvm.upper]
+                  ))
+            it))))
+
 (def: (check_method aliasing class method_name method_style inputsJT method)
   (-> Aliasing (java/lang/Class java/lang/Object) Text Method_Style (List (Type Value)) java/lang/reflect/Method (Operation Bit))
   (do phase.monad
@@ -1137,41 +1169,28 @@
      .let [modifiers (java/lang/reflect/Method::getModifiers method)
            correct_class? (java/lang/Object::equals class (java/lang/reflect/Method::getDeclaringClass method))
            correct_method? (text#= method_name (java/lang/reflect/Method::getName method))
-           static_matches? (case method_style
-                             {#Static}
-                             (java/lang/reflect/Modifier::isStatic modifiers)
+           same_static? (case method_style
+                          {#Static}
+                          (java/lang/reflect/Modifier::isStatic modifiers)
 
-                             _
-                             true)
-           special_matches? (case method_style
-                              {#Special}
-                              (not (or (java/lang/reflect/Modifier::isInterface (java/lang/Class::getModifiers class))
-                                       (java/lang/reflect/Modifier::isAbstract modifiers)))
+                          _
+                          true)
+           same_special? (case method_style
+                           {#Special}
+                           (not (or (java/lang/reflect/Modifier::isInterface (java/lang/Class::getModifiers class))
+                                    (java/lang/reflect/Modifier::isAbstract modifiers)))
 
-                              _
-                              true)
-           arity_matches? (n.= (list.size inputsJT) (list.size parameters))
-           inputs_match? (and arity_matches?
-                              (list#mix (function (_ [expectedJC actualJC] prev)
-                                          (and prev
-                                               (jvm#= expectedJC (: (Type Value)
-                                                                    (case (parser.var? actualJC)
-                                                                      {.#Some name}
-                                                                      (|> aliasing
-                                                                          (dictionary.value name)
-                                                                          (maybe.else name)
-                                                                          jvm.var)
-
-                                                                      {.#None}
-                                                                      actualJC)))))
-                                        true
-                                        (list.zipped/2 parameters inputsJT)))]]
+                           _
+                           true)
+           same_inputs? (and (n.= (list.size inputsJT) (list.size parameters))
+                             (list.every? (function (_ [expectedJC actualJC])
+                                            (jvm#= expectedJC (de_aliased aliasing actualJC)))
+                                          (list.zipped/2 parameters inputsJT)))]]
     (in (and correct_class?
              correct_method?
-             static_matches?
-             special_matches?
-             arity_matches?
-             inputs_match?))))
+             same_static?
+             same_special?
+             same_inputs?))))
 
 (def: (check_constructor aliasing class inputsJT constructor)
   (-> Aliasing (java/lang/Class java/lang/Object) (List (Type Value)) (java/lang/reflect/Constructor java/lang/Object) (Operation Bit))
@@ -1183,16 +1202,7 @@
     (in (and (java/lang/Object::equals class (java/lang/reflect/Constructor::getDeclaringClass constructor))
              (n.= (list.size inputsJT) (list.size parameters))
              (list.every? (function (_ [expectedJC actualJC])
-                            (jvm#= expectedJC (: (Type Value)
-                                                 (case (parser.var? actualJC)
-                                                   {.#Some name}
-                                                   (|> aliasing
-                                                       (dictionary.value name)
-                                                       (maybe.else name)
-                                                       jvm.var)
-
-                                                   {.#None}
-                                                   actualJC))))
+                            (jvm#= expectedJC (de_aliased aliasing actualJC)))
                           (list.zipped/2 parameters inputsJT))))))
 
 (def: index_parameter
@@ -1380,10 +1390,10 @@
       (in method)
 
       {.#End}
-      (/////analysis.except ..no_candidates [class_name method_name inputsJT (list.all hint! candidates)])
+      (/////analysis.except ..no_candidates [actual_class_tvars class_name method_name actual_method_tvars inputsJT (list.all hint! candidates)])
       
       candidates
-      (/////analysis.except ..too_many_candidates [class_name method_name inputsJT candidates]))))
+      (/////analysis.except ..too_many_candidates [actual_class_tvars class_name method_name actual_method_tvars inputsJT candidates]))))
 
 (def: constructor_method
   "<init>")
@@ -1412,10 +1422,10 @@
       (in constructor)
 
       {.#End}
-      (/////analysis.except ..no_candidates [class_name ..constructor_method inputsJT (list.all hint! candidates)])
+      (/////analysis.except ..no_candidates [actual_class_tvars class_name ..constructor_method actual_method_tvars inputsJT (list.all hint! candidates)])
       
       candidates
-      (/////analysis.except ..too_many_candidates [class_name ..constructor_method inputsJT candidates]))))
+      (/////analysis.except ..too_many_candidates [actual_class_tvars class_name ..constructor_method actual_method_tvars inputsJT candidates]))))
 
 (template [<name> <category> <parser>]
   [(def: .public <name>
@@ -2175,7 +2185,7 @@
                              [[/////analysis.#when
                                {pattern.#Complex
                                 {complex.#Tuple
-                                 (|> arity
+                                 (|> (-- arity)
                                      list.indices
                                      (list#each (|>> (n.+ 2) {pattern.#Bind})))}}
                                

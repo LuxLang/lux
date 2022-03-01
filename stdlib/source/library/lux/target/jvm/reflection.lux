@@ -1,34 +1,34 @@
 (.using
-  [library
-   [lux {"-" Primitive type}
-    ["[0]" ffi {"+" import:}]
-    ["[0]" type]
-    [abstract
-     ["[0]" monad {"+" do}]]
-    [control
-     ["[0]" try {"+" Try}]
-     ["[0]" exception {"+" exception:}]
-     [parser
-      ["<t>" text]]]
-    [data
-     ["[0]" text ("[1]#[0]" equivalence)
-      ["%" format {"+" format}]]
-     [collection
-      ["[0]" list ("[1]#[0]" mix functor)]
-      ["[0]" array]
-      ["[0]" dictionary]]]
-    [math
-     [number
-      ["n" nat]]]]]
-  ["[0]" // "_"
-   [encoding
-    ["[1][0]" name {"+" External}]]
-   ["/" type
-    [category {"+" Void Value Return Method Primitive Object Class Array Parameter}]
-    ["[1][0]" lux {"+" Mapping}]
-    ["[1][0]" descriptor]
-    ["[1][0]" reflection]
-    ["[1][0]" parser]]])
+ [library
+  [lux {"-" Primitive type}
+   ["[0]" ffi {"+" import:}]
+   ["[0]" type]
+   [abstract
+    ["[0]" monad {"+" do}]]
+   [control
+    ["[0]" try {"+" Try}]
+    ["[0]" exception {"+" exception:}]
+    [parser
+     ["<t>" text]]]
+   [data
+    ["[0]" text ("[1]#[0]" equivalence)
+     ["%" format {"+" format}]]
+    [collection
+     ["[0]" list ("[1]#[0]" mix functor)]
+     ["[0]" array]
+     ["[0]" dictionary]]]
+   [math
+    [number
+     ["n" nat]]]]]
+ ["[0]" // "_"
+  [encoding
+   ["[1][0]" name {"+" External}]]
+  ["/" type
+   [category {"+" Void Value Return Method Primitive Object Class Array Parameter}]
+   ["[1][0]" lux {"+" Mapping}]
+   ["[1][0]" descriptor]
+   ["[1][0]" reflection]
+   ["[1][0]" parser]]])
 
 (import: java/lang/String)
 
@@ -105,11 +105,11 @@
 (def: .public (load class_loader name)
   (-> java/lang/ClassLoader External (Try (java/lang/Class java/lang/Object)))
   (case (java/lang/Class::forName name false class_loader)
-    {try.#Success class}
-    {try.#Success class}
-
     {try.#Failure _}
-    (exception.except ..unknown_class [name])))
+    (exception.except ..unknown_class [name])
+
+    success
+    success))
 
 (def: .public (sub? class_loader super sub)
   (-> java/lang/ClassLoader External External (Try Bit))
@@ -140,7 +140,7 @@
                             [/reflection.double]
                             [/reflection.char]))
                       (text.starts_with? /descriptor.array_prefix class_name))
-                (exception.except ..not_a_class reflection)
+                (exception.except ..not_a_class [reflection])
                 {try.#Success (/.class class_name (list))})))
         _)
       (case (ffi.check java/lang/reflect/ParameterizedType reflection)
@@ -148,15 +148,14 @@
         (let [raw (java/lang/reflect/ParameterizedType::getRawType reflection)]
           (case (ffi.check java/lang/Class raw)
             {.#Some raw}
-            (do [! try.monad]
-              [paramsT (|> reflection
-                           java/lang/reflect/ParameterizedType::getActualTypeArguments
-                           (array.list {.#None})
-                           (monad.each ! parameter))]
-              (in (/.class (|> raw
-                               (:as (java/lang/Class java/lang/Object))
-                               java/lang/Class::getName)
-                           paramsT)))
+            (let [! try.monad]
+              (|> reflection
+                  java/lang/reflect/ParameterizedType::getActualTypeArguments
+                  (array.list {.#None})
+                  (monad.each ! parameter)
+                  (# ! each (/.class (|> raw
+                                         (:as (java/lang/Class java/lang/Object))
+                                         java/lang/Class::getName)))))
 
             _
             (exception.except ..not_a_class [raw])))
@@ -164,8 +163,9 @@
       ... else
       (exception.except ..cannot_convert_to_a_lux_type [reflection])))
 
-(def: .public (parameter reflection)
-  (-> java/lang/reflect/Type (Try (/.Type Parameter)))
+(def: .public (parameter type reflection)
+  (-> (-> java/lang/reflect/Type (Try (/.Type Value)))
+      (-> java/lang/reflect/Type (Try (/.Type Parameter))))
   (<| (case (ffi.check java/lang/reflect/TypeVariable reflection)
         {.#Some reflection}
         {try.#Success (/.var (java/lang/reflect/TypeVariable::getName reflection))}
@@ -179,25 +179,27 @@
           (^template [<pattern> <kind>]
             [<pattern>
              (case (ffi.check java/lang/reflect/GenericArrayType bound)
-               {.#Some _}
+               {.#Some it}
                ... TODO: Array bounds should not be "erased" as they
                ... are right now.
                {try.#Success /.wildcard}
 
                _
-               (# try.monad each <kind> (..class' parameter bound)))])
+               (# try.monad each <kind> (parameter type bound)))])
           ([[_ {.#Some bound}] /.upper]
            [[{.#Some bound} _] /.lower])
           
           _
           {try.#Success /.wildcard})
         _)
-      (..class' parameter reflection)))
-
-(def: .public class
-  (-> java/lang/reflect/Type
-      (Try (/.Type Class)))
-  (..class' ..parameter))
+      (case (ffi.check java/lang/reflect/GenericArrayType reflection)
+        {.#Some reflection}
+        (|> reflection
+            java/lang/reflect/GenericArrayType::getGenericComponentType
+            type
+            (# try.monad each /.array))
+        _)
+      (..class' (parameter type) reflection)))
 
 (def: .public (type reflection)
   (-> java/lang/reflect/Type (Try (/.Type Value)))
@@ -223,15 +225,13 @@
                       (<t>.result /parser.value (|> class_name //name.internal //name.read))
                       {try.#Success (/.class class_name (list))}))))
         _)
-      (case (ffi.check java/lang/reflect/GenericArrayType reflection)
-        {.#Some reflection}
-        (|> reflection
-            java/lang/reflect/GenericArrayType::getGenericComponentType
-            type
-            (# try.monad each /.array))
-        _)
       ... else
-      (..parameter reflection)))
+      (..parameter type reflection)))
+
+(def: .public class
+  (-> java/lang/reflect/Type
+      (Try (/.Type Class)))
+  (..class' (..parameter ..type)))
 
 (def: .public (return reflection)
   (-> java/lang/reflect/Type (Try (/.Type Return)))

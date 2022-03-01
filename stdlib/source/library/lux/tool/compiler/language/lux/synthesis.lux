@@ -26,6 +26,7 @@
      ["f" frac]]]]]
  ["[0]" / "_"
   ["[1][0]" simple {"+" Simple}]
+  ["[1][0]" side {"+" Side}]
   [//
    ["[0]" analysis {"+" Environment Analysis}
     ["[1]/[0]" complex {"+" Complex}]]
@@ -55,9 +56,6 @@
   [#locals 0
    #currying? false])
 
-(type: .public Side
-  (Either Nat Nat))
-
 (type: .public Member
   (Either Nat Nat))
 
@@ -72,14 +70,14 @@
 (type: .public (Path' s)
   (Variant
    {#Pop}
-   {#Access Access}
    {#Bind Register}
+   {#Access Access}
    {#Bit_Fork Bit (Path' s) (Maybe (Path' s))}
    {#I64_Fork (Fork (I64 Any) (Path' s))}
    {#F64_Fork (Fork Frac (Path' s))}
    {#Text_Fork (Fork Text (Path' s))}
-   {#Alt (Path' s) (Path' s)}
    {#Seq (Path' s) (Path' s)}
+   {#Alt (Path' s) (Path' s)}
    {#Then s}))
 
 (type: .public (Abstraction' s)
@@ -160,6 +158,20 @@
   [path/member ..#Member]
   )
 
+(template: .public (side lefts right?)
+  [(.<| {..#Access}
+        {..#Side}
+        [/side.#lefts lefts
+         /side.#right? right?])])
+
+(template [<side> <name>]
+  [(template: .public (<name> lefts)
+     [(..side lefts <side>)])]
+
+  [#0 side/left]
+  [#1 side/right]
+  )
+
 (template [<name> <kind> <side>]
   [(template: .public (<name> content)
      [(.<| {..#Access}
@@ -167,8 +179,6 @@
            {<side>}
            content)])]
 
-  [side/left    ..#Side   .#Left]
-  [side/right   ..#Side   .#Right]
   [member/left  ..#Member .#Left]
   [member/right ..#Member .#Right]
   )
@@ -230,9 +240,9 @@
 
 (template [<name> <tag>]
   [(template: .public (<name> content)
-     [(<| {..#Structure}
-          {<tag>}
-          content)])]
+     [(.<| {..#Structure}
+           {<tag>}
+           content)])]
 
   [variant analysis/complex.#Variant]
   [tuple   analysis/complex.#Tuple]
@@ -300,13 +310,8 @@
     
     {#Access access}
     (case access
-      {#Side side}
-      (case side
-        {.#Left lefts}
-        (format "{" (%.nat lefts) " #0" "}")
-        
-        {.#Right lefts}
-        (format "{" (%.nat lefts) " #1" "}"))
+      {#Side it}
+      (/side.format it)
       
       {#Member member}
       (case member
@@ -421,17 +426,13 @@
   (Format Path)
   (%path' %synthesis))
 
-(def: side_equivalence
-  (Equivalence Side)
-  (sum.equivalence n.equivalence n.equivalence))
-
-(def: member_equivalence
-  (Equivalence Member)
-  (sum.equivalence n.equivalence n.equivalence))
-
 (def: member_hash
   (Hash Member)
   (sum.hash n.hash n.hash))
+
+(def: member_equivalence
+  (Equivalence Member)
+  (# ..member_hash &equivalence))
 
 (implementation: .public access_equivalence
   (Equivalence Access)
@@ -441,7 +442,7 @@
       (^template [<tag> <equivalence>]
         [[{<tag> reference} {<tag> sample}]
          (# <equivalence> = reference sample)])
-      ([#Side ..side_equivalence]
+      ([#Side /side.equivalence]
        [#Member ..member_equivalence])
 
       _
@@ -453,13 +454,12 @@
   (def: &equivalence ..access_equivalence)
   
   (def: (hash value)
-    (let [sub_hash (sum.hash n.hash n.hash)]
-      (case value
-        (^template [<tag>]
-          [{<tag> value}
-           (# sub_hash hash value)])
-        ([#Side]
-         [#Member])))))
+    (case value
+      (^template [<tag> <hash>]
+        [{<tag> value}
+         (# <hash> hash value)])
+      ([#Side /side.hash]
+       [#Member ..member_hash]))))
 
 (implementation: .public (path'_equivalence equivalence)
   (All (_ a) (-> (Equivalence a) (Equivalence (Path' a))))
@@ -615,7 +615,7 @@
           (# (..path'_hash super) hash path))
       )))
 
-(implementation: (loop_equivalence (^open "#[0]"))
+(implementation: (loop_equivalence (^open "/#[0]"))
   (All (_ a) (-> (Equivalence a) (Equivalence (Loop a))))
 
   (def: (= reference sample)
@@ -623,11 +623,11 @@
       [{#Scope [reference_start reference_inits reference_iteration]}
        {#Scope [sample_start sample_inits sample_iteration]}]
       (and (n.= reference_start sample_start)
-           (# (list.equivalence #=) = reference_inits sample_inits)
-           (#= reference_iteration sample_iteration))
+           (# (list.equivalence /#=) = reference_inits sample_inits)
+           (/#= reference_iteration sample_iteration))
 
       [{#Again reference} {#Again sample}]
-      (# (list.equivalence #=) = reference sample)
+      (# (list.equivalence /#=) = reference sample)
       
       _
       false)))

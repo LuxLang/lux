@@ -56,8 +56,8 @@
 (def: .public (function analyse function_name arg_name archive body)
   (-> Phase Text Text Phase)
   (do [! ///.monad]
-    [:function: (///extension.lifted meta.expected_type)]
-    (loop [expectedT :function:]
+    [expectedT (///extension.lifted meta.expected_type)]
+    (loop [expectedT expectedT]
       (/.with_exception ..cannot_analyse [expectedT function_name arg_name body]
         (case expectedT
           {.#Function :input: :output:}
@@ -73,8 +73,8 @@
               (/type.expecting :output:)
               (analyse archive body))
           
-          {.#Named name unnamedT}
-          (again unnamedT)
+          {.#Named name :anonymous:}
+          (again :anonymous:)
 
           {.#Apply argT funT}
           (case (type.applied (list argT) funT)
@@ -84,13 +84,15 @@
             {.#None}
             (/.failure (exception.error ..cannot_analyse [expectedT function_name arg_name body])))
 
-          (^template [<tag> <instancer>]
-            [{<tag> _}
-             (do !
-               [[_ instanceT] (/type.check <instancer>)]
-               (again (maybe.trusted (type.applied (list instanceT) expectedT))))])
-          ([.#UnivQ check.existential]
-           [.#ExQ check.var])
+          {.#UnivQ _}
+          (do !
+            [[@instance :instance:] (/type.check check.existential)]
+            (again (maybe.trusted (type.applied (list :instance:) expectedT))))
+
+          {.#ExQ _}
+          (<| /type.with_var
+              (.function (_ [@instance :instance:]))
+              (again (maybe.trusted (type.applied (list :instance:) expectedT))))
           
           {.#Var id}
           (do !
@@ -101,27 +103,32 @@
 
               ... Inference
               _
-              (do !
-                [[@input :input:] (/type.check check.var)
-                 [@output :output:] (/type.check check.var)
-                 .let [:function: {.#Function :input: :output:}]
-                 functionA (again :function:)
-                 specialization (/type.check (check.try (check.identity (list @output) @input)))
-                 :function: (case specialization
-                              {try.#Success :input:'}
-                              (in :function:)
+              (<| /type.with_var
+                  (.function (_ [@input :input:]))
+                  /type.with_var
+                  (.function (_ [@output :output:]))
+                  (do !
+                    [functionA (again {.#Function :input: :output:})])
+                  /type.check
+                  (do check.monad
+                    [:output: (check.identity (list) @output)
+                     ?:input: (check.try (check.identity (list @output) @input))
+                     ? (check.linked? @input @output)
+                     _ (<| (check.check expectedT)
+                           (case ?:input:
+                             {try.#Success :input:}
+                             {.#Function :input: (if ?
+                                                   :input:
+                                                   :output:)}
 
-                              {try.#Failure _}
-                              (/type.check
-                               (do [! check.monad]
-                                 [? (check.linked? @input @output)]
-                                 (# ! each
-                                    (|>> {.#Function :input:} (/inference.quantified @input 1) {.#UnivQ (list)})
-                                    (if ?
-                                      (in :input:)
-                                      (check.identity (list @input) @output))))))
-                 _ (/type.check (check.check expectedT :function:))]
-                (in functionA))))
+                             {try.#Failure _}
+                             (|> (if ?
+                                   :input:
+                                   :output:)
+                                 {.#Function :input:}
+                                 (/inference.quantified @input 1)
+                                 {.#UnivQ (list)})))]
+                    (in functionA)))))
 
           _
           (/.failure "")
