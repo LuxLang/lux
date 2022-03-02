@@ -1,17 +1,21 @@
 (.using
  [library
   [lux "*"
+   ["@" target]
    [abstract
-    [monad {"+" do}]]
+    ["[0]" monad {"+" Monad do}]]
    [control
     [pipe {"+" case>}]
     ["[0]" try {"+" Try}]
-    ["[0]" exception {"+" exception:}]
-    [concurrency
-     ["[0]" async {"+" Async}]]]
+    ["[0]" exception {"+" exception:}]]
    [data
-    [text
-     ["%" format {"+" format}]]]
+    [binary {"+" Binary}]
+    ["[0]" product]
+    ["[0]" text ("[1]#[0]" equivalence)
+     ["%" format {"+" format}]]
+    [collection
+     ["[0]" list ("[1]#[0]" functor)]
+     ["[0]" dictionary {"+" Dictionary}]]]
    [world
     ["[0]" file]]]]
  ["[0]" //
@@ -38,9 +42,9 @@
   (All (_ !) (-> (file.System !) Context module.ID (! Bit)))
   (# fs directory? (..path fs context @module)))
 
-(def: .public (enable! fs context @module)
-  (-> (file.System Async) Context module.ID (Async (Try Any)))
-  (do [! async.monad]
+(def: .public (enable! ! fs context @module)
+  (All (_ !) (-> (Monad !) (file.System !) Context module.ID (! (Try Any))))
+  (do !
     [.let [path (..path fs context @module)]
      module_exists? (# fs directory? path)]
     (if module_exists?
@@ -49,7 +53,7 @@
                                                                      @module
                                                                      error])]
         (do !
-          [? (//.enable! fs context)]
+          [? (//.enable! ! fs context)]
           (case ?
             {try.#Failure error}
             (in <failure>)
@@ -62,3 +66,36 @@
 
                                       success
                                       success))))))))))
+
+(def: file
+  file.Path
+  "descriptor")
+
+(def: .public (descriptor fs context @module)
+  (All (_ !) (-> (file.System !) Context module.ID file.Path))
+  (format (..path fs context @module)
+          (# fs separator)
+          ..file))
+
+(def: .public (cache! fs context @module content)
+  (All (_ !) (-> (file.System !) Context module.ID Binary (! (Try Any))))
+  (# fs write content (..descriptor fs context @module)))
+
+(def: .public (cache fs context @module)
+  (All (_ !) (-> (file.System !) Context module.ID (! (Try Binary))))
+  (# fs read (..descriptor fs context @module)))
+
+(def: .public (artifacts ! fs context @module)
+  (All (_ !) (-> (Monad !) (file.System !) Context module.ID (! (Try (Dictionary Text Binary)))))
+  (do [! (try.with !)]
+    [files (# fs directory_files (..path fs context @module))
+     pairs (|> files
+               (list#each (function (_ file)
+                            [(file.name fs file) file]))
+               (list.only (|>> product.left (text#= ..file) not))
+               (monad.each ! (function (_ [name path])
+                               (|> path
+                                   (# fs read)
+                                   (# ! each (|>> [name]))))))]
+    (in (dictionary.of_list text.hash (for [@.old (:as (List [Text Binary]) pairs)]
+                                           pairs)))))

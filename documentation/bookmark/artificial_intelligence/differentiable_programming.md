@@ -1,5 +1,6 @@
 # Reference
 
+0. [Provably Correct, Asymptotically Efficient, Higher-Order Reverse-Mode Automatic Differentiation](https://www.cl.cam.ac.uk/~nk480/higher-order-ad.pdf)
 0. [Differentiable Programming in C++ - Vassil Vassilev & William Moses - CppCon 2021](https://www.youtube.com/watch?v=1QQj1mAV-eY)
 0. [Demystifying Differentiable Programming: Shift/Reset the Penultimate Backpropagator](https://arxiv.org/abs/1803.10228)
 0. [The Taichi Programming Language](http://taichi.graphics/)

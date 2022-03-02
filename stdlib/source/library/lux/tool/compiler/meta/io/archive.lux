@@ -6,9 +6,7 @@
     [predicate {"+" Predicate}]
     ["[0]" monad {"+" do}]]
    [control
-    [pipe {"+" case>}]
     ["[0]" try {"+" Try}]
-    ["[0]" exception {"+" exception:}]
     [concurrency
      ["[0]" async {"+" Async} ("[1]#[0]" monad)]]
     ["<>" parser
@@ -45,6 +43,7 @@
      ["[0]" descriptor {"+" Descriptor}]
      ["[0]" document {"+" Document}]]]
    ["[0]" cache
+    ["[1]/[0]" archive]
     ["[1]/[0]" module]
     ["[0]" dependency "_"
      ["[1]" module]]]
@@ -56,33 +55,6 @@
       ["[0]" generation]
       ["[0]" directive]
       ["[1]/[0]" program]]]]]])
-
-(def: (general_descriptor fs context)
-  (-> (file.System Async) Context file.Path)
-  (format (cache.path fs context)
-          (# fs separator)
-          "general_descriptor"))
-
-(def: .public (freeze fs context archive)
-  (-> (file.System Async) Context Archive (Async (Try Any)))
-  (# fs write (archive.export ///.version archive) (..general_descriptor fs context)))
-
-(def: module_descriptor_file
-  "module_descriptor")
-
-(def: (module_descriptor fs context module_id)
-  (-> (file.System Async) Context module.ID file.Path)
-  (format (cache/module.path fs context module_id)
-          (# fs separator)
-          ..module_descriptor_file))
-
-(def: .public (cache fs context module_id content)
-  (-> (file.System Async) Context module.ID Binary (Async (Try Any)))
-  (# fs write content (..module_descriptor fs context module_id)))
-
-(def: (read_module_descriptor fs context module_id)
-  (-> (file.System Async) Context module.ID (Async (Try Binary)))
-  (# fs read (..module_descriptor fs context module_id)))
 
 (def: module_parser
   (Parser (module.Module .Module))
@@ -115,21 +87,6 @@
                             (archive.archived archive)))]
     (in (with@ .#modules modules (fresh_analysis_state host configuration)))))
 
-(def: (cached_artifacts fs context module_id)
-  (-> (file.System Async) Context module.ID (Async (Try (Dictionary Text Binary))))
-  (let [! (try.with async.monad)]
-    (|> (cache/module.path fs context module_id)
-        (# fs directory_files)
-        (# ! each (|>> (list#each (function (_ file)
-                                    [(file.name fs file) file]))
-                       (list.only (|>> product.left (text#= ..module_descriptor_file) not))
-                       (monad.each ! (function (_ [name path])
-                                       (|> path
-                                           (# fs read)
-                                           (# ! each (|>> [name])))))
-                       (# ! each (dictionary.of_list text.hash))))
-        (# ! conjoint))))
-
 (type: Definitions (Dictionary Text Any))
 (type: Analysers (Dictionary Text analysis.Handler))
 (type: Synthesizers (Dictionary Text synthesis.Handler))
@@ -149,7 +106,7 @@
    (dictionary.empty text.hash)
    (dictionary.empty text.hash)])
 
-(def: (loaded_document extension host module_id expected actual document)
+(def: (loaded_document extension host @module expected actual document)
   (All (_ expression directive)
     (-> Text (generation.Host expression directive) module.ID (Sequence [Artifact (Set unit.ID)]) (Dictionary Text Binary) (Document .Module)
         (Try [(Document .Module) Bundles Output])))
@@ -162,15 +119,15 @@
                                      output (: Output sequence.empty)]
                                 (let [[analysers synthesizers generators directives] bundles]
                                   (case input
-                                    {.#Item [[[artifact_id artifact_category mandatory_artifact?] artifact_dependencies] input']}
+                                    {.#Item [[[@artifact artifact_category mandatory_artifact?] artifact_dependencies] input']}
                                     (case (do !
-                                            [data (try.of_maybe (dictionary.value (format (%.nat artifact_id) extension) actual))
-                                             .let [context [module_id artifact_id]
+                                            [data (try.of_maybe (dictionary.value (format (%.nat @artifact) extension) actual))
+                                             .let [context [@module @artifact]
                                                    directive (# host ingest context data)]]
                                             (case artifact_category
                                               {category.#Anonymous}
                                               (do !
-                                                [.let [output (sequence.suffix [artifact_id {.#None} data] output)]
+                                                [.let [output (sequence.suffix [@artifact {.#None} data] output)]
                                                  _ (# host re_learn context {.#None} directive)]
                                                 (in [definitions
                                                      [analysers
@@ -180,7 +137,7 @@
                                                      output]))
                                               
                                               {category.#Definition [name function_artifact]}
-                                              (let [output (sequence.suffix [artifact_id {.#None} data] output)]
+                                              (let [output (sequence.suffix [@artifact {.#None} data] output)]
                                                 (if (text#= $/program.name name)
                                                   (in [definitions
                                                        [analysers
@@ -199,7 +156,7 @@
 
                                               {category.#Analyser extension}
                                               (do !
-                                                [.let [output (sequence.suffix [artifact_id {.#None} data] output)]
+                                                [.let [output (sequence.suffix [@artifact {.#None} data] output)]
                                                  value (# host re_load context {.#None} directive)]
                                                 (in [definitions
                                                      [(dictionary.has extension (:as analysis.Handler value) analysers)
@@ -210,7 +167,7 @@
 
                                               {category.#Synthesizer extension}
                                               (do !
-                                                [.let [output (sequence.suffix [artifact_id {.#None} data] output)]
+                                                [.let [output (sequence.suffix [@artifact {.#None} data] output)]
                                                  value (# host re_load context {.#None} directive)]
                                                 (in [definitions
                                                      [analysers
@@ -221,7 +178,7 @@
 
                                               {category.#Generator extension}
                                               (do !
-                                                [.let [output (sequence.suffix [artifact_id {.#None} data] output)]
+                                                [.let [output (sequence.suffix [@artifact {.#None} data] output)]
                                                  value (# host re_load context {.#None} directive)]
                                                 (in [definitions
                                                      [analysers
@@ -232,7 +189,7 @@
 
                                               {category.#Directive extension}
                                               (do !
-                                                [.let [output (sequence.suffix [artifact_id {.#None} data] output)]
+                                                [.let [output (sequence.suffix [@artifact {.#None} data] output)]
                                                  value (# host re_load context {.#None} directive)]
                                                 (in [definitions
                                                      [analysers
@@ -243,7 +200,7 @@
 
                                               {category.#Custom name}
                                               (do !
-                                                [.let [output (sequence.suffix [artifact_id {.#Some name} data] output)]
+                                                [.let [output (sequence.suffix [@artifact {.#Some name} data] output)]
                                                  _ (# host re_learn context {.#Some name} directive)]
                                                 (in [definitions
                                                      [analysers
@@ -287,26 +244,27 @@
     (in [(document.document $.key (with@ .#definitions definitions content))
          bundles])))
 
-(def: (load_definitions fs context module_id host_environment entry)
+(def: (load_definitions fs context @module host_environment entry)
   (All (_ expression directive)
     (-> (file.System Async) Context module.ID (generation.Host expression directive)
         (archive.Entry .Module)
         (Async (Try [(archive.Entry .Module) Bundles]))))
   (do (try.with async.monad)
-    [actual (cached_artifacts fs context module_id)
+    [actual (: (Async (Try (Dictionary Text Binary)))
+               (cache/module.artifacts async.monad fs context @module))
      .let [expected (registry.artifacts (value@ archive.#registry entry))]
      [document bundles output] (|> (value@ [archive.#module module.#document] entry)
-                                   (loaded_document (value@ context.#artifact_extension context) host_environment module_id expected actual)
+                                   (loaded_document (value@ context.#artifact_extension context) host_environment @module expected actual)
                                    async#in)]
     (in [(|> entry
              (with@ [archive.#module module.#document] document)
              (with@ archive.#output output))
          bundles])))
 
-(def: (purge! fs context [module_name module_id])
+(def: (purge! fs context [module_name @module])
   (-> (file.System Async) Context [descriptor.Module module.ID] (Async (Try Any)))
   (do [! (try.with async.monad)]
-    [.let [cache (cache/module.path fs context module_id)]
+    [.let [cache (cache/module.path fs context @module)]
      _ (|> cache
            (# fs directory_files)
            (# ! each (monad.each ! (# fs delete)))
@@ -331,17 +289,17 @@
 (def: initial_purge
   (-> (List [Bit Cache])
       Purge)
-  (|>> (list.all (function (_ [valid_cache? [module_name [module_id _]]])
+  (|>> (list.all (function (_ [valid_cache? [module_name [@module _]]])
                    (if valid_cache?
                      {.#None}
-                     {.#Some [module_name module_id]})))
+                     {.#Some [module_name @module]})))
        (dictionary.of_list text.hash)))
 
 (def: (full_purge caches load_order)
   (-> (List [Bit Cache])
       (dependency.Order .Module)
       Purge)
-  (list#mix (function (_ [module_name [module_id entry]] purge)
+  (list#mix (function (_ [module_name [@module entry]] purge)
               (let [purged? (: (Predicate descriptor.Module)
                                (dictionary.key? purge))]
                 (if (purged? module_name)
@@ -350,7 +308,7 @@
                           (value@ [archive.#module module.#descriptor descriptor.#references])
                           set.list
                           (list.any? purged?))
-                    (dictionary.has module_name module_id purge)
+                    (dictionary.has module_name @module purge)
                     purge))))
             (..initial_purge caches)
             load_order))
@@ -359,13 +317,14 @@
   Text
   "(Lux Caching System)")
 
-(def: (valid_cache fs context import contexts [module_name module_id])
+(def: (valid_cache fs context import contexts [module_name @module])
   (-> (file.System Async) Context Import (List //.Context)
       [descriptor.Module module.ID]
       (Async (Try [Bit Cache])))
-  (with_expansions [<cache> [module_name [module_id [module registry]]]]
+  (with_expansions [<cache> [module_name [@module [module registry]]]]
     (do [! (try.with async.monad)]
-      [data (..read_module_descriptor fs context module_id)
+      [data (: (Async (Try Binary))
+               (cache/module.cache fs context @module))
        [module registry] (async#in (<binary>.result ..parser data))]
       (if (text#= descriptor.runtime module_name)
         (in [true <cache>])
@@ -389,7 +348,7 @@
       (Try (dependency.Order .Module)))
   (|> pre_loaded_caches
       (monad.mix try.monad
-                 (function (_ [_ [module [module_id [|module| registry]]]] archive)
+                 (function (_ [_ [module [@module [|module| registry]]]] archive)
                    (archive.has module
                                 [archive.#module |module|
                                  archive.#output (: Output sequence.empty)
@@ -408,9 +367,9 @@
     [... TODO: Stop needing to wrap this expression in an unnecessary "do" expression.
      it (|> load_order
             (list.only (|>> product.left (dictionary.key? purge) not))
-            (monad.each ! (function (_ [module_name [module_id entry]])
+            (monad.each ! (function (_ [module_name [@module entry]])
                             (do !
-                              [[entry bundles] (..load_definitions fs context module_id host_environment entry)]
+                              [[entry bundles] (..load_definitions fs context @module host_environment entry)]
                               (in [[module_name entry]
                                    bundles])))))]
     (in it)))
@@ -451,7 +410,7 @@
     (-> Configuration (generation.Host expression directive) (file.System Async) Context Import (List //.Context)
         (Async (Try [Archive .Lux Bundles]))))
   (do async.monad
-    [binary (# fs read (..general_descriptor fs context))]
+    [binary (# fs read (cache/archive.descriptor fs context))]
     (case binary
       {try.#Success binary}
       (do (try.with async.monad)

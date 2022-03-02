@@ -1,0 +1,84 @@
+(.using
+ [library
+  [lux "*"
+   ["_" test {"+" Test}]
+   [abstract
+    [monad {"+" do}]]
+   [control
+    ["[0]" try ("[1]#[0]" functor)]
+    [concurrency
+     ["[0]" async]]]
+   [data
+    ["[0]" binary ("[1]#[0]" equivalence)]
+    [collection
+     ["[0]" sequence]]]
+   [math
+    ["[0]" random]
+    [number
+     ["n" nat]]]
+   [world
+    ["[0]" file]]]]
+ [\\library
+  ["[0]" /
+   ["/[1]" //
+    ["/[1]" //
+     ["[0]" archive
+      ["[0]" signature]
+      ["[0]" key]
+      ["[0]" registry]
+      ["[0]" module
+       ["[0]" document]]]]]]]
+ ["$" // "_"
+  [//
+   ["[1][0]" context]
+   ["[1][0]" archive
+    ["[2][0]" signature]]]])
+
+(def: .public test
+  Test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [.let [/ "/"
+               fs (file.mock /)]
+         context $context.random
+         module/0 (random.ascii/lower 1)
+         module/1 (random.ascii/lower 2)
+         content/0 random.nat
+         content/1 (random.only (|>> (n.= content/0) not) random.nat)
+         hash random.nat
+         signature $signature.random
+         .let [key (key.key signature content/0)
+               [archive expected] (|> (do try.monad
+                                        [[@module/0 archive] (archive.reserve module/0 archive.empty)
+                                         [@module/1 archive] (archive.reserve module/1 archive)
+                                         .let [entry/0 [archive.#module [module.#id @module/0
+                                                                         module.#descriptor ($archive.descriptor module/0 hash)
+                                                                         module.#document (document.document key content/0)]
+                                                        archive.#output sequence.empty
+                                                        archive.#registry registry.empty]
+                                               entry/1 [archive.#module [module.#id @module/1
+                                                                         module.#descriptor ($archive.descriptor module/1 hash)
+                                                                         module.#document (document.document key content/1)]
+                                                        archive.#output sequence.empty
+                                                        archive.#registry registry.empty]]
+                                         archive (archive.has module/0 entry/0 archive)
+                                         archive (archive.has module/1 entry/1 archive)]
+                                        (in [archive (archive.export ///.version archive)]))
+                                      try.trusted)]]
+        ($_ _.and
+            (in (do async.monad
+                  [pre/0 (# fs file? (/.descriptor fs context))
+                   enabled? (//.enable! fs context)
+                   cached? (/.cache! fs context archive)
+                   actual (# fs read (/.descriptor fs context))
+                   post/0 (# fs file? (/.descriptor fs context))]
+                  (_.cover' [/.descriptor /.cache!]
+                            (and (not pre/0)
+                                 (|> (do try.monad
+                                       [_ enabled?
+                                        _ cached?]
+                                       actual)
+                                     (try#each (binary#= expected))
+                                     (try.else false))
+                                 post/0))))
+            ))))
