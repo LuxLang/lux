@@ -6,7 +6,7 @@
    [abstract
     ["[0]" monad {"+" do}]]
    [control
-    ["[0]" try {"+" Try}]
+    ["[0]" try {"+" Try} ("[1]#[0]" functor)]
     ["[0]" exception {"+" exception:}]
     [parser
      ["<t>" text]]]
@@ -86,7 +86,9 @@
    (getName [] java/lang/String)
    (isAssignableFrom [(java/lang/Class java/lang/Object)] boolean)
    (getTypeParameters [] [(java/lang/reflect/TypeVariable (java/lang/Class c))])
-   (getDeclaredField [java/lang/String] "try" java/lang/reflect/Field)])
+   (getDeclaredField [java/lang/String] "try" java/lang/reflect/Field)
+   (isArray [] boolean)
+   (getComponentType [] (java/lang/Class java/lang/Object))])
 
 (exception: .public (unknown_class [class External])
   (exception.report
@@ -147,18 +149,19 @@
         {.#Some reflection}
         (let [raw (java/lang/reflect/ParameterizedType::getRawType reflection)]
           (case (ffi.check java/lang/Class raw)
-            {.#Some raw}
+            {.#Some raw'}
             (let [! try.monad]
               (|> reflection
                   java/lang/reflect/ParameterizedType::getActualTypeArguments
                   (array.list {.#None})
                   (monad.each ! parameter)
-                  (# ! each (/.class (|> raw
+                  (# ! each (/.class (|> raw'
                                          (:as (java/lang/Class java/lang/Object))
-                                         java/lang/Class::getName)))))
+                                         java/lang/Class::getName)))
+                  (exception.with ..cannot_convert_to_a_lux_type [reflection])))
 
             _
-            (exception.except ..not_a_class [raw])))
+            (exception.except ..not_a_class [reflection])))
         _)
       ... else
       (exception.except ..cannot_convert_to_a_lux_type [reflection])))
@@ -198,6 +201,15 @@
             java/lang/reflect/GenericArrayType::getGenericComponentType
             type
             (# try.monad each /.array))
+        _)
+      (case (ffi.check java/lang/Class reflection)
+        {.#Some class}
+        (if (java/lang/Class::isArray class)
+          (|> class
+              java/lang/Class::getComponentType
+              type
+              (try#each /.array))
+          (..class' (parameter type) reflection))
         _)
       (..class' (parameter type) reflection)))
 
@@ -272,6 +284,12 @@
 (def: .public (correspond class type)
   (-> (java/lang/Class java/lang/Object) Type (Try Mapping))
   (case type
+    (^ {.#Primitive (static array.type_name) (list :member:)})
+    (if (java/lang/Class::isArray class)
+      (correspond (java/lang/Class::getComponentType class)
+                  :member:)
+      (exception.except ..cannot_correspond [class type]))
+    
     {.#Primitive name params}
     (let [class_name (java/lang/Class::getName class)
           class_params (array.list {.#None} (java/lang/Class::getTypeParameters class))

@@ -31,6 +31,7 @@
 
 # Reference
 
+0. [Algorithms for Modern Hardware](https://en.algorithmica.org/hpc/)
 0. [Refterm Lecture Part 1 - Philosophies of Optimization](https://www.youtube.com/watch?v=pgoetgxecw8)
 0. [Optimizations enabled by -ffast-math](https://kristerw.github.io/2021/10/19/fast-math/)
 0. [Simple Code, High Performance](https://www.youtube.com/watch?v=Ge3aKEmZcqY)

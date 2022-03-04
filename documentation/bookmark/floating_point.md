@@ -1,3 +1,8 @@
+# Parsing
+
+0. [fast_float number parsing library: 4x faster than strtod](https://github.com/fastfloat/fast_float)
+0. [Fast float parsing in practice](https://lemire.me/blog/2020/03/10/fast-float-parsing-in-practice/)
+
 # Precision
 
 0. [Calcium](https://fredrikj.net/calcium/)
