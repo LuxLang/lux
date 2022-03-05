@@ -3,14 +3,17 @@
   [lux "*"
    ["_" test {"+" Test}]
    [abstract
+    [functor {"+"}]
     [monad {"+" do}]
+    ["[0]" monoid
+     ["$[1]" \\specification]]
+    ["[0]" mix {"+" Mix}
+     ["$[1]" \\specification]]
     [\\specification
      ["$[0]" equivalence]
-     ["$[0]" monoid]
-     ["$[0]" mix]
      ["$[0]" functor {"+" Injection}]]]
    [control
-    ["[0]" maybe]]
+    ["[0]" maybe ("[1]#[0]" functor)]]
    [data
     ["[0]" bit]
     ["[0]" text ("[1]#[0]" equivalence)]
@@ -22,7 +25,8 @@
     [number
      ["n" nat]]]]]
  [\\library
-  ["[0]" / {"+" Array}]])
+  ["[0]" / {"+" Array}
+   ["!" \\unsafe]]])
 
 (def: injection
   (Injection Array)
@@ -110,6 +114,184 @@
                     (/.any? n.even? the_array)))
         )))
 
+(def: test|unsafe
+  Test
+  (<| (_.covering !._)
+      (_.for [!.Array])
+      (do [! random.monad]
+        [size ..bounded_size
+         base random.nat
+         shift random.nat
+         dummy (random.only (|>> (n.= base) not) random.nat)
+         .let [expected (n.+ base shift)]
+         the_array (random.array size random.nat)
+         evens (random.array size (random.only n.even? random.nat))]
+        (`` ($_ _.and
+                (_.for [!.=]
+                       ($equivalence.spec (function (_ left right)
+                                            (!.= n.equivalence left right))
+                                          (random.array size random.nat)))
+                (_.for [!.composite]
+                       ($monoid.spec (/.equivalence n.equivalence)
+                                     (implementation
+                                      (def: identity (!.empty 0))
+                                      (def: (composite left right)
+                                        (!.composite left right)))
+                                     (random.array size random.nat)))
+                (_.for [!.each]
+                       ($functor.spec ..injection /.equivalence
+                                      (function (_ $ it)
+                                        (!.each $ it))))
+                (_.for [!.mix]
+                       ($mix.spec ..injection /.equivalence
+                                  (: (Mix !.Array)
+                                     (function (_ $ init it)
+                                       (!.mix (function (_ index item output)
+                                                ($ item output))
+                                              init
+                                              it)))))
+                
+                (_.cover [!.empty !.size]
+                         (n.= size (!.size (: (Array Nat)
+                                              (!.empty size)))))
+                (_.cover [!.type]
+                         (case !.Array
+                           (^ (<| {.#Named (symbol !.Array)}
+                                  {.#UnivQ (list)}
+                                  {.#Primitive nominal_type (list {.#Parameter 1})}))
+                           (same? !.type nominal_type)
+
+                           _
+                           false))
+                (_.cover [!.lacks?]
+                         (let [the_array (|> (!.empty 2)
+                                             (: (Array Nat))
+                                             (!.has! 0 expected))]
+                           (and (not (!.lacks? 0 the_array))
+                                (!.lacks? 1 the_array))))
+                (_.cover [!.item !.has!]
+                         (|> (!.empty 2)
+                             (: (Array Nat))
+                             (!.has! 0 expected)
+                             (!.item 0)
+                             (n.= expected)))
+                (_.cover [!.lacks!]
+                         (|> (!.empty 1)
+                             (: (Array Nat))
+                             (!.has! 0 expected)
+                             (!.lacks! 0)
+                             (!.lacks? 0)))
+                (_.cover [!.revised!]
+                         (|> (!.empty 1)
+                             (: (Array Nat))
+                             (!.has! 0 base)
+                             (!.revised! 0 (n.+ shift))
+                             (!.item 0)
+                             (n.= expected)))
+                (_.cover [!.upsert!]
+                         (let [the_array (|> (!.empty 2)
+                                             (: (Array Nat))
+                                             (!.has! 0 base)
+                                             (!.upsert! 0 dummy (n.+ shift))
+                                             (!.upsert! 1 base (n.+ shift)))]
+                           (and (n.= expected (!.item 0 the_array))
+                                (n.= expected (!.item 1 the_array)))))
+                (do !
+                  [occupancy (# ! each (n.% (++ size)) random.nat)]
+                  (_.cover [!.occupancy !.vacancy]
+                           (let [the_array (loop [output (: (Array Nat)
+                                                            (!.empty size))
+                                                  idx 0]
+                                             (if (n.< occupancy idx)
+                                               (again (!.has! idx expected output)
+                                                      (++ idx))
+                                               output))]
+                             (and (n.= occupancy (!.occupancy the_array))
+                                  (n.= size (n.+ (!.occupancy the_array)
+                                                 (!.vacancy the_array)))))))
+                (do !
+                  [the_list (random.list size random.nat)
+                   .let [the_array (!.clone the_array)
+                         members (|> the_array (!.list {.#None}) (set.of_list n.hash))]
+                   default (random.only (function (_ value)
+                                          (not (or (n.even? value)
+                                                   (set.member? members value))))
+                                        random.nat)]
+                  (_.cover [!.of_list !.list]
+                           (and (|> the_list !.of_list (!.list {.#None})
+                                    (# (list.equivalence n.equivalence) = the_list))
+                                (|> the_array (!.list {.#None}) !.of_list
+                                    (!.= n.equivalence the_array))
+                                (exec
+                                  (!.only! n.even? the_array)
+                                  (list.every? (function (_ value)
+                                                 (or (n.even? value)
+                                                     (same? default value)))
+                                               (!.list {.#Some default} the_array))))))
+                (do !
+                  [amount (# ! each (n.% (++ size)) random.nat)]
+                  (_.cover [!.copy!]
+                           (let [copy (: (Array Nat)
+                                         (!.empty size))]
+                             (exec (!.copy! amount 0 the_array 0 copy)
+                               (# (list.equivalence n.equivalence) =
+                                  (list.first amount (!.list {.#None} the_array))
+                                  (!.list {.#None} copy))))))
+                (_.cover [!.clone]
+                         (let [clone (!.clone the_array)]
+                           (and (not (same? the_array clone))
+                                (!.= n.equivalence the_array clone))))
+                (let [the_array (!.clone the_array)
+                      evens (|> the_array (!.list {.#None}) (list.only n.even?))
+                      odds (|> the_array (!.list {.#None}) (list.only n.odd?))]
+                  (_.cover [!.only!]
+                           (exec (!.only! n.even? the_array)
+                             (and (n.= (list.size evens) (!.occupancy the_array))
+                                  (n.= (list.size odds) (!.vacancy the_array))
+                                  (|> the_array
+                                      (!.list {.#None})
+                                      (# (list.equivalence n.equivalence) = evens))))))
+                (let [choose (: (-> Nat (Maybe Text))
+                                (function (_ value)
+                                  (if (n.even? value)
+                                    {.#Some (# n.decimal encoded value)}
+                                    {.#None})))]
+                  (_.cover [!.one]
+                           (|> evens
+                               (!.one choose)
+                               (maybe#each (text#= (|> evens
+                                                       (!.each (# n.decimal encoded))
+                                                       (!.item 0))))
+                               (maybe.else false))))
+                (_.cover [!.example]
+                         (# (maybe.equivalence n.equivalence) =
+                            (!.example n.even? the_array)
+                            (list.example n.even? (!.list {.#None} the_array))))
+                (_.cover [!.example']
+                         (case [(!.example n.even? the_array)
+                                (!.example' (function (_ idx member)
+                                              (n.even? member))
+                                            the_array)]
+                           [{.#Some expected} {.#Some [idx actual]}]
+                           (and (not (!.lacks? idx the_array))
+                                (n.= expected actual)
+                                (n.= actual (!.item idx the_array)))
+
+                           [{.#None} {.#None}]
+                           true
+
+                           _
+                           false))
+                (_.cover [!.every?]
+                         (# bit.equivalence =
+                            (list.every? n.even? (!.list {.#None} the_array))
+                            (!.every? n.even? the_array)))
+                (_.cover [!.any?]
+                         (# bit.equivalence =
+                            (list.any? n.even? (!.list {.#None} the_array))
+                            (!.any? n.even? the_array)))
+                )))))
+
 (def: .public test
   Test
   (<| (_.covering /._)
@@ -130,7 +312,10 @@
                                           (/.empty size)))))
             (_.cover [/.type_name]
                      (case /.Array
-                       (^ {.#Named _ {.#UnivQ _ {.#Primitive nominal_type (list {.#Parameter 1})}}})
+                       (^ (<| {.#Named (symbol /.Array)}
+                              {.#Named (symbol !.Array)}
+                              {.#UnivQ (list)}
+                              {.#Primitive nominal_type (list {.#Parameter 1})}))
                        (same? /.type_name nominal_type)
 
                        _
@@ -163,7 +348,6 @@
                                          (/.write! 0 expected))]
                        (and (/.contains? 0 the_array)
                             (not (/.contains? 1 the_array)))))
-            
             (_.cover [/.update!]
                      (let [the_array (|> (/.empty 1)
                                          (: (Array Nat))
@@ -242,4 +426,6 @@
                          (and (n.= (list.size evens) (/.occupancy the_array))
                               (n.= (list.size odds) (/.vacancy the_array))
                               (|> the_array (/.list {.#None}) (# (list.equivalence n.equivalence) = evens))))))
+
+            ..test|unsafe
             ))))

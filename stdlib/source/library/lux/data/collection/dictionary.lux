@@ -1,23 +1,24 @@
 (.using
-  [library
-   [lux "*"
-    [abstract
-     [hash {"+" Hash}]
-     [equivalence {"+" Equivalence}]
-     [functor {"+" Functor}]]
-    [control
-     ["[0]" maybe]
-     ["[0]" try {"+" Try}]
-     ["[0]" exception {"+" exception:}]]
-    [data
-     ["[0]" product]
-     [collection
-      ["[0]" list ("[1]#[0]" mix functor monoid)]
-      ["[0]" array {"+" Array} ("[1]#[0]" functor mix)]]]
-    [math
-     ["[0]" number
-      ["n" nat]
-      ["[0]" i64]]]]])
+ [library
+  [lux "*"
+   [abstract
+    [hash {"+" Hash}]
+    [equivalence {"+" Equivalence}]
+    [functor {"+" Functor}]]
+   [control
+    ["[0]" maybe]
+    ["[0]" try {"+" Try}]
+    ["[0]" exception {"+" exception:}]]
+   [data
+    ["[0]" product]
+    [collection
+     ["[0]" list ("[1]#[0]" mix functor monoid)]
+     ["[0]" array "_"
+      ["[1]" \\unsafe {"+" Array}]]]]
+   [math
+    ["[0]" number
+     ["n" nat]
+     ["[0]" i64]]]]])
 
 ... This implementation of Hash Array Mapped Trie (HAMT) is based on
 ... Clojure's PersistentHashMap implementation.
@@ -136,20 +137,20 @@
   (let [old_size (array.size old_array)]
     (|> (array.empty (++ old_size))
         (array.copy! idx 0 old_array 0)
-        (array.write! idx value)
+        (array.has! idx value)
         (array.copy! (n.- idx old_size) idx old_array (++ idx)))))
 
 ... Creates a copy of an array with an index set to a particular value.
 (def: (array#revised idx value array)
   (All (_ a) (-> Index a (Array a) (Array a)))
-  (|> array array.clone (array.write! idx value)))
+  (|> array array.clone (array.has! idx value)))
 
 ... Creates a clone of the array, with an empty position at index.
 (def: (array#clear idx array)
   (All (_ a) (-> Index (Array a) (Array a)))
   (|> array
       array.clone
-      (array.delete! idx)))
+      (array.lacks! idx)))
 
 ... Shrinks a copy of the array by removing the space at index.
 (def: (array#lacks idx array)
@@ -229,7 +230,7 @@
 (def: (collision_index key_hash key colls)
   (All (_ k v) (-> (Hash k) k (Collisions k v) (Maybe Index)))
   (# maybe.monad each product.left
-     (array.example+ (function (_ idx [key' val'])
+     (array.example' (function (_ idx [key' val'])
                        (# key_hash = key key'))
                      colls)))
 
@@ -239,14 +240,13 @@
   (All (_ k v) (-> Index (Hierarchy k v) [Bit_Map (Base k v)]))
   (product.right (list#mix (function (_ idx [insertion_idx node])
                              (let [[bitmap base] node]
-                               (case (array.read! idx h_array)
-                                 {.#None}          [insertion_idx node]
-                                 {.#Some sub_node} (if (n.= except_idx idx)
-                                                     [insertion_idx node]
-                                                     [(++ insertion_idx)
-                                                      [(with_bit_position (to_bit_position idx) bitmap)
-                                                       (array.write! insertion_idx {.#Left sub_node} base)]])
-                                 )))
+                               (if (array.lacks? idx h_array)
+                                 [insertion_idx node]
+                                 (if (n.= except_idx idx)
+                                   [insertion_idx node]
+                                   [(++ insertion_idx)
+                                    [(with_bit_position (to_bit_position idx) bitmap)
+                                     (array.has! insertion_idx {.#Left (array.item idx h_array)} base)]]))))
                            [0 [clean_bitmap
                                (array.empty (-- h_size))]]
                            (list.indices (array.size h_array)))))
@@ -267,17 +267,14 @@
                              (if (with_bit_position? (to_bit_position hierarchy_idx)
                                    bitmap)
                                [(++ base_idx)
-                                (case (array.read! base_idx base)
-                                  {.#Some {.#Left sub_node}}
-                                  (array.write! hierarchy_idx sub_node h_array)
+                                (case (array.item base_idx base)
+                                  {.#Left sub_node}
+                                  (array.has! hierarchy_idx sub_node h_array)
 
-                                  {.#Some {.#Right [key' val']}}
-                                  (array.write! hierarchy_idx
-                                                (node#has (level_up level) (# key_hash hash key') key' val' key_hash empty_node)
-                                                h_array)
-
-                                  {.#None}
-                                  (undefined))]
+                                  {.#Right [key' val']}
+                                  (array.has! hierarchy_idx
+                                              (node#has (level_up level) (# key_hash hash key') key' val' key_hash ..empty_node)
+                                              h_array))]
                                default))
                            [0
                             (array.empty hierarchy_nodes_size)]
@@ -302,12 +299,9 @@
     ... a sub-node. If impossible, introduce a new singleton sub-node.
     {#Hierarchy _size hierarchy}
     (let [idx (level_index level hash)
-          [_size' sub_node] (case (array.read! idx hierarchy)
-                              {.#Some sub_node}
-                              [_size sub_node]
-
-                              _
-                              [(++ _size) empty_node])]
+          [_size' sub_node] (if (not (array.lacks? idx hierarchy))
+                              [_size (array.item idx hierarchy)]
+                              [(++ _size) ..empty_node])]
       {#Hierarchy _size'
                   (array#revised idx (node#has (level_up level) hash key val key_hash sub_node)
                                  hierarchy)})
@@ -319,19 +313,19 @@
       (if (with_bit_position? bit bitmap)
         ... If so...
         (let [idx (base_index bit bitmap)]
-          (case (array.read! idx base)
-            ... If it's being used by a node, add the KV to it.
-            {.#Some {.#Left sub_node}}
-            (let [sub_node' (node#has (level_up level) hash key val key_hash sub_node)]
-              {#Base bitmap (array#revised idx {.#Left sub_node'} base)})
+          {#Base bitmap (case (array.item idx base)
+                          ... If it's being used by a node, add the KV to it.
+                          {.#Left sub_node}
+                          (let [sub_node' (node#has (level_up level) hash key val key_hash sub_node)]
+                            (array#revised idx {.#Left sub_node'} base))
 
-            ... Otherwise, if it's being used by a KV, compare the keys.
-            {.#Some {.#Right key' val'}}
-            (if (# key_hash = key key')
-              ... If the same key is found, replace the value.
-              {#Base bitmap (array#revised idx {.#Right key val} base)}
-              ... Otherwise, compare the hashes of the keys.
-              {#Base bitmap (array#revised idx
+                          ... Otherwise, if it's being used by a KV, compare the keys.
+                          {.#Right key' val'}
+                          (array#revised idx
+                                         (if (# key_hash = key key')
+                                           ... If the same key is found, replace the value.
+                                           {.#Right key val}
+                                           ... Otherwise, compare the hashes of the keys.
                                            {.#Left (let [hash' (# key_hash hash key')]
                                                      (if (n.= hash hash')
                                                        ... If the hashes are
@@ -339,21 +333,18 @@
                                                        ... #Collisions node
                                                        ... is added.
                                                        {#Collisions hash (|> (array.empty 2)
-                                                                             (array.write! 0 [key' val'])
-                                                                             (array.write! 1 [key val]))}
+                                                                             (array.has! 0 [key' val'])
+                                                                             (array.has! 1 [key val]))}
                                                        ... Otherwise, one can
                                                        ... just keep using
                                                        ... #Base nodes, so
                                                        ... add both KV-pairs
                                                        ... to the empty one.
                                                        (let [next_level (level_up level)]
-                                                         (|> empty_node
+                                                         (|> ..empty_node
                                                              (node#has next_level hash' key' val' key_hash)
-                                                             (node#has next_level hash  key  val key_hash)))))}
-                                           base)})
-
-            {.#None}
-            (undefined)))
+                                                             (node#has next_level hash  key  val key_hash)))))})
+                                         base))})
         ... However, if the Bit_Position has not been used yet, check
         ... whether this #Base node is ready for a promotion.
         (let [base_count (bitmap_size bitmap)]
@@ -365,10 +356,11 @@
             ... Otherwise, promote it to a #Hierarchy node, and add the new
             ... KV-pair as a singleton node to it.
             {#Hierarchy (++ base_count)
-                        (|> base
-                            (promotion node#has key_hash level bitmap)
-                            (array.write! (level_index level hash)
-                                          (node#has (level_up level) hash key val key_hash empty_node)))}))))
+                        (let [... TODO: These bindings were established to get around a compilation error. Fix and inline!
+                              index (level_index level hash)
+                              item (node#has (level_up level) hash key val key_hash ..empty_node)
+                              array (promotion node#has key_hash level bitmap base)]
+                          (array.has! index item array))}))))
     
     ... For #Collisions nodes, compare the hashes.
     {#Collisions _hash _colls}
@@ -388,7 +380,7 @@
       ... contains the old #Collisions node, plus the new KV-pair.
       (|> {#Base (level_bit_position level _hash)
                  (|> (array.empty 1)
-                     (array.write! 0 {.#Left node}))}
+                     (array.has! 0 {.#Left node}))}
           (node#has level hash key val key_hash)))
     ))
 
@@ -399,14 +391,12 @@
     ... the Hash-Code.
     {#Hierarchy h_size h_array}
     (let [idx (level_index level hash)]
-      (case (array.read! idx h_array)
+      (if (array.lacks? idx h_array)
         ... If not, there's nothing to remove.
-        {.#None}
         node
-
         ... But if there is, try to remove the key from the sub-node.
-        {.#Some sub_node}
-        (let [sub_node' (node#lacks (level_up level) hash key key_hash sub_node)]
+        (let [sub_node (array.item idx h_array)
+              sub_node' (node#lacks (level_up level) hash key key_hash sub_node)]
           ... Then check if a removal was actually done.
           (if (same? sub_node sub_node')
             ... If not, then there's nothing to change here either.
@@ -428,10 +418,10 @@
     (let [bit (level_bit_position level hash)]
       (if (with_bit_position? bit bitmap)
         (let [idx (base_index bit bitmap)]
-          (case (array.read! idx base)
+          (case (array.item idx base)
             ... If set, check if it's a sub_node, and remove the KV
             ... from it.
-            {.#Some {.#Left sub_node}}
+            {.#Left sub_node}
             (let [sub_node' (node#lacks (level_up level) hash key key_hash sub_node)]
               ... Verify that it was removed.
               (if (same? sub_node sub_node')
@@ -442,7 +432,7 @@
                   ...# ... figure out whether that's the only position left.
                   (if (only_bit_position? bit bitmap)
                     ... If so, removing it leaves this node empty too.
-                    empty_node
+                    ..empty_node
                     ... But if not, then just unset the position and
                     ... remove the node.
                     {#Base (without_bit_position bit bitmap)
@@ -453,17 +443,14 @@
                          (array#revised idx {.#Left sub_node'} base)})))
 
             ... If, however, there was a KV-pair instead of a sub-node.
-            {.#Some {.#Right [key' val']}}
+            {.#Right [key' val']}
             ... Check if the keys match.
             (if (# key_hash = key key')
               ... If so, remove the KV-pair and unset the Bit_Position.
               {#Base (without_bit_position bit bitmap)
                      (array#lacks idx base)}
               ... Otherwise, there's nothing to remove.
-              node)
-
-            {.#None}
-            (undefined)))
+              node)))
         ... If the Bit_Position is not set, there's nothing to remove.
         node))
 
@@ -479,7 +466,7 @@
       (if (n.= 1 (array.size _colls))
         ... If there's only one left, then removing it leaves us with
         ... an empty node.
-        empty_node
+        ..empty_node
         ... Otherwise, just shrink the array by removing the KV-pair.
         {#Collisions _hash (array#lacks idx _colls)}))
     ))
@@ -489,25 +476,23 @@
   (case node
     ... For #Hierarchy nodes, just look-up the key on its children.
     {#Hierarchy _size hierarchy}
-    (case (array.read! (level_index level hash) hierarchy)
-      {.#None}          {.#None}
-      {.#Some sub_node} (node#value (level_up level) hash key key_hash sub_node))
+    (let [index (level_index level hash)]
+      (if (array.lacks? index hierarchy)
+        {.#None}
+        (node#value (level_up level) hash key key_hash (array.item index hierarchy))))
 
     ... For #Base nodes, check the leaves, and recursively check the branches.
     {#Base bitmap base}
     (let [bit (level_bit_position level hash)]
       (if (with_bit_position? bit bitmap)
-        (case (array.read! (base_index bit bitmap) base)
-          {.#Some {.#Left sub_node}}
+        (case (array.item (base_index bit bitmap) base)
+          {.#Left sub_node}
           (node#value (level_up level) hash key key_hash sub_node)
 
-          {.#Some {.#Right [key' val']}}
+          {.#Right [key' val']}
           (if (# key_hash = key key')
             {.#Some val'}
-            {.#None})
-
-          {.#None}
-          (undefined))
+            {.#None}))
         {.#None}))
 
     ... For #Collisions nodes, do a linear scan of all the known KV-pairs.
@@ -521,14 +506,20 @@
   (All (_ k v) (-> (Node k v) Nat))
   (case node
     {#Hierarchy _size hierarchy}
-    (array#mix n.+ 0 (array#each node#size hierarchy))
+    (array.mix (function (_ _ item total)
+                 (n.+ item total))
+               0
+               (array.each node#size hierarchy))
     
     {#Base _ base}
-    (array#mix n.+ 0 (array#each (function (_ sub_node')
-                                   (case sub_node'
-                                     {.#Left sub_node} (node#size sub_node)
-                                     {.#Right _}       1))
-                                 base))
+    (array.mix (function (_ _ item total)
+                 (n.+ item total))
+               0
+               (array.each (function (_ sub_node')
+                             (case sub_node'
+                               {.#Left sub_node} (node#size sub_node)
+                               {.#Right _}       1))
+                           base))
 
     {#Collisions hash colls}
     (array.size colls)
@@ -538,13 +529,13 @@
   (All (_ k v a) (-> (-> [k v] a a) a (Node k v) a))
   (case node
     {#Hierarchy _size hierarchy}
-    (array#mix (function (_ sub_node current)
+    (array.mix (function (_ _ sub_node current)
                  (node#mix f current sub_node))
                init
                hierarchy)
 
     {#Base bitmap base}
-    (array#mix (function (_ branch current)
+    (array.mix (function (_ _ branch current)
                  (case branch
                    {.#Left sub_node}
                    (node#mix f current sub_node)
@@ -555,7 +546,10 @@
                base)
     
     {#Collisions hash colls}
-    (array#mix f init colls)))
+    (array.mix (function (_ _ item total)
+                 (f item total))
+               init
+               colls)))
 
 (def: node#entries
   (All (_ k v) (-> (Node k v) (List [k v])))
@@ -575,7 +569,7 @@
 (def: .public (empty key_hash)
   (All (_ k v) (-> (Hash k) (Dictionary k v)))
   [#hash key_hash
-   #root empty_node])
+   #root ..empty_node])
 
 (def: .public (has key val dict)
   (All (_ k v) (-> k v (Dictionary k v) (Dictionary k v)))
@@ -714,10 +708,10 @@
   (def: (each f fa)
     (case fa
       {#Hierarchy size hierarchy}
-      {#Hierarchy size (array#each (each f) hierarchy)}
+      {#Hierarchy size (array.each (each f) hierarchy)}
       
       {#Base bitmap base}
-      {#Base bitmap (array#each (function (_ either)
+      {#Base bitmap (array.each (function (_ either)
                                   (case either
                                     {.#Left fa'}
                                     {.#Left (each f fa')}
@@ -727,7 +721,7 @@
                                 base)}
       
       {#Collisions hash collisions}
-      {#Collisions hash (array#each (function (_ [k v])
+      {#Collisions hash (array.each (function (_ [k v])
                                       [k (f v)])
                                     collisions)})))
 

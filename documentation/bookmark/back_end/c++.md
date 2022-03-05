@@ -16,3 +16,7 @@
 
 0. [vcpkg](https://vcpkg.io/en/index.html)
 
+# constexpr
+
+0. [Your New Mental Model of constexpr - Jason Turner - CppCon 2021](https://www.youtube.com/watch?v=MdrfPSUtMVM)
+

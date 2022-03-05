@@ -14,7 +14,7 @@
     [mix {"+" Mix}]
     [predicate {"+" Predicate}]]
    [control
-    ["[0]" maybe]
+    ["[0]" maybe ("[1]#[0]" functor)]
     ["[0]" try {"+" Try}]
     ["[0]" exception {"+" exception:}]
     ["<>" parser
@@ -23,7 +23,8 @@
     ["[0]" product]
     [collection
      ["[0]" list ("[1]#[0]" mix functor monoid)]
-     ["[0]" array {"+" Array} ("[1]#[0]" functor mix)]]]
+     ["[0]" array "_"
+      ["[1]" \\unsafe {"+" Array}]]]]
    [macro
     [syntax {"+" syntax:}]
     ["[0]" code]]
@@ -95,13 +96,13 @@
   (if (n.= 0 level)
     {#Base tail}
     (|> (empty_hierarchy [])
-        (array.write! 0 (path (level_down level) tail))
+        (array.has! 0 (path (level_down level) tail))
         {#Hierarchy})))
 
 (def: (tail singleton)
   (All (_ a) (-> a (Base a)))
   (|> (array.empty 1)
-      (array.write! 0 singleton)))
+      (array.has! 0 singleton)))
 
 (def: (with_tail size level tail parent)
   (All (_ a) (-> Nat Level (Base a) (Hierarchy a) (Hierarchy a)))
@@ -111,41 +112,40 @@
                    ... Just add the tail to it
                    {#Base tail}
                    ... Otherwise, check whether there's a vacant spot
-                   (case (array.read! sub_idx parent)
+                   (if (array.lacks? sub_idx parent)
                      ... If so, set the path to the tail
-                     {.#None}
                      (..path (level_down level) tail)
-                     ... If not, push the tail onto the sub_node.
-                     {.#Some {#Hierarchy sub_node}}
-                     {#Hierarchy (with_tail size (level_down level) tail sub_node)}
+                     (case (array.item sub_idx parent)
+                       ... If not, push the tail onto the sub_node.
+                       {#Hierarchy sub_node}
+                       {#Hierarchy (with_tail size (level_down level) tail sub_node)}
 
-                     _
-                     (undefined))
-                   )]
+                       _
+                       (undefined))))]
     (|> (array.clone parent)
-        (array.write! sub_idx sub_node))))
+        (array.has! sub_idx sub_node))))
 
 (def: (expanded_tail val tail)
   (All (_ a) (-> a (Base a) (Base a)))
   (let [tail_size (array.size tail)]
     (|> (array.empty (++ tail_size))
         (array.copy! tail_size 0 tail 0)
-        (array.write! tail_size val))))
+        (array.has! tail_size val))))
 
 (def: (hierarchy#has level idx val hierarchy)
   (All (_ a) (-> Level Index a (Hierarchy a) (Hierarchy a)))
   (let [sub_idx (branch_idx (i64.right_shifted level idx))]
-    (case (array.read! sub_idx hierarchy)
-      {.#Some {#Hierarchy sub_node}}
+    (case (array.item sub_idx hierarchy)
+      {#Hierarchy sub_node}
       (|> (array.clone hierarchy)
-          (array.write! sub_idx {#Hierarchy (hierarchy#has (level_down level) idx val sub_node)}))
+          (array.has! sub_idx {#Hierarchy (hierarchy#has (level_down level) idx val sub_node)}))
 
-      (^multi {.#Some {#Base base}}
+      (^multi {#Base base}
               (n.= 0 (level_down level)))
       (|> (array.clone hierarchy)
-          (array.write! sub_idx (|> (array.clone base)
-                                    (array.write! (branch_idx idx) val)
-                                    {#Base})))
+          (array.has! sub_idx (|> (array.clone base)
+                                  (array.has! (branch_idx idx) val)
+                                  {#Base})))
 
       _
       (undefined))))
@@ -157,21 +157,21 @@
           {.#None}
 
           (n.> branching_exponent level)
-          (do maybe.monad
-            [base|hierarchy (array.read! sub_idx hierarchy)
-             sub (case base|hierarchy
-                   {#Hierarchy sub}
-                   (without_tail size (level_down level) sub)
+          (if (array.lacks? sub_idx hierarchy)
+            {.#None}
+            (maybe#each (function (_ sub)
+                          (|> (array.clone hierarchy)
+                              (array.has! sub_idx {#Hierarchy sub})))
+                        (case (array.item sub_idx hierarchy)
+                          {#Hierarchy sub}
+                          (without_tail size (level_down level) sub)
 
-                   {#Base _}
-                   (undefined))]
-            (|> (array.clone hierarchy)
-                (array.write! sub_idx {#Hierarchy sub})
-                {.#Some}))
+                          {#Base _}
+                          (undefined))))
 
           ... Else...
           (|> (array.clone hierarchy)
-              (array.delete! sub_idx)
+              (array.lacks! sub_idx)
               {.#Some})
           )))
 
@@ -226,8 +226,8 @@
             (|> sequence
                 (with@ #root (|> (`` (: (Hierarchy (~~ (:of val)))
                                         (empty_hierarchy [])))
-                                 (array.write! 0 {#Hierarchy (value@ #root sequence)})
-                                 (array.write! 1 (..path (value@ #level sequence) (value@ #tail sequence)))))
+                                 (array.has! 0 {#Hierarchy (value@ #root sequence)})
+                                 (array.has! 1 (..path (value@ #level sequence) (value@ #tail sequence)))))
                 (revised@ #level level_up))
             ... Otherwise, just push the current tail onto the root.
             (|> sequence
@@ -257,32 +257,30 @@
     (if (n.< (tail_off (value@ #size sequence)) idx)
       (loop [level (value@ #level sequence)
              hierarchy (value@ #root sequence)]
-        (case [(n.> branching_exponent level)
-               (array.read! (branch_idx (i64.right_shifted level idx)) hierarchy)]
-          [#1 {.#Some {#Hierarchy sub}}]
-          (again (level_down level) sub)
+        (let [index (branch_idx (i64.right_shifted level idx))]
+          (if (array.lacks? index hierarchy)
+            (exception.except ..base_was_not_found [])
+            (case [(n.> branching_exponent level)
+                   (array.item index hierarchy)]
+              [#1 {#Hierarchy sub}]
+              (again (level_down level) sub)
 
-          [#0 {.#Some {#Base base}}]
-          {try.#Success base}
+              [#0 {#Base base}]
+              {try.#Success base}
 
-          [_ {.#None}]
-          (exception.except ..base_was_not_found [])
-
-          _
-          (exception.except ..incorrect_sequence_structure [])))
+              _
+              (exception.except ..incorrect_sequence_structure [])))))
       {try.#Success (value@ #tail sequence)})
     (exception.except ..index_out_of_bounds [sequence idx])))
 
 (def: .public (item idx sequence)
   (All (_ a) (-> Nat (Sequence a) (Try a)))
   (do try.monad
-    [base (base_for idx sequence)]
-    (case (array.read! (branch_idx idx) base)
-      {.#Some value}
-      {try.#Success value}
-      
-      {.#None}
-      (exception.except ..incorrect_sequence_structure []))))
+    [base (base_for idx sequence)
+     .let [index (branch_idx idx)]]
+    (if (array.lacks? index base)
+      (exception.except ..incorrect_sequence_structure [])
+      {try.#Success (array.item index base)})))
 
 (def: .public (has idx val sequence)
   (All (_ a) (-> Nat a (Sequence a) (Try (Sequence a))))
@@ -293,7 +291,7 @@
                                 sequence)
                       (revised@ #tail (`` (: (-> (Base (~~ (:of val)))
                                                  (Base (~~ (:of val))))
-                                             (|>> array.clone (array.write! (branch_idx idx) val))))
+                                             (|>> array.clone (array.has! (branch_idx idx) val))))
                                 sequence))}
       (exception.except ..index_out_of_bounds [sequence idx]))))
 
@@ -327,17 +325,20 @@
                                  (loop [level init_level
                                         root (maybe.else (empty_hierarchy [])
                                                          (without_tail sequence_size init_level (value@ #root sequence)))]
-                                   (if (n.> branching_exponent level)
-                                     (case [(array.read! 1 root) (array.read! 0 root)]
-                                       [{.#None} {.#Some {#Hierarchy sub_node}}]
-                                       (again (level_down level) sub_node)
+                                   (with_expansions [<else> [level root]]
+                                     (if (n.> branching_exponent level)
+                                       (if (array.lacks? 1 root)
+                                         (case (array.item 0 root)
+                                           {#Hierarchy sub_node}
+                                           (again (level_down level) sub_node)
 
-                                       ... [{.#None} {.#Some {#Base _}}]
-                                       ... (undefined)
+                                           ... {#Base _}
+                                           ... (undefined)
 
-                                       _
-                                       [level root])
-                                     [level root])))]]
+                                           _
+                                           <else>)
+                                         <else>)
+                                       <else>))))]]
          (in (|> sequence
                  (revised@ #size --)
                  (with@ #level level')
@@ -365,26 +366,26 @@
 (syntax: .public (sequence [elems (<>.some <code>.any)])
   (in (.list (` (..of_list (.list (~+ elems)))))))
 
-(implementation: (node_equivalence Equivalence<a>)
+(implementation: (node_equivalence //#=)
   (All (_ a) (-> (Equivalence a) (Equivalence (Node a))))
   
   (def: (= v1 v2)
     (case [v1 v2]
       [{#Base b1} {#Base b2}]
-      (# (array.equivalence Equivalence<a>) = b1 b2)
+      (array.= //#= b1 b2)
       
       [{#Hierarchy h1} {#Hierarchy h2}]
-      (# (array.equivalence (node_equivalence Equivalence<a>)) = h1 h2)
+      (array.= (node_equivalence //#=) h1 h2)
 
       _
       #0)))
 
-(implementation: .public (equivalence Equivalence<a>)
+(implementation: .public (equivalence //#=)
   (All (_ a) (-> (Equivalence a) (Equivalence (Sequence a))))
   
   (def: (= v1 v2)
     (and (n.= (value@ #size v1) (value@ #size v2))
-         (let [(^open "node#[0]") (node_equivalence Equivalence<a>)]
+         (let [(^open "node#[0]") (node_equivalence //#=)]
            (and (node#= {#Base (value@ #tail v1)}
                         {#Base (value@ #tail v2)})
                 (node#= {#Hierarchy (value@ #root v1)}
@@ -393,23 +394,25 @@
 (implementation: node_mix
   (Mix Node)
   
-  (def: (mix f init xs)
+  (def: (mix $ init xs)
     (case xs
       {#Base base}
-      (array#mix f init base)
+      (array.mix (function (_ _ item output) ($ item output))
+                 init
+                 base)
       
       {#Hierarchy hierarchy}
-      (array#mix (function (_ node init') (mix f init' node))
+      (array.mix (function (_ _ node init') (mix $ init' node))
                  init
                  hierarchy))))
 
 (implementation: .public mix
   (Mix Sequence)
   
-  (def: (mix f init xs)
+  (def: (mix $ init xs)
     (let [(^open "[0]") node_mix]
-      (mix f
-           (mix f
+      (mix $
+           (mix $
                 init
                 {#Hierarchy (value@ #root xs)})
            {#Base (value@ #tail xs)}))))
@@ -425,22 +428,24 @@
 (implementation: node_functor
   (Functor Node)
   
-  (def: (each f xs)
+  (def: (each $ xs)
     (case xs
       {#Base base}
-      {#Base (array#each f base)}
+      {#Base (array.each $ base)}
       
       {#Hierarchy hierarchy}
-      {#Hierarchy (array#each (each f) hierarchy)})))
+      {#Hierarchy (array.each (each $) hierarchy)})))
 
 (implementation: .public functor
   (Functor Sequence)
   
-  (def: (each f xs)
+  (def: (each $ xs)
     [#level (value@ #level xs)
      #size (value@ #size xs)
-     #root (|> xs (value@ #root) (array#each (# node_functor each f)))
-     #tail (|> xs (value@ #tail) (array#each f))]))
+     #root (let [... TODO: This binding was established to get around a compilation error. Fix and inline!
+                 $ (# node_functor each $)]
+             (|> xs (value@ #root) (array.each $)))
+     #tail (|> xs (value@ #tail) (array.each $))]))
 
 (implementation: .public apply
   (Apply Sequence)
@@ -518,9 +523,11 @@
 (def: .public (one check items)
   (All (_ a b)
     (-> (-> a (Maybe b)) (Sequence a) (Maybe b)))
-  (case (|> items
-            (value@ #root)
-            (array.one (one|node check)))
+  (case (let [... TODO: This binding was established to get around a compilation error. Fix and inline!
+              check (..one|node check)]
+          (|> items
+              (value@ #root)
+              (array.one check)))
     {.#None}
     (|> items
         (value@ #tail)
