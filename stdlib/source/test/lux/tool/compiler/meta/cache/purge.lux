@@ -1,0 +1,141 @@
+(.using
+ [library
+  [lux "*"
+   ["_" test {"+" Test}]
+   [abstract
+    [monad {"+" do}]]
+   [control
+    ["[0]" try]
+    ["[0]" exception]
+    [concurrency
+     ["[0]" async]]]
+   [data
+    ["[0]" text
+     ["%" format]]
+    ["[0]" binary
+     ["$[1]" \\test]]
+    [collection
+     ["[0]" dictionary]
+     ["[0]" sequence]
+     ["[0]" set]]]
+   [math
+    ["[0]" random {"+" Random}]
+    [number
+     ["n" nat]]]
+   [world
+    ["[0]" file]]]]
+ [\\library
+  ["[0]" /
+   ["/[1]" // "_"
+    ["[1][0]" module]
+    ["[0]" dependency "_"
+     ["[1]" module]]
+    ["/[1]" // "_"
+     ["[0]" context
+      ["$[1]" \\test]]
+     ["[0]" archive
+      ["[0]" registry]
+      ["[0]" module
+       ["$[1]" \\test]
+       ["[0]" descriptor
+        ["$[1]" \\test]]]]
+     ["/[1]" //]]]]])
+
+(def: .public test
+  Test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [descriptor ($descriptor.random 0)
+         source_code (random.ascii/upper 1)
+         name/0 (random.ascii/lower 1)
+         module/0 ($module.random random.nat)
+         content/0 ($binary.random 1)
+         name/1 (random.ascii/lower 2)
+         module/1 (|> ($module.random random.nat)
+                      (# ! each (with@ [module.#descriptor descriptor.#references]
+                                       (set.of_list text.hash (list name/0)))))
+         content/1 ($binary.random 2)
+         .let [id/0 (value@ module.#id module/0)
+               id/1 (value@ module.#id module/1)
+               input [////.#module (value@ descriptor.#name descriptor)
+                      ////.#file (value@ descriptor.#file descriptor)
+                      ////.#hash (value@ descriptor.#hash descriptor)
+                      ////.#code source_code]
+               / "/"
+               fs (file.mock /)]
+         context $context.random]
+        ($_ _.and
+            (_.for [/.Cache]
+                   ($_ _.and
+                       (_.cover [/.valid?]
+                                (and (/.valid? descriptor input)
+                                     (not (/.valid? descriptor (with@ ////.#module source_code input)))
+                                     (not (/.valid? descriptor (with@ ////.#file source_code input)))
+                                     (not (/.valid? descriptor (revised@ ////.#hash ++ input)))))
+                       ))
+            (_.for [/.Purge]
+                   ($_ _.and
+                       (_.cover [/.purge]
+                                (and (dictionary.empty? (/.purge (list) (list)))
+                                     (let [order (: (dependency.Order Nat)
+                                                    (list [name/0 id/0
+                                                           [archive.#module module/0
+                                                            archive.#output (sequence.sequence)
+                                                            archive.#registry registry.empty]]))]
+                                       (and (let [cache (: (List /.Cache)
+                                                           (list [#1 name/0 id/0 module/0 registry.empty]))]
+                                              (dictionary.empty? (/.purge cache order)))
+                                            (let [cache (: (List /.Cache)
+                                                           (list [#0 name/0 id/0 module/0 registry.empty]))]
+                                              (dictionary.key? (/.purge cache order) name/0))))
+                                     (let [order (: (dependency.Order Nat)
+                                                    (list [name/0 id/0
+                                                           [archive.#module module/0
+                                                            archive.#output (sequence.sequence)
+                                                            archive.#registry registry.empty]]
+                                                          [name/1 id/1
+                                                           [archive.#module module/1
+                                                            archive.#output (sequence.sequence)
+                                                            archive.#registry registry.empty]]))]
+                                       (and (let [cache (: (List /.Cache)
+                                                           (list [#1 name/0 id/0 module/0 registry.empty]
+                                                                 [#1 name/1 id/1 module/1 registry.empty]))
+                                                  purge (/.purge cache order)]
+                                              (dictionary.empty? purge))
+                                            (let [cache (: (List /.Cache)
+                                                           (list [#1 name/0 id/0 module/0 registry.empty]
+                                                                 [#0 name/1 id/1 module/1 registry.empty]))
+                                                  purge (/.purge cache order)]
+                                              (and (not (dictionary.key? (/.purge cache order) name/0))
+                                                   (dictionary.key? (/.purge cache order) name/1)))
+                                            (let [cache (: (List /.Cache)
+                                                           (list [#0 name/0 id/0 module/0 registry.empty]
+                                                                 [#1 name/1 id/1 module/1 registry.empty]))
+                                                  purge (/.purge cache order)]
+                                              (and (dictionary.key? (/.purge cache order) name/0)
+                                                   (dictionary.key? (/.purge cache order) name/1)))))))
+                       (in (do [! async.monad]
+                             [_ (//module.enable! ! fs context id/0)
+                              .let [dir (//module.path fs context id/0)
+                                    file/0 (%.format dir / name/0)
+                                    file/1 (%.format dir / name/1)]
+                              _ (# fs write content/0 file/0)
+                              _ (# fs write content/1 file/1)
+                              pre (# fs directory_files dir)
+                              _ (/.purge! fs context id/0)
+                              post (# fs directory_files dir)]
+                             (_.cover' [/.purge!]
+                                       (<| (try.else false)
+                                           (do try.monad
+                                             [pre pre]
+                                             (in (and (# set.equivalence =
+                                                         (set.of_list text.hash pre)
+                                                         (set.of_list text.hash (list file/0 file/1)))
+                                                      (case post
+                                                        {try.#Failure error}
+                                                        (exception.match? file.cannot_find_directory error)
+
+                                                        success
+                                                        false))))))))
+                       ))
+            ))))

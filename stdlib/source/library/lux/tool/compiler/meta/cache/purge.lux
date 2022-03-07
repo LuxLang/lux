@@ -1,0 +1,82 @@
+(.using
+ [library
+  [lux "*"
+   [abstract
+    [predicate {"+" Predicate}]
+    ["[0]" monad {"+" Monad do}]]
+   [control
+    ["[0]" try {"+" Try} ("[1]#[0]" functor)]
+    [concurrency
+     ["[0]" async {"+" Async}]]]
+   [data
+    ["[0]" text ("[1]#[0]" equivalence)]
+    [collection
+     ["[0]" list ("[1]#[0]" mix functor)]
+     ["[0]" dictionary {"+" Dictionary}]
+     ["[0]" set]]]
+   [math
+    [number
+     ["n" nat]]]
+   [world
+    ["[0]" file]]]]
+ ["[0]" // "_"
+  ["[1][0]" module]
+  ["[0]" dependency "_"
+   ["[1]" module]]
+  ["/[1]" // "_"
+   [context {"+" Context}]
+   ["/[1]" // {"+" Input}]
+   ["[0]" archive
+    [registry {"+" Registry}]
+    ["[0]" module
+     ["[0]" descriptor {"+" Descriptor}]]]]])
+
+(type: .public Cache
+  [Bit descriptor.Module module.ID (module.Module Any) Registry])
+
+(type: .public Purge
+  (Dictionary descriptor.Module module.ID))
+
+... TODO: Make the monad parameterizable.
+(def: .public (purge! fs context @module)
+  (-> (file.System Async) Context module.ID (Async (Try Any)))
+  (do [! (try.with async.monad)]
+    [.let [cache (//module.path fs context @module)]
+     _ (|> cache
+           (# fs directory_files)
+           (# ! each (monad.each ! (# fs delete)))
+           (# ! conjoint))]
+    (# fs delete cache)))
+
+(def: .public (valid? expected actual)
+  (-> Descriptor Input Bit)
+  (and (text#= (value@ descriptor.#name expected)
+               (value@ ////.#module actual))
+       (text#= (value@ descriptor.#file expected)
+               (value@ ////.#file actual))
+       (n.= (value@ descriptor.#hash expected)
+            (value@ ////.#hash actual))))
+
+(def: initial
+  (-> (List Cache) Purge)
+  (|>> (list.all (function (_ [valid? module_name @module _])
+                   (if valid?
+                     {.#None}
+                     {.#Some [module_name @module]})))
+       (dictionary.of_list text.hash)))
+
+(def: .public (purge caches load_order)
+  (-> (List Cache) (dependency.Order Any) Purge)
+  (list#mix (function (_ [module_name [@module entry]] purge)
+              (let [purged? (: (Predicate descriptor.Module)
+                               (dictionary.key? purge))]
+                (if (purged? module_name)
+                  purge
+                  (if (|> entry
+                          (value@ [archive.#module module.#descriptor descriptor.#references])
+                          set.list
+                          (list.any? purged?))
+                    (dictionary.has module_name @module purge)
+                    purge))))
+            (..initial caches)
+            load_order))

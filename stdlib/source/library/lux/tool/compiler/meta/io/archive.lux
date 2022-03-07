@@ -3,8 +3,7 @@
   [lux "*"
    [target {"+" Target}]
    [abstract
-    [predicate {"+" Predicate}]
-    ["[0]" monad {"+" do}]]
+    ["[0]" monad {"+" Monad do}]]
    [control
     ["[0]" try {"+" Try}]
     [concurrency
@@ -17,13 +16,10 @@
     ["[0]" text ("[1]#[0]" equivalence)
      ["%" format {"+" format}]]
     [collection
-     ["[0]" list ("[1]#[0]" functor mix)]
+     [set {"+" Set}]
+     ["[0]" list ("[1]#[0]" mix)]
      ["[0]" dictionary {"+" Dictionary}]
-     ["[0]" sequence {"+" Sequence}]
-     ["[0]" set {"+" Set}]]]
-   [math
-    [number
-     ["n" nat]]]
+     ["[0]" sequence {"+" Sequence}]]]
    [meta
     ["[0]" configuration {"+" Configuration}]
     ["[0]" version]]
@@ -45,9 +41,10 @@
    ["[0]" cache
     ["[1]/[0]" archive]
     ["[1]/[0]" module]
+    ["[1]/[0]" purge {"+" Cache Purge}]
     ["[0]" dependency "_"
      ["[1]" module]]]
-   ["/[1]" // {"+" Input}
+   [//
     [language
      ["$" lux
       ["[0]" analysis]
@@ -261,58 +258,6 @@
              (with@ archive.#output output))
          bundles])))
 
-(def: (purge! fs context [module_name @module])
-  (-> (file.System Async) Context [descriptor.Module module.ID] (Async (Try Any)))
-  (do [! (try.with async.monad)]
-    [.let [cache (cache/module.path fs context @module)]
-     _ (|> cache
-           (# fs directory_files)
-           (# ! each (monad.each ! (# fs delete)))
-           (# ! conjoint))]
-    (# fs delete cache)))
-
-(def: (valid_cache? expected actual)
-  (-> Descriptor Input Bit)
-  (and (text#= (value@ descriptor.#name expected)
-               (value@ ////.#module actual))
-       (text#= (value@ descriptor.#file expected)
-               (value@ ////.#file actual))
-       (n.= (value@ descriptor.#hash expected)
-            (value@ ////.#hash actual))))
-
-(type: Cache
-  [descriptor.Module [module.ID [(module.Module .Module) Registry]]])
-
-(type: Purge
-  (Dictionary descriptor.Module module.ID))
-
-(def: initial_purge
-  (-> (List [Bit Cache])
-      Purge)
-  (|>> (list.all (function (_ [valid_cache? [module_name [@module _]]])
-                   (if valid_cache?
-                     {.#None}
-                     {.#Some [module_name @module]})))
-       (dictionary.of_list text.hash)))
-
-(def: (full_purge caches load_order)
-  (-> (List [Bit Cache])
-      (dependency.Order .Module)
-      Purge)
-  (list#mix (function (_ [module_name [@module entry]] purge)
-              (let [purged? (: (Predicate descriptor.Module)
-                               (dictionary.key? purge))]
-                (if (purged? module_name)
-                  purge
-                  (if (|> entry
-                          (value@ [archive.#module module.#descriptor descriptor.#references])
-                          set.list
-                          (list.any? purged?))
-                    (dictionary.has module_name @module purge)
-                    purge))))
-            (..initial_purge caches)
-            load_order))
-
 (def: pseudo_module
   Text
   "(Lux Caching System)")
@@ -320,8 +265,8 @@
 (def: (valid_cache fs context import contexts [module_name @module])
   (-> (file.System Async) Context Import (List //.Context)
       [descriptor.Module module.ID]
-      (Async (Try [Bit Cache])))
-  (with_expansions [<cache> [module_name [@module [module registry]]]]
+      (Async (Try Cache)))
+  (with_expansions [<cache> (as_is module_name @module module registry)]
     (do [! (try.with async.monad)]
       [data (: (Async (Try Binary))
                (cache/module.cache fs context @module))
@@ -330,11 +275,11 @@
         (in [true <cache>])
         (do !
           [input (//context.read fs ..pseudo_module import contexts (value@ context.#host_module_extension context) module_name)]
-          (in [(..valid_cache? (value@ module.#descriptor module) input) <cache>]))))))
+          (in [(cache/purge.valid? (value@ module.#descriptor module) input) <cache>]))))))
 
 (def: (pre_loaded_caches fs context import contexts archive)
   (-> (file.System Async) Context Import (List //.Context) Archive
-      (Async (Try (List [Bit Cache]))))
+      (Async (Try (List Cache))))
   (do [! (try.with async.monad)]
     [... TODO: Stop needing to wrap this expression in an unnecessary "do" expression.
      it (|> archive
@@ -344,11 +289,11 @@
     (in it)))
 
 (def: (load_order archive pre_loaded_caches)
-  (-> Archive (List [Bit Cache])
+  (-> Archive (List Cache)
       (Try (dependency.Order .Module)))
   (|> pre_loaded_caches
       (monad.mix try.monad
-                 (function (_ [_ [module [@module [|module| registry]]]] archive)
+                 (function (_ [_ [module @module |module| registry]] archive)
                    (archive.has module
                                 [archive.#module |module|
                                  archive.#output (: Output sequence.empty)
@@ -381,10 +326,10 @@
   (do [! (try.with async.monad)]
     [pre_loaded_caches (..pre_loaded_caches fs context import contexts archive)
      load_order (async#in (load_order archive pre_loaded_caches))
-     .let [purge (..full_purge pre_loaded_caches load_order)]
+     .let [purge (cache/purge.purge pre_loaded_caches load_order)]
      _ (|> purge
            dictionary.entries
-           (monad.each ! (..purge! fs context)))
+           (monad.each ! (|>> product.right (cache/purge.purge! fs context))))
      loaded_caches (..loaded_caches host_environment fs context purge load_order)]
     (async#in
      (do [! try.monad]

@@ -6,11 +6,6 @@
 
 0. [Fibonacci Hashing: The Optimization that the World Forgot (or: a Better Alternative to Integer Modulo)](https://probablydance.com/2018/06/16/fibonacci-hashing-the-optimization-that-the-world-forgot-or-a-better-alternative-to-integer-modulo/)
 
-# Arithmetic | Math
-
-0. [ensmallen: flexible C++ library for efficient numerical optimization](http://ensmallen.org/docs.html)
-0. [Labor of Division (Episode I)](https://ridiculousfish.com/blog/posts/labor-of-division-episode-i.html)
-
 # Compilation
 
 0. ["Outperforming Imperative with Pure Functional Languages" by Richard Feldman](https://www.youtube.com/watch?v=vzfy4EKwG_Y)
@@ -31,6 +26,7 @@
 
 # Reference
 
+0. [Finding Missed Optimizations through the Lens of Dead Code Elimination](https://ethz.ch/content/dam/ethz/special-interest/infk/ast-dam/documents/Theodoridis-ASPLOS22-DCE-Paper.pdf)
 0. [Algorithms for Modern Hardware](https://en.algorithmica.org/hpc/)
 0. [Refterm Lecture Part 1 - Philosophies of Optimization](https://www.youtube.com/watch?v=pgoetgxecw8)
 0. [Optimizations enabled by -ffast-math](https://kristerw.github.io/2021/10/19/fast-math/)

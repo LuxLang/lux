@@ -10,8 +10,8 @@ cd ~/lux/lux-ruby/ && lein clean && lein lux auto test
 ```
 ## Develop
 cd ~/lux/lux-ruby/ \
-&& lein clean \
-&& lein lux auto build
+&& lux clean \
+&& lux auto build
 ```
 
 # Try

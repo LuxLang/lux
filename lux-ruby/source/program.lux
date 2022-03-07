@@ -40,8 +40,8 @@
    ["@" target
     ["_" ruby]]
    [tool
-    [compiler
-     ["[0]" phase {"+" Operation Phase}]
+    ["[0]" compiler
+     ["[0]" phase {"+" Operation Phase} ("[1]#[0]" monad)]
      [reference
       [variable {"+" Register}]]
      [language
@@ -66,12 +66,12 @@
       ["[0]" platform {"+" Platform}]]
      [meta
       [archive {"+" Archive}]
+      ["[0]" context]
       ["[0]" cli]
       ["[0]" packager "_"
        ["[1]" ruby]]]]]]]
  [program
-  ["/" compositor
-   ["/[0]" static]]])
+  ["/" compositor]])
 
 (import: java/lang/String)
 
@@ -87,11 +87,11 @@
 
 (import: java/lang/Integer
   ["[1]::[0]"
-   (longValue [] java/lang/Long)])
+   (longValue [] long)])
 
 (import: java/lang/Long
   ["[1]::[0]"
-   (intValue [] java/lang/Integer)])
+   (intValue [] int)])
 
 (import: org/jruby/RubyString
   ["[1]::[0]"
@@ -126,13 +126,6 @@
   ["[1]::[0]"
    (first [org/jruby/runtime/ThreadContext] org/jruby/runtime/builtin/IRubyObject)
    (size [org/jruby/runtime/ThreadContext] org/jruby/runtime/builtin/IRubyObject)])
-
-(ffi.interface: StructureValue
-  (getValue [] java/lang/Object))
-
-(import: program/StructureValue
-  ["[1]::[0]"
-   (getValue [] java/lang/Object)])
 
 (import: org/jruby/runtime/JavaSites$CheckedSites)
 (import: org/jruby/runtime/builtin/Variable)
@@ -227,12 +220,12 @@
 
 (def: (read_tuple read host_object)
   (-> Translator org/jruby/RubyArray (Try Any))
-  (let [size (:as Nat (org/jruby/RubyArray::getLength host_object))]
+  (let [size (.nat (ffi.of_int (org/jruby/RubyArray::getLength host_object)))]
     (loop [idx 0
            output (: (Array Any)
                      (array.empty size))]
       (if (n.< size idx)
-        (case (org/jruby/RubyArray::get (.int idx) host_object)
+        (case (org/jruby/RubyArray::get (ffi.as_int (.int idx)) host_object)
           {.#None}
           (again (++ idx) output)
           
@@ -247,29 +240,32 @@
 
 (exception: (unknown_kind_of_object [object java/lang/Object])
   (exception.report
-   ["Class" (java/lang/Object::toString (java/lang/Object::getClass object))]
-   ["Object" (java/lang/Object::toString object)]))
+   ["Class" (ffi.of_string (java/lang/Object::toString (java/lang/Object::getClass object)))]
+   ["Object" (ffi.of_string (java/lang/Object::toString object))]))
 
 (def: (read_variant read host_object)
   (-> Translator org/jruby/RubyHash (Try Any))
-  (case [(org/jruby/RubyHash::get (:as java/lang/String runtime.variant_tag_field) host_object)
-         (org/jruby/RubyHash::get (:as java/lang/String runtime.variant_flag_field) host_object)
-         (org/jruby/RubyHash::get (:as java/lang/String runtime.variant_value_field) host_object)]
+  (case [(org/jruby/RubyHash::get (ffi.as_string runtime.variant_tag_field) host_object)
+         (org/jruby/RubyHash::get (ffi.as_string runtime.variant_flag_field) host_object)
+         (org/jruby/RubyHash::get (ffi.as_string runtime.variant_value_field) host_object)]
     [{.#Some tag} ?flag {.#Some value}]
     (do try.monad
       [value (read value)]
-      (in [(:as Any (java/lang/Long::intValue (:as java/lang/Long tag)))
-           (:as Any
-                (case ?flag
-                  {.#Some _}
-                  ""
+      (in [(: Any (|> tag
+                      (:as java/lang/Long)
+                      java/lang/Long::intValue
+                      (: java/lang/Integer)))
+           (: Any
+              (case ?flag
+                {.#Some _}
+                ""
 
-                  {.#None}
-                  (ffi.null)))
-           (:as Any value)]))
+                {.#None}
+                (: java/lang/Object (ffi.null))))
+           (: Any value)]))
 
     _
-    (exception.except ..unknown_kind_of_object [(:as java/lang/Object host_object)])))
+    (exception.except ..unknown_kind_of_object [(ffi.:as java/lang/Object host_object)])))
 
 (exception: .public nil_has_no_lux_representation)
 
@@ -306,8 +302,9 @@
   (org/jruby/Ruby::getNil ..initial_ruby_runtime))
 
 (def: lux_unit
-  org/jruby/RubyString
-  (org/jruby/RubyString::newInternalFromJavaExternal ..initial_ruby_runtime ""))
+  org/jruby/runtime/builtin/IRubyObject
+  (<| (ffi.:as org/jruby/runtime/builtin/IRubyObject)
+      (org/jruby/RubyString::newInternalFromJavaExternal ..initial_ruby_runtime (ffi.as_string ""))))
 
 (def: (wrapped_lux_value useful_object_class lux_structure)
   (-> (-> (-> java/lang/Object org/jruby/runtime/builtin/IRubyObject)
@@ -319,7 +316,9 @@
     (`` (<| (~~ (template [<when> <then>]
                   [(case (ffi.check <when> value)
                      {.#Some value}
-                     (|> value <then>)
+                     (|> value
+                         <then>
+                         (ffi.:as org/jruby/runtime/builtin/IRubyObject))
 
                      {.#None})]
 
@@ -331,9 +330,10 @@
                   [org/jruby/runtime/builtin/IRubyObject (<|)]
                   ))
             ... (:as org/jruby/runtime/builtin/IRubyObject value)
-            (org/jruby/java/proxies/JavaProxy::new ..initial_ruby_runtime
-                                                   (useful_object_class again (:as (Array java/lang/Object) value))
-                                                   (:as java/lang/Object value))))))
+            (<| (ffi.:as org/jruby/runtime/builtin/IRubyObject)
+                (org/jruby/java/proxies/JavaProxy::new ..initial_ruby_runtime
+                                                       (useful_object_class again (:as (Array java/lang/Object) value))
+                                                       (ffi.:as java/lang/Object value)))))))
 
 (exception: (invalid_variant_access [field Text])
   (exception.report
@@ -343,9 +343,11 @@
   (exception.report
    ["Class" (|> index
                 java/lang/Object::getClass
-                java/lang/Object::toString)]
+                java/lang/Object::toString
+                ffi.of_string)]
    ["Index" (|> index
-                java/lang/Object::toString)]))
+                java/lang/Object::toString
+                ffi.of_string)]))
 
 (import: java/util/Arrays
   ["[1]::[0]"
@@ -355,236 +357,283 @@
   (exception.report
    ["Arity" (%.nat arity)]))
 
-(def: (lux_wrapper_call useful_object_class lux_structure value)
+(def: (::call useful_object_class lux_structure value)
   (-> (-> (-> (Array java/lang/Object) org/jruby/runtime/builtin/IRubyObject)
           (Array java/lang/Object)
           org/jruby/RubyClass)
       (-> (Array java/lang/Object) org/jruby/runtime/builtin/IRubyObject)
       (-> (Array java/lang/Object) org/jruby/internal/runtime/methods/DynamicMethod))
-  (ffi.object [] org/jruby/internal/runtime/methods/DynamicMethod []
-    [java/lang/String "call"]
+  (<| (ffi.:as org/jruby/internal/runtime/methods/DynamicMethod)
+      (ffi.object [] org/jruby/internal/runtime/methods/DynamicMethod []
+        [java/lang/String (ffi.as_string "call")]
 
-    (org/jruby/internal/runtime/methods/DynamicMethod
-     [] (call self [thread_context org/jruby/runtime/ThreadContext
-                    self org/jruby/runtime/builtin/IRubyObject
-                    module org/jruby/RubyModule
-                    method java/lang/String
-                    args [org/jruby/runtime/builtin/IRubyObject]
-                    block org/jruby/runtime/Block])
-     org/jruby/runtime/builtin/IRubyObject
-     (let [arity (ffi.length args)]
-       (try.trusted
-        (do [! try.monad]
-          [args (|> arity
-                    list.indices
-                    (list#each (function (_ index)
-                                 (ffi.read! index args)))
-                    (monad.each ! (|>> (:as java/lang/Object) ..read)))
-           output (case args
-                    (^ (list arg/0))
-                    (in ((:as (-> Any Any) value)
-                         arg/0))
-                    
-                    (^ (list arg/0 arg/1))
-                    (in ((:as (-> Any Any Any) value)
-                         arg/0 arg/1))
-                    
-                    (^ (list arg/0 arg/1 arg/2))
-                    (in ((:as (-> Any Any Any Any) value)
-                         arg/0 arg/1 arg/2))
-                    
-                    (^ (list arg/0 arg/1 arg/2 arg/3))
-                    (in ((:as (-> Any Any Any Any Any) value)
-                         arg/0 arg/1 arg/2 arg/3))
-                    
-                    (^ (list arg/0 arg/1 arg/2 arg/3 arg/4))
-                    (in ((:as (-> Any Any Any Any Any Any) value)
-                         arg/0 arg/1 arg/2 arg/3 arg/4))
-                    
-                    (^ (list arg/0 arg/1 arg/2 arg/3 arg/4 arg/5))
-                    (in ((:as (-> Any Any Any Any Any Any Any) value)
-                         arg/0 arg/1 arg/2 arg/3 arg/4 arg/5))
-                    
-                    (^ (list arg/0 arg/1 arg/2 arg/3 arg/4 arg/5 arg/6))
-                    (in ((:as (-> Any Any Any Any Any Any Any Any) value)
-                         arg/0 arg/1 arg/2 arg/3 arg/4 arg/5 arg/6))
-                    
-                    (^ (list arg/0 arg/1 arg/2 arg/3 arg/4 arg/5 arg/6 arg/7))
-                    (in ((:as (-> Any Any Any Any Any Any Any Any Any) value)
-                         arg/0 arg/1 arg/2 arg/3 arg/4 arg/5 arg/6 arg/7))
-                    
-                    _
-                    (exception.except ..invalid_arity [arity]))]
-          (in (|> output
-                  (:as java/lang/Object)
-                  (wrapped_lux_value useful_object_class lux_structure)))))))))
+        (org/jruby/internal/runtime/methods/DynamicMethod
+         [] (dup this [])
+         org/jruby/internal/runtime/methods/DynamicMethod
+         (undefined))
 
-(def: (lux_wrapper_access useful_object_class lux_structure value)
+        (org/jruby/internal/runtime/methods/DynamicMethod
+         [] (call this [thread_context org/jruby/runtime/ThreadContext
+                        self org/jruby/runtime/builtin/IRubyObject
+                        module org/jruby/RubyModule
+                        method java/lang/String
+                        args [org/jruby/runtime/builtin/IRubyObject]
+                        block org/jruby/runtime/Block])
+         org/jruby/runtime/builtin/IRubyObject
+         (let [arity (ffi.length args)]
+           (try.trusted
+            (do [! try.monad]
+              [args (|> arity
+                        list.indices
+                        (list#each (function (_ index)
+                                     (ffi.read! index args)))
+                        (monad.each ! (|>> (ffi.:as java/lang/Object) ..read)))
+               output (case args
+                        (^ (list arg/0))
+                        (in ((:as (-> Any java/lang/Object) value)
+                             arg/0))
+                        
+                        (^ (list arg/0 arg/1))
+                        (in ((:as (-> Any Any java/lang/Object) value)
+                             arg/0 arg/1))
+                        
+                        (^ (list arg/0 arg/1 arg/2))
+                        (in ((:as (-> Any Any Any java/lang/Object) value)
+                             arg/0 arg/1 arg/2))
+                        
+                        (^ (list arg/0 arg/1 arg/2 arg/3))
+                        (in ((:as (-> Any Any Any Any java/lang/Object) value)
+                             arg/0 arg/1 arg/2 arg/3))
+                        
+                        (^ (list arg/0 arg/1 arg/2 arg/3 arg/4))
+                        (in ((:as (-> Any Any Any Any Any java/lang/Object) value)
+                             arg/0 arg/1 arg/2 arg/3 arg/4))
+                        
+                        (^ (list arg/0 arg/1 arg/2 arg/3 arg/4 arg/5))
+                        (in ((:as (-> Any Any Any Any Any Any java/lang/Object) value)
+                             arg/0 arg/1 arg/2 arg/3 arg/4 arg/5))
+                        
+                        (^ (list arg/0 arg/1 arg/2 arg/3 arg/4 arg/5 arg/6))
+                        (in ((:as (-> Any Any Any Any Any Any Any java/lang/Object) value)
+                             arg/0 arg/1 arg/2 arg/3 arg/4 arg/5 arg/6))
+                        
+                        (^ (list arg/0 arg/1 arg/2 arg/3 arg/4 arg/5 arg/6 arg/7))
+                        (in ((:as (-> Any Any Any Any Any Any Any Any java/lang/Object) value)
+                             arg/0 arg/1 arg/2 arg/3 arg/4 arg/5 arg/6 arg/7))
+                        
+                        _
+                        (exception.except ..invalid_arity [arity]))]
+              (in (wrapped_lux_value (:expected useful_object_class) lux_structure output)))))))))
+
+(def: (::access useful_object_class lux_structure value)
   (-> (-> (-> (Array java/lang/Object) org/jruby/runtime/builtin/IRubyObject)
           (Array java/lang/Object)
           org/jruby/RubyClass)
       (-> (Array java/lang/Object) org/jruby/runtime/builtin/IRubyObject)
       (-> (Array java/lang/Object) org/jruby/internal/runtime/methods/DynamicMethod))
-  (ffi.object [] org/jruby/internal/runtime/methods/DynamicMethod []
-    [java/lang/String "[]"]
+  (<| (ffi.:as org/jruby/internal/runtime/methods/DynamicMethod)
+      (ffi.object [] org/jruby/internal/runtime/methods/DynamicMethod []
+        [java/lang/String (ffi.as_string "[]")]
 
-    (org/jruby/internal/runtime/methods/DynamicMethod
-     [] (call self [thread_context org/jruby/runtime/ThreadContext
-                    self org/jruby/runtime/builtin/IRubyObject
-                    module org/jruby/RubyModule
-                    method java/lang/String
-                    args [org/jruby/runtime/builtin/IRubyObject]
-                    block org/jruby/runtime/Block])
-     org/jruby/runtime/builtin/IRubyObject
-     (let [member (ffi.read! 0 args)]
-       (<| (case (ffi.check org/jruby/RubyFixnum member)
-             {.#Some member}
-             (case (array.read! (org/jruby/RubyFixnum::getLongValue member) value)
-               {.#Some value}
-               (wrapped_lux_value useful_object_class lux_structure value)
+        (org/jruby/internal/runtime/methods/DynamicMethod
+         [] (dup this [])
+         org/jruby/internal/runtime/methods/DynamicMethod
+         (undefined))
 
-               {.#None}
-               ..ruby_nil)
+        (org/jruby/internal/runtime/methods/DynamicMethod
+         [] (call this [thread_context org/jruby/runtime/ThreadContext
+                        self org/jruby/runtime/builtin/IRubyObject
+                        module org/jruby/RubyModule
+                        method java/lang/String
+                        args [org/jruby/runtime/builtin/IRubyObject]
+                        block org/jruby/runtime/Block])
+         org/jruby/runtime/builtin/IRubyObject
+         (let [member (ffi.read! 0 args)]
+           (<| (case (ffi.check org/jruby/RubyFixnum member)
+                 {.#Some member}
+                 (case (array.read! (.nat (ffi.of_long (org/jruby/RubyFixnum::getLongValue member))) value)
+                   {.#Some value}
+                   (wrapped_lux_value (:expected useful_object_class) lux_structure value)
 
-             {.#None})
-           (case (ffi.check org/jruby/RubyString member)
-             {.#Some member}
-             (case (:as Text (org/jruby/RubyString::asJavaString member))
-               (^ (static runtime.variant_tag_field))
-               (|> value
-                   (array.read! 0)
-                   maybe.trusted
-                   (:as java/lang/Integer)
-                   java/lang/Integer::longValue
-                   (org/jruby/RubyFixnum::new ..initial_ruby_runtime))
+                   {.#None}
+                   ..ruby_nil)
 
-               (^ (static runtime.variant_flag_field))
-               (case (array.read! 1 value)
-                 {.#None}
-                 ..ruby_nil
+                 {.#None})
+               (case (ffi.check org/jruby/RubyString member)
+                 {.#Some member}
+                 (case (ffi.of_string (org/jruby/RubyString::asJavaString member))
+                   (^ (static runtime.variant_tag_field))
+                   (|> value
+                       (array.read! 0)
+                       maybe.trusted
+                       (:as java/lang/Integer)
+                       java/lang/Integer::longValue
+                       (org/jruby/RubyFixnum::new ..initial_ruby_runtime)
+                       (ffi.:as org/jruby/runtime/builtin/IRubyObject))
+
+                   (^ (static runtime.variant_flag_field))
+                   (case (array.read! 1 value)
+                     {.#None}
+                     ..ruby_nil
+                     
+                     {.#Some flag}
+                     ..lux_unit)
+                   
+                   (^ (static runtime.variant_value_field))
+                   (case (array.read! 2 value)
+                     {.#Some value}
+                     (wrapped_lux_value (:expected useful_object_class) lux_structure value)
+
+                     {.#None}
+                     (panic! (exception.error ..nil_has_no_lux_representation [])))
+
+                   field
+                   (panic! (exception.error ..invalid_variant_access [field])))
                  
-                 {.#Some flag}
-                 ..lux_unit)
+                 {.#None})
+               (case (ffi.check org/jruby/RubyRange member)
+                 {.#Some member}
+                 (case [(|> member (org/jruby/RubyRange::first thread_context) (ffi.check org/jruby/RubyFixnum))
+                        (|> member (org/jruby/RubyRange::size thread_context) (ffi.check org/jruby/RubyFixnum))]
+                   [{.#Some first} {.#Some size}]
+                   (let [first (ffi.of_long (org/jruby/RubyFixnum::getLongValue first))
+                         size (ffi.of_long (org/jruby/RubyFixnum::getLongValue size))]
+                     (lux_structure (java/util/Arrays::copyOfRange value (ffi.as_int first) (ffi.as_int (i.+ first size)))))
+
+                   _
+                   (panic! (exception.error ..invalid_index [(ffi.:as java/lang/Object member)])))
+
+                 {.#None})
+               (panic! (exception.error ..invalid_index [(ffi.:as java/lang/Object member)]))))))))
+
+(def: (::= value)
+  (-> (Array java/lang/Object) org/jruby/internal/runtime/methods/DynamicMethod)
+  (<| (ffi.:as org/jruby/internal/runtime/methods/DynamicMethod)
+      (ffi.object [] org/jruby/internal/runtime/methods/DynamicMethod []
+        [java/lang/String (ffi.as_string "==")]
+
+        (org/jruby/internal/runtime/methods/DynamicMethod
+         [] (dup this [])
+         org/jruby/internal/runtime/methods/DynamicMethod
+         (undefined))
+
+        (org/jruby/internal/runtime/methods/DynamicMethod
+         [] (call this [thread_context org/jruby/runtime/ThreadContext
+                        self org/jruby/runtime/builtin/IRubyObject
+                        module org/jruby/RubyModule
+                        method java/lang/String
+                        args [org/jruby/runtime/builtin/IRubyObject]
+                        block org/jruby/runtime/Block])
+         org/jruby/runtime/builtin/IRubyObject
+         (<| (ffi.:as org/jruby/runtime/builtin/IRubyObject)
+             (org/jruby/RubyBoolean::newBoolean ..initial_ruby_runtime)
+             ffi.as_boolean
+             (case (|> args
+                       (ffi.read! 0)
+                       (ffi.:as java/lang/Object)
+                       ..read)
+               {try.#Success reference}
+               (same? (: Any reference) (: Any value))
                
-               (^ (static runtime.variant_value_field))
-               (case (array.read! 2 value)
-                 {.#Some value}
-                 (wrapped_lux_value useful_object_class lux_structure value)
+               {try.#Failure error}
+               false))))))
 
-                 {.#None}
-                 (panic! (exception.error ..nil_has_no_lux_representation [])))
-
-               field
-               (panic! (exception.error ..invalid_variant_access [field])))
-             
-             {.#None})
-           (case (ffi.check org/jruby/RubyRange member)
-             {.#Some member}
-             (case [(|> member (org/jruby/RubyRange::first thread_context) (ffi.check org/jruby/RubyFixnum))
-                    (|> member (org/jruby/RubyRange::size thread_context) (ffi.check org/jruby/RubyFixnum))]
-               [{.#Some first} {.#Some size}]
-               (let [first (org/jruby/RubyFixnum::getLongValue first)
-                     size (org/jruby/RubyFixnum::getLongValue size)]
-                 (lux_structure (java/util/Arrays::copyOfRange value first (i.+ first size))))
-
-               _
-               (panic! (exception.error ..invalid_index (:as java/lang/Object member))))
-
-             {.#None})
-           (panic! (exception.error ..invalid_index (:as java/lang/Object member))))))))
-
-(def: (lux_wrapper_equality value)
+(def: (::length value)
   (-> (Array java/lang/Object) org/jruby/internal/runtime/methods/DynamicMethod)
-  (ffi.object [] org/jruby/internal/runtime/methods/DynamicMethod []
-    [java/lang/String "=="]
+  (<| (ffi.:as org/jruby/internal/runtime/methods/DynamicMethod)
+      (ffi.object [] org/jruby/internal/runtime/methods/DynamicMethod []
+        [java/lang/String (ffi.as_string "length")]
 
-    (org/jruby/internal/runtime/methods/DynamicMethod
-     [] (call self [thread_context org/jruby/runtime/ThreadContext
-                    self org/jruby/runtime/builtin/IRubyObject
-                    module org/jruby/RubyModule
-                    method java/lang/String
-                    args [org/jruby/runtime/builtin/IRubyObject]
-                    block org/jruby/runtime/Block])
-     org/jruby/runtime/builtin/IRubyObject
-     (let [reference (ffi.read! 0 args)]
-       (case (..read (:as java/lang/Object reference))
-         {try.#Success reference}
-         (org/jruby/RubyBoolean::newBoolean ..initial_ruby_runtime (same? (: Any reference) (: Any value)))
-         
-         {try.#Failure error}
-         (org/jruby/RubyBoolean::newBoolean ..initial_ruby_runtime false))))))
+        (org/jruby/internal/runtime/methods/DynamicMethod
+         [] (dup this [])
+         org/jruby/internal/runtime/methods/DynamicMethod
+         (undefined))
 
-(def: (lux_wrapper_length value)
+        (org/jruby/internal/runtime/methods/DynamicMethod
+         [] (call this [thread_context org/jruby/runtime/ThreadContext
+                        self org/jruby/runtime/builtin/IRubyObject
+                        module org/jruby/RubyModule
+                        method java/lang/String
+                        args [org/jruby/runtime/builtin/IRubyObject]
+                        block org/jruby/runtime/Block])
+         org/jruby/runtime/builtin/IRubyObject
+         (|> value
+             array.size
+             .int
+             ffi.as_long
+             (org/jruby/RubyFixnum::new ..initial_ruby_runtime)
+             (ffi.:as org/jruby/runtime/builtin/IRubyObject))))))
+
+(def: (::to_s value)
   (-> (Array java/lang/Object) org/jruby/internal/runtime/methods/DynamicMethod)
-  (ffi.object [] org/jruby/internal/runtime/methods/DynamicMethod []
-    [java/lang/String "length"]
+  (<| (ffi.:as org/jruby/internal/runtime/methods/DynamicMethod)
+      (ffi.object [] org/jruby/internal/runtime/methods/DynamicMethod []
+        [java/lang/String (ffi.as_string "to_s")]
 
-    (org/jruby/internal/runtime/methods/DynamicMethod
-     [] (call self [thread_context org/jruby/runtime/ThreadContext
-                    self org/jruby/runtime/builtin/IRubyObject
-                    module org/jruby/RubyModule
-                    method java/lang/String
-                    args [org/jruby/runtime/builtin/IRubyObject]
-                    block org/jruby/runtime/Block])
-     org/jruby/runtime/builtin/IRubyObject
-     (|> value
-         array.size
-         (org/jruby/RubyFixnum::new ..initial_ruby_runtime)))))
+        (org/jruby/internal/runtime/methods/DynamicMethod
+         [] (dup this [])
+         org/jruby/internal/runtime/methods/DynamicMethod
+         (undefined))
 
-(def: (lux_wrapper_to_s value)
-  (-> (Array java/lang/Object) org/jruby/internal/runtime/methods/DynamicMethod)
-  (ffi.object [] org/jruby/internal/runtime/methods/DynamicMethod []
-    [java/lang/String "to_s"]
-
-    (org/jruby/internal/runtime/methods/DynamicMethod
-     [] (call self [thread_context org/jruby/runtime/ThreadContext
-                    self org/jruby/runtime/builtin/IRubyObject
-                    module org/jruby/RubyModule
-                    method java/lang/String
-                    args [org/jruby/runtime/builtin/IRubyObject]
-                    block org/jruby/runtime/Block])
-     org/jruby/runtime/builtin/IRubyObject
-     (|> value
-         debug.inspection
-         (org/jruby/RubyString::newInternalFromJavaExternal ..initial_ruby_runtime)))))
+        (org/jruby/internal/runtime/methods/DynamicMethod
+         [] (call this [thread_context org/jruby/runtime/ThreadContext
+                        self org/jruby/runtime/builtin/IRubyObject
+                        module org/jruby/RubyModule
+                        method java/lang/String
+                        args [org/jruby/runtime/builtin/IRubyObject]
+                        block org/jruby/runtime/Block])
+         org/jruby/runtime/builtin/IRubyObject
+         (|> value
+             debug.inspection
+             ffi.as_string
+             (org/jruby/RubyString::newInternalFromJavaExternal ..initial_ruby_runtime)
+             (ffi.:as org/jruby/runtime/builtin/IRubyObject))))))
 
 (exception: (invalid_operation [method Text])
   (exception.report
    ["Method" (%.text method)]))
 
-(def: (lux_wrapper_respond_to? value)
+(def: (::respond_to? value)
   (-> (Array java/lang/Object) org/jruby/internal/runtime/methods/DynamicMethod)
-  (ffi.object [] org/jruby/internal/runtime/methods/DynamicMethod []
-    [java/lang/String "respond_to?"]
+  (<| (ffi.:as org/jruby/internal/runtime/methods/DynamicMethod)
+      (ffi.object [] org/jruby/internal/runtime/methods/DynamicMethod []
+        [java/lang/String (ffi.as_string "respond_to?")]
 
-    (org/jruby/internal/runtime/methods/DynamicMethod
-     [] (call self [thread_context org/jruby/runtime/ThreadContext
-                    self org/jruby/runtime/builtin/IRubyObject
-                    module org/jruby/RubyModule
-                    method java/lang/String
-                    args [org/jruby/runtime/builtin/IRubyObject]
-                    block org/jruby/runtime/Block])
-     org/jruby/runtime/builtin/IRubyObject
-     (case (|> args
-               (ffi.read! 0)
-               (ffi.check org/jruby/RubySymbol))
-       {.#Some method}
-       (|> (case (|> method
-                     org/jruby/RubySymbol::asJavaString
-                     (:as Text))
-             (^or "==" "equal?"
-                  "to_s" "inspect"
-                  "[]" "length" "respond_to?"
-                  ... "to_hash"
-                  )
-             true
-             
-             _
-             false)
-           (org/jruby/RubyBoolean::newBoolean ..initial_ruby_runtime))
+        (org/jruby/internal/runtime/methods/DynamicMethod
+         [] (dup this [])
+         org/jruby/internal/runtime/methods/DynamicMethod
+         (undefined))
 
-       {.#None}
-       (panic! (exception.error ..invalid_operation ["respond_to?"]))))))
+        (org/jruby/internal/runtime/methods/DynamicMethod
+         [] (call this [thread_context org/jruby/runtime/ThreadContext
+                        self org/jruby/runtime/builtin/IRubyObject
+                        module org/jruby/RubyModule
+                        method java/lang/String
+                        args [org/jruby/runtime/builtin/IRubyObject]
+                        block org/jruby/runtime/Block])
+         org/jruby/runtime/builtin/IRubyObject
+         (case (|> args
+                   (ffi.read! 0)
+                   (ffi.check org/jruby/RubySymbol))
+           {.#Some method}
+           (|> (case (|> method
+                         org/jruby/RubySymbol::asJavaString
+                         ffi.of_string)
+                 (^or "==" "equal?"
+                      "to_s" "inspect"
+                      "[]" "length" "respond_to?"
+                      ... "to_hash"
+                      )
+                 true
+                 
+                 _
+                 false)
+               ffi.as_boolean
+               (org/jruby/RubyBoolean::newBoolean ..initial_ruby_runtime)
+               (ffi.:as org/jruby/runtime/builtin/IRubyObject))
+
+           {.#None}
+           (panic! (exception.error ..invalid_operation ["respond_to?"])))))))
 
 (exception: (unknown_method [method Text])
   (exception.report
@@ -594,47 +643,50 @@
   (-> (-> (Array java/lang/Object) org/jruby/runtime/builtin/IRubyObject)
       (Array java/lang/Object)
       org/jruby/RubyClass)
-  (ffi.object [] org/jruby/RubyClass []
-    [org/jruby/Ruby ..initial_ruby_runtime]
+  (<| (ffi.:as org/jruby/RubyClass)
+      (ffi.object [] org/jruby/RubyClass []
+        [org/jruby/Ruby ..initial_ruby_runtime]
 
-    (org/jruby/RubyClass
-     [] (searchWithCache self [method java/lang/String])
-     org/jruby/runtime/callsite/CacheEntry
-     (case (:as Text method)
-       "call"
-       (org/jruby/runtime/callsite/CacheEntry::new (..lux_wrapper_call useful_object_class lux_structure value) 0)
-       
-       "[]"
-       (org/jruby/runtime/callsite/CacheEntry::new (..lux_wrapper_access useful_object_class lux_structure value) 0)
+        (org/jruby/RubyClass
+         [] (searchWithCache this [method java/lang/String])
+         org/jruby/runtime/callsite/CacheEntry
+         (case (ffi.of_string method)
+           "call"
+           (org/jruby/runtime/callsite/CacheEntry::new (::call useful_object_class lux_structure value) (ffi.as_int +0))
+           
+           "[]"
+           (org/jruby/runtime/callsite/CacheEntry::new (::access useful_object_class lux_structure value) (ffi.as_int +1))
 
-       (^or "==" "equal?")
-       (org/jruby/runtime/callsite/CacheEntry::new (..lux_wrapper_equality value) 1)
+           (^or "==" "equal?")
+           (org/jruby/runtime/callsite/CacheEntry::new (::= value) (ffi.as_int +2))
 
-       (^or "count" "length" "size")
-       (org/jruby/runtime/callsite/CacheEntry::new (..lux_wrapper_length value) 2)
+           (^or "count" "length" "size")
+           (org/jruby/runtime/callsite/CacheEntry::new (::length value) (ffi.as_int +3))
 
-       (^or "to_s" "inspect")
-       (org/jruby/runtime/callsite/CacheEntry::new (..lux_wrapper_to_s value) 3)
+           (^or "to_s" "inspect")
+           (org/jruby/runtime/callsite/CacheEntry::new (::to_s value) (ffi.as_int +4))
 
-       "respond_to?"
-       (org/jruby/runtime/callsite/CacheEntry::new (..lux_wrapper_respond_to? value) 4)
+           "respond_to?"
+           (org/jruby/runtime/callsite/CacheEntry::new (::respond_to? value) (ffi.as_int +5))
 
-       _
-       (panic! (exception.error ..unknown_method [(:as Text method)]))))))
+           method
+           (panic! (exception.error ..unknown_method [method])))))))
 
 (def: (lux_structure value)
   (-> (Array java/lang/Object) org/jruby/runtime/builtin/IRubyObject)
-  (org/jruby/java/proxies/JavaProxy::new ..initial_ruby_runtime
-                                         (useful_object_class lux_structure value)
-                                         (:as java/lang/Object value)))
+  (<| (ffi.:as org/jruby/runtime/builtin/IRubyObject)
+      (org/jruby/java/proxies/JavaProxy::new ..initial_ruby_runtime
+                                             (useful_object_class lux_structure value)
+                                             (ffi.:as java/lang/Object value))))
 
 (exception: (cannot_apply_a_non_function [object java/lang/Object])
   (exception.report
-   ["Non-function" (java/lang/Object::toString object)]))
+   ["Non-function" (ffi.of_string (java/lang/Object::toString object))]))
 
-(def: ensure_macro
+(def: macro!
   (-> Macro (Maybe org/jruby/RubyProc))
-  (|>> (:as java/lang/Object) (ffi.check org/jruby/RubyProc)))
+  (|>> (:as java/lang/Object)
+       (ffi.check org/jruby/RubyProc)))
 
 (def: to_host
   (-> Any org/jruby/runtime/builtin/IRubyObject)
@@ -650,11 +702,11 @@
                                               (ffi.write! 0 (..to_host inputs))
                                               (ffi.write! 1 (..to_host lux)))
                                           macro)]
-     (..read (:as java/lang/Object expansion)))))
+     (..read (ffi.:as java/lang/Object expansion)))))
 
 (def: (expander macro inputs lux)
   Expander
-  (case (ensure_macro macro)
+  (case (macro! macro)
     {.#Some macro}
     (case (call_macro inputs lux macro)
       {try.#Success output}
@@ -674,17 +726,17 @@
   (io (let [run! (: (-> (_.Code Any) (Try Any))
                     (function (_ code)
                       (do try.monad
-                        [output (org/jruby/embed/ScriptingContainer::runScriptlet (_.code code) ..interpreter)]
+                        [output (org/jruby/embed/ScriptingContainer::runScriptlet (ffi.as_string (_.code code)) ..interpreter)]
                         (..read (maybe.else (:as java/lang/Object [])
                                             output)))))]
         (: (Host _.Expression _.Statement)
            (implementation
-            (def: (evaluate context code)
+            (def: (evaluate context [_ code])
               (run! code))
 
             (def: execute run!)
 
-            (def: (define context custom input)
+            (def: (define context custom [_ input])
               (let [global (maybe.else (reference.artifact context)
                                        custom)
                     @global (_.global global)]
@@ -707,149 +759,177 @@
                 [_ (run! content)]
                 (run! (_.global (reference.artifact context))))))))))
 
-(for [@.old
-      (as_is (exception: .public (invaid_phase_application [partial_application (List Any)
-                                                            arity (List Any)])
-               (exception.report
-                ["Partial Application" (%.nat (list.size partial_application))]
-                ["Arity" (%.nat (list.size arity))]))
+(for [@.jvm (as_is (exception: .public (invaid_phase_application [partial_application (List Any)
+                                                                  arity (List Any)])
+                     (exception.report
+                      ["Partial Application" (%.nat (list.size partial_application))]
+                      ["Arity" (%.nat (list.size arity))]))
 
-             (def: proc_type
-               org/jruby/runtime/Block$Type
-               (|> (org/jruby/runtime/Block::NULL_BLOCK)
-                   (org/jruby/runtime/Block::type)))
+                   (def: proc_type
+                     org/jruby/runtime/Block$Type
+                     (|> (org/jruby/runtime/Block::NULL_BLOCK)
+                         (org/jruby/runtime/Block::type)))
 
-             (def: phase_block_signature
-               org/jruby/runtime/Signature
-               (org/jruby/runtime/Signature::THREE_ARGUMENTS))
+                   (def: phase_block_signature
+                     org/jruby/runtime/Signature
+                     (org/jruby/runtime/Signature::THREE_ARGUMENTS))
 
-             (def: dummy_static_scope
-               org/jruby/parser/StaticScope
-               (|> (org/jruby/parser/StaticScopeFactory::new (!ruby_runtime))
-                   (org/jruby/parser/StaticScopeFactory::getDummyScope)))
+                   (def: dummy_static_scope
+                     org/jruby/parser/StaticScope
+                     (|> (org/jruby/parser/StaticScopeFactory::new (!ruby_runtime))
+                         (org/jruby/parser/StaticScopeFactory::getDummyScope)))
 
-             (def: phase_block_body
-               org/jruby/runtime/BlockBody
-               (ffi.object [] org/jruby/runtime/BlockBody []
-                 [org/jruby/runtime/Signature ..phase_block_signature]
-                 ... Methods
-                 (org/jruby/runtime/BlockBody
-                  [] (getFile self [])
-                  java/lang/String
-                  "YOLO")
-                 (org/jruby/runtime/BlockBody
-                  [] (getLine self [])
-                  int
-                  (ffi.long_to_int (hex "+ABC,123")))
-                 (org/jruby/runtime/BlockBody
-                  [] (getStaticScope self [])
-                  org/jruby/parser/StaticScope
-                  ..dummy_static_scope)))
+                   (def: phase_block_body
+                     org/jruby/runtime/BlockBody
+                     (<| (ffi.:as org/jruby/runtime/BlockBody)
+                         (ffi.object [] org/jruby/runtime/BlockBody []
+                           [org/jruby/runtime/Signature ..phase_block_signature]
+                           ... Methods
+                           (org/jruby/runtime/BlockBody
+                            [] (getFile this [])
+                            java/lang/String
+                            (ffi.as_string "YOLO"))
+                           
+                           (org/jruby/runtime/BlockBody
+                            [] (getLine this [])
+                            int
+                            (ffi.as_int (hex "+ABC,123")))
+                           
+                           (org/jruby/runtime/BlockBody
+                            [] (getStaticScope this [])
+                            org/jruby/parser/StaticScope
+                            ..dummy_static_scope)
 
-             (def: (host_phase partial_application phase)
-               (All (_ s i o)
-                 (-> (List Any) (Phase [extension.Bundle s] i o)
-                     org/jruby/RubyProc))
-               (let [block (ffi.object [] org/jruby/runtime/Block []
-                             [org/jruby/runtime/BlockBody ..phase_block_body]
-                             ... Methods
-                             (org/jruby/runtime/Block
-                              [] (call self [_ org/jruby/runtime/ThreadContext
-                                             inputs [org/jruby/runtime/builtin/IRubyObject]
-                                             _ org/jruby/runtime/Block])
-                              org/jruby/runtime/builtin/IRubyObject
-                              (<| try.trusted
-                                  (do [! try.monad]
-                                    [inputs (|> inputs
-                                                (array.list {.#None})
-                                                (monad.each ! (|>> (:as java/lang/Object) ..read)))])
-                                  (case inputs
-                                    ... It seems that org/jruby/runtime/Block::call can misbehave when getting called with a Lux state value.
-                                    (^ (list info source location current_module modules scopes type_context expected seed scope_type_vars extensions eval host))
-                                    (case partial_application
-                                      (^ (list partial/0 partial/1))
-                                      (in (..to_host ((:as (-> Any Any Any Any) phase)
-                                                      partial/0
-                                                      partial/1
-                                                      [info source location current_module modules scopes type_context expected seed scope_type_vars extensions eval host])))
+                           (org/jruby/runtime/BlockBody
+                            [] (setStaticScope self [_ org/jruby/parser/StaticScope])
+                            void
+                            [])
 
-                                      _
-                                      (exception.except ..invaid_phase_application [partial_application inputs]))
-                                    
-                                    (^ (list))
-                                    {try.#Success (host_phase partial_application phase)}
-                                    
-                                    (^ (list input/0))
-                                    (case partial_application
-                                      (^ (list))
-                                      (in (host_phase (list input/0) phase))
-                                      
-                                      (^ (list partial/0))
-                                      (in (host_phase (list partial/0 input/0) phase))
-                                      
-                                      (^ (list partial/0 partial/1))
-                                      (in (..to_host ((:as (-> Any Any Any Any) phase)
-                                                      partial/0
-                                                      partial/1
-                                                      input/0)))
+                           (org/jruby/runtime/BlockBody
+                            [] (doYield self [_ org/jruby/runtime/ThreadContext
+                                              _ org/jruby/runtime/Block
+                                              _ org/jruby/runtime/builtin/IRubyObject])
+                            org/jruby/runtime/builtin/IRubyObject
+                            (undefined))
 
-                                      _
-                                      (exception.except ..invaid_phase_application [partial_application inputs]))
-                                    
-                                    (^ (list input/0 input/1))
-                                    (case partial_application
-                                      (^ (list))
-                                      (in (host_phase (list input/0 input/1) phase))
-                                      
-                                      (^ (list partial/0))
-                                      (in (..to_host ((:as (-> Any Any Any Any) phase)
-                                                      partial/0
-                                                      input/0
-                                                      input/1)))
-                                      
-                                      _
-                                      (exception.except ..invaid_phase_application [partial_application inputs]))
-                                    
-                                    (^ (list input/0 input/1 input/2))
-                                    (case partial_application
-                                      (^ (list))
-                                      (in (..to_host ((:as (-> Any Any Any Any) phase)
-                                                      input/0
-                                                      input/1
-                                                      input/2)))
-                                      
-                                      _
-                                      (exception.except ..invaid_phase_application [partial_application inputs]))
-                                    
-                                    _
-                                    (exception.except ..invaid_phase_application [partial_application inputs])))))]
-                 (org/jruby/RubyProc::newProc (!ruby_runtime) block ..proc_type)))
+                           (org/jruby/runtime/BlockBody
+                            [] (doYield self [_ org/jruby/runtime/ThreadContext
+                                              _ org/jruby/runtime/Block
+                                              _ [org/jruby/runtime/builtin/IRubyObject]
+                                              _ org/jruby/runtime/builtin/IRubyObject])
+                            org/jruby/runtime/builtin/IRubyObject
+                            (undefined))
+                           )))
 
-             (def: (extender phase_wrapper)
-               (-> phase.Wrapper Extender)
-               ... TODO: Stop relying on coercions ASAP.
-               (<| (:as Extender)
-                   (function (@self handler))
-                   (:as Handler)
-                   (function (@self name phase))
-                   (:as Phase)
-                   (function (@self archive parameters))
-                   (:as Operation)
-                   (function (@self state))
-                   (:as Try)
-                   try.trusted
-                   (:as Try)
-                   (do try.monad
-                     [handler (try.of_maybe (..ensure_macro handler))
-                      output (org/jruby/RubyProc::call (!ruby_thread_context)
-                                                       (|> (ffi.array org/jruby/runtime/builtin/IRubyObject 5)
-                                                           (ffi.write! 0 (org/jruby/RubyString::newInternalFromJavaExternal (!ruby_runtime) name))
-                                                           (ffi.write! 1 (:as org/jruby/runtime/builtin/IRubyObject (phase_wrapper phase)))
-                                                           (ffi.write! 2 (..to_host archive))
-                                                           (ffi.write! 3 (..to_host parameters))
-                                                           (ffi.write! 4 (..to_host state)))
-                                                       handler)]
-                     (..read (:as java/lang/Object output))))))
+                   (def: (host_phase partial_application phase)
+                     (All (_ s i o)
+                       (-> (List Any) (Phase [extension.Bundle s] i o)
+                           org/jruby/RubyProc))
+                     (let [block (ffi.object [] org/jruby/runtime/Block []
+                                   [org/jruby/runtime/BlockBody ..phase_block_body]
+                                   ... Methods
+                                   (org/jruby/runtime/Block
+                                    [] (call this [_thread_context org/jruby/runtime/ThreadContext
+                                                   inputs [org/jruby/runtime/builtin/IRubyObject]
+                                                   _block org/jruby/runtime/Block])
+                                    org/jruby/runtime/builtin/IRubyObject
+                                    (<| try.trusted
+                                        (do [! try.monad]
+                                          [inputs (|> inputs
+                                                      (array.list {.#None})
+                                                      (monad.each ! (|>> (ffi.:as java/lang/Object) ..read)))])
+                                        (case inputs
+                                          ... It seems that org/jruby/runtime/Block::call can misbehave when getting called with a Lux state value.
+                                          (^ (list info source location current_module modules scopes type_context expected seed scope_type_vars extensions eval host))
+                                          (case partial_application
+                                            (^ (list partial/0 partial/1))
+                                            (in (..to_host ((:as (-> Any Any Any Any) phase)
+                                                            partial/0
+                                                            partial/1
+                                                            [info source location current_module modules scopes type_context expected seed scope_type_vars extensions eval host])))
+
+                                            _
+                                            (exception.except ..invaid_phase_application [partial_application inputs]))
+                                          
+                                          (^ (list))
+                                          {try.#Success (<| (ffi.:as org/jruby/runtime/builtin/IRubyObject)
+                                                            (host_phase partial_application phase))}
+                                          
+                                          (^ (list input/0))
+                                          (case partial_application
+                                            (^ (list))
+                                            (in (<| (ffi.:as org/jruby/runtime/builtin/IRubyObject)
+                                                    (host_phase (list input/0) phase)))
+                                            
+                                            (^ (list partial/0))
+                                            (in (<| (ffi.:as org/jruby/runtime/builtin/IRubyObject)
+                                                    (host_phase (list partial/0 input/0) phase)))
+                                            
+                                            (^ (list partial/0 partial/1))
+                                            (in (..to_host ((:as (-> Any Any Any Any) phase)
+                                                            partial/0
+                                                            partial/1
+                                                            input/0)))
+
+                                            _
+                                            (exception.except ..invaid_phase_application [partial_application inputs]))
+                                          
+                                          (^ (list input/0 input/1))
+                                          (case partial_application
+                                            (^ (list))
+                                            (in (<| (ffi.:as org/jruby/runtime/builtin/IRubyObject)
+                                                    (host_phase (list input/0 input/1) phase)))
+                                            
+                                            (^ (list partial/0))
+                                            (in (..to_host ((:as (-> Any Any Any Any) phase)
+                                                            partial/0
+                                                            input/0
+                                                            input/1)))
+                                            
+                                            _
+                                            (exception.except ..invaid_phase_application [partial_application inputs]))
+                                          
+                                          (^ (list input/0 input/1 input/2))
+                                          (case partial_application
+                                            (^ (list))
+                                            (in (..to_host ((:as (-> Any Any Any Any) phase)
+                                                            input/0
+                                                            input/1
+                                                            input/2)))
+                                            
+                                            _
+                                            (exception.except ..invaid_phase_application [partial_application inputs]))
+                                          
+                                          _
+                                          (exception.except ..invaid_phase_application [partial_application inputs])))))]
+                       (org/jruby/RubyProc::newProc (!ruby_runtime) block ..proc_type)))
+
+                   (def: (extender phase_wrapper)
+                     (-> phase.Wrapper Extender)
+                     ... TODO: Stop relying on coercions ASAP.
+                     (<| (:as Extender)
+                         (function (@self handler))
+                         (:as Handler)
+                         (function (@self name phase))
+                         (:as Phase)
+                         (function (@self archive parameters))
+                         (:as Operation)
+                         (function (@self state))
+                         (:as Try)
+                         try.trusted
+                         (:as Try)
+                         (do try.monad
+                           [handler (try.of_maybe (..macro! handler))
+                            output (org/jruby/RubyProc::call (!ruby_thread_context)
+                                                             (|> (ffi.array org/jruby/runtime/builtin/IRubyObject 5)
+                                                                 (ffi.write! 0 (<| (ffi.:as org/jruby/runtime/builtin/IRubyObject)
+                                                                                   (org/jruby/RubyString::newInternalFromJavaExternal (!ruby_runtime) (ffi.as_string name))))
+                                                                 (ffi.write! 1 (:as org/jruby/runtime/builtin/IRubyObject (phase_wrapper phase)))
+                                                                 (ffi.write! 2 (..to_host archive))
+                                                                 (ffi.write! 3 (..to_host parameters))
+                                                                 (ffi.write! 4 (..to_host state)))
+                                                             handler)]
+                           (..read (ffi.:as java/lang/Object output))))))
 
       @.ruby
       (def: (extender phase_wrapper handler)
@@ -858,11 +938,10 @@
 
 (def: (phase_wrapper archive)
   (-> Archive (runtime.Operation phase.Wrapper))
-  (do phase.monad
-    []
-    (in (:as phase.Wrapper
-             (for [@.old (..host_phase (list))
-                   @.ruby (|>>)])))))
+  (<| phase#in
+      (:as phase.Wrapper)
+      (for [@.jvm (..host_phase (list))
+            @.ruby (|>>)])))
 
 (def: platform
   (IO (Platform Register _.Expression _.Statement))
@@ -892,14 +971,16 @@
   (-> Any (Async Any))
   (async.future (# world/program.default exit +0)))
 
+(def: (lux_compiler it)
+  (-> Any compiler.Custom)
+  (undefined))
+
 (program: [service cli.service]
   (let [extension ".rb"]
     (exec
       (do async.monad
-        [_ (/.compiler [/static.#host @.ruby
-                        /static.#host_module_extension extension
-                        /static.#target (cli.target service)
-                        /static.#artifact_extension extension]
+        [_ (/.compiler ..lux_compiler
+                       (context.ruby (cli.target service))
                        ..expander
                        analysis.bundle
                        ..platform
