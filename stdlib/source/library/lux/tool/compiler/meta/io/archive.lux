@@ -1,7 +1,7 @@
 (.using
  [library
   [lux "*"
-   [target {"+" Target}]
+   ["@" target {"+" Target}]
    [abstract
     ["[0]" monad {"+" Monad do}]]
    [control
@@ -31,6 +31,7 @@
    [import {"+" Import}]
    ["[0]" context {"+" Context}]
    ["[0]" archive {"+" Output Archive}
+    [key {"+" Key}]
     ["[0]" registry {"+" Registry}]
     ["[0]" unit]
     ["[0]" artifact {"+" Artifact}
@@ -44,7 +45,7 @@
     ["[1]/[0]" purge {"+" Cache Purge}]
     ["[0]" dependency "_"
      ["[1]" module]]]
-   [//
+   [// {"+" Custom}
     [language
      ["$" lux
       ["[0]" analysis]
@@ -53,17 +54,19 @@
       ["[0]" directive]
       ["[1]/[0]" program]]]]]])
 
-(def: module_parser
-  (Parser (module.Module .Module))
+(def: (module_parser key parser)
+  (All (_ document)
+    (-> (Key document) (Parser document) (Parser (module.Module document))))
   ($_ <>.and
       <binary>.nat
       descriptor.parser
-      (document.parser $.key $.parser)))
+      (document.parser key parser)))
 
-(def: parser
-  (Parser [(module.Module .Module) Registry])
+(def: (parser key parser)
+  (All (_ document)
+    (-> (Key document) (Parser document) (Parser [(module.Module document) Registry])))
   ($_ <>.and
-      ..module_parser
+      (..module_parser key parser)
       registry.parser))
 
 (def: (fresh_analysis_state host configuration)
@@ -262,30 +265,43 @@
   Text
   "(Lux Caching System)")
 
-(def: (valid_cache fs context import contexts [module_name @module])
-  (-> (file.System Async) Context Import (List //.Context)
+(def: (cache_parser customs)
+  (-> (List Custom) (Parser [(module.Module Any) Registry]))
+  (case (for [@.old (:as (List (Custom Any Any Any))
+                         customs)]
+             customs)
+    {.#End}
+    (..parser $.key $.parser)
+    
+    {.#Item [custom_state custom_key custom_format custom_parser custom_compiler] tail}
+    ($_ <>.either
+        (..parser custom_key custom_parser)
+        (cache_parser tail)
+        )))
+
+(def: (valid_cache customs fs context import contexts [module_name @module])
+  (-> (List Custom) (file.System Async) Context Import (List //.Context)
       [descriptor.Module module.ID]
       (Async (Try Cache)))
   (with_expansions [<cache> (as_is module_name @module module registry)]
     (do [! (try.with async.monad)]
       [data (: (Async (Try Binary))
                (cache/module.cache fs context @module))
-       [module registry] (async#in (<binary>.result ..parser data))]
+       [module registry] (async#in (<binary>.result (..cache_parser customs) data))]
       (if (text#= descriptor.runtime module_name)
         (in [true <cache>])
         (do !
           [input (//context.read fs ..pseudo_module import contexts (value@ context.#host_module_extension context) module_name)]
           (in [(cache/purge.valid? (value@ module.#descriptor module) input) <cache>]))))))
 
-(def: (pre_loaded_caches fs context import contexts archive)
-  (-> (file.System Async) Context Import (List //.Context) Archive
+(def: (pre_loaded_caches customs fs context import contexts archive)
+  (-> (List Custom) (file.System Async) Context Import (List //.Context) Archive
       (Async (Try (List Cache))))
   (do [! (try.with async.monad)]
     [... TODO: Stop needing to wrap this expression in an unnecessary "do" expression.
      it (|> archive
             archive.reservations
-            (monad.each !
-                        (..valid_cache fs context import contexts)))]
+            (monad.each ! (..valid_cache customs fs context import contexts)))]
     (in it)))
 
 (def: (load_order archive pre_loaded_caches)
@@ -319,12 +335,12 @@
                                    bundles])))))]
     (in it)))
 
-(def: (load_every_reserved_module configuration host_environment fs context import contexts archive)
+(def: (load_every_reserved_module customs configuration host_environment fs context import contexts archive)
   (All (_ expression directive)
-    (-> Configuration (generation.Host expression directive) (file.System Async) Context Import (List //.Context) Archive
+    (-> (List Custom) Configuration (generation.Host expression directive) (file.System Async) Context Import (List //.Context) Archive
         (Async (Try [Archive .Lux Bundles]))))
   (do [! (try.with async.monad)]
-    [pre_loaded_caches (..pre_loaded_caches fs context import contexts archive)
+    [pre_loaded_caches (..pre_loaded_caches customs fs context import contexts archive)
      load_order (async#in (load_order archive pre_loaded_caches))
      .let [purge (cache/purge.purge pre_loaded_caches load_order)]
      _ (|> purge
@@ -350,9 +366,9 @@
                       ..empty_bundles
                       loaded_caches)])))))
 
-(def: .public (thaw configuration host_environment fs context import contexts)
+(def: .public (thaw customs configuration host_environment fs context import contexts)
   (All (_ expression directive)
-    (-> Configuration (generation.Host expression directive) (file.System Async) Context Import (List //.Context)
+    (-> (List Custom) Configuration (generation.Host expression directive) (file.System Async) Context Import (List //.Context)
         (Async (Try [Archive .Lux Bundles]))))
   (do async.monad
     [binary (# fs read (cache/archive.descriptor fs context))]
@@ -360,7 +376,7 @@
       {try.#Success binary}
       (do (try.with async.monad)
         [archive (async#in (archive.import ///.version binary))]
-        (..load_every_reserved_module configuration host_environment fs context import contexts archive))
+        (..load_every_reserved_module customs configuration host_environment fs context import contexts archive))
       
       {try.#Failure error}
       (in {try.#Success [archive.empty

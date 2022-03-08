@@ -32,6 +32,7 @@
 
 ## Bloom filter
 
+0. [Sliding Bloom Filter](https://programming.guide/sliding-bloom-filter.html)
 0. [Word-aligned Bloom filters](https://lemire.me/blog/2021/10/03/word-aligned-bloom-filters/)
 0. [Bloom Filters by Example](https://llimllib.github.io/bloomfilter-tutorial/)
 0. [Bloom Filters - Much, much more than a space efficient hashmap!](https://boyter.org/posts/bloom-filter/)
