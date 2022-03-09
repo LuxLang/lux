@@ -4,9 +4,11 @@
 ### Added
 * Inline functions.
 * Can pass configuration parameters from the build description to the compiler.
-* Can select code based on configuration parameters.
-* Can select code based on compiler version.
+* Code selection based on configuration parameters.
+* Code selection based on compiler version.
+* Extensible meta-compiler.
 ### Changed
+* JVM compilation no longer relies on the ASM library.
 ### Removed
 ### Fixed
 ### Deprecated

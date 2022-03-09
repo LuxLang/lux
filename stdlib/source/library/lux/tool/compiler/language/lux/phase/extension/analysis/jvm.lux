@@ -917,7 +917,7 @@
                 (function (_ superJT)
                   (do !
                     [superJT (phase.lifted (reflection!.type superJT))
-                     .let [super_name (|> superJT ..reflection)]
+                     .let [super_name (..reflection superJT)]
                      super_class (phase.lifted (reflection!.load class_loader super_name))
                      superT (reflection_type mapping superJT)]
                     (in [[super_name superT] (java/lang/Class::isAssignableFrom super_class target_class)])))
@@ -1042,7 +1042,7 @@
         (in (<| {/////analysis.#Extension extension_name}
                 (list (/////analysis.text class)
                       (/////analysis.text field)
-                      (/////analysis.text (|> fieldJT ..reflection)))))))]))
+                      (/////analysis.text (..signature fieldJT)))))))]))
 
 (def: (put::static class_loader)
   (-> java/lang/ClassLoader Handler)
@@ -1058,14 +1058,15 @@
                                          (reflection!.static_field field class)))
          _ (phase.assertion ..deprecated_field [class field]
                             (not deprecated?))
-         _ (phase.assertion ..cannot_set_a_final_field [class field]
-                            (not final?))
+         ... _ (phase.assertion ..cannot_set_a_final_field [class field]
+         ...                    (not final?))
          fieldT (reflection_type luxT.fresh fieldJT)
          valueA (<| (typeA.expecting fieldT)
                     (analyse archive valueC))]
         (in (<| {/////analysis.#Extension extension_name}
                 (list (/////analysis.text class)
                       (/////analysis.text field)
+                      (/////analysis.text (..signature fieldJT))
                       valueA)))))]))
 
 (def: (get::virtual class_loader)
@@ -1090,7 +1091,7 @@
         (in (<| {/////analysis.#Extension extension_name}
                 (list (/////analysis.text class)
                       (/////analysis.text field)
-                      (/////analysis.text (..reflection fieldJT))
+                      (/////analysis.text (..signature fieldJT))
                       objectA)))))]))
 
 (def: (put::virtual class_loader)
@@ -1119,7 +1120,7 @@
         (in (<| {/////analysis.#Extension extension_name}
                 (list (/////analysis.text class)
                       (/////analysis.text field)
-                      (/////analysis.text (..reflection fieldJT))
+                      (/////analysis.text (..signature fieldJT))
                       valueA
                       objectA)))))]))
 
@@ -1775,6 +1776,14 @@
 (type: Exception
   (Type Class))
 
+(def: .public parameter_types
+  (-> (List (Type Var)) (Check (List [(Type Var) .Type])))
+  (monad.each check.monad
+              (function (_ parameterJ)
+                (do check.monad
+                  [[_ parameterT] check.existential]
+                  (in [parameterJ parameterT])))))
+
 (type: .public (Abstract_Method a)
   [Text
    Visibility
@@ -1799,11 +1808,24 @@
           ..return
           (<code>.tuple (<>.some ..class)))))
 
+(def: (method_mapping of_class parameters)
+  (-> Mapping (List (Type Var)) (Check Mapping))
+  (|> parameters
+      ..parameter_types
+      (check#each (list#mix (function (_ [parameterJ parameterT] mapping)
+                              (dictionary.has (parser.name parameterJ) parameterT mapping))
+                            of_class))))
+
+(def: class_mapping
+  (-> (List (Type Var)) (Check Mapping))
+  (..method_mapping luxT.fresh))
+
 (def: .public (analyse_abstract_method analyse archive method)
   (-> Phase Archive (Abstract_Method Code) (Operation Analysis))
   (let [[method_name visibility annotations vars arguments return exceptions] method]
     (do [! phase.monad]
-      [annotationsA (monad.each ! (function (_ [name parameters])
+      [mapping (typeA.check (method_mapping luxT.fresh vars))
+       annotationsA (monad.each ! (function (_ [name parameters])
                                     (do !
                                       [parametersA (monad.each ! (function (_ [name value])
                                                                    (do !
@@ -1856,7 +1878,8 @@
          annotations vars exceptions
          self_name arguments super_arguments body] method]
     (do [! phase.monad]
-      [annotationsA (monad.each ! (function (_ [name parameters])
+      [mapping (typeA.check (method_mapping mapping vars))
+       annotationsA (monad.each ! (function (_ [name parameters])
                                     (do !
                                       [parametersA (monad.each ! (function (_ [name value])
                                                                    (do !
@@ -1959,7 +1982,8 @@
          self_name arguments return exceptions
          body] method]
     (do [! phase.monad]
-      [annotationsA (monad.each ! (function (_ [name parameters])
+      [mapping (typeA.check (method_mapping mapping vars))
+       annotationsA (monad.each ! (function (_ [name parameters])
                                     (do !
                                       [parametersA (monad.each ! (function (_ [name value])
                                                                    (do !
@@ -1968,7 +1992,7 @@
                                                                parameters)]
                                       (in [name parametersA])))
                                 annotations)
-       returnT (reflection_return mapping return)
+       :return: (boxed_reflection_return mapping return)
        arguments' (monad.each !
                               (function (_ [name jvmT])
                                 (do !
@@ -1979,7 +2003,7 @@
                          {.#Item [self_name selfT]}
                          list.reversed
                          (list#mix scope.with_local (analyse archive body))
-                         (typeA.expecting returnT)
+                         (typeA.expecting :return:)
                          scope.with)]
       (in (/////analysis.tuple (list (/////analysis.text ..virtual_tag)
                                      (/////analysis.text method_name)
@@ -2033,7 +2057,8 @@
          arguments return exceptions
          body] method]
     (do [! phase.monad]
-      [annotationsA (monad.each ! (function (_ [name parameters])
+      [mapping (typeA.check (method_mapping mapping vars))
+       annotationsA (monad.each ! (function (_ [name parameters])
                                     (do !
                                       [parametersA (monad.each ! (function (_ [name value])
                                                                    (do !
@@ -2042,7 +2067,7 @@
                                                                parameters)]
                                       (in [name parametersA])))
                                 annotations)
-       returnT (reflection_return mapping return)
+       :return: (boxed_reflection_return mapping return)
        arguments' (monad.each !
                               (function (_ [name jvmT])
                                 (do !
@@ -2052,7 +2077,7 @@
        [scope bodyA] (|> arguments'
                          list.reversed
                          (list#mix scope.with_local (analyse archive body))
-                         (typeA.expecting returnT)
+                         (typeA.expecting :return:)
                          scope.with)]
       (in (/////analysis.tuple (list (/////analysis.text ..static_tag)
                                      (/////analysis.text method_name)
@@ -2141,19 +2166,6 @@
       {.#None}
       (phase.lifted (exception.except ..unknown_super [parent_name supers])))))
 
-(def: .public (with_fresh_type_vars vars mapping)
-  (-> (List (Type Var)) Mapping (Operation Mapping))
-  (do [! phase.monad]
-    [pairings (monad.each ! (function (_ var)
-                              (do !
-                                [[_ exT] (typeA.check check.existential)]
-                                (in [var exT])))
-                          vars)]
-    (in (list#mix (function (_ [varJ :var:] mapping)
-                    (dictionary.has (parser.name varJ) :var: mapping))
-                  mapping
-                  pairings))))
-
 (def: .public (with_override_mapping supers parent_type mapping)
   (-> (List (Type Class)) (Type Class) Mapping (Operation Mapping))
   (do phase.monad
@@ -2203,7 +2215,7 @@
          body] method]
     (do [! phase.monad]
       [mapping (..with_override_mapping supers parent_type mapping)
-       mapping (..with_fresh_type_vars vars mapping)
+       mapping (typeA.check (method_mapping mapping vars))
        annotationsA (monad.each ! (function (_ [name parameters])
                                     (do !
                                       [parametersA (monad.each ! (function (_ [name value])
@@ -2219,12 +2231,12 @@
                                   [luxT (boxed_reflection_type mapping jvmT)]
                                   (in [name luxT])))
                               arguments)
-       returnT (boxed_reflection_return mapping return)
+       :return: (boxed_reflection_return mapping return)
        [scope bodyA] (|> arguments'
                          {.#Item [self_name selfT]}
                          list.reversed
                          (list#mix scope.with_local (analyse archive body))
-                         (typeA.expecting returnT)
+                         (typeA.expecting :return:)
                          scope.with)]
       (in (/////analysis.tuple (list (/////analysis.text ..overriden_tag)
                                      (class_analysis parent_type)
@@ -2242,14 +2254,6 @@
                                                  (scope.environment scope))
                                       (..hidden_method_body (list.size arguments) bodyA)}
                                      ))))))
-
-(def: .public parameter_types
-  (-> (List (Type Var)) (Check (List [(Type Var) .Type])))
-  (monad.each check.monad
-              (function (_ parameterJ)
-                (do check.monad
-                  [[_ parameterT] check.existential]
-                  (in [parameterJ parameterT])))))
 
 (def: (matched? [sub sub_method subJT] [super super_method superJT])
   (-> [(Type Class) Text (Type Method)] [(Type Class) Text (Type Method)] Bit)
@@ -2445,10 +2449,10 @@
           ... jvm.boolean jvm.byte jvm.short jvm.int jvm.char
           _.iconst_0)))
 
-(def: (mock_return returnT)
+(def: (mock_return :return:)
   (-> (Type Return) (Bytecode Any))
-  (case (jvm.void? returnT)
-    {.#Right returnT}
+  (case (jvm.void? :return:)
+    {.#Right :return:}
     _.return
 
     {.#Left valueT}
@@ -2591,14 +2595,8 @@
                           (list#each (|>> {#Overriden_Method}) methods)))
          ... Necessary for reflection to work properly during analysis.
          _ (phase.lifted (# host execute mock))
-         
-         parameters (typeA.check (..parameter_types parameters))
-         .let [mapping (list#mix (function (_ [parameterJ parameterT] mapping)
-                                   (dictionary.has (parser.name parameterJ)
-                                                   parameterT
-                                                   mapping))
-                                 luxT.fresh
-                                 parameters)]
+
+         mapping (typeA.check (..class_mapping parameters))
          super_classT (typeA.check (luxT.check (luxT.class mapping) (..signature super_class)))
          super_interfaceT+ (typeA.check (monad.each check.monad
                                                     (|>> ..signature (luxT.check (luxT.class mapping)))

@@ -351,9 +351,19 @@
   [return Return parser.return]
   )
 
+(def: reflection
+  (All (_ category)
+    (-> (Type (<| Return' Value' category)) Text))
+  (|>> type.reflection reflection.reflection))
+
+(def: signature
+  (All (_ category)
+    (-> (Type category) Text))
+  (|>> type.signature signature.signature))
+
 (exception: .public (not_an_object_array [arrayJT (Type Array)])
   (exception.report
-   ["JVM Type" (|> arrayJT type.signature signature.signature)]))
+   ["JVM Type" (..signature arrayJT)]))
 
 (def: .public object_array
   (Parser (Type Object))
@@ -589,11 +599,6 @@
                 (_.instanceof (type.class class (list)))
                 (///value.wrap type.boolean)))))]))
 
-(def: reflection
-  (All (_ category)
-    (-> (Type (<| Return' Value' category)) Text))
-  (|>> type.reflection reflection.reflection))
-
 (def: object::cast
   Handler
   (..custom
@@ -601,32 +606,27 @@
     (function (_ extension_name generate archive [from to valueS])
       (do //////.monad
         [valueG (generate archive valueS)]
-        (in (`` (cond (~~ (template [<object> <type> <unwrap>]
-                            [(and (text#= (..reflection <type>)
-                                          from)
-                                  (text#= <object>
-                                          to))
-                             (let [$<object> (type.class <object> (list))]
-                               ($_ _.composite
-                                   valueG
-                                   (///value.wrap <type>)))
+        (in (`` (cond (~~ (template [<object> <type>]
+                            [(and (text#= (..reflection <type>) from)
+                                  (text#= <object> to))
+                             ($_ _.composite
+                                 valueG
+                                 (///value.wrap <type>))
 
-                             (and (text#= <object>
-                                          from)
-                                  (text#= (..reflection <type>)
-                                          to))
+                             (and (text#= <object> from)
+                                  (text#= (..reflection <type>) to))
                              ($_ _.composite
                                  valueG
                                  (///value.unwrap <type>))]
                             
-                            [box.boolean type.boolean "booleanValue"]
-                            [box.byte    type.byte    "byteValue"]
-                            [box.short   type.short   "shortValue"]
-                            [box.int     type.int     "intValue"]
-                            [box.long    type.long    "longValue"]
-                            [box.float   type.float   "floatValue"]
-                            [box.double  type.double  "doubleValue"]
-                            [box.char    type.char    "charValue"]))
+                            [box.boolean type.boolean]
+                            [box.byte    type.byte]
+                            [box.short   type.short]
+                            [box.int     type.int]
+                            [box.long    type.long]
+                            [box.char    type.char]
+                            [box.float   type.float]
+                            [box.double  type.double]))
                       ... else
                       valueG)))))]))
 
@@ -643,96 +643,68 @@
           (/////bundle.install "cast" object::cast)
           )))
 
-(def: primitives
-  (Dictionary Text (Type Primitive))
-  (|> (list [(reflection.reflection reflection.boolean) type.boolean]
-            [(reflection.reflection reflection.byte) type.byte]
-            [(reflection.reflection reflection.short) type.short]
-            [(reflection.reflection reflection.int) type.int]
-            [(reflection.reflection reflection.long) type.long]
-            [(reflection.reflection reflection.float) type.float]
-            [(reflection.reflection reflection.double) type.double]
-            [(reflection.reflection reflection.char) type.char])
-      (dictionary.of_list text.hash)))
-
 (def: get::static
   Handler
   (..custom
-   [($_ <>.and <synthesis>.text <synthesis>.text <synthesis>.text)
-    (function (_ extension_name generate archive [class field unboxed])
-      (do //////.monad
-        [.let [$class (type.class class (list))]]
-        (case (dictionary.value unboxed ..primitives)
-          {.#Some primitive}
-          (in (_.getstatic $class field primitive))
-          
-          {.#None}
-          (in (_.getstatic $class field (type.class unboxed (list)))))))]))
+   [($_ <>.and <synthesis>.text <synthesis>.text ..value)
+    (function (_ extension_name generate archive [class field :unboxed:])
+      (# //////.monad in (_.getstatic (type.class class (list)) field :unboxed:)))]))
 
-(def: unitG (_.string //////synthesis.unit))
+(def: unitG
+  (_.string //////synthesis.unit))
 
 (def: put::static
   Handler
   (..custom
-   [($_ <>.and <synthesis>.text <synthesis>.text <synthesis>.text <synthesis>.any)
-    (function (_ extension_name generate archive [class field unboxed valueS])
+   [($_ <>.and <synthesis>.text <synthesis>.text ..value <synthesis>.any)
+    (function (_ extension_name generate archive [class field :unboxed: valueS])
       (do //////.monad
-        [valueG (generate archive valueS)
-         .let [$class (type.class class (list))]]
-        (case (dictionary.value unboxed ..primitives)
-          {.#Some primitive}
-          (in ($_ _.composite
-                  valueG
-                  (_.putstatic $class field primitive)
-                  ..unitG))
-          
-          {.#None}
-          (in ($_ _.composite
-                  valueG
-                  (_.checkcast $class)
-                  (_.putstatic $class field $class)
-                  ..unitG)))))]))
+        [valueG (generate archive valueS)]
+        (in ($_ _.composite
+                valueG
+                (case (parser.object? :unboxed:)
+                  {.#Some :unboxed:}
+                  (_.checkcast :unboxed:)
+                  
+                  {.#None}
+                  (_#in []))
+                (_.putstatic (type.class class (list)) field :unboxed:)
+                ..unitG))))]))
 
 (def: get::virtual
   Handler
   (..custom
-   [($_ <>.and <synthesis>.text <synthesis>.text <synthesis>.text <synthesis>.any)
-    (function (_ extension_name generate archive [class field unboxed objectS])
+   [($_ <>.and <synthesis>.text <synthesis>.text ..value <synthesis>.any)
+    (function (_ extension_name generate archive [class field :unboxed: objectS])
       (do //////.monad
         [objectG (generate archive objectS)
-         .let [$class (type.class class (list))
-               getG (case (dictionary.value unboxed ..primitives)
-                      {.#Some primitive}
-                      (_.getfield $class field primitive)
-                      
-                      {.#None}
-                      (_.getfield $class field (type.class unboxed (list))))]]
+         .let [:class: (type.class class (list))
+               getG (_.getfield :class: field :unboxed:)]]
         (in ($_ _.composite
                 objectG
-                (_.checkcast $class)
+                (_.checkcast :class:)
                 getG))))]))
 
 (def: put::virtual
   Handler
   (..custom
-   [($_ <>.and <synthesis>.text <synthesis>.text <synthesis>.text <synthesis>.any <synthesis>.any)
-    (function (_ extension_name generate archive [class field unboxed valueS objectS])
+   [($_ <>.and <synthesis>.text <synthesis>.text ..value <synthesis>.any <synthesis>.any)
+    (function (_ extension_name generate archive [class field :unboxed: valueS objectS])
       (do //////.monad
         [valueG (generate archive valueS)
          objectG (generate archive objectS)
-         .let [$class (type.class class (list))
-               putG (case (dictionary.value unboxed ..primitives)
-                      {.#Some primitive}
-                      (_.putfield $class field primitive)
+         .let [:class: (type.class class (list))
+               putG (case (parser.object? :unboxed:)
+                      {.#Some :unboxed:}
+                      ($_ _.composite
+                          (_.checkcast :unboxed:)
+                          (_.putfield :class: field :unboxed:))
                       
                       {.#None}
-                      (let [$unboxed (type.class unboxed (list))]
-                        ($_ _.composite
-                            (_.checkcast $unboxed)
-                            (_.putfield $class field $unboxed))))]]
+                      (_.putfield :class: field :unboxed:))]]
         (in ($_ _.composite
                 objectG
-                (_.checkcast $class)
+                (_.checkcast :class:)
                 _.dup
                 valueG
                 putG))))]))
@@ -764,7 +736,7 @@
     ..unitG
     
     {.#Left outputT}
-    (# _.monad in [])))
+    (_#in [])))
 
 (def: invoke::static
   Handler

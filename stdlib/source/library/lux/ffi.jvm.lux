@@ -1,6 +1,6 @@
 (.using
  [library
-  ["[0]" lux {"-" Primitive Type type int char :as}
+  ["[0]" lux {"-" Primitive Type type int char :as function}
    ["[0]" meta]
    [abstract
     ["[0]" monad {"+" Monad do}]
@@ -230,7 +230,7 @@
 (type: FieldDecl
   (Variant
    {#ConstantField (Type Value) Code}
-   {#VariableField State (Type Value)}))
+   {#VariableField [State Bit (Type Value)]}))
 
 (type: MethodDecl
   (Record
@@ -624,7 +624,7 @@
 (def: (parameter^ type_vars)
   (-> (List (Type Var)) (Parser (Type Parameter)))
   (<>.rec
-   (function (_ _)
+   (.function (_ _)
      (let [class^ (..class^' parameter^ type_vars)]
        ($_ <>.either
            (..type_variable type_vars)
@@ -663,7 +663,7 @@
 (def: (type^ type_vars)
   (-> (List (Type Var)) (Parser (Type Value)))
   (<>.rec
-   (function (_ type^)
+   (.function (_ type^)
      ($_ <>.either
          ..primitive^
          (..parameter^ type_vars)
@@ -764,10 +764,11 @@
              (<code>.form (do <>.monad
                             [pm privacy_modifier^
                              sm state_modifier^
+                             static? (<>.parses? (<code>.this! (' "static")))
                              name <code>.local_symbol
                              anns ..annotations^
                              type (..type^ type_vars)]
-                            (in [[name pm anns] {#VariableField [sm type]}])))))
+                            (in [[name pm anns] {#VariableField [sm static? type]}])))))
 
 (def: (argument^ type_vars)
   (-> (List (Type Var)) (Parser Argument))
@@ -790,7 +791,7 @@
   (-> (List (Type Var)) (Parser [Member_Declaration Method_Definition]))
   (<code>.form (do <>.monad
                  [pm privacy_modifier^
-                  strict_fp? (<>.parses? (<code>.this! (' "strict")))
+                  strict_fp? (<>.parses? (<code>.text! "strict"))
                   method_vars (<>.else (list) ..vars^)
                   .let [total_vars (list#composite class_vars method_vars)]
                   [_ self_name arguments] (<code>.form ($_ <>.and
@@ -1057,9 +1058,9 @@
         [(~+ (list#each value$ #method_inputs))]
         (~ (return$ #method_output))))))
 
-(def: (state_modifier$ sm)
+(def: (state_modifier$ it)
   (-> State Code)
-  (case sm
+  (case it
     {#VolatileS} (' "volatile")
     {#FinalS}    (' "final")
     {#DefaultS}  (' "default")))
@@ -1074,10 +1075,13 @@
         (~ value)
         ))
 
-    {#VariableField sm class}
+    {#VariableField [state static? class]}
     (` ("variable" (~ (code.text name))
         (~ (privacy_modifier$ pm))
-        (~ (state_modifier$ sm))
+        (~ (state_modifier$ state))
+        (~+ (if static?
+              (list (' "static"))
+              (list)))
         [(~+ (list#each annotation$ anns))]
         (~ (value$ class))
         ))
@@ -1293,7 +1297,7 @@
 
         {.#None}
         (in (list (` (: (-> (.Primitive "java.lang.Object") (~ check_type))
-                        (function ((~ g!_) (~ g!unchecked))
+                        (.function ((~ g!_) (~ g!unchecked))
                           (~ check_code))))))
         ))))
 
@@ -1345,13 +1349,13 @@
       (do [! meta.monad]
         [arg_inputs (monad.each !
                                 (: (-> [Bit (Type Value)] (Meta [Bit Code]))
-                                   (function (_ [maybe? _])
+                                   (.function (_ [maybe? _])
                                      (with_symbols [arg_name]
                                        (in [maybe? arg_name]))))
                                 #import_member_args)
          .let [input_jvm_types (list#each product.right #import_member_args)
                arg_types (list#each (: (-> [Bit (Type Value)] Code)
-                                       (function (_ [maybe? arg])
+                                       (.function (_ [maybe? arg])
                                          (let [arg_type (value_type (value@ #import_member_mode commons) arg)]
                                            (if maybe?
                                              (` (Maybe (~ arg_type)))
@@ -1444,6 +1448,7 @@
     [type.short (list (` (.:as (.Primitive (~ (code.text box.short)))))) []]
     [type.int (list (` (.: (.Primitive (~ (code.text box.int)))))) []]
     [type.long (list (` (.:as (.Primitive (~ (code.text box.long)))))) []]
+    [type.char (list (` (.:as (.Primitive (~ (code.text box.char)))))) []]
     [type.float (list (` (.:as (.Primitive (~ (code.text box.float)))))) []]
     [type.double (list (` (.:as (.Primitive (~ (code.text box.double)))))) []]]]
   [#0 with_automatic_output_conversion ..box
@@ -1452,6 +1457,7 @@
     [type.short (list) [(` (.: (.Primitive (~ (code.text box.short)))))]]
     [type.int (list) [(` (.: (.Primitive (~ (code.text box.int)))))]]
     [type.long (list) [(` (.: (.Primitive (~ (code.text box.long)))))]]
+    [type.char (list) [(` (.: (.Primitive (~ (code.text box.char)))))]]
     [type.float (list) [(` (.: (.Primitive (~ (code.text box.float)))))]]
     [type.double (list) [(` (.: (.Primitive (~ (code.text box.double)))))]]]]
   )
@@ -1464,7 +1470,7 @@
   (-> Primitive_Mode (List (Type Value)) (List [Bit Code]) (List Code))
   (|> inputs
       (list.zipped/2 classes)
-      (list#each (function (_ [class [maybe? input]])
+      (list#each (.function (_ [class [maybe? input]])
                    (|> (if maybe?
                          (` (: (.Primitive (~ (code.text (..reflection class))))
                                ((~! !!!) (~ (..un_quoted input)))))
@@ -1480,7 +1486,7 @@
 
 (def: syntax_inputs
   (-> (List Code) (List Code))
-  (|>> (list#each (function (_ name)
+  (|>> (list#each (.function (_ name)
                     (list name (` (~! <code>.any)))))
        list#conjoint))
 
@@ -1501,7 +1507,7 @@
                                   (` (All ((~ g!_) (~+ =class_tvars))
                                        (.Primitive (~ (code.text full_name)) [(~+ =class_tvars)]))))))
                  getter_interop (: (-> Text Code)
-                                   (function (_ name)
+                                   (.function (_ name)
                                      (let [getter_name (code.symbol ["" (..import_name import_format method_prefix name)])]
                                        (` (def: (~ getter_name)
                                             (~ enum_type)
@@ -1668,7 +1674,7 @@
   (do [! meta.monad]
     [kind (class_kind declaration)
      =members (|> bundles
-                  (list#each (function (_ [import_format members])
+                  (list#each (.function (_ [import_format members])
                                (list#each (|>> [import_format]) members)))
                   list.together
                   (monad.each ! (member_import$ class_type_vars kind declaration)))]
@@ -1767,7 +1773,7 @@
                   (# meta.monad each (type.class name)
                      (: (Meta (List (Type Parameter)))
                         (monad.each meta.monad
-                                    (function (_ paramLT)
+                                    (.function (_ paramLT)
                                       (do meta.monad
                                         [paramJT (lux_type->jvm_type context paramLT)]
                                         (case (parser.parameter? paramJT)
@@ -1961,3 +1967,96 @@
   [as_char .Int ..long_to_char ..Long ..char_to_long ..Character of_char]
   [as_float .Frac ..double_to_float ..Double ..float_to_double ..Float of_float]
   )
+
+(type: (API of)
+  (Record
+   [#interface of
+    #type Code
+    #term Code]))
+
+(def: (api of)
+  (All (_ of) (-> (Parser of) (Parser (API of))))
+  (<code>.form
+   ($_ <>.and
+       of
+       <code>.any
+       <code>.any
+       )))
+
+(type: Constant
+  Text)
+
+(def: constant
+  (Parser Constant)
+  <code>.local_symbol)
+
+(type: Function
+  (Record
+   [#variables (List Text)
+    #name Text
+    #requirements (List [Text Code])]))
+
+(def: function
+  (Parser Function)
+  (<code>.form
+   ($_ <>.and
+       (<>.else (list) (<code>.tuple (<>.some <code>.local_symbol)))
+       <code>.local_symbol
+       (<code>.tuple (<>.some ($_ <>.and
+                                  <code>.local_symbol
+                                  <code>.any
+                                  )))
+       )))
+
+(type: Export
+  (Variant
+   {#Constant (API Constant)}
+   {#Function (API Function)}))
+
+(def: export
+  (Parser Export)
+  ($_ <>.or
+      (..api ..constant)
+      (..api ..function)
+      ))
+
+(syntax: .public (export: [api <code>.local_symbol
+                           exports (<>.many ..export)])
+  (let [initialization (: (List (API Constant))
+                          (list.all (.function (_ it)
+                                      (case it
+                                        {#Constant it}
+                                        {.#Some it}
+                                        
+                                        _
+                                        {.#None}))
+                                    exports))]
+    (in (list (` (..class: "final" (~ (code.local_symbol api))
+                   (~+ (list#each (.function (_ it)
+                                    (case it
+                                      {#Constant [name type term]}
+                                      (` ("public" "final" "static" (~ (code.local_symbol name)) (~ type)))
+                                      
+                                      {#Function [[variables name requirements] type term]}
+                                      (` ("public" "strict" "static"
+                                          [(~+ (list#each code.local_symbol variables))]
+                                          ((~ (code.local_symbol name))
+                                           [(~+ (|> requirements
+                                                    (list#each (.function (_ [name type])
+                                                                 (list (code.local_symbol name)
+                                                                       type)))
+                                                    list#conjoint))])
+                                          (~ type)
+                                          (~ term)))))
+                                  exports))
+                   ... Useless constructor
+                   ("private" [] ((~' new) (~' self) []) [] [])
+                   ("public" "strict" "static" [] ((~' <clinit>) [])
+                    (~' void)
+                    [(~+ (list#each (.function (_ [name type term])
+                                      (` ("jvm member put static"
+                                          (~ (code.text api))
+                                          (~ (code.text name))
+                                          ("jvm object cast" (~ term)))))
+                                    initialization))])
+                   ))))))
