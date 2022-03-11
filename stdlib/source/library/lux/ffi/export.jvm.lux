@@ -1,0 +1,106 @@
+(.using
+ [library
+  [lux {"-" function}
+   [control
+    ["<>" parser
+     ["<[0]>" code {"+" Parser}]]]
+   [data
+    [collection
+     ["[0]" list ("[1]#[0]" monad)]]]
+   [macro
+    [syntax {"+" syntax:}]
+    ["[0]" code]]]]
+ ["[0]" //])
+
+(type: (API of)
+  (Record
+   [#interface of
+    #type Code
+    #term Code]))
+
+(def: (api of)
+  (All (_ of) (-> (Parser of) (Parser (API of))))
+  (<code>.form
+   ($_ <>.and
+       of
+       <code>.any
+       <code>.any
+       )))
+
+(type: Constant
+  Text)
+
+(def: constant
+  (Parser Constant)
+  <code>.local_symbol)
+
+(type: Function
+  (Record
+   [#variables (List Text)
+    #name Text
+    #requirements (List [Text Code])]))
+
+(def: function
+  (Parser Function)
+  (<code>.form
+   ($_ <>.and
+       (<>.else (list) (<code>.tuple (<>.some <code>.local_symbol)))
+       <code>.local_symbol
+       (<code>.tuple (<>.some ($_ <>.and
+                                  <code>.local_symbol
+                                  <code>.any
+                                  )))
+       )))
+
+(type: Export
+  (Variant
+   {#Constant (API Constant)}
+   {#Function (API Function)}))
+
+(def: export
+  (Parser Export)
+  ($_ <>.or
+      (..api ..constant)
+      (..api ..function)
+      ))
+
+(syntax: .public (export: [api <code>.local_symbol
+                           exports (<>.many ..export)])
+  (let [initialization (: (List (API Constant))
+                          (list.all (.function (_ it)
+                                      (case it
+                                        {#Constant it}
+                                        {.#Some it}
+                                        
+                                        _
+                                        {.#None}))
+                                    exports))]
+    (in (list (` (//.class: "final" (~ (code.local_symbol api))
+                   (~+ (list#each (.function (_ it)
+                                    (case it
+                                      {#Constant [name type term]}
+                                      (` ("public" "final" "static" (~ (code.local_symbol name)) (~ type)))
+                                      
+                                      {#Function [[variables name requirements] type term]}
+                                      (` ("public" "strict" "static"
+                                          [(~+ (list#each code.local_symbol variables))]
+                                          ((~ (code.local_symbol name))
+                                           [(~+ (|> requirements
+                                                    (list#each (.function (_ [name type])
+                                                                 (list (code.local_symbol name)
+                                                                       type)))
+                                                    list#conjoint))])
+                                          (~ type)
+                                          (~ term)))))
+                                  exports))
+                   ... Useless constructor
+                   ("private" [] ((~' new) (~' self) []) [] [])
+                   ("public" "strict" "static" [] ((~' <clinit>) [])
+                    (~' void)
+                    [(~+ (list#each (.function (_ [name type term])
+                                      (` ("jvm member put static"
+                                          (~ (code.text api))
+                                          (~ (code.text name))
+                                          ("jvm object cast" (~ term)))))
+                                    initialization))])
+                   ))))))

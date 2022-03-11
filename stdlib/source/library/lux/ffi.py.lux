@@ -1,27 +1,27 @@
 (.using
-  [library
-   [lux "*"
-    ["[0]" meta]
-    ["@" target]
-    [abstract
-     [monad {"+" do}]]
-    [control
-     ["[0]" io]
-     ["[0]" maybe]
-     ["<>" parser
-      ["<[0]>" code {"+" Parser}]]]
-    [data
-     ["[0]" product]
-     ["[0]" text
-      ["%" format]]
-     [collection
-      ["[0]" list ("[1]#[0]" functor mix)]]]
-    [type
-     abstract]
-    [macro {"+" with_symbols}
-     [syntax {"+" syntax:}]
-     ["[0]" code]
-     ["[0]" template]]]])
+ [library
+  [lux {"-" Alias}
+   ["@" target]
+   ["[0]" meta]
+   [abstract
+    [monad {"+" do}]]
+   [control
+    ["[0]" io]
+    ["[0]" maybe]
+    ["<>" parser
+     ["<[0]>" code {"+" Parser}]]]
+   [data
+    ["[0]" product]
+    ["[0]" text
+     ["%" format]]
+    [collection
+     ["[0]" list ("[1]#[0]" monad mix)]]]
+   [macro {"+" with_symbols}
+    [syntax {"+" syntax:}]
+    ["[0]" code]
+    ["[0]" template]]
+   [type
+    abstract]]])
 
 (abstract: .public (Object brand) Any)
 
@@ -78,10 +78,31 @@
                    <code>.local_symbol
                    ..noneable)))
 
+(type: Alias
+  (Maybe Text))
+
+(def: alias
+  (Parser Alias)
+  (<>.maybe (<>.after (<code>.this! (' "as")) <code>.local_symbol)))
+
+(type: Constant
+  [Text
+   Alias
+   Noneable])
+
+(def: constant
+  (Parser Constant)
+  (<code>.form
+   ($_ <>.and
+       <code>.local_symbol
+       ..alias
+       ..noneable
+       )))
+
 (type: Common_Method
   (Record
    [#name Text
-    #alias (Maybe Text)
+    #alias Alias
     #inputs (List Noneable)
     #io? Bit
     #try? Bit
@@ -99,7 +120,7 @@
   (Parser Common_Method)
   ($_ <>.and
       <code>.local_symbol
-      (<>.maybe (<>.after (<code>.this! (' "as")) <code>.local_symbol))
+      ..alias
       (<code>.tuple (<>.some ..noneable))
       (<>.parses? (<code>.this! (' "io")))
       (<>.parses? (<code>.this! (' "try")))
@@ -157,23 +178,26 @@
          (if ("python object none?" (~ g!temp))
            {.#None}
            {.#Some (~ g!temp)})))
-    (` (let [(~ g!temp) (~ output)]
-         (if (not ("python object none?" (~ g!temp)))
+    (` (.let [(~ g!temp) (~ output)]
+         (.if (.not ("python object none?" (~ g!temp)))
            (~ g!temp)
            (.panic! "None is an invalid value!"))))))
 
 (type: Import
   (Variant
    {#Class [Text Text (List Member)]}
-   {#Function Static_Method}))
+   {#Function Static_Method}
+   {#Constant Constant}))
 
 (def: import
   (Parser Import)
-  (<>.or (<>.and <code>.local_symbol
-                 (<>.else ["" (list)]
-                          (<code>.tuple (<>.and <code>.text
-                                                (<>.some member)))))
-         (<code>.form ..common_method)))
+  ($_ <>.or
+      (<>.and <code>.local_symbol
+              (<>.else ["" (list)]
+                       (<code>.tuple (<>.and <code>.text
+                                             (<>.some member)))))
+      (<code>.form ..common_method)
+      ..constant))
 
 (def: (with_io with? without)
   (-> Bit Code Code)
@@ -202,13 +226,13 @@
 (def: (make_function g!method g!temp source inputsT io? try? outputT)
   (-> Code Code Code (List Noneable) Bit Bit Noneable Code)
   (let [g!inputs (input_variables inputsT)]
-    (` (def: ((~ g!method)
-              [(~+ (list#each product.right g!inputs))])
+    (` (.def: ((~ g!method)
+               [(~+ (list#each product.right g!inputs))])
          (-> [(~+ (list#each noneable_type inputsT))]
              (~ (|> (noneable_type outputT)
                     (try_type try?)
                     (io_type io?))))
-         (:expected
+         (.:expected
           (~ (<| (with_io io?)
                  (with_try try?)
                  (without_none g!temp outputT)
@@ -233,25 +257,25 @@
                          {.#Item head tail}
                          (list#mix (function (_ sub super)
                                      (` ("python object get" (~ (code.text sub))
-                                         (:as (..Object .Any) (~ super)))))
+                                         (.:as (..Object .Any) (~ super)))))
                                    (` ("python import" (~ (code.text head))))
                                    tail)
                          
                          {.#End}
                          (` ("python import" (~ (code.text class)))))]
-          (in (list& (` (type: (~ g!type)
-                          (..Object (Primitive (~ (code.text real_class))))))
+          (in (list& (` (.type: (~ g!type)
+                          (..Object (.Primitive (~ (code.text real_class))))))
                      (list#each (function (_ member)
                                   (case member
                                     {#Constructor inputsT}
                                     (let [g!inputs (input_variables inputsT)]
-                                      (` (def: ((~ (qualify "new"))
-                                                [(~+ (list#each product.right g!inputs))])
-                                           (-> [(~+ (list#each noneable_type inputsT))]
-                                               (~ g!type))
-                                           (:expected
+                                      (` (.def: ((~ (qualify "new"))
+                                                 [(~+ (list#each product.right g!inputs))])
+                                           (.-> [(~+ (list#each noneable_type inputsT))]
+                                                (~ g!type))
+                                           (.:expected
                                             ("python apply"
-                                             (:as ..Function (~ imported))
+                                             (.:as ..Function (~ imported))
                                              (~+ (list#each (with_none g!temp) g!inputs)))))))
                                     
                                     {#Field [static? field fieldT]}
@@ -261,13 +285,13 @@
                                              (list (` (.:as (~ (noneable_type fieldT))
                                                             ("python object get" (~ (code.text field))
                                                              (:as (..Object .Any) (~ imported)))))))))
-                                      (` (def: ((~ (qualify field))
-                                                (~ g!object))
-                                           (-> (~ g!type)
-                                               (~ (noneable_type fieldT)))
-                                           (:expected
+                                      (` (.def: ((~ (qualify field))
+                                                 (~ g!object))
+                                           (.-> (~ g!type)
+                                                (~ (noneable_type fieldT)))
+                                           (.:expected
                                             (~ (without_none g!temp fieldT (` ("python object get" (~ (code.text field))
-                                                                               (:as (..Object .Any) (~ g!object))))))))))
+                                                                               (.:as (..Object .Any) (~ g!object))))))))))
                                     
                                     {#Method method}
                                     (case method
@@ -275,7 +299,7 @@
                                       (..make_function (qualify (maybe.else method alias))
                                                        g!temp
                                                        (` ("python object get" (~ (code.text method))
-                                                           (:as (..Object .Any) (~ imported))))
+                                                           (.:as (..Object .Any) (~ imported))))
                                                        inputsT
                                                        io?
                                                        try?
@@ -283,15 +307,15 @@
                                       
                                       {#Virtual [method alias inputsT io? try? outputT]}
                                       (let [g!inputs (input_variables inputsT)]
-                                        (` (def: ((~ (qualify (maybe.else method alias)))
-                                                  [(~+ (list#each product.right g!inputs))]
-                                                  (~ g!object))
-                                             (-> [(~+ (list#each noneable_type inputsT))]
-                                                 (~ g!type)
-                                                 (~ (|> (noneable_type outputT)
-                                                        (try_type try?)
-                                                        (io_type io?))))
-                                             (:expected
+                                        (` (.def: ((~ (qualify (maybe.else method alias)))
+                                                   [(~+ (list#each product.right g!inputs))]
+                                                   (~ g!object))
+                                             (.-> [(~+ (list#each noneable_type inputsT))]
+                                                  (~ g!type)
+                                                  (~ (|> (noneable_type outputT)
+                                                         (try_type try?)
+                                                         (io_type io?))))
+                                             (.:expected
                                               (~ (<| (with_io io?)
                                                      (with_try try?)
                                                      (without_none g!temp outputT)
@@ -309,6 +333,13 @@
                                  io?
                                  try?
                                  outputT)))
+
+      {#Constant [name alias :constant:]}
+      (in (list (` (.def: (~ (code.local_symbol (maybe.else name alias)))
+                     (~ (noneable_type :constant:))
+                     (.:expected
+                      (~ (without_none g!temp :constant:
+                                       (` ("python constant" (~ (code.text name)))))))))))
       )))
 
 (template: .public (lambda <inputs> <output>)

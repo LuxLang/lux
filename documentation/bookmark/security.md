@@ -75,6 +75,7 @@
 
 # Vulnerability
 
+0. [Big List of Naughty Strings](https://github.com/minimaxir/big-list-of-naughty-strings)
 0. [SAML is insecure by design](https://joonas.fi/2021/08/saml-is-insecure-by-design/)
 0. [Against Cipher Agility in Cryptography Protocols](https://paragonie.com/blog/2019/10/against-agility-in-cryptography-protocols)
 0. [Padding the struct: How a compiler optimization can disclose stack memory](https://www.nccgroup.trust/us/about-us/newsroom-and-events/blog/2019/october/padding-the-struct-how-a-compiler-optimization-can-disclose-stack-memory/)

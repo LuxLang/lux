@@ -31,6 +31,7 @@
 
 # Philosophy
 
+0. [What Makes Documentation Bad?](https://arunkprasad.com/log/what-makes-documentation-bad/)
 0. [Forget reusability, aim for perfection](https://www.openbsd.org/papers/bsdcan18-mandoc.pdf)
 0. https://increment.com/documentation/
 0. https://blog.stoplight.io/writing-documentation-when-you-arent-a-technical-writer-part-two-59997587cc2a
