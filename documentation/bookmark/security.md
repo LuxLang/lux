@@ -1,3 +1,7 @@
+# ID
+
+0. [Code Smell 120 - Sequential IDs](https://maximilianocontieri.com/code-smell-120-sequential-ids)
+
 # Anti-Debugging
 
 0. [JavaScript AntiDebugging Tricks](https://x-c3ll.github.io/posts/javascript-antidebugging/)

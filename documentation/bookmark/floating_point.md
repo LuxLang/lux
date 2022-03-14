@@ -15,6 +15,7 @@
 
 # Comparison
 
+0. [Comparing Floating-Point Numbers Is Tricky](https://www.youtube.com/watch?v=iW7H1KfSJ8s)
 0. [Approximate Equality for Floating Point](https://github.com/apple/swift-evolution/blob/master/proposals/0259-approximately-equal.md)
 
 # Random generation

@@ -461,7 +461,7 @@ Called by `imenu--generic-function'."
 								 in-module
 								 in-local))
 		   (typeRE (concat global_prefix (+class identifier_h|type) (-class identifier_t) "*"))
-		   (labelRE (concat global_prefix (+class identifier_h|label) (-class identifier_t) "*"))
+		   (labelRE (concat global_prefix (+class identifier_h|label) (-class identifier_t) "+"))
 		   (literalRE (altRE bitRE ;; Bit literals
 							 natRE ;; Nat literals
 							 int&fracRE ;; Int literals && Frac literals

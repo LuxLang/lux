@@ -1,8 +1,10 @@
 # Reference
 
-1. [Building a color scheme: A foundational overview of how to establish a dynamic and configurable color scheme](https://web.dev/building-a-color-scheme/)
-1. [Web-safe colors](https://en.wikipedia.org/wiki/Web_colors#Web-safe_colors)
-1. [CSS Gradient Fixer](https://www.da.vidbuchanan.co.uk/widgets/css-gradient-fixer/)
-1. [Towards richer colors on the Web](https://darker.ink/writings/Towards-richer-colors-on-the-Web)
-1. [How software gets color wrong](https://bottosson.github.io/posts/colorwrong/)
+0. [CSS System Colors](https://blog.jim-nielsen.com/2021/css-system-colors/)
+0. [LUTious Color: Grading for Games](https://www.youtube.com/watch?v=-fb3QXR5spE)
+0. [Building a color scheme: A foundational overview of how to establish a dynamic and configurable color scheme](https://web.dev/building-a-color-scheme/)
+0. [Web-safe colors](https://en.wikipedia.org/wiki/Web_colors#Web-safe_colors)
+0. [CSS Gradient Fixer](https://www.da.vidbuchanan.co.uk/widgets/css-gradient-fixer/)
+0. [Towards richer colors on the Web](https://darker.ink/writings/Towards-richer-colors-on-the-Web)
+0. [How software gets color wrong](https://bottosson.github.io/posts/colorwrong/)
 

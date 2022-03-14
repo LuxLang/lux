@@ -23,6 +23,10 @@
 
 0. [Cross-Branch Testing](https://www.hillelwayne.com/post/cross-branch-testing/)
 
+# Coverage
+
+0. [Modified condition/decision coverage](https://en.wikipedia.org/wiki/Modified_condition/decision_coverage)
+
 # Reference
 
 0. [Test Anything Protocol](http://testanything.org/)
