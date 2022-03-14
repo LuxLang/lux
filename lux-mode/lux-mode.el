@@ -363,7 +363,7 @@ Called by `imenu--generic-function'."
 		   (specialRE (let (;; Control
 							(control//flow (altRE "case" "exec" "let" "if" "cond" "loop" "again" "do" "be"))
 							(control//pattern-matching (altRE "\\^" "\\^or"
-															  "\\^multi" "\\^@" "\\^template"
+															  "\\^multi" "\\^let" "\\^template"
 															  "\\^open" "\\^|>" "\\^code"
 															  "\\^stream&" "\\^regex"))
 							(control//logic (altRE "and" "or"))
@@ -383,7 +383,7 @@ Called by `imenu--generic-function'."
 							(type//dynamic (altRE ":dynamic" "/.:static"))
 							(type//capability (altRE "capability:"))
 							;; Data
-							(data//record (altRE "value@" "with@" "revised@"))
+							(data//record (altRE "the" "has" "revised"))
 							(data//interface (altRE "open:" "implementation" "#"))
 							(data//implicit (altRE "implicit:" "##"))
 							(data//collection (altRE "list" "list&" "sequence" "tree"))

@@ -32,13 +32,13 @@
 (def: (local? name scope)
   (-> Text Scope Bit)
   (|> scope
-      (value@ [.#locals .#mappings])
+      (the [.#locals .#mappings])
       (plist.contains? name)))
 
 (def: (local name scope)
   (-> Text Scope (Maybe [Type Variable]))
   (|> scope
-      (value@ [.#locals .#mappings])
+      (the [.#locals .#mappings])
       (plist.value name)
       (maybe#each (function (_ [type value])
                     [type {variable.#Local value}]))))
@@ -46,13 +46,13 @@
 (def: (captured? name scope)
   (-> Text Scope Bit)
   (|> scope
-      (value@ [.#captured .#mappings])
+      (the [.#captured .#mappings])
       (plist.contains? name)))
 
 (def: (captured name scope)
   (-> Text Scope (Maybe [Type Variable]))
   (loop [idx 0
-         mappings (value@ [.#captured .#mappings] scope)]
+         mappings (the [.#captured .#mappings] scope)]
     (case mappings
       {.#Item [_name [_source_type _source_ref]] mappings'}
       (if (text#= name _name)
@@ -81,7 +81,7 @@
   (extension.lifted
    (function (_ state)
      (let [[inner outer] (|> state
-                             (value@ .#scopes)
+                             (the .#scopes)
                              (list.split_when (|>> (reference? name))))]
        (case outer
          {.#End}
@@ -92,17 +92,17 @@
                                                (..reference name top_outer))
                [ref inner'] (list#mix (: (-> Scope [Variable (List Scope)] [Variable (List Scope)])
                                          (function (_ scope ref+inner)
-                                           [{variable.#Foreign (value@ [.#captured .#counter] scope)}
-                                            {.#Item (revised@ .#captured
-                                                              (: (-> Foreign Foreign)
-                                                                 (|>> (revised@ .#counter ++)
-                                                                      (revised@ .#mappings (plist.has name [ref_type (product.left ref+inner)]))))
-                                                              scope)
+                                           [{variable.#Foreign (the [.#captured .#counter] scope)}
+                                            {.#Item (revised .#captured
+                                                             (: (-> Foreign Foreign)
+                                                                (|>> (revised .#counter ++)
+                                                                     (revised .#mappings (plist.has name [ref_type (product.left ref+inner)]))))
+                                                             scope)
                                                     (product.right ref+inner)}]))
                                       [init_ref {.#End}]
                                       (list.reversed inner))
                scopes (list#composite inner' outer)]
-           {.#Right [(with@ .#scopes scopes state)
+           {.#Right [(has .#scopes scopes state)
                      {.#Some [ref_type ref]}]})
          )))))
 
@@ -112,23 +112,23 @@
 (def: .public (with_local [name type] action)
   (All (_ a) (-> [Text Type] (Operation a) (Operation a)))
   (function (_ [bundle state])
-    (case (value@ .#scopes state)
+    (case (the .#scopes state)
       {.#Item head tail}
-      (let [old_mappings (value@ [.#locals .#mappings] head)
-            new_var_id (value@ [.#locals .#counter] head)
-            new_head (revised@ .#locals
-                               (: (-> Local Local)
-                                  (|>> (revised@ .#counter ++)
-                                       (revised@ .#mappings (plist.has name [type new_var_id]))))
-                               head)]
-        (case (phase.result' [bundle (with@ .#scopes {.#Item new_head tail} state)]
+      (let [old_mappings (the [.#locals .#mappings] head)
+            new_var_id (the [.#locals .#counter] head)
+            new_head (revised .#locals
+                              (: (-> Local Local)
+                                 (|>> (revised .#counter ++)
+                                      (revised .#mappings (plist.has name [type new_var_id]))))
+                              head)]
+        (case (phase.result' [bundle (has .#scopes {.#Item new_head tail} state)]
                              action)
           {try.#Success [[bundle' state'] output]}
-          (case (value@ .#scopes state')
+          (case (the .#scopes state')
             {.#Item head' tail'}
-            (let [scopes' {.#Item (with@ .#locals (value@ .#locals head) head')
+            (let [scopes' {.#Item (has .#locals (the .#locals head) head')
                                   tail'}]
-              {try.#Success [[bundle' (with@ .#scopes scopes' state')]
+              {try.#Success [[bundle' (has .#scopes scopes' state')]
                              output]})
 
             _
@@ -153,9 +153,9 @@
 (def: .public (reset action)
   (All (_ a) (-> (Operation a) (Operation a)))
   (function (_ [bundle state])
-    (case (action [bundle (with@ .#scopes (list ..empty) state)])
+    (case (action [bundle (has .#scopes (list ..empty) state)])
       {try.#Success [[bundle' state'] output]}
-      {try.#Success [[bundle' (with@ .#scopes (value@ .#scopes state) state')]
+      {try.#Success [[bundle' (has .#scopes (the .#scopes state) state')]
                      output]}
 
       failure
@@ -164,11 +164,11 @@
 (def: .public (with action)
   (All (_ a) (-> (Operation a) (Operation [Scope a])))
   (function (_ [bundle state])
-    (case (action [bundle (revised@ .#scopes (|>> {.#Item ..empty}) state)])
+    (case (action [bundle (revised .#scopes (|>> {.#Item ..empty}) state)])
       {try.#Success [[bundle' state'] output]}
-      (case (value@ .#scopes state')
+      (case (the .#scopes state')
         {.#Item head tail}
-        {try.#Success [[bundle' (with@ .#scopes tail state')]
+        {try.#Success [[bundle' (has .#scopes tail state')]
                        [head output]]}
 
         {.#End}
@@ -181,14 +181,14 @@
   (Operation Register)
   (extension.lifted
    (function (_ state)
-     (case (value@ .#scopes state)
+     (case (the .#scopes state)
        {.#Item top _}
-       {try.#Success [state (value@ [.#locals .#counter] top)]}
+       {try.#Success [state (the [.#locals .#counter] top)]}
 
        {.#End}
        (exception.except ..no_scope [])))))
 
 (def: .public environment
   (-> Scope (Environment Variable))
-  (|>> (value@ [.#captured .#mappings])
+  (|>> (the [.#captured .#mappings])
        (list#each (function (_ [_ [_ ref]]) ref))))
