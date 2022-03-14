@@ -6,7 +6,7 @@
    [abstract
     ["[0]" monad {"+" do}]]
    [control
-    [pipe {"+" case>}]
+    ["[0]" pipe]
     ["[0]" io {"+" IO}]
     ["[0]" maybe ("[1]#[0]" functor)]
     ["[0]" try {"+" Try}]
@@ -110,64 +110,66 @@
 
                                (def: jvm_method
                                  (-> //.Method Text)
-                                 (|>> (case> {//.#Post} "POST"
-                                             {//.#Get} "GET"
-                                             {//.#Put} "PUT"
-                                             {//.#Patch} "PATCH"
-                                             {//.#Delete} "DELETE"
-                                             {//.#Head} "HEAD"
-                                             {//.#Connect} "CONNECT"
-                                             {//.#Options} "OPTIONS"
-                                             {//.#Trace} "TRACE")))
+                                 (|>> (pipe.case
+                                        {//.#Post} "POST"
+                                        {//.#Get} "GET"
+                                        {//.#Put} "PUT"
+                                        {//.#Patch} "PATCH"
+                                        {//.#Delete} "DELETE"
+                                        {//.#Head} "HEAD"
+                                        {//.#Connect} "CONNECT"
+                                        {//.#Options} "OPTIONS"
+                                        {//.#Trace} "TRACE")))
 
                                (def: (default_body input)
                                  (-> java/io/BufferedInputStream (//.Body IO))
                                  (|>> (maybe#each (|>> [true]))
                                       (maybe.else [false ..default_buffer_size])
-                                      (case> [_ 0]
-                                             (do (try.with io.monad)
-                                               [_ (java/lang/AutoCloseable::close input)]
-                                               (in ..empty_body))
+                                      (pipe.case
+                                        [_ 0]
+                                        (do (try.with io.monad)
+                                          [_ (java/lang/AutoCloseable::close input)]
+                                          (in ..empty_body))
 
-                                             [partial? buffer_size]
-                                             (let [buffer (binary.empty buffer_size)]
-                                               (if partial?
-                                                 (loop [so_far +0]
-                                                   (do [! (try.with io.monad)]
-                                                     [.let [remaining (i.- so_far (.int buffer_size))]
-                                                      bytes_read (# ! each (|>> ffi.of_int)
-                                                                    (java/io/BufferedInputStream::read buffer (ffi.as_int so_far) (ffi.as_int remaining) input))]
-                                                     (case bytes_read
-                                                       -1 (do !
-                                                            [_ (java/lang/AutoCloseable::close input)]
-                                                            (in [(.nat so_far) buffer]))
-                                                       +0 (again so_far)
-                                                       _ (if (i.= remaining bytes_read)
-                                                           (in [buffer_size buffer])
-                                                           (again (i.+ bytes_read so_far))))))
-                                                 (loop [so_far +0
-                                                        output (# binary.monoid identity)]
-                                                   (do [! (try.with io.monad)]
-                                                     [.let [remaining (i.- so_far (.int buffer_size))]
-                                                      bytes_read (# ! each (|>> ffi.of_int)
-                                                                    (java/io/BufferedInputStream::read buffer (ffi.as_int so_far) (ffi.as_int remaining) input))]
-                                                     (case bytes_read
-                                                       -1 (do !
-                                                            [_ (java/lang/AutoCloseable::close input)]
-                                                            (case so_far
-                                                              +0 (in (..body_of output))
-                                                              _ (|> buffer
-                                                                    (binary.slice 0 (.nat so_far))
-                                                                    (# try.functor each
-                                                                       (|>> (# binary.monoid composite output)
-                                                                            ..body_of))
-                                                                    (# io.monad in))))
-                                                       +0 (again so_far output)
-                                                       _ (if (i.= remaining bytes_read)
-                                                           (again +0
-                                                                  (# binary.monoid composite output buffer))
-                                                           (again (i.+ bytes_read so_far)
-                                                                  output))))))))))
+                                        [partial? buffer_size]
+                                        (let [buffer (binary.empty buffer_size)]
+                                          (if partial?
+                                            (loop [so_far +0]
+                                              (do [! (try.with io.monad)]
+                                                [.let [remaining (i.- so_far (.int buffer_size))]
+                                                 bytes_read (# ! each (|>> ffi.of_int)
+                                                               (java/io/BufferedInputStream::read buffer (ffi.as_int so_far) (ffi.as_int remaining) input))]
+                                                (case bytes_read
+                                                  -1 (do !
+                                                       [_ (java/lang/AutoCloseable::close input)]
+                                                       (in [(.nat so_far) buffer]))
+                                                  +0 (again so_far)
+                                                  _ (if (i.= remaining bytes_read)
+                                                      (in [buffer_size buffer])
+                                                      (again (i.+ bytes_read so_far))))))
+                                            (loop [so_far +0
+                                                   output (# binary.monoid identity)]
+                                              (do [! (try.with io.monad)]
+                                                [.let [remaining (i.- so_far (.int buffer_size))]
+                                                 bytes_read (# ! each (|>> ffi.of_int)
+                                                               (java/io/BufferedInputStream::read buffer (ffi.as_int so_far) (ffi.as_int remaining) input))]
+                                                (case bytes_read
+                                                  -1 (do !
+                                                       [_ (java/lang/AutoCloseable::close input)]
+                                                       (case so_far
+                                                         +0 (in (..body_of output))
+                                                         _ (|> buffer
+                                                               (binary.slice 0 (.nat so_far))
+                                                               (# try.functor each
+                                                                  (|>> (# binary.monoid composite output)
+                                                                       ..body_of))
+                                                               (# io.monad in))))
+                                                  +0 (again so_far output)
+                                                  _ (if (i.= remaining bytes_read)
+                                                      (again +0
+                                                             (# binary.monoid composite output buffer))
+                                                      (again (i.+ bytes_read so_far)
+                                                             output))))))))))
 
                                (def: (default_headers connection)
                                  (-> java/net/HttpURLConnection (IO (Try //.Headers)))
@@ -228,14 +230,15 @@
     (|> (# client request method url headers data)
         async.future
         (# async.monad each
-           (|>> (case> {try.#Success [status message]}
-                       {try.#Success [status (revised //.#body (: (-> (//.Body IO) (//.Body Async))
-                                                                  (function (_ body)
-                                                                    (|>> body async.future)))
-                                                      message)]}
-                       
-                       {try.#Failure error}
-                       {try.#Failure error}))))))
+           (|>> (pipe.case
+                  {try.#Success [status message]}
+                  {try.#Success [status (revised //.#body (: (-> (//.Body IO) (//.Body Async))
+                                                             (function (_ body)
+                                                               (|>> body async.future)))
+                                                 message)]}
+                  
+                  {try.#Failure error}
+                  {try.#Failure error}))))))
 
 (def: .public headers
   (-> (List [Text Text]) //.Headers)
