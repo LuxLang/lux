@@ -40,7 +40,7 @@ cd ~/lux/stdlib/ \
 
 ```
 cd ~/lux/lux-jvm/ \
-&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-jvm -Dversion=0.6.6 -Dpackaging=jar
+&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-jvm -Dversion=0.7.0-SNAPSHOT -Dpackaging=jar
 
 cd ~/lux/lux-jvm/ && mvn deploy:deploy-file \
 -Durl=https://USERNAME:PASSWORD@oss.sonatype.org/content/repositories/snapshots/ \

@@ -1,0 +1,246 @@
+(.using
+ [library
+  [lux {"-" or template let |> `}]])
+
+(macro: (locally tokens lux)
+  (.let [[prelude _] (symbol ._)]
+    (case tokens
+      (pattern (list [@ {.#Symbol ["" name]}]))
+      {.#Right [lux (list (.` ("lux in-module" (~ [@ {.#Text prelude}])
+                               (~ [@ {.#Symbol [prelude name]}]))))]}
+
+      _
+      {.#Left ""})))
+
+(.template [<name>]
+  [(def: <name> (..locally <name>))]
+
+  [list#size]
+  [list#composite]
+  [list#each]
+  [list#conjoint]
+  [every?]
+
+  [maybe_monad]
+
+  [function#composite]
+
+  [failure]
+  [meta#in]
+
+  [do]
+  [monad#each]
+
+  [Replacement_Environment]
+  [realized_template]
+  [replacement_environment]
+
+  [symbol_short]
+  [tuple_list]
+
+  [meta_monad]
+  [text$]
+  [generated_symbol]
+  [type_definition]
+  [record_slots]
+  [text#composite]
+  [type#encoded]
+  [module_alias]
+  [symbol$]
+  [tuple$]
+  [monad#mix]
+  [zipped/2]
+
+  [multi_level_case^]
+  [multi_level_case$]
+  [type_code]
+  [expected_type]
+
+  [wrong_syntax_error]
+  [local_symbol$]
+
+  [list#reversed]
+  [untemplated_list]
+  [bit$]
+  [nat$]
+  [int$]
+  [rev$]
+  [frac$]
+  )
+
+(macro: .public (or tokens)
+  (case tokens
+    (pattern (list& [_ {.#Form patterns}] body branches))
+    (case patterns
+      {.#End}
+      (failure (..wrong_syntax_error (symbol ..or)))
+
+      _
+      (.let [pairs (.|> patterns
+                        (list#each (function (_ pattern) (list pattern body)))
+                        list#conjoint)]
+        (meta#in (list#composite pairs branches))))
+    _
+    (failure (..wrong_syntax_error (symbol ..or)))))
+
+(macro: .public (template tokens)
+  (case tokens
+    (pattern (list& [_ {.#Form (list [_ {.#Tuple bindings}]
+                                     [_ {.#Tuple templates}])}]
+                    [_ {.#Form data}]
+                    branches))
+    (case (: (Maybe (List Code))
+             (do maybe_monad
+               [bindings' (monad#each maybe_monad symbol_short bindings)
+                data' (monad#each maybe_monad tuple_list data)]
+               (.let [num_bindings (list#size bindings')]
+                 (if (every? (|>> ("lux i64 =" num_bindings))
+                             (list#each list#size data'))
+                   (.let [apply (: (-> Replacement_Environment (List Code))
+                                   (function (_ env) (list#each (realized_template env) templates)))]
+                     (.|> data'
+                          (list#each (function#composite apply (replacement_environment bindings')))
+                          list#conjoint
+                          in))
+                   {.#None}))))
+      {.#Some output}
+      (meta#in (list#composite output branches))
+      
+      {.#None}
+      (failure (..wrong_syntax_error (symbol ..template))))
+    
+    _
+    (failure (..wrong_syntax_error (symbol ..template)))))
+
+(macro: .public (multi tokens)
+  (case tokens
+    (pattern (list& [_meta {.#Form levels}] body next_branches))
+    (do meta_monad
+      [mlc (multi_level_case^ levels)
+       .let [initial_bind? (case mlc
+                             [[_ {.#Symbol _}] _]
+                             #1
+
+                             _
+                             #0)]
+       expected ..expected_type
+       g!temp (..generated_symbol "temp")]
+      (in (list g!temp
+                (.` ({{.#Some (~ g!temp)}
+                      (~ g!temp)
+
+                      {.#None}
+                      (.case (~ g!temp)
+                        (~+ next_branches))}
+                     ("lux type check" {.#Apply (~ (type_code expected)) Maybe}
+                      (.case (~ g!temp)
+                        (~+ (multi_level_case$ g!temp [mlc body]))
+
+                        (~+ (if initial_bind?
+                              (list)
+                              (list g!temp (.` {.#None})))))))))))
+    
+    _
+    (failure (..wrong_syntax_error (symbol ..multi)))))
+
+(macro: .public (let tokens)
+  (case tokens
+    (pattern (list& [_meta {.#Form (list [_ {.#Symbol ["" name]}] pattern)}] body branches))
+    (.let [g!whole (local_symbol$ name)]
+      (meta#in (list& g!whole
+                      (.` (case (~ g!whole) (~ pattern) (~ body)))
+                      branches)))
+    
+    _
+    (failure (..wrong_syntax_error (symbol ..let)))))
+
+(macro: .public (|> tokens)
+  (case tokens
+    (pattern (list& [_meta {.#Form (list [_ {.#Symbol ["" name]}] [_ {.#Tuple steps}])}] body branches))
+    (.let [g!name (local_symbol$ name)]
+      (meta#in (list& g!name
+                      (.` (.let [(~ g!name) (.|> (~ g!name) (~+ steps))]
+                            (~ body)))
+                      branches)))
+    
+    _
+    (failure (..wrong_syntax_error (symbol ..|>)))))
+
+(def: (name$ [module name])
+  (-> Symbol Code)
+  (.` [(~ (text$ module)) (~ (text$ name))]))
+
+(def: (untemplated_list& last inits)
+  (-> Code (List Code) Code)
+  (case inits
+    {.#End}
+    last
+
+    {.#Item [init inits']}
+    (.` {.#Item (~ init) (~ (untemplated_list& last inits'))})))
+
+(.template [<tag> <name>]
+  [(def: (<name> g!meta untemplated_pattern elems)
+     (-> Code (-> Code (Meta Code))
+         (-> (List Code) (Meta Code)))
+     (case (list#reversed elems)
+       {.#Item [_ {.#Form {.#Item [[_ {.#Symbol ["" "~+"]}] {.#Item [spliced {.#End}]}]}}]
+               inits}
+       (do meta_monad
+         [=inits (monad#each meta_monad untemplated_pattern (list#reversed inits))]
+         (in (.` [(~ g!meta) {<tag> (~ (untemplated_list& spliced =inits))}])))
+
+       _
+       (do meta_monad
+         [=elems (monad#each meta_monad untemplated_pattern elems)]
+         (in (.` [(~ g!meta) {<tag> (~ (untemplated_list =elems))}])))))]
+
+  [.#Form untemplated_form]
+  [.#Variant untemplated_variant]
+  [.#Tuple untemplated_tuple]
+  )
+
+(def: (untemplated_pattern pattern)
+  (-> Code (Meta Code))
+  (do meta_monad
+    [g!meta (..generated_symbol "g!meta")]
+    (case pattern
+      (..template [<tag> <gen>]
+        [[_ {<tag> value}]
+         (in (.` [(~ g!meta) {<tag> (~ (<gen> value))}]))])
+      ([.#Bit    bit$]
+       [.#Nat    nat$]
+       [.#Int    int$]
+       [.#Rev    rev$]
+       [.#Frac   frac$]
+       [.#Text   text$]
+       [.#Symbol name$])
+
+      [_ {.#Form {.#Item [[_ {.#Symbol ["" "~"]}] {.#Item [unquoted {.#End}]}]}}]
+      (in unquoted)
+
+      [_ {.#Form {.#Item [[_ {.#Symbol ["" "~+"]}] {.#Item [spliced {.#End}]}]}}]
+      (failure "Cannot use (~+) inside of `code` unless it is the last element in a form or a tuple.")
+
+      (template [<tag> <untemplated>]
+        [[_ {<tag> elems}]
+         (<untemplated> g!meta untemplated_pattern elems)])
+      ([.#Form ..untemplated_form]
+       [.#Variant ..untemplated_variant]
+       [.#Tuple ..untemplated_tuple])
+      )))
+
+(macro: .public (` tokens)
+  (case tokens
+    (pattern (list& [_meta {.#Form (list template)}] body branches))
+    (do meta_monad
+      [pattern (untemplated_pattern template)]
+      (in (list& pattern body branches)))
+
+    (pattern (list template))
+    (do meta_monad
+      [pattern (untemplated_pattern template)]
+      (in (list pattern)))
+
+    _
+    (failure (..wrong_syntax_error (symbol ..`)))))

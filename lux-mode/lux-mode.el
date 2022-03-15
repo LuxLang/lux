@@ -362,10 +362,7 @@ Called by `imenu--generic-function'."
 		   (revRE (literal (concat "\\." natural)))
 		   (specialRE (let (;; Control
 							(control//flow (altRE "case" "exec" "let" "if" "cond" "loop" "again" "do" "be"))
-							(control//pattern-matching (altRE "\\^" "\\^or"
-															  "\\^multi" "\\^let" "\\^template"
-															  "\\^open" "\\^|>" "\\^code"
-															  "\\^stream&" "\\^regex"))
+							(control//pattern-matching (altRE "pattern" "open"))
 							(control//logic (altRE "and" "or"))
 							(control//contract (altRE "pre" "post"))
 							;; Type
@@ -601,7 +598,6 @@ This function also returns nil meaning don't specify the indentation."
   (object 'defun)
   (do_to 'defun)
   (comment 'defun)
-  (^template 'defun)
   (remember 'defun)
   (to_do 'defun)
   (fix_me 'defun)
