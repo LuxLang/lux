@@ -7,6 +7,7 @@
     [monad {"+" do}]]
    [control
     ["[0]" io {"+" IO}]
+    ["[0]" maybe]
     ["[0]" try {"+" Try} ("[1]#[0]" functor)]
     ["[0]" exception {"+" exception:}]
     [parser
@@ -111,100 +112,119 @@
 
 (def: (command action)
   (All (_ a) (-> (Async (Try a)) (IO Any)))
-  (exec (do async.monad
-          [outcome action]
-          (async.future
-           (case outcome
-             {try.#Success _}
-             ..succeed!
+  (exec
+    (do async.monad
+      [outcome action]
+      (async.future
+       (case outcome
+         {try.#Success _}
+         ..succeed!
 
-             {try.#Failure error}
-             (..fail! error))))
+         {try.#Failure error}
+         (..fail! error))))
     (# io.monad in [])))
+
+(exception: .public invalid_operation)
+
+(`` (implementation: write_only
+      (Console IO)
+
+      (~~ (template [<name>]
+            [(def: (<name> _)
+               (io.io (exception.except ..invalid_operation [])))]
+
+            [read]
+            [read_line]
+            [close]
+            ))
+
+      (def: (write it)
+        (<| io.io
+            {try.#Success}
+            debug.log!
+            (if (text.ends_with? text.\n it)
+              (maybe.trusted (text.clip 0 (-- (text.size it)) it))
+              it)))))
 
 (program: [[profiles operation] /cli.command]
   (do [! io.monad]
-    [?console console.default]
-    (case (try#each console.async ?console)
-      {try.#Failure error}
-      (..fail! error)
+    [console (# ! each (|>> (try.else ..write_only) console.async)
+                console.default)]
+    (case operation
+      {/cli.#Version}
+      (..command
+       (/command/version.do! console (# /.monoid identity)))
 
-      {try.#Success console}
-      (case operation
-        {/cli.#Version}
-        (..command
-         (/command/version.do! console (# /.monoid identity)))
+      _
+      (do !
+        [?profile (/input.read io.monad file.default profiles)]
+        (case ?profile
+          {try.#Failure error}
+          (..fail! error)
 
-        _
-        (do !
-          [?profile (/input.read io.monad file.default profiles)]
-          (case ?profile
-            {try.#Failure error}
-            (..fail! error)
+          {try.#Success profile}
+          (let [program (program.async program.default)]
+            (case operation
+              {/cli.#Version}
+              (in [])
+              
+              {/cli.#Clean}
+              (..command
+               (/command/clean.do! console (file.async file.default) profile))
 
-            {try.#Success profile}
-            (let [program (program.async program.default)]
-              (case operation
-                {/cli.#Version}
-                (in [])
-                
-                {/cli.#Clean}
-                (..command
-                 (/command/clean.do! console (file.async file.default) profile))
+              {/cli.#POM}
+              (..command
+               (/command/pom.do! console (file.async file.default) profile))
+              
+              {/cli.#Install}
+              (..command
+               (let [fs (file.async file.default)]
+                 (/command/install.do! console fs (/repository/local.repository program fs) profile)))
 
-                {/cli.#POM}
-                (..command
-                 (/command/pom.do! console (file.async file.default) profile))
-                
-                {/cli.#Install}
-                (..command
-                 (let [fs (file.async file.default)]
-                   (/command/install.do! console fs (/repository/local.repository program fs) profile)))
-
-                {/cli.#Deploy repository identity}
-                (..command
-                 (case (the /.#identity profile)
-                   {.#Some artifact}
-                   (case (dictionary.value repository (the /.#deploy_repositories profile))
-                     {.#Some repository}
-                     (/command/deploy.do! console
-                                          (/repository.async (/repository/remote.repository http.default {.#Some identity} repository))
-                                          (file.async file.default)
-                                          artifact
-                                          profile)
-                     
-                     {.#None}
-                     (async#in (exception.except ..cannot_find_repository [repository (the /.#deploy_repositories profile)])))
+              {/cli.#Deploy repository identity}
+              (..command
+               (case (the /.#identity profile)
+                 {.#Some artifact}
+                 (case (dictionary.value repository (the /.#deploy_repositories profile))
+                   {.#Some repository}
+                   (/command/deploy.do! console
+                                        (/repository.async (/repository/remote.repository http.default {.#Some identity} repository))
+                                        (file.async file.default)
+                                        artifact
+                                        profile)
                    
                    {.#None}
-                   (async#in (exception.except /.no_identity []))))
-                
-                {/cli.#Dependencies}
-                (..command
-                 (/command/deps.do! console
-                                    (/repository/local.repository program (file.async file.default))
-                                    (..repositories profile)
-                                    (|>> (/repository/remote.repository http.default {.#None})
-                                         /repository.async)
-                                    profile))
+                   (async#in (exception.except ..cannot_find_repository [repository (the /.#deploy_repositories profile)])))
+                 
+                 {.#None}
+                 (async#in (exception.except /.no_identity []))))
+              
+              {/cli.#Dependencies}
+              (..command
+               (/command/deps.do! console
+                                  (/repository/local.repository program (file.async file.default))
+                                  (..repositories profile)
+                                  (|>> (/repository/remote.repository http.default {.#None})
+                                       /repository.async)
+                                  profile))
 
-                {/cli.#Compilation compilation}
-                (case compilation
-                  {/cli.#Build} (..command
-                                 (..with_dependencies program console /command/build.do! profile))
-                  {/cli.#Test} (..command
-                                (..with_dependencies program console /command/test.do! profile)))
+              {/cli.#Compilation compilation}
+              (case compilation
+                {/cli.#Build} (..command
+                               (..with_dependencies program console /command/build.do! profile))
+                {/cli.#Test} (..command
+                              (..with_dependencies program console /command/test.do! profile)))
 
-                {/cli.#Auto auto}
-                (do !
-                  [?watcher watch.default]
-                  (case ?watcher
-                    {try.#Failure error}
-                    (..fail! error)
-                    
-                    {try.#Success watcher}
-                    (..command
-                     (case auto
-                       {/cli.#Build} (..with_dependencies program console (/command/auto.do! /command/auto.delay watcher /command/build.do!) profile)
-                       {/cli.#Test} (..with_dependencies program console (/command/auto.do! /command/auto.delay watcher /command/test.do!) profile)))))))
-            ))))))
+              {/cli.#Auto auto}
+              (do !
+                [?watcher watch.default]
+                (case ?watcher
+                  {try.#Failure error}
+                  (..fail! error)
+                  
+                  {try.#Success watcher}
+                  (..command
+                   (case auto
+                     {/cli.#Build} (..with_dependencies program console (/command/auto.do! /command/auto.delay watcher /command/build.do!) profile)
+                     {/cli.#Test} (..with_dependencies program console (/command/auto.do! /command/auto.delay watcher /command/test.do!) profile)))))))
+          )))))
