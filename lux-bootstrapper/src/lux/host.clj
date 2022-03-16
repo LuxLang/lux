@@ -111,10 +111,10 @@
   lookup-field        false
   )
 
-(do-template [<name> <static?> <method-type>]
+(do-template [<name> <static?> <method-type> <options>]
   (defn <name> [class-loader target method-name args]
     (|let [target-class (Class/forName target true class-loader)]
-      (if-let [[^Method method ^Class declarer] (first (for [^Method =method (.getDeclaredMethods target-class)
+      (if-let [[^Method method ^Class declarer] (first (for [^Method =method (<options> target-class)
                                                              :when (and (.equals ^Object method-name (.getName =method))
                                                                         (.equals ^Object <static?> (Modifier/isStatic (.getModifiers =method)))
                                                                         (let [param-types (&/->list (seq (.getParameterTypes =method)))]
@@ -125,22 +125,20 @@
                                                                                         (&/|map #(.getName ^Class %) param-types)))))]
                                                          [=method
                                                           (.getDeclaringClass =method)]))]
-        (if (= target-class declarer)
-          (|let [parent-gvars (->> target-class .getTypeParameters seq &/->list)
-                 gvars (->> method .getTypeParameters seq &/->list)
-                 gargs (->> method .getGenericParameterTypes seq &/->list)
-                 _ (when (.getAnnotation method java.lang.Deprecated)
-                     (println (str "[Host Warning] Deprecated method: " target "." method-name " " (->> args &/->seq print-str))))]
-            (return (&/T [(.getGenericReturnType method)
-                          (->> method .getExceptionTypes &/->list (&/|map #(.getName ^Class %)))
-                          parent-gvars
-                          gvars
-                          gargs])))
-          (&/fail-with-loc (str "[Host Error] " <method-type> " method " (pr-str method-name) " for " "(" (->> args (&/|interpose ", ") (&/fold str "")) ")" " belongs to parent " (.getName declarer) " instead of " target)))
+        (|let [parent-gvars (->> target-class .getTypeParameters seq &/->list)
+               gvars (->> method .getTypeParameters seq &/->list)
+               gargs (->> method .getGenericParameterTypes seq &/->list)
+               _ (when (.getAnnotation method java.lang.Deprecated)
+                   (println (str "[Host Warning] Deprecated method: " target "." method-name " " (->> args &/->seq print-str))))]
+          (return (&/T [(.getGenericReturnType method)
+                        (->> method .getExceptionTypes &/->list (&/|map #(.getName ^Class %)))
+                        parent-gvars
+                        gvars
+                        gargs])))
         (&/fail-with-loc (str "[Host Error] " <method-type> " method does not exist: " target "." method-name " " "(" (->> args (&/|interpose ", ") (&/fold str "")) ")")))))
 
-  lookup-static-method  true  "Static"
-  lookup-virtual-method false "Virtual"
+  lookup-static-method  true  "Static" .getDeclaredMethods
+  lookup-virtual-method false "Virtual" .getMethods
   )
 
 (defn lookup-constructor [class-loader target args]

@@ -1173,7 +1173,7 @@
                     (monad.each try.monad reflection!.type)
                     phase.lifted)
      .let [modifiers (java/lang/reflect/Method::getModifiers method)
-           correct_class? (java/lang/Object::equals class (java/lang/reflect/Method::getDeclaringClass method))
+           correct_class? (java/lang/Class::isAssignableFrom class (java/lang/reflect/Method::getDeclaringClass method))
            correct_method? (text#= method_name (java/lang/reflect/Method::getName method))
            same_static? (case method_style
                           {#Static}
@@ -1188,7 +1188,8 @@
 
                            _
                            true)
-           same_inputs? (and (n.= (list.size inputsJT) (list.size parameters))
+           same_inputs? (and (n.= (list.size inputsJT)
+                                  (list.size parameters))
                              (list.every? (function (_ [expectedJC actualJC])
                                             (jvm#= expectedJC (de_aliased aliasing actualJC)))
                                           (list.zipped/2 parameters inputsJT)))]]
@@ -1372,14 +1373,47 @@
                      (list#each parser.name expected))
       (dictionary.of_list text.hash)))
 
-(def: (method_candidate class_loader actual_class_tvars class_name actual_method_tvars method_name method_style inputsJT)
-  (-> java/lang/ClassLoader (List (Type Var)) External (List (Type Var)) Text Method_Style (List (Type Value)) (Operation Method_Signature))
+(def: (family_tree' it)
+  (-> (java/lang/Class java/lang/Object)
+      (List (java/lang/Class java/lang/Object)))
+  (let [interfaces (array.list {.#None} (java/lang/Class::getInterfaces it))
+        supers (case (java/lang/Class::getSuperclass it)
+                 {.#Some class}
+                 (list& class interfaces)
+                 
+                 {.#None}
+                 interfaces)]
+    (|> supers
+        (list#each family_tree')
+        list#conjoint
+        (list& it))))
+
+(def: family_tree
+  (-> (java/lang/Class java/lang/Object)
+      (List (java/lang/Class java/lang/Object)))
+  (|>> ..family_tree'
+       ... De-duplication
+       (list#mix (function (_ class all)
+                   (dictionary.has (java/lang/Class::getName class) class all))
+                 (dictionary.empty text.hash))
+       dictionary.values))
+
+(def: (all_declared_methods it)
+  (-> (java/lang/Class java/lang/Object)
+      (List java/lang/reflect/Method))
+  (|> it
+      ..family_tree
+      (list#each (|>> java/lang/Class::getDeclaredMethods (array.list {.#None})))
+      list#conjoint))
+
+(def: (method_candidate allow_inheritance? class_loader actual_class_tvars class_name actual_method_tvars method_name method_style inputsJT)
+  (-> Bit java/lang/ClassLoader (List (Type Var)) External (List (Type Var)) Text Method_Style (List (Type Value)) (Operation Method_Signature))
   (do [! phase.monad]
     [class (phase.lifted (reflection!.load class_loader class_name))
      .let [expected_class_tvars (class_type_variables class)]
-     candidates (|> class
-                    java/lang/Class::getDeclaredMethods
-                    (array.list {.#None})
+     candidates (|> (if allow_inheritance?
+                      (all_declared_methods class)
+                      (array.list {.#None} (java/lang/Class::getDeclaredMethods class)))
                     (list.only (|>> java/lang/reflect/Method::getName (text#= method_name)))
                     (monad.each ! (is (-> java/lang/reflect/Method (Operation Evaluation))
                                       (function (_ method)
@@ -1399,8 +1433,10 @@
       {.#End}
       (/////analysis.except ..no_candidates [actual_class_tvars class_name method_name actual_method_tvars inputsJT (list.all hint! candidates)])
       
-      candidates
-      (/////analysis.except ..too_many_candidates [actual_class_tvars class_name method_name actual_method_tvars inputsJT candidates]))))
+      {.#Item method alternatives}
+      (if allow_inheritance?
+        (in method)
+        (/////analysis.except ..too_many_candidates [actual_class_tvars class_name method_name actual_method_tvars inputsJT (list& method alternatives)])))))
 
 (def: constructor_method
   "<init>")
@@ -1467,7 +1503,7 @@
       (do phase.monad
         [_ (..ensure_fresh_class! class_loader class)
          .let [argsT (list#each product.left argsTC)]
-         [methodT deprecated? exceptionsT] (..method_candidate class_loader class_tvars class method_tvars method {#Static} argsT)
+         [methodT deprecated? exceptionsT] (..method_candidate false class_loader class_tvars class method_tvars method {#Static} argsT)
          _ (phase.assertion ..deprecated_method [class method methodT]
                             (not deprecated?))
          [outputT argsA] (inference.general archive analyse methodT (list#each product.right argsTC))
@@ -1485,7 +1521,7 @@
       (do phase.monad
         [_ (..ensure_fresh_class! class_loader class)
          .let [argsT (list#each product.left argsTC)]
-         [methodT deprecated? exceptionsT] (..method_candidate class_loader class_tvars class method_tvars method {#Virtual} argsT)
+         [methodT deprecated? exceptionsT] (..method_candidate true class_loader class_tvars class method_tvars method {#Virtual} argsT)
          _ (phase.assertion ..deprecated_method [class method methodT]
                             (not deprecated?))
          [outputT allA] (inference.general archive analyse methodT (list& objectC (list#each product.right argsTC)))
@@ -1510,7 +1546,7 @@
       (do phase.monad
         [_ (..ensure_fresh_class! class_loader class)
          .let [argsT (list#each product.left argsTC)]
-         [methodT deprecated? exceptionsT] (..method_candidate class_loader class_tvars class method_tvars method {#Special} argsT)
+         [methodT deprecated? exceptionsT] (..method_candidate false class_loader class_tvars class method_tvars method {#Special} argsT)
          _ (phase.assertion ..deprecated_method [class method methodT]
                             (not deprecated?))
          [outputT allA] (inference.general archive analyse methodT (list& objectC (list#each product.right argsTC)))
@@ -1538,7 +1574,7 @@
          class (phase.lifted (reflection!.load class_loader class_name))
          _ (phase.assertion non_interface class_name
                             (java/lang/reflect/Modifier::isInterface (java/lang/Class::getModifiers class)))
-         [methodT deprecated? exceptionsT] (..method_candidate class_loader class_tvars class_name method_tvars method {#Interface} argsT)
+         [methodT deprecated? exceptionsT] (..method_candidate true class_loader class_tvars class_name method_tvars method {#Interface} argsT)
          _ (phase.assertion ..deprecated_method [class_name method methodT]
                             (not deprecated?))
          [outputT allA] (inference.general archive analyse methodT (list& objectC (list#each product.right argsTC)))
@@ -1640,39 +1676,6 @@
   (/////analysis.tuple
    (list (/////analysis.text argument)
          (value_analysis argumentJT))))
-
-(def: (family_tree' it)
-  (-> (java/lang/Class java/lang/Object)
-      (List (java/lang/Class java/lang/Object)))
-  (let [interfaces (array.list {.#None} (java/lang/Class::getInterfaces it))
-        supers (case (java/lang/Class::getSuperclass it)
-                 {.#Some class}
-                 (list& class interfaces)
-                 
-                 {.#None}
-                 interfaces)]
-    (|> supers
-        (list#each family_tree')
-        list#conjoint
-        (list& it))))
-
-(def: family_tree
-  (-> (java/lang/Class java/lang/Object)
-      (List (java/lang/Class java/lang/Object)))
-  (|>> ..family_tree'
-       ... De-duplication
-       (list#mix (function (_ class all)
-                   (dictionary.has (java/lang/Class::getName class) class all))
-                 (dictionary.empty text.hash))
-       dictionary.values))
-
-(def: (all_declared_methods it)
-  (-> (java/lang/Class java/lang/Object)
-      (List java/lang/reflect/Method))
-  (|> it
-      ..family_tree
-      (list#each (|>> java/lang/Class::getDeclaredMethods (array.list {.#None})))
-      list#conjoint))
 
 (template [<name> <only> <methods>]
   [(def: (<name> [type class])
