@@ -191,7 +191,7 @@
         (php/runtime/memory/NullMemory::INSTANCE))
       (case (ffi.check java/lang/Boolean value)
         {.#Some value}
-        (if (:as Bit value)
+        (if (as Bit value)
           (php/runtime/memory/TrueMemory::INSTANCE)
           (php/runtime/memory/FalseMemory::INSTANCE))
 
@@ -213,7 +213,7 @@
         {.#None})
       (case (ffi.check [java/lang/Object] value)
         {.#Some value}
-        (lux_structure (:as (Array java/lang/Object) value))
+        (lux_structure (as (Array java/lang/Object) value))
 
         {.#None})
       (case (ffi.check php/runtime/memory/ObjectMemory value)
@@ -235,7 +235,7 @@
         ... Methods
         (program/StructureValue
          [] (getValue self []) java/lang/Object
-         (:expected value))
+         (as_expected value))
 
         (php/runtime/Memory
          [] (toString self [])
@@ -278,12 +278,12 @@
          [] (valueOfIndex self [trace php/runtime/env/TraceInfo
                                 index java/lang/String])
          php/runtime/Memory
-         (case (:as Text index)
+         (case (as Text index)
            (pattern (static runtime.variant_tag_field))
            (|> value
                (array.read! 0)
                maybe.trusted
-               (:as java/lang/Integer)
+               (as java/lang/Integer)
                php/runtime/memory/LongMemory::valueOf)
 
            (pattern (static runtime.variant_flag_field))
@@ -311,15 +311,15 @@
   (-> Reader php/runtime/memory/ArrayMemory (Try Any))
   (let [size (|> host_object
                  php/runtime/memory/ArrayMemory::size
-                 (:as Nat)
+                 (as Nat)
                  --)]
     (loop [idx 0
-           output (:as (Array Any) (array.new size))]
+           output (as (Array Any) (array.new size))]
       (if (n.< size idx)
         (let [value (|> host_object
                         (php/runtime/memory/ArrayMemory::get (php/runtime/memory/LongMemory::new (.int idx)))
                         maybe.trusted
-                        (:as php/runtime/memory/ReferenceMemory)
+                        (as php/runtime/memory/ReferenceMemory)
                         php/runtime/memory/ReferenceMemory::getValue)]
           (case (ffi.check php/runtime/memory/NullMemory value)
             {.#Some _}
@@ -354,19 +354,19 @@
              maybe.trusted
              read)]
     [{try.#Success tag} {try.#Success value}]
-    {try.#Success [(java/lang/Long::intValue (:as java/lang/Long tag))
-                   (: Any
-                      (case (|> host_object
-                                (php/runtime/memory/ArrayMemory::get ..variant_flag_field)
-                                maybe.trusted
-                                (:as php/runtime/memory/ReferenceMemory)
-                                php/runtime/memory/ReferenceMemory::getValue
-                                (ffi.check php/runtime/memory/NullMemory))
-                        {.#Some _}
-                        (ffi.null)
+    {try.#Success [(java/lang/Long::intValue (as java/lang/Long tag))
+                   (is Any
+                       (case (|> host_object
+                                 (php/runtime/memory/ArrayMemory::get ..variant_flag_field)
+                                 maybe.trusted
+                                 (as php/runtime/memory/ReferenceMemory)
+                                 php/runtime/memory/ReferenceMemory::getValue
+                                 (ffi.check php/runtime/memory/NullMemory))
+                         {.#Some _}
+                         (ffi.null)
 
-                        {.#None}
-                        synthesis.unit))
+                         {.#None}
+                         synthesis.unit))
                    value]}
 
     _
@@ -431,7 +431,7 @@
 (def: (ensure_macro macro)
   (-> Macro (Maybe php/runtime/memory/ObjectMemory))
   (|> macro
-      (:as java/lang/Object)
+      (as java/lang/Object)
       (ffi.check php/runtime/memory/ObjectMemory)))
 
 (def: interpreter
@@ -444,20 +444,20 @@
       (java/lang/Class::getDeclaredField "environment")
       (pipe.exec [(java/lang/reflect/AccessibleObject::setAccessible true)])
       (java/lang/reflect/Field::get ..interpreter)
-      (:as php/runtime/env/Environment)))
+      (as php/runtime/env/Environment)))
 
 (def: (call_macro inputs lux macro)
   (-> (List Code) Lux php/runtime/memory/ObjectMemory (Try (Try [Lux (List Code)])))
-  (<| :expected
+  (<| as_expected
       (do try.monad
         [output (php/runtime/lang/Closure::call ..default_environment
                                                 (|> (ffi.array php/runtime/Memory 3)
                                                     (ffi.write! 0 macro)
-                                                    (ffi.write! 1 (lux_structure (:as (Array java/lang/Object) inputs)))
-                                                    (ffi.write! 2 (lux_structure (:as (Array java/lang/Object) lux))))
-                                                (:as php/runtime/lang/Closure
-                                                     (php/runtime/memory/ObjectMemory::value macro)))]
-        (..read (:as java/lang/Object output)))))
+                                                    (ffi.write! 1 (lux_structure (as (Array java/lang/Object) inputs)))
+                                                    (ffi.write! 2 (lux_structure (as (Array java/lang/Object) lux))))
+                                                (as php/runtime/lang/Closure
+                                                    (php/runtime/memory/ObjectMemory::value macro)))]
+        (..read (as java/lang/Object output)))))
 
 (def: (expander macro inputs lux)
   Expander
@@ -466,41 +466,41 @@
     (call_macro inputs lux macro)
 
     {.#None}
-    (exception.throw ..cannot_apply_a_non_function (:as java/lang/Object macro))))
+    (exception.throw ..cannot_apply_a_non_function (as java/lang/Object macro))))
 
 (def: host
   (IO (Host _.Expression _.Statement))
-  (io (let [run! (: (-> (_.Code Any) (Try Any))
-                    (function (_ code)
-                      (do try.monad
-                        [output (javax/script/ScriptEngine::eval (format "<?php " (_.code code)) ..interpreter)]
-                        (..read output))))]
-        (: (Host _.Expression _.Statement)
-           (structure
-            (def: (evaluate! context code)
-              (run! (_.return code)))
-            
-            (def: execute! run!)
-            
-            (def: (define! context input)
-              (let [global (reference.artifact context)
-                    @global (_.global global)]
-                (do try.monad
-                  [#let [definition (_.set! @global input)]
-                   _ (run! definition)
-                   value (run! (_.return @global))]
-                  (wrap [global value definition]))))
+  (io (let [run! (is (-> (_.Code Any) (Try Any))
+                     (function (_ code)
+                       (do try.monad
+                         [output (javax/script/ScriptEngine::eval (format "<?php " (_.code code)) ..interpreter)]
+                         (..read output))))]
+        (is (Host _.Expression _.Statement)
+            (structure
+             (def: (evaluate! context code)
+               (run! (_.return code)))
+             
+             (def: execute! run!)
+             
+             (def: (define! context input)
+               (let [global (reference.artifact context)
+                     @global (_.global global)]
+                 (do try.monad
+                   [#let [definition (_.set! @global input)]
+                    _ (run! definition)
+                    value (run! (_.return @global))]
+                   (wrap [global value definition]))))
 
-            (def: (ingest context content)
-              (|> content (# utf8.codec decoded) try.trusted (:as _.Statement)))
+             (def: (ingest context content)
+               (|> content (# utf8.codec decoded) try.trusted (as _.Statement)))
 
-            (def: (re_learn context content)
-              (run! content))
-            
-            (def: (re_load context content)
-              (do try.monad
-                [_ (run! content)]
-                (run! (_.return (_.var (reference.artifact context)))))))))))
+             (def: (re_learn context content)
+               (run! content))
+             
+             (def: (re_load context content)
+               (do try.monad
+                 [_ (run! content)]
+                 (run! (_.return (_.var (reference.artifact context)))))))))))
 
 (def: platform
   (IO (Platform [Nat _.Label] _.Expression _.Statement))
@@ -522,21 +522,21 @@
      (def: extender
        Extender
        ... TODO: Stop relying on coercions ASAP.
-       (<| (:as Extender)
+       (<| (as Extender)
            (function (@self handler))
-           (:as Handler)
+           (as Handler)
            (function (@self name phase))
-           (:as Phase)
+           (as Phase)
            (function (@self archive parameters))
-           (:as Operation)
+           (as Operation)
            (function (@self state))
-           (:as Try)
+           (as Try)
            try.trusted
-           (:as Try)
+           (as Try)
            (do try.monad
              [handler (try.from_maybe (..ensure_macro handler))
-              #let [to_php (: (-> Any php/runtime/Memory)
-                              (|>> (:as (Array java/lang/Object)) lux_structure (:as php/runtime/Memory)))]
+              #let [to_php (is (-> Any php/runtime/Memory)
+                               (|>> (as (Array java/lang/Object)) lux_structure (as php/runtime/Memory)))]
               output (php/runtime/lang/Closure::call ..default_environment
                                                      (|> (ffi.array php/runtime/Memory 6)
                                                          (ffi.write! 0 handler)
@@ -545,14 +545,14 @@
                                                          (ffi.write! 3 (to_php archive))
                                                          (ffi.write! 4 (to_php parameters))
                                                          (ffi.write! 5 (to_php state)))
-                                                     (:as php/runtime/lang/Closure
-                                                          (php/runtime/memory/ObjectMemory::value handler)))]
+                                                     (as php/runtime/lang/Closure
+                                                         (php/runtime/memory/ObjectMemory::value handler)))]
              (..read output))))
 
      @.php
      (def: (extender handler)
        Extender
-       (:expected handler)))
+       (as_expected handler)))
 
 (def: (declare_success! _)
   (-> Any (Promise Any))

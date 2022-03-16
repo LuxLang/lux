@@ -373,11 +373,11 @@ Called by `imenu--generic-function'."
 												 "All" "Ex"
 												 "Interface"
 												 "type"))
-							(type//checking (altRE ":" ":as" ":let" ":~" ":expected" ":of" ":sharing" ":by_example" ":hole"))
-							(type//abstract (altRE "abstract:" ":abstraction" ":representation" ":transmutation" "\\^:representation"))
+							(type//checking (altRE "is" "as" "let" "as_expected" "type_of" "sharing" "by_example" "hole"))
+							(type//abstract (altRE "abstract:" "abstraction" "representation" "transmutation"))
 							(type//unit (altRE "unit:" "scale:"))
 							(type//poly (altRE "poly:"))
-							(type//dynamic (altRE ":dynamic" "/.:static"))
+							(type//dynamic (altRE "dynamic" "static"))
 							(type//capability (altRE "capability:"))
 							;; Data
 							(data//record (altRE "the" "has" "revised"))
@@ -439,7 +439,7 @@ Called by `imenu--generic-function'."
 							definition
 							;; ;;;;;;;;;;;;;;;;;;;;;;
 							"with_expansions"
-							"undefined" "symbol" "static"
+							"undefined" "symbol"
 							"for"
 							"io"
 							"infix"
