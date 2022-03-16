@@ -10,6 +10,8 @@
 
 # Undefined behavior
 
+0. [INT32-C. Ensure that operations on signed integers do not result in overflow](https://wiki.sei.cmu.edu/confluence/display/c/INT32-C.+Ensure+that+operations+on+signed+integers+do+not+result+in+overflow)
+0. [Integer overflow](https://en.wikipedia.org/wiki/Integer_overflow#Handling)
 0. [Back To Basics: Undefined Behavior - Ansel Sermersheim & Barbara Geller - CppCon 2021](https://www.youtube.com/watch?v=NpL9YnxnOqM)
 
 # Dependency management
@@ -19,4 +21,24 @@
 # constexpr
 
 0. [Your New Mental Model of constexpr - Jason Turner - CppCon 2021](https://www.youtube.com/watch?v=MdrfPSUtMVM)
+
+# String
+
+0. [CsString (intro to unicode)](https://www.youtube.com/watch?v=nYzi0-VAXQM)
+0. [CsString (library design)](https://www.youtube.com/watch?v=w_kD-qAkoH0)
+0. [char8_t](https://www.youtube.com/watch?v=vOOLXvu-xtU)
+0. [std::u32string](https://www.cplusplus.com/reference/string/u32string/)
+
+# Variadic functions
+
+0. [Variadic functions](https://en.cppreference.com/w/cpp/utility/variadic)
+0. [Parameter pack](https://en.cppreference.com/w/cpp/language/parameter_pack)
+0. [va_start](https://www.cplusplus.com/reference/cstdarg/va_start/)
+
+# Multi-threading
+
+0. [std::thread](https://en.cppreference.com/w/cpp/thread/thread)
+0. [std::thread::hardware_concurrency](https://en.cppreference.com/w/cpp/thread/thread/hardware_concurrency)
+0. [std::atomic](https://en.cppreference.com/w/cpp/atomic/atomic)
+0. [std::atomic::compare_exchange_strong](https://www.cplusplus.com/reference/atomic/atomic/compare_exchange_strong/)
 
