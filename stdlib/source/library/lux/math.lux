@@ -1,414 +1,228 @@
 (.using
  [library
   [lux "*"
-   ["@" target]
-   [math
-    [number
-     ["n" nat]
-     ["i" int]]]]])
+   [extension {"+" analysis:}]
+   ["[0]" static]
+   [abstract
+    ["[0]" monad {"+" do}]]
+   [control
+    ["[0]" try {"+" Try}]
+    ["[0]" exception {"+" exception:}]
+    ["<>" parser
+     ["<[0]>" code]]]
+   [data
+    [text
+     ["%" format]]
+    [collection
+     ["[0]" list ("[1]#[0]" mix)]]]
+   [macro
+    [syntax {"+" syntax:}]
+    ["[0]" template]]
+   [tool
+    [compiler
+     ["[0]" phase ("[1]#[0]" monad)]
+     [language
+      [lux
+       ["[0]" analysis {"+" Analysis Operation Phase}
+        ["[0]" type]]]]
+     [meta
+      [archive {"+" Archive}]]]]
+   [type
+    ["[0]" check]]]]
+ [/
+  ["[0]" random]
+  [number
+   ["[0]" nat]
+   ["[0]" int]
+   ["[0]" rev]
+   ["[0]" frac]
+   ["[0]" ratio {"+" Ratio}]
+   ["[0]" complex {"+" Complex}]]])
 
-(template [<name> <value>]
-  [(def: .public <name>
-     <value>)]
+(exception: (no_arithmetic_for [type Type])
+  (exception.report
+   "Type" (%.type type)))
 
-  [e   +2.7182818284590452354]
-  ... ["π is wrong!" by Bob Palais](https://www.math.utah.edu/~palais/pi.html)
-  [pi  +3.14159265358979323846]
-  ... [The Tau Manifesto](https://tauday.com/tau-manifesto)
-  [tau +6.28318530717958647692]
-  )
+(def: (composite phase archive <+> last prevs)
+  (-> Phase Archive Code Analysis (List Analysis) (Operation Analysis))
+  (case <+>
+    [_ {.#Text $}]
+    (phase#in (list#mix (function (_ left right)
+                          {analysis.#Extension $ (list left right)})
+                        last
+                        prevs))
+    
+    _
+    (do phase.monad
+      [[_ $] (type.inferring
+              (phase archive <+>))]
+      (in (list#mix (function (_ left right)
+                      (analysis.reified [$ (list left right)]))
+                    last
+                    prevs)))))
 
-(for @.old
-     (as_is (template [<name> <method>]
-              [(def: .public (<name> it)
-                 (-> Frac Frac)
-                 (<method> it))]
+(with_expansions [<@> (static.text (let [[@ _] (symbol .._)] @))
+                  <ratio/0> [ratio.#numerator 0 ratio.#denominator 1]
+                  <ratio/1> [ratio.#numerator 1 ratio.#denominator 1]
+                  <complex/0> [complex.#real +0.0 complex.#imaginary +0.0]
+                  <complex/1> [complex.#real +1.0 complex.#imaginary +0.0]]
+  (as_is (template [<name> <scenarios>']
+           [(with_expansions [<extension> (static.seed)
+                              <extension> (template.text [<@> " " <extension>])
+                              <scenarios> (template.spliced <scenarios>')]
+              (as_is (analysis: (<extension> self phase archive [operands (<>.some <code>.any)])
+                       (<| type.with_var
+                           (function (_ [$it :it:]))
+                           (do [! phase.monad]
+                             [operands (monad.each ! (|>> (phase archive) (type.expecting :it:))
+                                                   operands)
+                              _ (type.inference :it:)
+                              :it: (type.check (check.identity (list) $it))]
+                             (case (list.reversed operands)
+                               (pattern (list single))
+                               (in single)
 
-              [cos   "jvm invokestatic:java.lang.Math:cos:double"]
-              [sin   "jvm invokestatic:java.lang.Math:sin:double"]
-              [tan   "jvm invokestatic:java.lang.Math:tan:double"]
+                               (pattern (list))
+                               (`` (cond (check.subsumes? .I64 :it:)
+                                         (phase.except ..no_arithmetic_for [:it:])
+                                         
+                                         (~~ (template [<type> <0> <+>]
+                                               [(check.subsumes? <type> :it:)
+                                                <0>]
 
-              [acos  "jvm invokestatic:java.lang.Math:acos:double"]
-              [asin  "jvm invokestatic:java.lang.Math:asin:double"]
-              [atan  "jvm invokestatic:java.lang.Math:atan:double"]
-              
-              [exp   "jvm invokestatic:java.lang.Math:exp:double"]
-              [log   "jvm invokestatic:java.lang.Math:log:double"]
-              
-              [ceil  "jvm invokestatic:java.lang.Math:ceil:double"]
-              [floor "jvm invokestatic:java.lang.Math:floor:double"]
+                                               <scenarios>))
 
-              [root/2 "jvm invokestatic:java.lang.Math:sqrt:double"]
-              [root/3 "jvm invokestatic:java.lang.Math:cbrt:double"]
-              )
-            (def: .public (pow param subject)
-              (-> Frac Frac Frac)
-              ("jvm invokestatic:java.lang.Math:pow:double,double" subject param)))
+                                         ... else
+                                         (phase.except ..no_arithmetic_for [:it:])))
+                               
+                               (pattern (list& last prevs))
+                               (`` (cond (check.subsumes? .I64 :it:)
+                                         (phase.except ..no_arithmetic_for [:it:])
 
-     @.jvm
-     (as_is (template: (!double value)
-              [(|> value
-                   (:as (Primitive "java.lang.Double"))
-                   "jvm object cast")])
-            
-            (template: (!frac value)
-              [(|> value
-                   "jvm object cast"
-                   (: (Primitive "java.lang.Double"))
-                   (:as Frac))])
-            
-            (template [<name> <method>]
-              [(def: .public <name>
-                 (-> Frac Frac)
-                 (|>> !double
-                      ["D"]
-                      ("jvm member invoke static" [] "java.lang.Math" <method> [])
-                      !frac))]
+                                         (~~ (template [<type> <0> <+>]
+                                               [(check.subsumes? <type> :it:)
+                                                (..composite phase archive (` <+>) last prevs)]
 
-              [cos   "cos"]
-              [sin   "sin"]
-              [tan   "tan"]
+                                               <scenarios>))
 
-              [acos  "acos"]
-              [asin  "asin"]
-              [atan  "atan"]
-              
-              [exp   "exp"]
-              [log   "log"]
-              
-              [ceil  "ceil"]
-              [floor "floor"]
-              
-              [root/2 "sqrt"]
-              [root/3 "cbrt"]
-              )
-            
-            (def: .public (pow param subject)
-              (-> Frac Frac Frac)
-              (|> ("jvm member invoke static" [] "java.lang.Math" "pow" []
-                   ["D" (!double subject)] ["D" (!double param)])
-                  !frac)))
+                                         ... else
+                                         (phase.except ..no_arithmetic_for [:it:])))))))
+                     (syntax: .public (<name> [operands (<>.some <code>.any)])
+                       (in (list (` (<extension> (~+ operands))))))))]
 
-     @.js
-     (as_is (template [<name> <method>]
-              [(def: .public <name>
-                 (-> Frac Frac)
-                 (|>> []
-                      ("js apply" ("js constant" <method>))
-                      (:as Frac)))]
+           [+ [[.Nat (in (analysis.nat 0)) "lux i64 +"]
+               [.Int (in (analysis.int +0)) "lux i64 +"]
+               [.Rev (in (analysis.rev .0)) "lux i64 +"]
+               [.Frac (in (analysis.frac +0.0)) "lux f64 +"]
+               [Ratio (type.expecting Ratio (phase archive (` <ratio/0>))) ratio.+]
+               [Complex (type.expecting Complex (phase archive (` <complex/0>))) complex.+]]]
+           [- [[.Nat (in (analysis.nat 0)) "lux i64 -"]
+               [.Int (in (analysis.int -0)) "lux i64 -"]
+               [.Rev (in (analysis.rev .0)) "lux i64 -"]
+               [.Frac (in (analysis.frac -0.0)) "lux f64 -"]
+               [Ratio (type.expecting Ratio (phase archive (` <ratio/0>))) ratio.-]
+               [Complex (type.expecting Complex (phase archive (` <complex/0>))) complex.-]]]
+           [* [[.Nat (in (analysis.nat 1)) nat.*]
+               [.Int (in (analysis.int +1)) "lux i64 *"]
+               [.Rev (in (analysis.rev rev./1)) rev.*]
+               [.Frac (in (analysis.frac +1.0)) "lux f64 *"]
+               [Ratio (type.expecting Ratio (phase archive (` <ratio/1>))) ratio.*]
+               [Complex (type.expecting Complex (phase archive (` <complex/1>))) complex.*]]]
+           [/ [[.Nat (in (analysis.nat 1)) nat./]
+               [.Int (in (analysis.int +1)) "lux i64 /"]
+               [.Rev (in (analysis.rev rev./1)) rev./]
+               [.Frac (in (analysis.frac +1.0)) "lux f64 /"]
+               [Ratio (type.expecting Ratio (phase archive (` <ratio/1>))) ratio./]
+               [Complex (type.expecting Complex (phase archive (` <complex/1>))) complex./]]]
+           )
+         (template [<name> <scenarios>']
+           [(with_expansions [<extension> (static.seed)
+                              <extension> (template.text [<@> " " <extension>])
+                              <scenarios> (template.spliced <scenarios>')]
+              (as_is (analysis: (<extension> self phase archive [left <code>.any
+                                                                 right <code>.any])
+                       (<| type.with_var
+                           (function (_ [$it :it:]))
+                           (do [! phase.monad]
+                             [left (type.expecting :it: (phase archive left))
+                              right (type.expecting :it: (phase archive right))
+                              _ (type.inference .Bit)
+                              :it: (type.check (check.identity (list) $it))]
+                             (`` (cond (check.subsumes? .I64 :it:)
+                                       (phase.except ..no_arithmetic_for [:it:])
 
-              [cos   "Math.cos"]
-              [sin   "Math.sin"]
-              [tan   "Math.tan"]
+                                       (~~ (template [<type> <+>]
+                                             [(check.subsumes? <type> :it:)
+                                              (..composite phase archive (` <+>) right (list left))]
 
-              [acos  "Math.acos"]
-              [asin  "Math.asin"]
-              [atan  "Math.atan"]
-              
-              [exp   "Math.exp"]
-              [log   "Math.log"]
-              
-              [ceil  "Math.ceil"]
-              [floor "Math.floor"]
+                                             <scenarios>))
 
-              [root/2 "Math.sqrt"]
-              [root/3 "Math.cbrt"]
-              )
-            
-            (def: .public (pow param subject)
-              (-> Frac Frac Frac)
-              (:as Frac ("js apply" ("js constant" "Math.pow") [subject param]))))
+                                       ... else
+                                       (phase.except ..no_arithmetic_for [:it:]))))))
+                     (syntax: .public (<name> [left <code>.any
+                                               right <code>.any])
+                       (in (list (` (<extension> (~ left) (~ right))))))))]
 
-     @.python
-     (as_is (template [<name> <method>]
-              [(def: .public <name>
-                 (-> Frac Frac)
-                 (|>> []
-                      ("python object do" <method> ("python import" "math"))
-                      (:as Frac)))]
+           [= [[.Nat "lux i64 ="]
+               [.Int "lux i64 ="]
+               [.Rev "lux i64 ="]
+               [.Frac "lux f64 ="]
+               [Ratio ratio.=]
+               [Complex complex.=]]]
+           [< [[.Nat nat.<]
+               [.Int "lux i64 <"]
+               [.Rev rev.<]
+               [.Frac "lux f64 <"]
+               [Ratio ratio.<]]]
+           [> [[.Nat nat.>]
+               [.Int int.>]
+               [.Rev rev.>]
+               [.Frac frac.>]
+               [Ratio ratio.>]]]
+           [<= [[.Nat nat.<=]
+                [.Int int.<=]
+                [.Rev rev.<=]
+                [.Frac frac.<=]
+                [Ratio ratio.<=]]]
+           [>= [[.Nat nat.>=]
+                [.Int int.>=]
+                [.Rev rev.>=]
+                [.Frac frac.>=]
+                [Ratio ratio.>=]]]
+           )
+         (template [<name> <scenarios>']
+           [(with_expansions [<extension> (static.seed)
+                              <extension> (template.text [<@> " " <extension>])
+                              <scenarios> (template.spliced <scenarios>')]
+              (as_is (analysis: (<extension> self phase archive [left <code>.any
+                                                                 right <code>.any])
+                       (<| type.with_var
+                           (function (_ [$it :it:]))
+                           (do [! phase.monad]
+                             [left (type.expecting :it: (phase archive left))
+                              right (type.expecting :it: (phase archive right))
+                              _ (type.inference :it:)
+                              :it: (type.check (check.identity (list) $it))]
+                             (`` (cond (check.subsumes? .I64 :it:)
+                                       (phase.except ..no_arithmetic_for [:it:])
 
-              [cos   "cos"]
-              [sin   "sin"]
-              [tan   "tan"]
+                                       (~~ (template [<type> <+>]
+                                             [(check.subsumes? <type> :it:)
+                                              (..composite phase archive (` <+>) right (list left))]
 
-              [acos  "acos"]
-              [asin  "asin"]
-              [atan  "atan"]
-              
-              [exp   "exp"]
-              [log   "log"]
-              
-              [ceil  "ceil"]
-              [floor "floor"]
+                                             <scenarios>))
 
-              [root/2 "sqrt"]
-              )
-            
-            (def: .public (pow param subject)
-              (-> Frac Frac Frac)
-              (:as Frac ("python object do" "pow" ("python import" "math") [subject param])))
+                                       ... else
+                                       (phase.except ..no_arithmetic_for [:it:]))))))
+                     (syntax: .public (<name> [left <code>.any
+                                               right <code>.any])
+                       (in (list (` (<extension> (~ left) (~ right))))))))]
 
-            (def: .public (root/3 it)
-              (-> Frac Frac)
-              (if ("lux f64 <" +0.0 it)
-                (|> it
-                    ("lux f64 *" -1.0)
-                    (..pow ("lux f64 /" +3.0 +1.0))
-                    ("lux f64 *" -1.0))
-                (|> it
-                    (..pow ("lux f64 /" +3.0 +1.0))))))
-
-     @.lua
-     (as_is (template [<name> <method>]
-              [(def: .public <name>
-                 (-> Frac Frac)
-                 (|>> []
-                      ("lua apply" ("lua constant" <method>))
-                      (:as Frac)))]
-
-              [cos   "math.cos"]
-              [sin   "math.sin"]
-              [tan   "math.tan"]
-
-              [acos  "math.acos"]
-              [asin  "math.asin"]
-              [atan  "math.atan"]
-              
-              [exp   "math.exp"]
-              [log   "math.log"]
-              
-              [ceil  "math.ceil"]
-              [floor "math.floor"]
-
-              [root/2 "math.sqrt"]
-              )
-            
-            (def: .public (pow param subject)
-              (-> Frac Frac Frac)
-              ("lua power" param subject))
-
-            (def: .public (root/3 it)
-              (-> Frac Frac)
-              (if ("lux f64 <" +0.0 it)
-                (|> it
-                    ("lux f64 *" -1.0)
-                    (..pow ("lux f64 /" +3.0 +1.0))
-                    ("lux f64 *" -1.0))
-                (|> it
-                    (..pow ("lux f64 /" +3.0 +1.0))))))
-
-     @.ruby
-     (as_is (template [<name> <method>]
-              [(def: .public <name>
-                 (-> Frac Frac)
-                 (|>> []
-                      ("ruby apply" ("ruby constant" <method>))
-                      (:as Frac)))]
-
-              [cos   "Math.cos"]
-              [sin   "Math.sin"]
-              [tan   "Math.tan"]
-
-              [acos  "Math.acos"]
-              [asin  "Math.asin"]
-              [atan  "Math.atan"]
-              
-              [exp   "Math.exp"]
-              [log   "Math.log"]
-              
-              [root/2 "Math.sqrt"]
-              [root/3 "Math.cbrt"]
-              )
-
-            (template [<name> <method>]
-              [(def: .public (<name> it)
-                 (-> Frac Frac)
-                 (|> ("ruby object do" <method> it [])
-                     (:as Int)
-                     ("lux i64 f64")))]
-
-              [ceil  "ceil"]
-              [floor "floor"]
-              )
-
-            (def: .public (pow param subject)
-              (-> Frac Frac Frac)
-              (:as Frac ("ruby object do" "**" subject [param]))))
-
-     @.php
-     (as_is (template [<name> <method>]
-              [(def: .public <name>
-                 (-> Frac Frac)
-                 (|>> ("php apply" ("php constant" <method>))
-                      (:as Frac)))]
-
-              [cos   "cos"]
-              [sin   "sin"]
-              [tan   "tan"]
-
-              [acos  "acos"]
-              [asin  "asin"]
-              [atan  "atan"]
-              
-              [exp   "exp"]
-              [log   "log"]
-
-              [ceil  "ceil"]
-              [floor "floor"]
-              
-              [root/2 "sqrt"]
-              )
-
-            (def: .public (pow param subject)
-              (-> Frac Frac Frac)
-              (:as Frac ("php apply" ("php constant" "pow") subject param)))
-
-            (def: .public root/3
-              (-> Frac Frac)
-              (..pow ("lux f64 /" +3.0 +1.0))))
-
-     @.scheme
-     (as_is (template [<name> <method>]
-              [(def: .public <name>
-                 (-> Frac Frac)
-                 (|>> ("scheme apply" ("scheme constant" <method>))
-                      (:as Frac)))]
-
-              [cos   "cos"]
-              [sin   "sin"]
-              [tan   "tan"]
-
-              [acos  "acos"]
-              [asin  "asin"]
-              [atan  "atan"]
-              
-              [exp   "exp"]
-              [log   "log"]
-
-              [ceil  "ceiling"]
-              [floor "floor"]
-              
-              [root/2 "sqrt"]
-              )
-
-            (def: .public (pow param subject)
-              (-> Frac Frac Frac)
-              (:as Frac ("scheme apply" ("scheme constant" "expt") subject param)))
-
-            (def: .public root/3
-              (-> Frac Frac)
-              (..pow ("lux f64 /" +3.0 +1.0))))
-     )
-
-(def: .public (round it)
-  (-> Frac Frac)
-  (let [floored (floor it)
-        diff ("lux f64 -" floored it)]
-    (cond ("lux f64 <" diff +0.5)
-          ("lux f64 +" +1.0 floored)
-          
-          ("lux f64 <" -0.5 diff)
-          ("lux f64 +" -1.0 floored)
-          
-          ... else
-          floored)))
-
-(def: .public (atan/2 x y)
-  (-> Frac Frac Frac)
-  (cond ("lux f64 <" x +0.0)
-        (..atan ("lux f64 /" x y))
-
-        ("lux f64 <" +0.0 x)
-        (if (or ("lux f64 <" y +0.0)
-                ("lux f64 =" +0.0 y))
-          (|> y ("lux f64 /" x) atan ("lux f64 +" pi))
-          (|> y ("lux f64 /" x) atan ("lux f64 -" pi)))
-
-        ... ("lux f64 =" +0.0 x)
-        (cond ("lux f64 <" y +0.0)
-              (|> pi ("lux f64 /" +2.0))
-              
-              ("lux f64 <" +0.0 y)
-              (|> pi ("lux f64 /" -2.0))
-              
-              ... ("lux f64 =" +0.0 y)
-              ("lux f64 /" +0.0 +0.0))))
-
-(def: .public (log_by base it)
-  (-> Frac Frac Frac)
-  ("lux f64 /"
-   (..log base)
-   (..log it)))
-
-(def: .public (factorial it)
-  (-> Nat Nat)
-  (loop [acc 1
-         it it]
-    (if (n.> 1 it)
-      (again (n.* it acc) (-- it))
-      acc)))
-
-(def: .public (hypotenuse catA catB)
-  (-> Frac Frac Frac)
-  (..pow +0.5 ("lux f64 +"
-               (..pow +2.0 catA)
-               (..pow +2.0 catB))))
-
-... Hyperbolic functions
-... https://en.wikipedia.org/wiki/Hyperbolic_function#Definitions
-(template [<name> <comp> <inverse>]
-  [(def: .public (<name> it)
-     (-> Frac Frac)
-     (|> (..exp it) (<comp> (..exp ("lux f64 *" -1.0 it))) ("lux f64 /" +2.0)))
-
-   (def: .public (<inverse> it)
-     (-> Frac Frac)
-     (|> +2.0 ("lux f64 /" (|> (..exp it) (<comp> (..exp ("lux f64 *" -1.0 it)))))))]
-
-  [sinh "lux f64 -" csch]
-  [cosh "lux f64 +" sech]
-  )
-
-(template [<name> <top> <bottom>]
-  [(def: .public (<name> it)
-     (-> Frac Frac)
-     (let [e+ (exp it)
-           e- (exp ("lux f64 *" -1.0 it))
-           sinh' (|> e+ ("lux f64 -" e-))
-           cosh' (|> e+ ("lux f64 +" e-))]
-       (|> <top> ("lux f64 /" <bottom>))))]
-
-  [tanh sinh' cosh']
-  [coth cosh' sinh']
-  )
-
-... https://en.wikipedia.org/wiki/Inverse_hyperbolic_functions#Definitions_in_terms_of_logarithms
-(template [<name> <comp>]
-  [(def: .public (<name> it)
-     (-> Frac Frac)
-     (|> it (pow +2.0) (<comp> +1.0) (pow +0.5) ("lux f64 +" it) log))]
-
-  [asinh "lux f64 +"]
-  [acosh "lux f64 -"]
-  )
-
-(template [<name> <base> <diff>]
-  [(def: .public (<name> it)
-     (-> Frac Frac)
-     (let [it+ (|> <base> ("lux f64 +" <diff>))
-           it- (|> <base> ("lux f64 -" <diff>))]
-       (|> it+ ("lux f64 /" it-) log ("lux f64 /" +2.0))))]
-
-  [atanh +1.0 it]
-  [acoth it +1.0]
-  )
-
-(template [<name> <op>]
-  [(def: .public (<name> it)
-     (-> Frac Frac)
-     (let [it^2 (|> it (pow +2.0))]
-       (|> +1.0 (<op> it^2) (pow +0.5) ("lux f64 +" +1.0) ("lux f64 /" it) log)))]
-
-  [asech "lux f64 -"]
-  [acsch "lux f64 +"]
-  )
+           [% [[.Nat nat.%]
+               [.Int "lux i64 %"]
+               [.Rev rev.%]
+               [.Frac "lux f64 %"]
+               [Ratio ratio.%]
+               [Complex complex.%]]]
+           )
+         ))

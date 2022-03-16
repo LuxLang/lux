@@ -8,8 +8,10 @@
 * Code selection based on compiler version.
 * Extensible meta-compiler.
 * Export machinery to consume Lux code from host-language programs.
+* Generalized/type-agnostic arithmetic.
 ### Changed
 * JVM compilation no longer relies on the ASM library.
+* Friendlier syntax.
 ### Removed
 ### Fixed
 ### Deprecated
