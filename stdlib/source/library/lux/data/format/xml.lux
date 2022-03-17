@@ -8,7 +8,7 @@
    [control
     [try {"+" Try}]
     ["<>" parser ("[1]#[0]" monad)
-     ["<[0]>" text {"+" Parser}]]]
+     ["<[0]>" text {"+" Parser Slice}]]]
    [data
     ["[0]" product]
     ["[0]" text {"+" \n} ("[1]#[0]" equivalence monoid)]
@@ -56,15 +56,18 @@
 
 (def: xml_unicode_escape_char^
   (Parser Text)
-  (|> (do <>.monad
-        [hex? (<>.maybe (<text>.this "x"))
-         code (case hex?
-                {.#None}
-                (<>.codec int.decimal (<text>.many <text>.decimal))
+  (|> (do [! <>.monad]
+        [hex? (<>.maybe (<text>.this "x"))]
+        (<| (# ! each (|>> .nat text.of_char))
+            (<>.codec int.decimal)
+            <text>.slice
+            <text>.many!
+            (case hex?
+              {.#None}
+              <text>.decimal!
 
-                {.#Some _}
-                (<>.codec int.decimal (<text>.many <text>.hexadecimal)))]
-        (in (|> code .nat text.of_char)))
+              {.#Some _}
+              <text>.hexadecimal!)))
       (<>.before (<text>.this ";"))
       (<>.after (<text>.this "&#"))))
 
@@ -80,12 +83,12 @@
 
 (def: xml_identifier
   (Parser Text)
-  (do <>.monad
-    [head (<>.either (<text>.one_of "_")
-                     <text>.alpha)
-     tail (<text>.some (<>.either (<text>.one_of "_.-")
-                                  <text>.alpha_num))]
-    (in ($_ text#composite head tail))))
+  (<text>.slice
+   ($_ <text>.and!
+       (<>.either (<text>.one_of! "_")
+                  <text>.alpha!)
+       (<text>.some! (<>.either (<text>.one_of! "_.-")
+                                <text>.alpha_num!)))))
 
 (def: namespaced_symbol^
   (Parser Symbol)
@@ -135,9 +138,9 @@
                   (symbol#= expected actual))))
 
 (def: comment^
-  (Parser Text)
-  (|> (<text>.not (<text>.this "--"))
-      <text>.some
+  (Parser Slice)
+  (|> (<text>.not! (<text>.this "--"))
+      <text>.some!
       (<text>.enclosed ["<!--" "-->"])
       ..spaced^))
 
@@ -149,9 +152,9 @@
       ..spaced^))
 
 (def: cdata^
-  (Parser Text)
+  (Parser Slice)
   (let [end (<text>.this "]]>")]
-    (|> (<text>.some (<text>.not end))
+    (|> (<text>.some! (<text>.not! end))
         (<>.after end)
         (<>.after (<text>.this "<![CDATA["))
         ..spaced^)))
@@ -159,7 +162,7 @@
 (def: text^
   (Parser XML)
   (|> (..spaced^ (<text>.many xml_char^))
-      (<>.either cdata^)
+      (<>.either (<text>.slice cdata^))
       (<>#each (|>> {#Text}))))
 
 (def: null^
@@ -180,7 +183,7 @@
                                          (in {#Node tag attrs (list)}))
                                        (do <>.monad
                                          [_ (<text>.this ">")
-                                          _ (<>.some (<>.either <text>.space
+                                          _ (<>.some (<>.either <text>.space!
                                                                 ..comment^))
                                           _ (..close_tag^ tag)]
                                          (in {#Node tag attrs (list)})))

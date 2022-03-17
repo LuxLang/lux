@@ -24,9 +24,12 @@
 (type: .public Offset
   Nat)
 
-(def: start_offset
+(def: beginning
   Offset
   0)
+
+(exception: .public cannot_parse)
+(exception: .public cannot_slice)
 
 (type: .public Parser
   (//.Parser [Offset Text]))
@@ -35,6 +38,18 @@
   (Record
    [#basis Offset
     #distance Offset]))
+
+(def: .public (slice parser)
+  (-> (Parser Slice) (Parser Text))
+  (do //.monad
+    [[basis distance] parser]
+    (function (_ (^.let input [offset tape]))
+      (case (/.clip basis distance tape)
+        {.#Some output}
+        {try.#Success [input output]}
+
+        {.#None}
+        (exception.except ..cannot_slice [])))))
 
 (def: (left_over offset tape)
   (-> Offset Text Text)
@@ -53,12 +68,9 @@
    "Offset" (n#encoded offset)
    "Input" (..left_over offset tape)))
 
-(exception: .public cannot_parse)
-(exception: .public cannot_slice)
-
 (def: .public (result parser input)
   (All (_ a) (-> (Parser a) Text (Try a)))
-  (case (parser [start_offset input])
+  (case (parser [..beginning input])
     {try.#Failure msg}
     {try.#Failure msg}
     
@@ -138,7 +150,7 @@
       _
       (exception.except ..cannot_match [reference]))))
 
-(def: .public end!
+(def: .public end
   (Parser Any)
   (function (_ (^.let input [offset tape]))
     (if (n.= offset (/.size tape))
@@ -170,31 +182,51 @@
                            (n.<= top char')))]
     (in char)))
 
-(template [<name> <bottom> <top> <desc>]
-  [(def: .public <name>
-     (Parser Text)
-     (..range (char <bottom>) (char <top>)))]
+(def: .public (range! bottom top)
+  (-> Nat Nat (Parser Slice))
+  (do //.monad
+    [it ..any!
+     char (..slice (in it))
+     .let [char' (maybe.trusted (/.char 0 char))]
+     _ (//.assertion ($_ /#composite "Character is not within range: " (/.of_char bottom) "-" (/.of_char top))
+                     (.and (n.>= bottom char')
+                           (n.<= top char')))]
+    (in it)))
 
-  [upper   "A" "Z" "uppercase"]
-  [lower   "a" "z" "lowercase"]
-  [decimal "0" "9" "decimal"]
-  [octal   "0" "7" "octal"]
+(template [<bottom> <top> <text> <slice>]
+  [(def: .public <text>
+     (Parser Text)
+     (..range (char <bottom>) (char <top>)))
+   
+   (def: .public <slice>
+     (Parser Slice)
+     (..range! (char <bottom>) (char <top>)))]
+
+  ["A" "Z" upper upper!]
+  ["a" "z" lower lower!]
+  ["0" "9" decimal decimal!]
+  ["0" "7" octal octal!]
   )
 
-(def: .public alpha
-  (Parser Text)
-  (//.either lower upper))
+(def: .public alpha (Parser Text) (//.either ..lower ..upper))
+(def: .public alpha! (Parser Slice) (//.either ..lower! ..upper!))
 
-(def: .public alpha_num
-  (Parser Text)
-  (//.either alpha decimal))
+(def: .public alpha_num (Parser Text) (//.either ..alpha ..decimal))
+(def: .public alpha_num! (Parser Slice) (//.either ..alpha! ..decimal!))
 
 (def: .public hexadecimal
   (Parser Text)
   ($_ //.either
-      decimal
-      (range (char "a") (char "f"))
-      (range (char "A") (char "F"))))
+      ..decimal
+      (..range (char "a") (char "f"))
+      (..range (char "A") (char "F"))))
+
+(def: .public hexadecimal!
+  (Parser Slice)
+  ($_ //.either
+      ..decimal!
+      (..range! (char "a") (char "f"))
+      (..range! (char "A") (char "F"))))
 
 (template [<name>]
   [(exception: .public (<name> [options Text
@@ -261,9 +293,26 @@
       _
       (exception.except ..cannot_parse []))))
 
+(def: .public (satisfies! parser)
+  (-> (-> Char Bit) (Parser Slice))
+  (function (_ [offset tape])
+    (case (/.char offset tape)
+      {.#Some output}
+      (if (parser output)
+        {try.#Success [[("lux i64 +" 1 offset) tape]
+                       [#basis offset #distance 1]]}
+        (exception.except ..character_does_not_satisfy_predicate [output]))
+
+      _
+      (exception.except ..cannot_parse []))))
+
 (def: .public space
   (Parser Text)
   (..satisfies /.space?))
+
+(def: .public space!
+  (Parser Slice)
+  (..satisfies! /.space?))
 
 (def: .public (and left right)
   (-> (Parser Text) (Parser Text) (Parser Text))
@@ -275,9 +324,9 @@
 (def: .public (and! left right)
   (-> (Parser Slice) (Parser Slice) (Parser Slice))
   (do //.monad
-    [[left::basis left::distance] left
-     [right::basis right::distance] right]
-    (in [left::basis ("lux i64 +" left::distance right::distance)])))
+    [(open "left[0]") left
+     (open "right[0]") right]
+    (in [left#basis ("lux i64 +" left#distance right#distance)])))
 
 (template [<name> <base> <doc_modifier>]
   [(def: .public (<name> parser)
@@ -346,18 +395,6 @@
 
       {try.#Success value}
       {try.#Success [real_input value]})))
-
-(def: .public (slice parser)
-  (-> (Parser Slice) (Parser Text))
-  (do //.monad
-    [[basis distance] parser]
-    (function (_ (^.let input [offset tape]))
-      (case (/.clip basis distance tape)
-        {.#Some output}
-        {try.#Success [input output]}
-
-        {.#None}
-        (exception.except ..cannot_slice [])))))
 
 (def: .public (then structured text)
   (All (_ s a)
