@@ -1,5 +1,7 @@
 # Reference
 
+0. [Unionizing for Profit: How to Exploit the Power of Unions in C++](https://dev-discuss.pytorch.org/t/unionizing-for-profit-how-to-exploit-the-power-of-unions-in-c/444)
+0. [std::any: How, when, and why](https://devblogs.microsoft.com/cppblog/stdany-how-when-and-why/)
 0. [Using C Libraries in your Modern C++ Embedded Project - Michael Caisse - CppCon 2021](https://www.youtube.com/watch?v=Ototzy-nP4M)
 0. [In-memory and Persistent Representations of C++ - Gabriel Dos Reis - CppCon 2021](https://www.youtube.com/watch?v=39wlNRk-nAg)
 0. [Back to Basics: const and constexpr - Rainer Grimm - CppCon 2021](https://www.youtube.com/watch?v=tA6LbPyYdco)
@@ -41,4 +43,19 @@
 0. [std::thread::hardware_concurrency](https://en.cppreference.com/w/cpp/thread/thread/hardware_concurrency)
 0. [std::atomic](https://en.cppreference.com/w/cpp/atomic/atomic)
 0. [std::atomic::compare_exchange_strong](https://www.cplusplus.com/reference/atomic/atomic/compare_exchange_strong/)
+
+# Interpreter
+
+0. [Cling](https://root.cern/cling/)
+0. [Interactive C++ with Cling](https://blog.llvm.org/posts/2020-11-30-interactive-cpp-with-cling/)
+0. [Cling Transitions to LLVM's Clang-Repl](https://root.cern/blog/cling-in-llvm/)
+0. [cppyy: Automatic Python-C++ bindings](https://cppyy.readthedocs.io/en/latest/index.html)
+
+# Cross-compilation
+
+0. [Cross compiling Windows binaries from Linux](https://jake-shadle.github.io/xwin/)
+0. [Clang C++ Cross Compiler - Generating Windows Executable from Mac OS X](https://stackoverflow.com/questions/23248989/clang-c-cross-compiler-generating-windows-executable-from-mac-os-x)
+0. [The Clang Universal Driver Project](https://clang.llvm.org/UniversalDriver.html)
+0. [Cross-compilation using Clang](https://clang.llvm.org/docs/CrossCompilation.html)
+0. [Wclang: Cross compile source code easily for Windows with clang on Linux/Unix](https://github.com/tpoechtrager/wclang)
 

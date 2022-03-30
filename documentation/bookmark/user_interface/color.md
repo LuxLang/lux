@@ -1,5 +1,6 @@
 # Reference
 
+0. [How to Choose Colours Procedurally (Algorithms)](http://devmag.org.za/2012/07/29/how-to-choose-colours-procedurally-algorithms/)
 0. [CSS System Colors](https://blog.jim-nielsen.com/2021/css-system-colors/)
 0. [LUTious Color: Grading for Games](https://www.youtube.com/watch?v=-fb3QXR5spE)
 0. [Building a color scheme: A foundational overview of how to establish a dynamic and configurable color scheme](https://web.dev/building-a-color-scheme/)

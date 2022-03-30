@@ -1,5 +1,6 @@
 # Interoperability
 
+0. [How to Extend WebAssembly with Host Functions](https://www.secondstate.io/articles/extend-webassembly/)
 0. [js-wasm: JavaScript and WebAssembly should be a joy to use together.](https://wasm.js.org/)
 
 # Concurrency
