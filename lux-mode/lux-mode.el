@@ -361,7 +361,7 @@ Called by `imenu--generic-function'."
 		   (int&fracRE (literal (concat integer "\\(\\." natural "\\(\\(e\\|E\\)" integer "\\)?\\)?")))
 		   (revRE (literal (concat "\\." natural)))
 		   (specialRE (let (;; Control
-							(control//flow (altRE "case" "exec" "let" "if" "cond" "loop" "again" "do" "be"))
+							(control//flow (altRE "case" "exec" "let" "if" "cond" "loop" "do" "be"))
 							(control//pattern-matching (altRE "pattern" "open"))
 							(control//logic (altRE "and" "or"))
 							(control//contract (altRE "pre" "post"))
