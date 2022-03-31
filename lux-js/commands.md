@@ -47,5 +47,13 @@ cd ~/lux/stdlib/ \
 ```
 cd ~/lux/lux-js/ \
 && mvn install:install-file -Dfile=target/program.js -DgroupId=com.github.luxlang -DartifactId=lux-js -Dversion=0.6.6-SNAPSHOT -Dpackaging=js
+
+cd ~/lux/lux-js/ && mvn deploy:deploy-file \
+-Durl=https://USERNAME:PASSWORD@oss.sonatype.org/content/repositories/snapshots/ \
+-Dfile=target/program.js \
+-DgroupId=com.github.luxlang \
+-DartifactId=lux-js \
+-Dversion=0.7.0-SNAPSHOT \
+-Dpackaging=js
 ```
 
