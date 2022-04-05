@@ -1,5 +1,10 @@
+# Optimization
+
+0. [C and C++ coding style for best performance](https://www.ibm.com/docs/en/aix/7.1?topic=implementation-c-c-coding-style-best-performance)
+
 # Reference
 
+0. [Constant references are not always your friends](https://belaycpp.com/2022/02/15/constant-references-are-not-always-your-friends/)
 0. [Unionizing for Profit: How to Exploit the Power of Unions in C++](https://dev-discuss.pytorch.org/t/unionizing-for-profit-how-to-exploit-the-power-of-unions-in-c/444)
 0. [std::any: How, when, and why](https://devblogs.microsoft.com/cppblog/stdany-how-when-and-why/)
 0. [Using C Libraries in your Modern C++ Embedded Project - Michael Caisse - CppCon 2021](https://www.youtube.com/watch?v=Ototzy-nP4M)

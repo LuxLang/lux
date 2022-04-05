@@ -1,5 +1,6 @@
 # Reference
 
+0. [Nonblocking Algorithms and Scalable Multicore Programming: Exploring some alternatives to lock-based synchronization](https://queue.acm.org/detail.cfm?id=2492433)
 0. [Design and Implementation of Highly Scalable Quantifiable Data Structures in C++ - CppCon 2021](https://www.youtube.com/watch?v=ECWsLj0pgbI)
 0. [Building a Lock-free Multi-producer, Multi-consumer Queue for Tcmalloc - Matt Kulukundis - CppCon 21](https://www.youtube.com/watch?v=_qaKkHuHYE0)
 0. [Fear and Loathing in Lock-Free Programming](https://medium.com/@tylerneely/fear-and-loathing-in-lock-free-programming-7158b1cdd50c)

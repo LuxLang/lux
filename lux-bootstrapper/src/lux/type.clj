@@ -40,8 +40,7 @@
 (def Text (&/$Named (&/T [&/prelude "Text"]) (&/$Primitive "#Text" &/$End)))
 (def Ident (&/$Named (&/T [&/prelude "Ident"]) (&/$Product Text Text)))
 
-(defn Array [elemT]
-  (&/$Primitive "#Array" (&/|list elemT)))
+(def Array &&host/Array)
 
 (def Nothing
   (&/$Named (&/T [&/prelude "Nothing"])
@@ -924,3 +923,25 @@
 
     _
     (return type)))
+
+(defn normal
+  "(-> Type Type)"
+  [it]
+  (|case it
+    (&/$Named _ ?it)
+    (normal ?it)
+
+    (&/$Primitive ?name ?parameters)
+    (|do [=parameters (&/map% normal ?parameters)]
+      (return (&/$Primitive ?name =parameters)))
+
+    (&/$Apply ?parameter ?abstraction)
+    (|do [reification (apply-type ?abstraction ?parameter)]
+      (normal reification))
+
+    (&/$Var id)
+    (|do [referenced (deref id)]
+      (normal referenced))
+
+    _
+    (return it)))

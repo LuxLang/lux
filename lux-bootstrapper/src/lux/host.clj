@@ -42,13 +42,19 @@
 (def ->package ->module-class)
 
 (defn unfold-array
-  "(-> Type (, Int Type))"
+  "(-> Type [Nat Type])"
   [type]
   (|case type
-    (&/$Primitive "#Array" (&/$Item param (&/$End)))
+    (&/$Primitive "#Array" (&/$Item (&/$Primitive "#Mutable" (&/$Item (&/$Function _ param)
+                                                                      (&/$End)))
+                                    (&/$End)))
     (|let [[count inner] (unfold-array param)]
       (&/T [(inc count) inner]))
 
+    (&/$Primitive "#Array" (&/$Item param (&/$End)))
+    (|let [[count inner] (unfold-array param)]
+      (&/T [(inc count) inner]))
+    
     _
     (&/T [0 type])))
 
@@ -59,7 +65,8 @@
     [^objects type]
     (|case type
       (&/$Primitive ?name params)
-      (cond (= &host-type/array-data-tag ?name) (|do [:let [[level base] (unfold-array type)]
+      (cond (= &host-type/array-data-tag ?name) (|do [normal_type (&type/normal type)
+                                                      :let [[level base] (unfold-array normal_type)]
                                                       base-sig (|case base
                                                                  (&/$Primitive base-class _)
                                                                  (return (&host-generics/->type-signature base-class))

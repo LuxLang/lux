@@ -6,17 +6,23 @@
     ["[0]" functor]]
    [data
     [collection
-     ["[0]" list]]]]])
+     ["[0]" list]]]
+   [type
+    ["[0]" variance]]]])
 
 (def: .public type
   "#Array")
 
-(type: .public (Array a)
-  {.#Primitive ..type {.#Item a {.#End}}})
+(template [<item> <array>]
+  [(type: .public <array>
+     {.#Primitive ..type {.#Item <item> {.#End}}})]
+
+  [(variance.Mutable r w) (Array' r w)]
+  [(variance.Mutable a a) (Array a)]
+  )
 
 (with_expansions [<index_type> (.Primitive "java.lang.Long")
-                  <elem_type> (.Primitive "java.lang.Object")
-                  <array_type> (.type (..Array <elem_type>))]
+                  <item_type> (.Primitive "java.lang.Object")]
   (for @.jvm (template: (jvm_int value)
                [(.|> value
                      (.as <index_type>)
@@ -33,7 +39,7 @@
                        (~~ (.static @.jvm))
                        (|> (~~ (..jvm_int size))
                            "jvm array new object"
-                           (.is <array_type>)
+                           (.is (..Array <item_type>))
                            .as_expected)
 
                        (~~ (.static @.js)) ("js array new" size)
@@ -45,14 +51,13 @@
           <size>)]))
 
   (`` (template: .public (size <array>)
-        [((.is (.All (_ a) (.-> (..Array a) .Nat))
+        [((.is (.All (_ r w) (.-> (..Array' r w) .Nat))
                (.function (size array)
                  (.for (~~ (.static @.old))
                        ("jvm arraylength" array)
 
                        (~~ (.static @.jvm))
                        (.|> array
-                            (.as <array_type>)
                             "jvm array length object"
                             "jvm conversion int-to-long"
                             "jvm object cast"
@@ -71,8 +76,8 @@
     [(<null?> (<read!> index array))])
 
   (`` (template: .public (lacks? <index> <array>)
-        [((.is (.All (_ a)
-                 (.-> .Nat (..Array a) .Bit))
+        [((.is (.All (_ r w)
+                 (.-> .Nat (..Array' r w) .Bit))
                (.function (lacks? index array)
                  (.let [size (..size array)]
                    (.if ("lux i64 <" (.int size) (.int index))
@@ -81,7 +86,6 @@
 
                            (~~ (.static @.jvm))
                            (.|> array
-                                (.as <array_type>)
                                 ("jvm array read object" (~~ (jvm_int index)))
                                 "jvm object null?")
 
@@ -98,15 +102,14 @@
     [(.not (..lacks? index array))])
 
   (`` (template: .public (item <index> <array>)
-        [((.is (.All (_ a)
-                 (.-> .Nat (..Array a) a))
+        [((.is (.All (_ r w)
+                 (.-> .Nat (..Array' r w) r))
                (.function (item index array)
                  (.for (~~ (.static @.old))
                        ("jvm aaload" array index)
 
                        (~~ (.static @.jvm))
                        (.|> array
-                            (.as <array_type>)
                             ("jvm array read object" (~~ (jvm_int index)))
                             .as_expected)
 
@@ -119,16 +122,15 @@
           <index> <array>)]))
 
   (`` (template: .public (has! <index> <value> <array>)
-        [((.is (.All (_ a)
-                 (.-> .Nat a (..Array a) (..Array a)))
+        [((.is (.All (_ r w)
+                 (.-> .Nat w (..Array' r w) (..Array' r w)))
                (.function (has! index value array)
                  (.for (~~ (.static @.old))
                        ("jvm aastore" array index value)
 
                        (~~ (.static @.jvm))
                        (.|> array
-                            (.as <array_type>)
-                            ("jvm array write object" (~~ (jvm_int index)) (.as <elem_type> value))
+                            ("jvm array write object" (~~ (jvm_int index)) value)
                             .as_expected)
 
                        (~~ (.static @.js)) ("js array write" index value array)
@@ -140,8 +142,8 @@
           <index> <value> <array>)]))
 
   (`` (template: .public (lacks! <index> <array>)
-        [((.is (.All (_ a)
-                 (.-> .Nat (..Array a) (..Array a)))
+        [((.is (.All (_ r w)
+                 (.-> .Nat (..Array' r w) (..Array' r w)))
                (.function (lacks! index array)
                  (.let [size (..size array)]
                    (.if ("lux i64 <" (.int size) (.int index))
@@ -149,7 +151,7 @@
                            (..has! index (.as_expected ("jvm object null")) array)
                            
                            (~~ (.static @.jvm))
-                           (..has! index (.as_expected (is <elem_type> ("jvm object null"))) array)
+                           (..has! index (.as_expected (is <item_type> ("jvm object null"))) array)
 
                            (~~ (.static @.js)) ("js array delete" index array)
                            (~~ (.static @.python)) ("python array delete" index array)
@@ -162,8 +164,8 @@
   )
 
 (template: .public (revised! <index> <$> <array>)
-  [((.is (.All (_ a)
-           (.-> .Nat (.-> a a) (..Array a) (..Array a)))
+  [((.is (.All (_ r w)
+           (.-> .Nat (.-> r w) (..Array' r w) (..Array' r w)))
          (.function (revised! index $ array)
            (.if (..lacks? index array)
              array
@@ -171,8 +173,8 @@
     <index> <$> <array>)])
 
 (template: .public (upsert! <index> <default> <$> <array>)
-  [((.is (.All (_ a)
-           (.-> .Nat a (.-> a a) (..Array a) (..Array a)))
+  [((.is (.All (_ r w)
+           (.-> .Nat r (.-> r w) (..Array' r w) (..Array' r w)))
          (.function (upsert! index default $ array)
            (..has! index
                    ($ (.if (..lacks? index array)
@@ -182,9 +184,9 @@
     <index> <default> <$> <array>)])
 
 (template: .public (copy! <length> <src_start> <src_array> <dest_start> <dest_array>)
-  [((.is (.All (_ a)
-           (.-> .Nat .Nat (..Array a) .Nat (..Array a)
-                (..Array a)))
+  [((.is (.All (_ r w)
+           (.-> .Nat .Nat (..Array' w .Nothing) .Nat (..Array' r w)
+                (..Array' r w)))
          (.function (copy! length src_start src_array dest_start dest_array)
            (.loop (again [offset 0])
              (.if ("lux i64 <" (.int length) (.int offset))
@@ -200,7 +202,7 @@
 
 (template [<name> <when_lacks> <when_has>]
   [(template: .public (<name> <array>)
-     [((.is (.All (_ a) (.-> (..Array a) .Nat))
+     [((.is (.All (_ r w) (.-> (..Array' r w) .Nat))
             (.function (occupancy array)
               (.let [size (..size array)]
                 (.loop (again [index 0
@@ -217,8 +219,8 @@
   )
 
 (template: .public (only! <?> <it>)
-  [((.is (.All (_ a)
-           (.-> (.-> a .Bit) (..Array a) (..Array a)))
+  [((.is (.All (_ r w)
+           (.-> (.-> r .Bit) (..Array' r w) (..Array' r w)))
          (.function (only! ? it)
            (.let [size (..size it)]
              (.loop (again [index 0])
@@ -235,8 +237,8 @@
 
 (template [<name> <predicate> <test> <type> <term>]
   [(template: .public (<name> <?> <it>)
-     [((.is (.All (_ a)
-              (.-> <predicate> (..Array a) (.Maybe <type>)))
+     [((.is (.All (_ r w)
+              (.-> <predicate> (..Array' r w) (.Maybe <type>)))
             (.function (<name> ? it)
               (.let [size (..size it)]
                 (.loop (again [index 0])
@@ -250,8 +252,8 @@
                     {.#None})))))
        <?> <it>)])]
 
-  [example (.-> a .Bit) (? it) a it]
-  [example' (.-> Nat a .Bit) (? index it) [Nat a] [index it]]
+  [example (.-> r .Bit) (? it) r it]
+  [example' (.-> Nat r .Bit) (? index it) [Nat r] [index it]]
   )
 
 (template: .public (clone <it>)
@@ -283,7 +285,7 @@
   (-- 0))
 
 (`` (template: (list|-default <empty> <array>)
-      [((.is (.All (_ a) (.-> (.List a) (..Array a) (.List a)))
+      [((.is (.All (_ r w) (.-> (.List r) (..Array' r w) (.List r)))
              (.function (list|-default empty array)
                (.loop (again [index ("lux i64 -" 1 (..size array))
                               output empty])
@@ -296,7 +298,7 @@
         <empty> <array>)]))
 
 (`` (template: (list|+default <default> <array>)
-      [((.is (.All (_ a) (.-> a (..Array a) (.List a)))
+      [((.is (.All (_ r w) (.-> r (..Array' r w) (.List r)))
              (.function (list|+default default array)
                (.loop (again [index ("lux i64 -" 1 (..size array))
                               output (`` (.is (.List (~~ (.these (~~ (.type_of default)))))
@@ -311,7 +313,7 @@
         <default> <array>)]))
 
 (`` (template: .public (list <default> <array>)
-      [((.is (.All (_ a) (.-> (.Maybe a) (..Array a) (.List a)))
+      [((.is (.All (_ r w) (.-> (.Maybe r) (..Array' r w) (.List r)))
              (.function (list default array)
                (.case default
                  {.#Some default}
@@ -322,7 +324,7 @@
         <default> <array>)]))
 
 (template: .public (= <//#=> <left/*> <right/*>)
-  [((.is (.All (_ a) (.-> (.-> a a .Bit) (..Array a) (..Array a) .Bit))
+  [((.is (.All (_ r w0 w1) (.-> (.-> r r .Bit) (..Array' r w0) (..Array' r w1) .Bit))
          (.function (= //#= left/* right/*)
            (.let [size (..size left/*)]
              (.and ("lux i64 =" (..size right/*) size)
@@ -339,7 +341,7 @@
     <//#=> <left/*> <right/*>)])
 
 (template: .public (composite <left/*> <right/*>)
-  [((.is (.All (_ a) (.-> (..Array a) (..Array a) (..Array a)))
+  [((.is (.All (_ a) (.-> (..Array' a .Nothing) (..Array' a .Nothing) (..Array a)))
          (.function (composite left/* right/*)
            (.let [|left| (..size left/*)
                   |right| (..size right/*)]
@@ -349,8 +351,8 @@
     <left/*> <right/*>)])
 
 (template: .public (mix <$> <init> <it>)
-  [((.is (.All (_ a b)
-           (.-> (.-> Nat b a a) a (..Array b) a))
+  [((.is (.All (_ r w s)
+           (.-> (.-> Nat r s s) s (..Array' r w) s))
          (.function (mix $ init it)
            (.let [size (..size it)]
              (.loop (again [index 0
@@ -373,9 +375,9 @@
 
 (template [<name> <init> <op>]
   [(template: .public (<name> <?> <it>)
-     [((.is (.All (_ a)
-              (.-> (.-> a .Bit)
-                   (.-> (..Array a) .Bit)))
+     [((.is (.All (_ r w)
+              (.-> (.-> r .Bit)
+                   (.-> (..Array' r w) .Bit)))
             (.function (<name> ? it)
               (.let [size (..size it)]
                 (.loop (again [index 0])
@@ -392,8 +394,8 @@
   )
 
 (template: .public (one <?> <it>)
-  [((.is (.All (_ a b)
-           (.-> (.-> a (.Maybe b)) (..Array a) (.Maybe b)))
+  [((.is (.All (_ r r' w)
+           (.-> (.-> r (.Maybe r')) (..Array' r w) (.Maybe r')))
          (.function (one ? it)
            (.let [size (..size it)]
              (.loop (again [index 0])

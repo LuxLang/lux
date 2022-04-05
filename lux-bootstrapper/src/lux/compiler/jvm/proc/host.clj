@@ -777,7 +777,11 @@
               ;; (&/$End) special-args
               ]
         ^MethodVisitor *writer* &/get-writer
-        array-type (&host/->java-sig (&a/expr-type* ?array))
+        normal_array_type (&type/normal (&a/expr-type* ?array))
+        :let [(&/$Primitive "#Array" (&/$Item mutable_type (&/$End))) normal_array_type
+              (&/$Primitive "#Mutable" (&/$Item type_variance (&/$End))) mutable_type
+              (&/$Function write_type read_type) type_variance]
+        array-type (&host/->java-sig (&/$Primitive "#Array" (&/|list read_type)))
         _ (compile ?array)
         :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST array-type)]
         _ (compile ?idx)
@@ -792,7 +796,11 @@
               ;; (&/$End) special-args
               ]
         ^MethodVisitor *writer* &/get-writer
-        array-type (&host/->java-sig (&a/expr-type* ?array))
+        normal_array_type (&type/normal (&a/expr-type* ?array))
+        :let [(&/$Primitive "#Array" (&/$Item mutable_type (&/$End))) normal_array_type
+              (&/$Primitive "#Mutable" (&/$Item type_variance (&/$End))) mutable_type
+              (&/$Function write_type read_type) type_variance]
+        array-type (&host/->java-sig (&/$Primitive "#Array" (&/|list write_type)))
         _ (compile ?array)
         :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST array-type)]
         :let [_ (.visitInsn *writer* Opcodes/DUP)]
@@ -809,7 +817,15 @@
               ;; (&/$End) special-args
               ]
         ^MethodVisitor *writer* &/get-writer
-        array-type (&host/->java-sig (&a/expr-type* ?array))
+        normal_array_type (&type/normal (&a/expr-type* ?array))
+        array-type (|case normal_array_type
+                     (&/$Primitive ?name (&/$End))
+                     (&host/->java-sig normal_array_type)
+
+                     (&/$Primitive "#Array" (&/$Item mutable_type (&/$End)))
+                     (|let [(&/$Primitive "#Mutable" (&/$Item type_variance (&/$End))) mutable_type
+                            (&/$Function write_type read_type) type_variance]
+                       (&host/->java-sig (&/$Primitive "#Array" (&/|list read_type)))))
         _ (compile ?array)
         :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST array-type)]
         :let [_ (doto *writer*

@@ -206,7 +206,7 @@
 
     (&/$GenericArray param)
     (|do [=param (generic-class->type env param)]
-      (return (&/$Primitive &host-type/array-data-tag (&/|list =param))))
+      (return (&type/Array =param)))
 
     (&/$GenericWildcard _)
     (return (&/$ExQ &/$End (&/$Parameter 1)))
@@ -568,7 +568,7 @@
                    &&a-parser/parse-gclass)
           gtype-env &/get-type-env
           =gclass (&host-type/instance-gtype &type/existential gtype-env gclass)
-          :let [array-type (&/$Primitive &host-type/array-data-tag (&/|list =gclass))]
+          :let [array-type (&type/Array =gclass)]
           =length (&&/analyse-1 analyse length-type length)
           _ (&type/check exo-type array-type)
           _location &/location]
@@ -578,11 +578,14 @@
   (defn- analyse-jvm-aaload [analyse exo-type ?values]
     (|do [:let [(&/$Item array (&/$Item idx (&/$End))) ?values]
           =array (&&/analyse-1+ analyse array)
-          [arr-class arr-params] (ensure-object (&&/expr-type* =array))
+          array-type (&type/normal (&&/expr-type* =array))
+          [arr-class arr-params] (ensure-object array-type)
           _ (&/assert! (= &host-type/array-data-tag arr-class) (str "[Analyser Error] Expected array. Instead got: " arr-class))
-          :let [(&/$Item inner-arr-type (&/$End)) arr-params]
+          :let [(&/$Item mutable_type (&/$End)) arr-params
+                (&/$Primitive "#Mutable" (&/$Item type_variance (&/$End))) mutable_type
+                (&/$Function write_type read_type) type_variance]
           =idx (&&/analyse-1 analyse idx-type idx)
-          _ (&type/check exo-type inner-arr-type)
+          _ (&type/check exo-type read_type)
           _location &/location]
       (return (&/|list (&&/|meta exo-type _location
                                  (&&/$proc (&/T ["jvm" "aaload"]) (&/|list =array =idx) (&/|list)))))))
@@ -590,12 +593,14 @@
   (defn- analyse-jvm-aastore [analyse exo-type ?values]
     (|do [:let [(&/$Item array (&/$Item idx (&/$Item elem (&/$End)))) ?values]
           =array (&&/analyse-1+ analyse array)
-          :let [array-type (&&/expr-type* =array)]
+          array-type (&type/normal (&&/expr-type* =array))
           [arr-class arr-params] (ensure-object array-type)
           _ (&/assert! (= &host-type/array-data-tag arr-class) (str "[Analyser Error] Expected array. Instead got: " arr-class))
-          :let [(&/$Item inner-arr-type (&/$End)) arr-params]
+          :let [(&/$Item mutable_type (&/$End)) arr-params
+                (&/$Primitive "#Mutable" (&/$Item type_variance (&/$End))) mutable_type
+                (&/$Function write_type read_type) type_variance]
           =idx (&&/analyse-1 analyse idx-type idx)
-          =elem (&&/analyse-1 analyse inner-arr-type elem)
+          =elem (&&/analyse-1 analyse write_type elem)
           _ (&type/check exo-type array-type)
           _location &/location]
       (return (&/|list (&&/|meta exo-type _location

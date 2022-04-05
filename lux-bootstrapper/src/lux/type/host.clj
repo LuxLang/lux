@@ -64,7 +64,11 @@
                     (&/$Parameter 1))))
 
 ;; [Exports]
+(def mutable-data-tag "#Mutable")
 (def array-data-tag "#Array")
+(defn Array [item]
+  (&/$Primitive array-data-tag (&/|list (&/$Primitive mutable-data-tag (&/|list (&/$Function item item))))))
+
 (def null-data-tag "#Null")
 (def i64-data-tag "#I64")
 (def nat-data-tag "#Nat")
@@ -135,7 +139,7 @@
           (let [base (or arr-obase simple-base (jprim->lprim arr-pbase))]
             (if (.equals "void" base)
               Any
-              (reduce (fn [inner _] (&/$Primitive array-data-tag (&/|list inner)))
+              (reduce (fn [inner _] (Array inner))
                       (&/$Primitive base (try (-> (Class/forName base) .getTypeParameters
                                                   seq count (repeat (&/$Primitive "java.lang.Object" &/$End))
                                                   &/->list)
@@ -152,7 +156,7 @@
 
         (instance? GenericArrayType refl-type)
         (|do [inner-type (instance-param existential matchings (.getGenericComponentType ^GenericArrayType refl-type))]
-          (return (&/$Primitive array-data-tag (&/|list inner-type))))
+          (return (Array inner-type)))
         
         (instance? ParameterizedType refl-type)
         (|do [:let [refl-type* ^ParameterizedType refl-type]
@@ -183,7 +187,11 @@
           (if (type= Any class-type)
             "V"
             (|case class-type
-              (&/$Primitive "#Array" (&/$Item (&/$Primitive class-name _) (&/$End)))
+              (&/$Primitive "#Array"
+                            (&/$Item (&/$Primitive "#Mutable"
+                                                   (&/$Item (&/$Function _ (&/$Primitive class-name _))
+                                                            (&/$End)))
+                                     (&/$End)))
               (str "[" (&host-generics/->type-signature class-name))
 
               (&/$Primitive class-name _)
@@ -211,7 +219,7 @@
   (|case gtype
     (&/$GenericArray component-type)
     (|do [inner-type (instance-gtype existential matchings component-type)]
-      (return (&/$Primitive array-data-tag (&/|list inner-type))))
+      (return (Array inner-type)))
     
     (&/$GenericClass type-name type-params)
     ;; When referring to type-parameters during class or method
