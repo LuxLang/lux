@@ -19,16 +19,10 @@
   :scm {:name "git"
         :url ~(str repo ".git")}
 
-  :dependencies [[com.github.luxlang/lux-bootstrapper ~version]
-                 [com.github.luxlang/lux-jvm-function ~version]
+  :dependencies [[com.github.luxlang/lux-bootstrapper "0.6.6-SNAPSHOT"]
+                 [com.github.luxlang/lux-jvm-function "0.6.5"]
                  ;; [com.github.luxlang/stdlib ~version]
-                 
-                 ;; JVM Bytecode (TODO: Remove ASAP)
-                 [org.ow2.asm/asm "7.3.1"]
-                 [org.ow2.asm/asm-commons "7.3.1"]
-                 [org.ow2.asm/asm-analysis "7.3.1"]
-                 [org.ow2.asm/asm-tree "7.3.1"]
-                 [org.ow2.asm/asm-util "7.3.1"]]
+                 ]
   
   :manifest {"lux" ~version}
   :source-paths ["source"]
