@@ -10,48 +10,46 @@
     ["[0]" io {"+" IO}]]
    [data
     [collection
-     ["[0]" array {"+" Array}]]]
+     ["[0]" array "_"
+      ["[1]" \\unsafe {"+" Array}]]]]
    [type
-    [abstract {"-" pattern}]]]])
+    [abstract {"-" pattern}]
+    ["[0]" variance {"+" Mutable}]]]])
 
 (type: .public (Thread ! a)
   (-> ! a))
 
-(abstract: .public (Box t v)
-  (Array v)
+(abstract: .public (Box'' t a)
+  (Array a)
+
+  (type: .public (Box' t r w)
+    (Box'' t (Mutable r w)))
+
+  (type: .public (Box t a)
+    (Box'' t (Mutable a a)))
 
   (def: .public (box init)
     (All (_ a) (-> a (All (_ !) (Thread ! (Box ! a)))))
     (function (_ !)
       (|> (array.empty 1)
-          (array.has! 0 init)
+          (array.has! 0 (variance.write init))
           abstraction)))
 
   (def: .public (read! box)
-    (All (_ ! a) (-> (Box ! a) (Thread ! a)))
+    (All (_ ! r w) (-> (Box' ! r w) (Thread ! r)))
     (function (_ !)
-      (for @.old
-           ("jvm aaload" (representation box) 0)
-
-           @.jvm
-           ("jvm array read object"
-            (|> 0
-                (as (Primitive "java.lang.Long"))
-                "jvm object cast"
-                "jvm conversion long-to-int")
-            (representation box))
-
-           @.js ("js array read" 0 (representation box))
-           @.python ("python array read" 0 (representation box))
-           @.lua ("lua array read" 0 (representation box))
-           @.ruby ("ruby array read" 0 (representation box))
-           @.php ("php array read" 0 (representation box))
-           @.scheme ("scheme array read" 0 (representation box)))))
+      (|> box
+          representation
+          (array.item 0)
+          variance.read)))
 
   (def: .public (write! value box)
-    (All (_ a) (-> a (All (_ !) (-> (Box ! a) (Thread ! Any)))))
+    (All (_ r w) (-> w (All (_ !) (-> (Box' ! r w) (Thread ! Any)))))
     (function (_ !)
-      (|> box representation (array.has! 0 value) abstraction)))
+      (|> box
+          representation
+          (array.has! 0 (variance.write value))
+          abstraction)))
   )
 
 (def: .public (result thread)
@@ -97,8 +95,9 @@
       ((ffa !) !))))
 
 (def: .public (update! f box)
-  (All (_ a !) (-> (-> a a) (Box ! a) (Thread ! a)))
+  (All (_ ! r w) (-> (-> r w) (Box' ! r w) (Thread ! [r w])))
   (do ..monad
     [old (read! box)
-     _ (write! (f old) box)]
-    (in old)))
+     .let [new (f old)]
+     _ (write! new box)]
+    (in [old new])))

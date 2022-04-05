@@ -48,13 +48,15 @@
 
       (&/$UnivQ _)
       (|do [$var &type/existential
-            =type (&type/apply-type type $var)]
-        (&type/actual-type =type))
+            =type (&type/apply-type type $var)
+            ==type (&type/actual-type =type)]
+        (resolve-type ==type))
 
       (&/$ExQ _ _)
       (|do [$var &type/existential
-            =type (&type/apply-type type $var)]
-        (&type/actual-type =type))
+            =type (&type/apply-type type $var)
+            ==type (&type/actual-type =type)]
+        (resolve-type ==type))
 
       _
       (&type/actual-type type))))

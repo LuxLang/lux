@@ -11,76 +11,68 @@
    [data
     ["[0]" product]
     [collection
-     ["[0]" array]]]
+     ["[0]" array "_"
+      ["[1]" \\unsafe]]]]
    [type
-    [abstract {"-" pattern}]]]])
+    [abstract {"-" pattern}]
+    ["[0]" variance {"+" Mutable}]]]])
 
 (with_expansions [<jvm> (these (ffi.import: (java/util/concurrent/atomic/AtomicReference a)
                                  "[1]::[0]"
                                  (new [a])
-                                 (get [] "io" a)
+                                 (get [] a)
                                  (compareAndSet [a a] boolean)))]
   (for @.old <jvm>
        @.jvm <jvm>
        (these)))
 
-(with_expansions [<new> (for @.js "js array new"
-                             @.python "python array new"
-                             @.lua "lua array new"
-                             @.ruby "ruby array new"
-                             @.php "php array new"
-                             @.scheme "scheme array new"
-                             (these))
-                  <write> (for @.js "js array write"
-                               @.python "python array write"
-                               @.lua "lua array write"
-                               @.ruby "ruby array write"
-                               @.php "php array write"
-                               @.scheme "scheme array write"
-                               (these))
-                  
-                  <read> (for @.js "js array read"
-                              @.python "python array read"
-                              @.lua "lua array read"
-                              @.ruby "ruby array read"
-                              @.php "php array read"
-                              @.scheme "scheme array read"
-                              (these))]
-  (abstract: .public (Atom a)
-    (with_expansions [<jvm> (java/util/concurrent/atomic/AtomicReference a)]
-      (for @.old <jvm>
-           @.jvm <jvm>
-           (array.Array a)))
+(abstract: .public (Atom'' a)
+  (with_expansions [<jvm> (java/util/concurrent/atomic/AtomicReference a)]
+    (for @.old <jvm>
+         @.jvm <jvm>
+         (array.Array a)))
 
-    (def: .public (atom value)
-      (All (_ a) (-> a (Atom a)))
-      (abstraction (with_expansions [<jvm> (java/util/concurrent/atomic/AtomicReference::new value)]
-                     (for @.old <jvm>
-                          @.jvm <jvm>
-                          (<write> 0 value (<new> 1))))))
+  (type: .public (Atom' r w)
+    (Atom'' (Mutable r w)))
 
-    (def: .public (read! atom)
-      (All (_ a) (-> (Atom a) (IO a)))
-      (with_expansions [<jvm> (java/util/concurrent/atomic/AtomicReference::get (representation atom))]
-        (for @.old <jvm>
-             @.jvm <jvm>
-             (io.io (<read> 0 (representation atom))))))
+  (type: .public (Atom a)
+    (Atom'' (Mutable a a)))
 
-    (def: .public (compare_and_swap! current new atom)
-      (All (_ a) (-> a a (Atom a) (IO Bit)))
-      (io.io (with_expansions [<jvm> (ffi.of_boolean (java/util/concurrent/atomic/AtomicReference::compareAndSet current new (representation atom)))]
-               (for @.old <jvm>
-                    @.jvm <jvm>
-                    (let [old (<read> 0 (representation atom))]
-                      (if (same? old current)
-                        (exec
-                          (<write> 0 new (representation atom))
-                          true)
-                        false))))))
-    ))
+  (def: .public (atom value)
+    (All (_ a) (-> a (Atom a)))
+    (abstraction
+     (with_expansions [<jvm> (as_expected (java/util/concurrent/atomic/AtomicReference::new value))]
+       (for @.old <jvm>
+            @.jvm <jvm>
+            (array.has! 0 value (array.empty 1))))))
+
+  (def: .public (read! atom)
+    (All (_ r w) (-> (Atom' r w) (IO r)))
+    (with_expansions [<jvm> (java/util/concurrent/atomic/AtomicReference::get (representation atom))]
+      (io.io (for @.old (variance.read <jvm>)
+                  @.jvm <jvm>
+                  (variance.read (array.item 0 (representation atom)))))))
+
+  (def: .public (compare_and_swap! current new atom)
+    (All (_ r w) (-> r w (Atom' r w) (IO Bit)))
+    (io.io (for @.old (ffi.of_boolean
+                       (java/util/concurrent/atomic/AtomicReference::compareAndSet (variance.write
+                                                                                    (`` (as (~~ (type_of new))
+                                                                                            current)))
+                                                                                   (variance.write new)
+                                                                                   (representation atom)))
+                @.jvm (ffi.of_boolean
+                       (java/util/concurrent/atomic/AtomicReference::compareAndSet current new (representation atom)))
+                (let [old (array.item 0 (representation atom))]
+                  (if (same? old current)
+                    (exec
+                      (array.has! 0 new (representation atom))
+                      true)
+                    false)))))
+  )
 
 (def: .public (update! f atom)
-  (All (_ a) (-> (-> a a) (Atom a) (IO [a a])))
+  (All (_ r w) (-> (-> r w) (Atom' r w) (IO [r w])))
   (loop (again [_ []])
     (do io.monad
       [old (read! atom)
@@ -91,7 +83,7 @@
         (again [])))))
 
 (def: .public (write! value atom)
-  (All (_ a) (-> a (Atom a) (IO a)))
+  (All (_ r w) (-> w (Atom' r w) (IO r)))
   (|> atom
       (..update! (function.constant value))
       (io#each product.left)))

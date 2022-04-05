@@ -83,6 +83,10 @@
         (&/$Ex _)
         nil
 
+        ;; &type/Any
+        (&/$ExQ _ (&/$Parameter 1))
+        (.visitLdcInsn *writer* &/unit-tag)
+
         _
         (assert false (str 'prepare-return! " " (&type/show-type *type*)))))
     *writer*))
@@ -884,8 +888,9 @@
 
 (defn ^:private compile-jvm-getstatic [compile ?values special-args]
   (|do [:let [;; (&/$End) ?values
-              (&/$Item ?class (&/$Item ?field (&/$Item ?output-type (&/$End)))) special-args]
+              (&/$Item ?class (&/$Item ?field (&/$Item ?output-type* (&/$End)))) special-args]
         ^MethodVisitor *writer* &/get-writer
+        ?output-type (&type/normal ?output-type*)
         =output-type (&host/->java-sig ?output-type)
         :let [_ (doto *writer*
                   (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name (&host-type/as-obj ?class)) ?field =output-type)
@@ -894,10 +899,11 @@
 
 (defn ^:private compile-jvm-getfield [compile ?values special-args]
   (|do [:let [(&/$Item ?object (&/$End)) ?values
-              (&/$Item ?class (&/$Item ?field (&/$Item ?output-type (&/$End)))) special-args]
+              (&/$Item ?class (&/$Item ?field (&/$Item ?output-type* (&/$End)))) special-args]
         :let [class* (&host-generics/->bytecode-class-name (&host-type/as-obj ?class))]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?object)
+        ?output-type (&type/normal ?output-type*)
         =output-type (&host/->java-sig ?output-type)
         :let [_ (doto *writer*
                   (.visitTypeInsn Opcodes/CHECKCAST class*)
@@ -934,7 +940,7 @@
 
 (defn ^:private compile-jvm-invokestatic [compile ?values special-args]
   (|do [:let [?args ?values
-              (&/$Item ?class (&/$Item ?method (&/$Item ?classes (&/$Item ?output-type (&/$Item ?gret (&/$End)))))) special-args]
+              (&/$Item ?class (&/$Item ?method (&/$Item ?classes (&/$Item ?output-type* (&/$Item ?gret (&/$End)))))) special-args]
         ^MethodVisitor *writer* &/get-writer
         :let [method-sig (str "(" (&/fold str "" (&/|map &host-generics/->type-signature ?classes)) ")" (&host-type/principal-class ?gret))]
         _ (&/map2% (fn [class-name arg]
@@ -942,6 +948,7 @@
                            :let [_ (prepare-arg! *writer* class-name)]]
                        (return ret)))
                    ?classes ?args)
+        ?output-type (&type/normal ?output-type*)
         :let [_ (doto *writer*
                   (.visitMethodInsn Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name (&host-type/as-obj ?class)) ?method method-sig)
                   (prepare-return! ?output-type))]]
@@ -950,7 +957,7 @@
 (do-template [<name> <op>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Item ?object ?args) ?values
-                (&/$Item ?class (&/$Item ?method (&/$Item ?classes (&/$Item ?output-type (&/$Item ?gret (&/$End)))))) special-args]
+                (&/$Item ?class (&/$Item ?method (&/$Item ?classes (&/$Item ?output-type* (&/$Item ?gret (&/$End)))))) special-args]
           :let [?class* (&host-generics/->bytecode-class-name (&host-type/as-obj ?class))]
           ^MethodVisitor *writer* &/get-writer
           :let [method-sig (str "(" (&/fold str "" (&/|map &host-generics/->type-signature ?classes)) ")" (&host-type/principal-class ?gret))]
@@ -962,6 +969,7 @@
                              :let [_ (prepare-arg! *writer* class-name)]]
                          (return ret)))
                      ?classes ?args)
+          ?output-type (&type/normal ?output-type*)
           :let [_ (doto *writer*
                     (.visitMethodInsn <op> ?class* ?method method-sig)
                     (prepare-return! ?output-type))]]
@@ -992,8 +1000,9 @@
     (return nil)))
 
 (defn ^:private compile-jvm-object-class [compile ?values special-args]
-  (|do [:let [(&/$Item _class-name (&/$Item ?output-type (&/$End))) special-args]
+  (|do [:let [(&/$Item _class-name (&/$Item ?output-type* (&/$End))) special-args]
         ^MethodVisitor *writer* &/get-writer
+        ?output-type (&type/normal ?output-type*)
         :let [_ (doto *writer*
                   (.visitLdcInsn _class-name)
                   (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Class" "forName" "(Ljava/lang/String;)Ljava/lang/Class;")

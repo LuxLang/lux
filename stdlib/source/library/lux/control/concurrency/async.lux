@@ -8,26 +8,34 @@
    [control
     ["[0]" pipe]
     ["[0]" function]
-    ["[0]" io {"+" IO io}]]
+    ["[0]" io {"+" IO io}]
+    ["[0]" maybe ("[1]#[0]" functor)]]
    [data
     ["[0]" product]]
    [macro
     ["^" pattern]]
    [type {"+" sharing}
-    [abstract {"-" pattern}]]]]
+    [abstract {"-" pattern}]
+    ["[0]" variance {"+" Mutable}]]]]
  [//
   ["[0]" thread]
   ["[0]" atom {"+" Atom atom}]])
 
-(abstract: .public (Async a)
+(abstract: .public (Async'' a)
   (Atom [(Maybe a) (List (-> a (IO Any)))])
 
-  (type: .public (Resolver a)
-    (-> a (IO Bit)))
+  (type: .public (Async' r w)
+    (Async'' (Mutable r w)))
+
+  (type: .public (Async a)
+    (Async'' (Mutable a a)))
+
+  (type: .public (Resolver w)
+    (-> w (IO Bit)))
 
   ... Sets an async's value if it has not been done yet.
   (def: (resolver async)
-    (All (_ a) (-> (Async a) (Resolver a)))
+    (All (_ r w) (-> (Async' r w) (Resolver w)))
     (function (resolve value)
       (let [async (representation async)]
         (do [! io.monad]
@@ -38,50 +46,49 @@
 
             {.#None}
             (do !
-              [.let [new [{.#Some value} {.#None}]]
-               succeeded? (atom.compare_and_swap! old new async)]
+              [succeeded? (atom.compare_and_swap! old [{.#Some (variance.write value)} (list)] async)]
               (if succeeded?
                 (do !
-                  [_ (monad.each ! (function (_ f) (f value))
+                  [_ (monad.each ! (function.on (variance.write value))
                                  _observers)]
                   (in #1))
                 (resolve value))))))))
 
   (def: .public (resolved value)
     (All (_ a) (-> a (Async a)))
-    (abstraction (atom [{.#Some value} (list)])))
+    (abstraction (atom [{.#Some (variance.write value)} (list)])))
 
   (def: .public (async _)
-    (All (_ a) (-> Any [(Async a) (Resolver a)]))
+    (All (_ r w) (-> Any [(Async' r w) (Resolver w)]))
     (let [async (abstraction (atom [{.#None} (list)]))]
       [async (..resolver async)]))
 
   (def: .public value
-    (All (_ a) (-> (Async a) (IO (Maybe a))))
+    (All (_ r w) (-> (Async' r w) (IO (Maybe r))))
     (|>> representation
          atom.read!
-         (# io.functor each product.left)))
+         (# io.functor each (|>> product.left
+                                 (maybe#each (|>> variance.read))))))
 
   (def: .public (upon! f async)
-    (All (_ a) (-> (-> a (IO Any)) (Async a) (IO Any)))
+    (All (_ r w) (-> (-> r (IO Any)) (Async' r w) (IO Any)))
     (do [! io.monad]
       [.let [async (representation async)]
        (^.let old [_value _observers]) (atom.read! async)]
       (case _value
         {.#Some value}
-        (f value)
+        (f (variance.read value))
 
         {.#None}
-        (let [new [_value {.#Item f _observers}]]
-          (do !
-            [swapped? (atom.compare_and_swap! old new async)]
-            (if swapped?
-              (in [])
-              (upon! f (abstraction async))))))))
+        (do !
+          [swapped? (atom.compare_and_swap! old [_value {.#Item (|>> variance.read f) _observers}] async)]
+          (if swapped?
+            (in [])
+            (upon! f (abstraction async)))))))
   )
 
 (def: .public resolved?
-  (All (_ a) (-> (Async a) (IO Bit)))
+  (All (_ r w) (-> (Async' r w) (IO Bit)))
   (|>> ..value
        (# io.functor each
           (|>> (pipe.case
@@ -95,7 +102,12 @@
   (Functor Async)
   
   (def: (each f fa)
-    (let [[fb resolve] (..async [])]
+    (let [[fb resolve] (sharing [a b]
+                                (-> a b)
+                                f
+                                
+                                [(Async b) (Resolver b)]
+                                (..async []))]
       (exec
         (io.run! (..upon! (|>> f resolve) fa))
         fb))))
@@ -106,7 +118,12 @@
   (def: &functor ..functor)
 
   (def: (on fa ff)
-    (let [[fb resolve] (..async [])]
+    (let [[fb resolve] (sharing [a b]
+                                (Async (-> a b))
+                                ff
+                                
+                                [(Async b) (Resolver b)]
+                                (..async []))]
       (exec
         (io.run! (..upon! (function (_ f)
                             (..upon! (|>> f resolve) fa))
@@ -121,19 +138,23 @@
   (def: in ..resolved)
 
   (def: (conjoint mma)
-    (let [[ma resolve] (async [])]
+    (let [[ma resolve] (sharing [a]
+                                (Async (Async a))
+                                mma
+                                
+                                [(Async a) (Resolver a)]
+                                (..async []))]
       (exec
         (io.run! (..upon! (..upon! resolve) mma))
         ma))))
 
 (def: .public (and left right)
-  (All (_ a b) (-> (Async a) (Async b) (Async [a b])))
-  (let [[read! write!] (sharing [a b]
-                                [(Async a) (Async b)]
+  (All (_ lr lw rr rw) (-> (Async' lr lw) (Async' rr rw) (Async [lr rr])))
+  (let [[read! write!] (sharing [lr lw rr rw]
+                                [(Async' lr lw) (Async' rr rw)]
                                 [left right]
 
-                                [(Async [a b])
-                                 (Resolver [a b])]
+                                [(Async [lr rr]) (Resolver [lr rr])]
                                 (..async []))
         _ (io.run! (..upon! (function (_ left)
                               (..upon! (function (_ right)
@@ -143,8 +164,13 @@
     read!))
 
 (def: .public (or left right)
-  (All (_ a b) (-> (Async a) (Async b) (Async (Or a b))))
-  (let [[a|b resolve] (..async [])]
+  (All (_ lr lw rr rw) (-> (Async' lr lw) (Async' rr rw) (Async (Or lr rr))))
+  (let [[left|right resolve] (sharing [lr lw rr rw]
+                                      [(Async' lr lw) (Async' rr rw)]
+                                      [left right]
+                                      
+                                      [(Async (Or lr rr)) (Resolver (Or lr rr))]
+                                      (..async []))]
     (with_expansions
       [<sides> (template [<async> <tag>]
                  [(io.run! (upon! (|>> {<tag>} resolve) <async>))]
@@ -154,11 +180,16 @@
                  )]
       (exec
         <sides>
-        a|b))))
+        left|right))))
 
 (def: .public (either left right)
-  (All (_ a) (-> (Async a) (Async a) (Async a)))
-  (let [[left||right resolve] (..async [])]
+  (All (_ a lw rw) (-> (Async' a lw) (Async' a rw) (Async a)))
+  (let [[left||right resolve] (sharing [a lw rw]
+                                       [(Async' a lw) (Async' a rw)]
+                                       [left right]
+                                       
+                                       [(Async a) (Resolver a)]
+                                       (..async []))]
     (`` (exec
           (~~ (template [<async>]
                 [(io.run! (upon! resolve <async>))]
@@ -169,7 +200,12 @@
 
 (def: .public (schedule! milli_seconds computation)
   (All (_ a) (-> Nat (IO a) (Async a)))
-  (let [[!out resolve] (..async [])]
+  (let [[!out resolve] (sharing [a]
+                                (IO a)
+                                computation
+                                
+                                [(Async a) (Resolver a)]
+                                (..async []))]
     (exec
       (|> (do io.monad
             [value computation]
@@ -191,6 +227,6 @@
   (..after milli_seconds []))
 
 (def: .public (within milli_seconds async)
-  (All (_ a) (-> Nat (Async a) (Async (Maybe a))))
+  (All (_ r w) (-> Nat (Async' r w) (Async (Maybe r))))
   (..or (..delay milli_seconds)
         async))

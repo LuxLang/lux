@@ -295,12 +295,6 @@
           `$End
           (reverse elems)))
 
-(defmacro |table [& elems]
-  (reduce (fn [table [k v]]
-            `(|put ~k ~v ~table))
-          `$End
-          (reverse (partition 2 elems))))
-
 (defn |get [slot table]
   (|case table
     ($End)
@@ -310,17 +304,6 @@
     (if (= k slot)
       v
       (recur slot table*))))
-
-(defn |put [slot value table]
-  (|case table
-    ($End)
-    ($Item (T [slot value]) $End)
-    
-    ($Item [k v] table*)
-    (if (= k slot)
-      ($Item (T [slot value]) table*)
-      ($Item (T [k v]) (|put slot value table*)))
-    ))
 
 (defn |remove [slot table]
   (|case table
@@ -485,6 +468,32 @@
 
     ($Item x xs*)
     (recur f (f init x) xs*)))
+
+(defn |put [slot value table]
+  (loop [prefix $End
+         input table]
+    (|case input
+      ($End)
+      (fold (fn [tail head]
+              ($Item head tail))
+            ($Item (T [slot value]) $End)
+            prefix)
+    
+      ($Item [k v] input*)
+      (if (= k slot)
+        (fold (fn [tail head]
+                ($Item head tail))
+              ($Item (T [slot value]) input*)
+              prefix)
+        (recur ($Item (T [k v]) prefix)
+               input*))
+    )))
+
+(defmacro |table [& elems]
+  (reduce (fn [table [k v]]
+            `(|put ~k ~v ~table))
+          `$End
+          (reverse (partition 2 elems))))
 
 (defn fold% [f init xs]
   (|case xs
