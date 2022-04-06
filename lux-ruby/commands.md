@@ -28,14 +28,14 @@ cd ~/lux/stdlib/ \
 
 ```
 cd ~/lux/lux-ruby/ \
-&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-ruby -Dversion=0.6.6-SNAPSHOT -Dpackaging=jar
+&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-ruby -Dversion=0.7.0-SNAPSHOT -Dpackaging=jar
 
 cd ~/lux/lux-ruby/ && mvn deploy:deploy-file \
--Durl=https://USERNAME:PASSWORD@oss.sonatype.org/content/repositories/snapshots/ \
+-Durl=https://$NEXUS_USERNAME:$NEXUS_PASSWORD@oss.sonatype.org/content/repositories/snapshots/ \
 -Dfile=target/program.jar \
 -DgroupId=com.github.luxlang \
 -DartifactId=lux-ruby \
--Dversion=0.6.5-SNAPSHOT \
+-Dversion=0.7.0-SNAPSHOT \
 -Dpackaging=jar
 ```
 

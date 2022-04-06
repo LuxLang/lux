@@ -1,6 +1,7 @@
 (.using
  [library
   [lux {"-" and or nat int rev list type symbol}
+   [ffi {"+"}]
    [type {"+" sharing}]
    [abstract
     [hash {"+" Hash}]
@@ -9,7 +10,8 @@
     ["[0]" try {"+" Try}]
     ["[0]" exception {"+" exception:}]]
    [data
-    ["/" binary {"+" Binary}]
+    ["/" binary "_"
+     ["[1]" \\unsafe {"+" Binary}]]
     [text
      ["%" format {"+" format}]
      [encoding
@@ -17,7 +19,9 @@
     [collection
      ["[0]" list]
      ["[0]" sequence {"+" Sequence}]
-     ["[0]" set {"+" Set}]]]
+     ["[0]" set {"+" Set}]
+     [array
+      [\\unsafe {"+"}]]]]
    [macro
     ["^" pattern]
     ["[0]" template]]
@@ -39,22 +43,31 @@
    "Binary length" (%.nat binary_length)
    "Bytes read" (%.nat bytes_read)))
 
+(template [<name> <extension>]
+  [(template: (<name> <parameter> <subject>)
+     [(<extension> <parameter> <subject>)])]
+
+  [n#= "lux i64 ="]
+  [n#+ "lux i64 +"]
+  [n#- "lux i64 -"]
+  )
+
 (def: .public (result parser input)
   (All (_ a) (-> (Parser a) Binary (Try a)))
   (case (parser [0 input])
-    {try.#Failure msg}
-    {try.#Failure msg}
-    
     {try.#Success [[end _] output]}
     (let [length (/.size input)]
-      (if (n.= end length)
+      (if (n#= end length)
         {try.#Success output}
-        (exception.except ..binary_was_not_fully_read [length end])))))
+        (exception.except ..binary_was_not_fully_read [length end])))
+
+    failure
+    (as_expected failure)))
 
 (def: .public end?
   (Parser Bit)
   (function (_ (^.let input [offset data]))
-    {try.#Success [input (n.= offset (/.size data))]}))
+    {try.#Success [input (n#= offset (/.size data))]}))
 
 (def: .public offset
   (Parser Offset)
@@ -64,7 +77,7 @@
 (def: .public remaining
   (Parser Nat)
   (function (_ (^.let input [offset data]))
-    {try.#Success [input (n.- offset (/.size data))]}))
+    {try.#Success [input (n#- offset (/.size data))]}))
 
 (type: .public Size
   Nat)
@@ -74,16 +87,24 @@
 (def: .public size_32 Size (n.* 2 size_16))
 (def: .public size_64 Size (n.* 2 size_32))
 
+(exception: .public (range_out_of_bounds [length Nat
+                                          start Nat
+                                          end Nat])
+  (exception.report
+   "Length" (%.nat length)
+   "Range start" (%.nat start)
+   "Range end" (%.nat end)))
+
 (template [<name> <size> <read>]
   [(def: .public <name>
      (Parser I64)
-     (function (_ [offset binary])
-       (case (<read> offset binary)
-         {try.#Success data}
-         {try.#Success [(n.+ <size> offset) binary] data}
-         
-         {try.#Failure error}
-         {try.#Failure error})))]
+     (function (_ [start binary])
+       (let [end (n#+ <size> start)]
+         (if (n.< end (/.size binary))
+           (exception.except ..range_out_of_bounds [(/.size binary) start end])
+           (|> (<read> start binary)
+               [[end binary]]
+               {try.#Success})))))]
 
   [bits_8  ..size_8  /.bits_8]
   [bits_16 ..size_16 /.bits_16]
@@ -153,12 +174,16 @@
 
 (def: .public (segment size)
   (-> Nat (Parser Binary))
-  (function (_ [offset binary])
-    (case size
-      0 {try.#Success [[offset binary] (/.empty 0)]}
-      _ (|> binary
-            (/.slice offset size)
-            (# try.monad each (|>> [[(n.+ size offset) binary]]))))))
+  (case size
+    0 (//#in (/.empty 0))
+    _ (function (_ [start binary])
+        (let [end (n#+ size start)]
+          (if (n.< end (/.size binary))
+            (exception.except ..range_out_of_bounds [(/.size binary) start end])
+            (|> binary
+                (/.slice start size)
+                [[end binary]]
+                {try.#Success}))))))
 
 (template [<size> <name> <bits>]
   [(`` (def: .public <name>
@@ -232,7 +257,7 @@
     [raw (..list value)
      .let [output (set.of_list hash raw)]
      _ (//.assertion (exception.error ..set_elements_are_not_unique [])
-                     (n.= (list.size raw)
+                     (n#= (list.size raw)
                           (set.size output)))]
     (in output)))
 
