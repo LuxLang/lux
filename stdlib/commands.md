@@ -40,11 +40,14 @@ cd ~/lux/stdlib/ && mvn deploy:deploy-file \
 -Dfile=library.tar \
 -DgroupId=com.github.luxlang \
 -DartifactId=stdlib \
--Dversion=0.6.5-SNAPSHOT \
+-Dversion=0.7.0-SNAPSHOT \
 -Dpackaging=tar
 
 cd ~/lux/stdlib/ \
 && lux install
+
+cd ~/lux/stdlib/ \
+&& lux deploy snapshots $NEXUS_USERNAME $NEXUS_PASSWORD
 ```
 
 ## Generate documentation
@@ -120,6 +123,6 @@ cd ~/lux/stdlib/ \
 ```
 cd ~/lux/stdlib/ \
 && lux clean \
-&& lux with jvm with aedifex auto test
+&& lux with aedifex auto test
 ```
 
