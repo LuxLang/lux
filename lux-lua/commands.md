@@ -34,7 +34,7 @@ cd ~/lux/lux-lua/ && mvn deploy:deploy-file \
 -Durl=https://$NEXUS_USERNAME:$NEXUS_PASSWORD@oss.sonatype.org/content/repositories/snapshots/ \
 -Dfile=target/program.jar \
 -DgroupId=com.github.luxlang \
--DartifactId=lux-python \
+-DartifactId=lux-lua \
 -Dversion=0.7.0-SNAPSHOT \
 -Dpackaging=jar
 ```

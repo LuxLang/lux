@@ -1,6 +1,7 @@
 (.using
  [library
   [lux {"-" Mode and}
+   [ffi {"+"}]
    [abstract
     [monad {"+" do}]]
    [control
@@ -11,7 +12,8 @@
      ["<[0]>" binary {"+" Parser}]]]
    [data
     ["[0]" product]
-    ["[0]" binary {"+" Binary}]
+    ["[0]" binary {"+" Binary}
+     ["[1]!" \\unsafe]]
     ["[0]" text {"+" Char}
      ["%" format {"+" format}]
      [encoding
@@ -122,10 +124,11 @@
   (Parser Any)
   (do <>.monad
     [pre_end <binary>.bits_8
-     end <binary>.bits_8
      _ (let [expected (`` (char (~~ (static ..blank))))]
          (<>.assertion (exception.error ..wrong_character [expected pre_end])
                        (n.= expected pre_end)))
+
+     end <binary>.bits_8
      _ (let [expected (`` (char (~~ (static ..null))))]
          (<>.assertion (exception.error ..wrong_character [expected end])
                        (n.= expected end)))]
@@ -230,20 +233,19 @@
 (def: .public path_size Size 99)
 
 (def: (un_padded string)
-  (-> Binary (Try Binary))
-  (case (binary.size string)
-    0 {try.#Success string}
+  (-> Binary Binary)
+  (case (binary!.size string)
+    0 string
     size (loop (again [end (-- size)])
            (case end
-             0 {try.#Success (# utf8.codec encoded "")}
-             _ (do try.monad
-                 [last_char (binary.bits_8 end string)]
+             0 (# utf8.codec encoded "")
+             _ (let [last_char (binary!.bits_8 end string)]
                  (`` (case (.nat last_char)
                        (pattern (char (~~ (static ..null))))
                        (again (-- end))
 
                        _
-                       (binary.slice 0 (++ end) string))))))))
+                       (binary!.slice 0 (++ end) string))))))))
 
 (template [<type> <representation> <size> <exception> <in> <out> <writer> <parser> <none>]
   [(abstract: .public <type>
@@ -260,7 +262,7 @@
        (if (..ascii? value)
          (if (|> value
                  (# utf8.codec encoded)
-                 binary.size
+                 binary!.size
                  (n.> <size>))
            (exception.except <exception> [value])
            {try.#Success (abstraction value)})
@@ -289,8 +291,7 @@
                           (n.= expected end))]
          (<>.lifted
           (do [! try.monad]
-            [ascii (..un_padded string)
-             text (# utf8.codec decoded ascii)]
+            [text (# utf8.codec decoded (..un_padded string))]
             (<in> text)))))
 
      (def: .public <none>
@@ -533,7 +534,7 @@
   (def: .public (content content)
     (-> Binary (Try Content))
     (do try.monad
-      [size (..big (binary.size content))]
+      [size (..big (binary!.size content))]
       (in (abstraction [size content]))))
 
   (def: from_content
@@ -735,7 +736,7 @@
 
 (def: .public writer
   (Writer Tar)
-  (let [end_of_archive (binary.empty ..end_of_archive_size)]
+  (let [end_of_archive (binary!.empty ..end_of_archive_size)]
     (function (_ tar)
       (format#composite (sequence#mix (function (_ next total)
                                         (format#composite total (..entry_writer next)))
