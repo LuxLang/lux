@@ -143,7 +143,7 @@
 (implementation: version_order
   (Order Version)
 
-  (def: &equivalence
+  (def: equivalence
     text.equivalence)
 
   (def: (< left right)
@@ -218,7 +218,8 @@
                                   {try.#Failure error}
                                   (if (exception.match? shell.no_more_output error)
                                     (write! {try.#Success []})
-                                    (async.upon! write! (console.write_line error console)))
+                                    (async.upon! write! (is (Async (Try Any))
+                                                            (console.write_line error console))))
                                   
                                   {try.#Success line}
                                   (async.upon! (function (_ outcome)
@@ -229,7 +230,8 @@
                                                    {try.#Success _}
                                                    (async.upon! again
                                                                 (# process <capability> []))))
-                                               (console.write_line line console)))))
+                                               (is (Async (Try Any))
+                                                   (console.write_line line console))))))
                  io.run!)]
        read!))]
 
@@ -269,9 +271,9 @@
 
     _
     (revised ///runtime.#parameters
-             (|>> (list& "-cp" (..jvm_class_path host_dependencies)
-                         "--add-opens" "java.base/java.lang=ALL-UNNAMED"
-                         "-Xss16m"))
+             (|>> (partial_list "-cp" (..jvm_class_path host_dependencies)
+                                "--add-opens" "java.base/java.lang=ALL-UNNAMED"
+                                "-Xss16m"))
              runtime)))
 
 (def: .public (do! console program fs shell resolution)
@@ -290,26 +292,28 @@
           (do ///action.monad
             [[resolution lux] (async#in (..lux resolution (the ///.#lux profile)))
              .let [host_dependencies (..host_dependencies fs home resolution)
-                   [[command lux_params] output] (case lux
-                                                   {#JVM dependency}
-                                                   [(|> (the ///.#java profile)
-                                                        (has ///runtime.#parameters (list "program._"))
-                                                        (with_jvm_class_path {.#Item (..path fs home dependency) host_dependencies}))
-                                                    "program.jar"]
-                                                   
-                                                   (^.template [<tag> <runtime> <program>]
-                                                     [{<tag> dependency}
-                                                      [(|> dependency
-                                                           (..path fs home)
-                                                           (///runtime.for (the <runtime> profile)))
-                                                       <program>]])
-                                                   ([#JS ///.#js "program.js"]
-                                                    [#Python ///.#java "program.py"]
-                                                    [#Lua ///.#java "program.lua"]
-                                                    [#Ruby ///.#java (file.rooted fs "program" ruby_packager.main_file)]))
+                   [[command_environment command lux_params] output]
+                   (case lux
+                     {#JVM dependency}
+                     [(|> (the ///.#java profile)
+                          (has ///runtime.#parameters (list "program._"))
+                          (with_jvm_class_path {.#Item (..path fs home dependency) host_dependencies}))
+                      "program.jar"]
+                     
+                     (^.template [<tag> <runtime> <program>]
+                       [{<tag> dependency}
+                        [(|> dependency
+                             (..path fs home)
+                             (///runtime.for (the <runtime> profile)))
+                         <program>]])
+                     ([#JS ///.#js "program.js"]
+                      [#Python ///.#java "program.py"]
+                      [#Lua ///.#java "program.lua"]
+                      [#Ruby ///.#java (file.rooted fs "program" ruby_packager.main_file)]))
                    / (# fs separator)
                    cache_directory (format working_directory / target)]
-             _ (console.write_line ..start console)
+             _ (is (Async (Try Any))
+                   (console.write_line ..start console))
              .let [full_parameters (list.together (list lux_params
                                                         (list "build")
                                                         (..plural "--library" (..libraries fs home resolution))
@@ -319,17 +323,18 @@
                                                         (..singular "--target" cache_directory)
                                                         (..singular "--module" program_module)
                                                         (..singular "--configuration" (configuration.format (the ///.#configuration profile)))))]
-             process (# shell execute [environment
+             process (# shell execute [(dictionary.composite command_environment environment)
                                        working_directory
                                        command
                                        full_parameters])
              _ (..log_output! console process)
              _ (..log_error! console process)
              exit (# process await [])
-             _ (console.write_line (if (i.= shell.normal exit)
-                                     ..success
-                                     ..failure)
-                                   console)]
+             _ (is (Async (Try Any))
+                   (console.write_line (if (i.= shell.normal exit)
+                                         ..success
+                                         ..failure)
+                                       console))]
             (in [exit
                  lux
                  (format cache_directory / output)])))))))

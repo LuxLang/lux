@@ -383,7 +383,7 @@ Called by `imenu--generic-function'."
 							(data//record (altRE "the" "has" "revised"))
 							(data//interface (altRE "open:" "implementation" "#"))
 							(data//implicit (altRE "implicit:" "##"))
-							(data//collection (altRE "list" "list&" "sequence" "tree"))
+							(data//collection (altRE "list" "partial_list" "sequence" "tree"))
 							;; Code
 							(code//quotation (altRE "`" "`'" "'" "~" "~\\+" "~!" "~'"))
 							(code//super-quotation (altRE "``" "~~"))
