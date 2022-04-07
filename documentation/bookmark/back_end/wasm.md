@@ -22,6 +22,7 @@
 
 # Reference
 
+0. [Recommendations when publishing a Wasm library](https://nickb.dev/blog/recommendations-when-publishing-a-wasm-library)
 0. [Building host implementations for WebAssembly interfaces](https://radu-matei.com/blog/wasm-components-host-implementations/)
 0. [WebAssembly Techniques to Speed Up Matrix Multiplication by 120x](https://jott.live/markdown/mm_wasm)
 0. [Chasing Memory Bugs through V8 and WebAssembly](https://blog.stackblitz.com/posts/debugging-v8-webassembly/)

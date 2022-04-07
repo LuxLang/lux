@@ -1,6 +1,7 @@
 (.using
  [library
   [lux {"-" and or nat int rev list type symbol}
+   [ffi {"+"}]
    [abstract
     [monoid {"+" Monoid}]
     [monad {"+" Monad do}]
@@ -8,12 +9,12 @@
    [control
     ["[0]" pipe]
     ["[0]" function]
-    ["[0]" try {"+" Try}]
     ["<>" parser ("[1]#[0]" monad)
-     ["/" binary {"+" Offset Size Parser}]]]
+     ["</>" binary {"+" Offset Size Parser}]]]
    [data
+    ["/" binary "_"
+     ["[1]" \\unsafe {"+" Binary}]]
     ["[0]" product]
-    ["[0]" binary {"+" Binary}]
     [text
      ["%" format {"+" format}]
      [encoding
@@ -21,18 +22,29 @@
     [collection
      ["[0]" list]
      ["[0]" sequence {"+" Sequence} ("[1]#[0]" functor)]
-     ["[0]" set {"+" Set}]]]
+     ["[0]" set {"+" Set}]
+     [array
+      [\\unsafe {"+"}]]]]
    [macro
     ["^" pattern]]
    [math
     [number
-     ["[0]" i64]
      ["n" nat]
+     ["[0]" i64]
      ["[0]" frac]]]]])
+
+(template [<name> <extension> <post>]
+  [(template: (<name> <parameter> <subject>)
+     [(<post> (<extension> (.int <parameter>) (.int <subject>)))])]
+
+  [n#= "lux i64 =" .|>]
+  [n#+ "lux i64 +" .nat]
+  [n#* "lux i64 *" .nat]
+  )
 
 (def: mask
   (-> Size (I64 Any))
-  (|>> (n.* i64.bits_per_byte) i64.mask))
+  (|>> (n#* i64.bits_per_byte) i64.mask))
 
 (type: .public Mutation
   (-> [Offset Binary] [Offset Binary]))
@@ -46,7 +58,7 @@
 
 (def: .public (instance [size mutation])
   (-> Specification Binary)
-  (|> size binary.empty [0] mutation product.right))
+  (|> size /.empty [0] mutation product.right))
 
 (implementation: .public monoid
   (Monoid Specification)
@@ -55,7 +67,7 @@
     ..no_op)
   
   (def: (composite [sizeL mutL] [sizeR mutR])
-    [(n.+ sizeL sizeR)
+    [(n#+ sizeL sizeR)
      (|>> mutL mutR)]))
 
 (type: .public (Writer a)
@@ -71,15 +83,13 @@
      (function (_ value)
        [<size>
         (function (_ [offset binary])
-          [(n.+ <size> offset)
-           (|> binary
-               (<write> offset value)
-               try.trusted)])]))]
+          [(n#+ <size> offset)
+           (<write> offset value binary)])]))]
 
-  [bits_8  /.size_8  binary.has_8!]
-  [bits_16 /.size_16 binary.has_16!]
-  [bits_32 /.size_32 binary.has_32!]
-  [bits_64 /.size_64 binary.has_64!]
+  [bits_8  </>.size_8  /.has_8!]
+  [bits_16 </>.size_16 /.has_16!]
+  [bits_32 </>.size_32 /.has_32!]
+  [bits_64 </>.size_64 /.has_64!]
   )
 
 (def: .public (or left right)
@@ -92,8 +102,7 @@
            [(.++ caseS)
             (function (_ [offset binary])
               (|> binary
-                  (binary.has_8! offset <number>)
-                  try.trusted
+                  (/.has_8! offset <number>)
                   [(.++ offset)]
                   caseT))])])
       ([0 .#Left left]
@@ -135,33 +144,31 @@
   (function (_ value)
     [size
      (function (_ [offset binary])
-       [(n.+ size offset)
-        (try.trusted
-         (binary.copy! (n.min size (binary.size value))
-                       0
-                       value
-                       offset
-                       binary))])]))
+       [(n#+ size offset)
+        (/.copy! (n.min size (/.size value))
+                 0
+                 value
+                 offset
+                 binary)])]))
 
 (template [<name> <bits> <size> <write>]
   [(def: .public <name>
      (Writer Binary)
      (let [mask (..mask <size>)]
        (function (_ value)
-         (let [size (|> value binary.size (i64.and mask))
-               size' (n.+ <size> size)]
+         (let [size (|> value /.size (i64.and mask))
+               size' (n#+ <size> size)]
            [size'
             (function (_ [offset binary])
-              [(n.+ size' offset)
-               (try.trusted
-                (do try.monad
-                  [_ (<write> offset size binary)]
-                  (binary.copy! size 0 value (n.+ <size> offset) binary)))])]))))]
+              [(n#+ size' offset)
+               (|> binary
+                   (<write> offset size)
+                   (/.copy! size 0 value (n#+ <size> offset)))])]))))]
 
-  [binary_8  ..bits_8  /.size_8  binary.has_8!]
-  [binary_16 ..bits_16 /.size_16 binary.has_16!]
-  [binary_32 ..bits_32 /.size_32 binary.has_32!]
-  [binary_64 ..bits_64 /.size_64 binary.has_64!]
+  [binary_8  ..bits_8  </>.size_8  /.has_8!]
+  [binary_16 ..bits_16 </>.size_16 /.has_16!]
+  [binary_32 ..bits_32 </>.size_32 /.has_32!]
+  [binary_64 ..bits_64 </>.size_64 /.has_64!]
   )
 
 (template [<name> <binary>]
@@ -184,7 +191,7 @@
        (let [original_count (sequence.size value)
              capped_count (i64.and (..mask <size>)
                                    original_count)
-             value (if (n.= original_count capped_count)
+             value (if (n#= original_count capped_count)
                      value
                      (|> value sequence.list (list.first capped_count) sequence.of_list))
              (open "specification#[0]") ..monoid
@@ -194,17 +201,17 @@
                                     (function (_ post pre)
                                       (specification#composite pre post))
                                     specification#identity))]
-         [(n.+ <size> size)
+         [(n#+ <size> size)
           (function (_ [offset binary])
-            (try.trusted
-             (do try.monad
-               [_ (<write> offset capped_count binary)]
-               (in (mutation [(n.+ <size> offset) binary])))))])))]
+            (|> binary
+                (<write> offset capped_count)
+                [(n#+ <size> offset)]
+                mutation))])))]
 
-  [sequence_8  /.size_8  binary.has_8!]
-  [sequence_16 /.size_16 binary.has_16!]
-  [sequence_32 /.size_32 binary.has_32!]
-  [sequence_64 /.size_64 binary.has_64!]
+  [sequence_8  </>.size_8  /.has_8!]
+  [sequence_16 </>.size_16 /.has_16!]
+  [sequence_32 </>.size_32 /.has_32!]
+  [sequence_64 </>.size_64 /.has_64!]
   )
 
 (def: .public maybe
@@ -240,8 +247,7 @@
                 [(.++ caseS)
                  (function (_ [offset binary])
                    (|> binary
-                       (binary.has_8! offset <number>)
-                       try.trusted
+                       (/.has_8! offset <number>)
                        [(.++ offset)]
                        caseT))])])
            ([0 .#Primitive (..and ..text (..list again))]
@@ -275,8 +281,7 @@
                        [(.++ caseS)
                         (function (_ [offset binary])
                           (|> binary
-                              (binary.has_8! offset <number>)
-                              try.trusted
+                              (/.has_8! offset <number>)
                               [(.++ offset)]
                               caseT))])])
                   ([0 .#Bit ..bit]

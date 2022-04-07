@@ -19,6 +19,7 @@
 
 ## Operating system
 
+0. [Phantom - forward-thinking concept of OS that's not Linux derived](http://phantomos.org/)
 0. [CLOSOS: Specication of a Lisp operating system.](http://metamodular.com/lispos.pdf)
 0. [CLOSOS: Specication of a Lisp operating system.](http://metamodular.com/closos.pdf)
 0. https://medium.com/@jasonyuan/introducing-mercury-os-f4de45a04289

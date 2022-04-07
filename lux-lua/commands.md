@@ -28,6 +28,14 @@ cd ~/lux/stdlib/ \
 
 ```
 cd ~/lux/lux-lua/ \
-&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-lua -Dversion=0.6.6-SNAPSHOT -Dpackaging=jar
+&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-lua -Dversion=0.7.0-SNAPSHOT -Dpackaging=jar
+
+cd ~/lux/lux-lua/ && mvn deploy:deploy-file \
+-Durl=https://$NEXUS_USERNAME:$NEXUS_PASSWORD@oss.sonatype.org/content/repositories/snapshots/ \
+-Dfile=target/program.jar \
+-DgroupId=com.github.luxlang \
+-DartifactId=lux-python \
+-Dversion=0.7.0-SNAPSHOT \
+-Dpackaging=jar
 ```
 
