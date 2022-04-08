@@ -46,13 +46,13 @@
 
 (def: xml_standard_escape_char^
   (Parser Text)
-  ($_ <>.either
-      (<>.after (<text>.this "&lt;") (<>#in "<"))
-      (<>.after (<text>.this "&gt;") (<>#in ">"))
-      (<>.after (<text>.this "&amp;") (<>#in "&"))
-      (<>.after (<text>.this "&apos;") (<>#in "'"))
-      (<>.after (<text>.this "&quot;") (<>#in text.double_quote))
-      ))
+  (all <>.either
+       (<>.after (<text>.this "&lt;") (<>#in "<"))
+       (<>.after (<text>.this "&gt;") (<>#in ">"))
+       (<>.after (<text>.this "&amp;") (<>#in "&"))
+       (<>.after (<text>.this "&apos;") (<>#in "'"))
+       (<>.after (<text>.this "&quot;") (<>#in text.double_quote))
+       ))
 
 (def: xml_unicode_escape_char^
   (Parser Text)
@@ -78,17 +78,17 @@
 
 (def: xml_char^
   (Parser Text)
-  (<>.either (<text>.none_of ($_ text#composite "<>&" text.double_quote))
+  (<>.either (<text>.none_of (all text#composite "<>&" text.double_quote))
              xml_escape_char^))
 
 (def: xml_identifier
   (Parser Text)
   (<text>.slice
-   ($_ <text>.and!
-       (<>.either (<text>.one_of! "_")
-                  <text>.alpha!)
-       (<text>.some! (<>.either (<text>.one_of! "_.-")
-                                <text>.alpha_num!)))))
+   (all <text>.and!
+        (<>.either (<text>.one_of! "_")
+                   <text>.alpha!)
+        (<text>.some! (<>.either (<text>.one_of! "_.-")
+                                 <text>.alpha_num!)))))
 
 (def: namespaced_symbol^
   (Parser Symbol)
@@ -132,9 +132,9 @@
                 ..spaced^
                 (<>.after (<text>.this "/"))
                 (<text>.enclosed ["<" ">"]))]
-    (<>.assertion ($_ text#composite "Close tag does not match open tag." \n
-                      "Expected: " (symbol#encoded expected) \n
-                      "  Actual: " (symbol#encoded actual) \n)
+    (<>.assertion (all text#composite "Close tag does not match open tag." \n
+                       "Expected: " (symbol#encoded expected) \n
+                       "  Actual: " (symbol#encoded actual) \n)
                   (symbol#= expected actual))))
 
 (def: comment^
@@ -177,24 +177,24 @@
                [_ (<text>.this "<")
                 tag (..spaced^ tag^)
                 attrs (..spaced^ attrs^)
-                .let [no_children^ ($_ <>.either
-                                       (do <>.monad
-                                         [_ (<text>.this "/>")]
-                                         (in {#Node tag attrs (list)}))
-                                       (do <>.monad
-                                         [_ (<text>.this ">")
-                                          _ (<>.some (<>.either <text>.space!
-                                                                ..comment^))
-                                          _ (..close_tag^ tag)]
-                                         (in {#Node tag attrs (list)})))
+                .let [no_children^ (all <>.either
+                                        (do <>.monad
+                                          [_ (<text>.this "/>")]
+                                          (in {#Node tag attrs (list)}))
+                                        (do <>.monad
+                                          [_ (<text>.this ">")
+                                           _ (<>.some (<>.either <text>.space!
+                                                                 ..comment^))
+                                           _ (..close_tag^ tag)]
+                                          (in {#Node tag attrs (list)})))
                       with_children^ (do <>.monad
                                        [_ (<text>.this ">")
                                         children (<>.many node^)
                                         _ (..close_tag^ tag)]
                                        (in {#Node tag attrs children}))]]
-               ($_ <>.either
-                   no_children^
-                   with_children^))
+               (all <>.either
+                    no_children^
+                    with_children^))
              ..spaced^
              (<>.before (<>.some ..comment^))
              (<>.after (<>.some ..comment^))
@@ -215,7 +215,7 @@
   (-> Tag Text)
   (case namespace
     "" name
-    _ ($_ text#composite namespace ..namespace_separator name)))
+    _ (all text#composite namespace ..namespace_separator name)))
 
 (def: .public attribute
   (-> Attribute Text)
@@ -225,12 +225,12 @@
   Text
   (let [quote (is (-> Text Text)
                   (function (_ value)
-                    ($_ text#composite text.double_quote value text.double_quote)))]
-    ($_ text#composite
-        "<?xml"
-        " version=" (quote "1.0")
-        " encoding=" (quote "UTF-8")
-        "?>")))
+                    (all text#composite text.double_quote value text.double_quote)))]
+    (all text#composite
+         "<?xml"
+         " version=" (quote "1.0")
+         " encoding=" (quote "UTF-8")
+         "?>")))
 
 (implementation: .public codec
   (Codec Text XML)
@@ -241,40 +241,40 @@
                            (|> attrs
                                dictionary.entries
                                (list#each (function (_ [key value])
-                                            ($_ text#composite (..attribute key) "=" text.double_quote (sanitize_value value) text.double_quote)))
+                                            (all text#composite (..attribute key) "=" text.double_quote (sanitize_value value) text.double_quote)))
                                (text.interposed " "))))]
       (function (_ input)
-        ($_ text#composite
-            ..xml_header text.new_line
-            (loop (again [prefix ""
-                          input input])
-              (case input
-                {#Text value}
-                (sanitize_value value)
+        (all text#composite
+             ..xml_header text.new_line
+             (loop (again [prefix ""
+                           input input])
+               (case input
+                 {#Text value}
+                 (sanitize_value value)
 
-                (pattern {#Node xml_tag xml_attrs (list {#Text value})})
-                (let [tag (..tag xml_tag)
-                      attrs (if (dictionary.empty? xml_attrs)
-                              ""
-                              ($_ text#composite " " (attributes xml_attrs)))]
-                  ($_ text#composite
-                      prefix "<" tag attrs ">"
-                      (sanitize_value value)
-                      "</" tag ">"))
-                
-                {#Node xml_tag xml_attrs xml_children}
-                (let [tag (..tag xml_tag)
-                      attrs (if (dictionary.empty? xml_attrs)
-                              ""
-                              ($_ text#composite " " (attributes xml_attrs)))]
-                  (if (list.empty? xml_children)
-                    ($_ text#composite prefix "<" tag attrs "/>")
-                    ($_ text#composite prefix "<" tag attrs ">"
-                        (|> xml_children
-                            (list#each (|>> (again (text#composite prefix text.tab)) (text#composite text.new_line)))
-                            text.together)
-                        text.new_line prefix "</" tag ">")))))
-            ))))
+                 (pattern {#Node xml_tag xml_attrs (list {#Text value})})
+                 (let [tag (..tag xml_tag)
+                       attrs (if (dictionary.empty? xml_attrs)
+                               ""
+                               (all text#composite " " (attributes xml_attrs)))]
+                   (all text#composite
+                        prefix "<" tag attrs ">"
+                        (sanitize_value value)
+                        "</" tag ">"))
+                 
+                 {#Node xml_tag xml_attrs xml_children}
+                 (let [tag (..tag xml_tag)
+                       attrs (if (dictionary.empty? xml_attrs)
+                               ""
+                               (all text#composite " " (attributes xml_attrs)))]
+                   (if (list.empty? xml_children)
+                     (all text#composite prefix "<" tag attrs "/>")
+                     (all text#composite prefix "<" tag attrs ">"
+                          (|> xml_children
+                              (list#each (|>> (again (text#composite prefix text.tab)) (text#composite text.new_line)))
+                              text.together)
+                          text.new_line prefix "</" tag ">")))))
+             ))))
   (def: decoded
     (<text>.result ..xml^)))
 
