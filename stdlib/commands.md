@@ -48,6 +48,9 @@ cd ~/lux/stdlib/ \
 
 cd ~/lux/stdlib/ \
 && lux deploy snapshots $NEXUS_USERNAME $NEXUS_PASSWORD
+
+cd ~/lux/stdlib/ \
+&& lux deploy releases $NEXUS_USERNAME $NEXUS_PASSWORD
 ```
 
 ## Generate documentation
@@ -100,21 +103,21 @@ cd ~/lux/stdlib/ \
 
 ```
 cd ~/lux/stdlib/ \
-&& lein clean \
-&& lein with-profile aedifex lux auto build
-
-cd ~/lux/stdlib/ \
-&& lein clean \
-&& lein with-profile aedifex lux build \
-&& mv target/program.jar aedifex.jar
-
-cd ~/lux/stdlib/ \
 && lux clean \
 && lux with aedifex auto build
 
 cd ~/lux/stdlib/ \
 && lux clean \
 && lux with aedifex build \
+&& mv target/program.jar aedifex.jar
+
+cd ~/lux/stdlib/ \
+&& lein clean \
+&& lein with-profile aedifex lux auto build
+
+cd ~/lux/stdlib/ \
+&& lein clean \
+&& lein with-profile aedifex lux build \
 && mv target/program.jar aedifex.jar
 ```
 

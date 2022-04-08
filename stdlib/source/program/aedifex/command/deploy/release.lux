@@ -1,0 +1,173 @@
+(.using
+ [library
+  [lux "*"
+   ["[0]" ffi {"+" import:}]
+   [abstract
+    [predicate {"+" Predicate}]
+    ["[0]" monad {"+" do}]]
+   [control
+    ["[0]" pipe]
+    ["[0]" try {"+" Try}]
+    ["[0]" io {"+" IO}]
+    [concurrency
+     ["[0]" async {"+" Async}]]
+    [parser
+     ["[0]" environment]]]
+   [data
+    ["[0]" binary {"+" Binary}]
+    ["[0]" text
+     ["%" format]
+     [encoding
+      ["[0]" utf8]]]
+    [collection
+     ["[0]" set]
+     ["[0]" dictionary]]
+    [format
+     ["[0]" binary]
+     ["[0]" tar]
+     ["[0]" xml]]]
+   [tool
+    [compiler
+     [meta
+      ["[0]" export]
+      ["[0]" archive]
+      ["[0]" context]
+      ["[0]" packager "_"
+       ["[1]" jvm]]]]]
+   [world
+    [program {"+" Program}]
+    [console {"+" Console}]
+    ["[0]" shell {"+" Shell}]
+    ["[0]" file]]]]
+ ["[0]" // "_"
+  ["[1][0]" snapshot]
+  ["/[1]" // "_"
+   ["[1][0]" install]
+   ["/[1]" // "_"
+    [command {"+" Command}]
+    ["/" profile]
+    ["[1][0]" action]
+    ["[1][0]" pom]
+    ["[1][0]" package]
+    ["[1][0]" hash]
+    ["[1][0]" dependency "_"
+     ["[1]/[0]" deployment]
+     ["[1]/[0]" status]]
+    ["[1][0]" repository {"+" Repository}
+     ["[1]/[0]" origin]
+     ["[1]/[0]" local]]
+    ["[1][0]" artifact {"+" Artifact}
+     ["[1]/[0]" type]
+     ["[1]/[0]" extension {"+" Extension}]]]]])
+
+(import: java/lang/String
+  "[1]::[0]"
+  (toLowerCase [] java/lang/String))
+
+(import: java/lang/System
+  "[1]::[0]"
+  ("static" getProperty [java/lang/String] "io" "try" java/lang/String))
+
+(def: windows?
+  (IO (Try Bit))
+  (# (try.with io.monad) each
+     (|>> java/lang/String::toLowerCase ffi.of_string (text.starts_with? "windows"))
+     (java/lang/System::getProperty (ffi.as_string "os.name"))))
+
+(def: dummy_jar
+  Binary
+  (|> (packager.package (context.jvm "")
+                        (dictionary.empty text.hash)
+                        archive.empty
+                        {.#None})
+      try.trusted
+      (pipe.case
+        {.#Left it}
+        it
+        
+        {.#Right _}
+        (undefined))))
+
+(template [<name> <extension>]
+  [(def: <name>
+     (-> Text Text)
+     (text.suffix <extension>))]
+
+  [asc ".asc"]
+  [pom ////artifact/extension.pom]
+  [tar ////artifact/extension.lux_library]
+  [jar ////artifact/extension.jvm_library]
+  [md5 ////artifact/extension.md5]
+  )
+
+(template [<name> <suffix>]
+  [(def: <name>
+     (-> Text Text)
+     (|>> (text.suffix <suffix>) ..jar))]
+
+  [javadoc "-javadoc"]
+  [sources "-sources"]
+  )
+
+(def: .public release?
+  (Predicate Artifact)
+  (|>> //snapshot.snapshot? not))
+
+(def: (install_dummies! program local fs artifact)
+  (-> (Program Async) (Repository Async) (file.System Async) Artifact (Async (Try Any)))
+  (do (try.with async.monad)
+    [.let [$artifact (////artifact.uri (the ////artifact.#version artifact) artifact)]
+     _ (# local upload (..jar $artifact) ..dummy_jar)
+     _ (# local upload (..javadoc $artifact) ..dummy_jar)
+     _ (# local upload (..sources $artifact) ..dummy_jar)]
+    (in [])))
+
+(def: (signed it)
+  (-> Text [Text Text])
+  [it (..asc it)])
+
+(def: (release_unsigned_artifact! local remote uri)
+  (-> (Repository Async) (Repository Async) Text (Async (Try Binary)))
+  (do [! ////action.monad]
+    [it (# local download uri)
+     _ (# remote upload uri it)]
+    (in it)))
+
+(def: (release_signed_artifact! local remote [artifact signature])
+  (-> (Repository Async) (Repository Async) [Text Text] (Async (Try Any)))
+  (do [! ////action.monad]
+    [it (..release_unsigned_artifact! local remote artifact)
+     _ (|> it
+           ////hash.md5
+           (# ////hash.md5_codec encoded)
+           (# utf8.codec encoded)
+           (# remote upload (..md5 artifact)))
+     _ (..release_unsigned_artifact! local remote signature)]
+    (in [])))
+
+(def: .public (do! program shell console local remote fs artifact profile)
+  (-> (Program Async) (Shell Async) (Console Async) (Repository Async) (Repository Async) (file.System Async) Artifact (Command Any))
+  (do [! ////action.monad]
+    [_ (///install.do! console fs local profile)
+     _ (install_dummies! program local fs artifact)
+     .let [working_directory (# program directory)
+           @root (////repository/local.root program fs)
+           $bundle (////artifact.bundle (the ////artifact.#version artifact) artifact)
+           / (# fs separator)
+           @local (%.format @root / $bundle)]
+     windows? (async.future ..windows?)
+     process (is (Async (Try (shell.Process Async)))
+                 (# shell execute [environment.empty @local
+                                   (if windows?
+                                     ["cmd" (list "/c" "for %file in (.\*) do gpg.exe -ab %file")]
+                                     ["sh" (list "-c" "for file in *.*; do gpg -ab $file; done")])]))
+     exit (is (Async (Try shell.Exit))
+              (# process await []))
+     .let [$artifact (////artifact.uri (the ////artifact.#version artifact) artifact)]
+     _ (monad.each ! (release_signed_artifact! local remote)
+                   (list (..signed (..pom $artifact))
+                         (..signed (..tar $artifact))
+                         (..signed (..jar $artifact))
+                         (..signed (..javadoc $artifact))
+                         (..signed (..sources $artifact))))]
+    (in [])))
