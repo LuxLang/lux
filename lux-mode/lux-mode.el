@@ -374,7 +374,7 @@ Called by `imenu--generic-function'."
 												 "Interface"
 												 "type"))
 							(type//checking (altRE "is" "as" "let" "as_expected" "type_of" "sharing" "by_example" "hole"))
-							(type//abstract (altRE "abstract:" "abstraction" "representation" "transmutation"))
+							(type//primitive (altRE "primitive:" "abstraction" "representation" "transmutation"))
 							(type//unit (altRE "unit:" "scale:"))
 							(type//poly (altRE "poly:"))
 							(type//dynamic (altRE "dynamic" "static"))
@@ -409,7 +409,7 @@ Called by `imenu--generic-function'."
 											  control//contract))
 							  (type (altRE type//syntax
 										   type//checking
-										   type//abstract
+										   type//primitive
 										   type//unit
 										   type//poly
 										   type//dynamic
