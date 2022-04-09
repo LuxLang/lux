@@ -570,7 +570,9 @@ This function also returns nil meaning don't specify the indentation."
 
 (defun put-lux-indent (sym indent)
   "Instruct `lux-indent-function' to indent the body of SYM by INDENT."
-  (put sym 'lux-indent-function indent))
+  (if (symbolp sym)
+	  (put sym 'lux-indent-function indent)
+	(put (intern sym) 'lux-indent-function indent)))
 
 (defmacro define-lux-indent (&rest kvs)
   "Call `put-lux-indent' on a series, KVS."
@@ -582,7 +584,6 @@ This function also returns nil meaning don't specify the indentation."
 (define-lux-indent
   (function 'defun)
   (let 'defun)
-  (:let 'defun)
   (case 'defun)
   (do 'defun)
   (exec 'defun)
@@ -601,6 +602,11 @@ This function also returns nil meaning don't specify the indentation."
   (remember 'defun)
   (to_do 'defun)
   (fix_me 'defun)
+
+  (property 'defun)
+  ("property'" 'defun)
+  (coverage 'defun)
+  ("coverage'" 'defun)
   )
 
 ;;;###autoload
