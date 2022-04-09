@@ -4,6 +4,7 @@
 
 # Code navigation
 
+0. [Navigate your code like it's 2021](https://austinhenley.com/blog/coderibbon.html)
 0. [Introducing stack graphs](https://github.blog/2021-12-09-introducing-stack-graphs/)
 0. ["Incremental, zero-config Code Nav using stack graphs" by Douglas Creager](https://www.youtube.com/watch?v=l2R1PTGcwrE)
 
