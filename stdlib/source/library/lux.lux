@@ -3378,7 +3378,6 @@
 (type: Referrals
   (Variant
    {#All}
-   {#Exclude (List Text)}
    {#Ignore}
    {#Nothing}
    {#Referral [Symbol (List Code)]}))
@@ -3397,31 +3396,12 @@
     #import_alias (Maybe Text)
     #import_refer Refer]))
 
-(def: (referral_references defs)
-  (-> (List Code) (Meta (List Text)))
-  (monad#each meta_monad
-              (is (-> Code (Meta Text))
-                  (function (_ def)
-                    (case def
-                      [_ {#Symbol ["" name]}]
-                      (meta#in name)
-
-                      _
-                      (failure "+ and exclude/- require symbols."))))
-              defs))
-
 (def: (referrals_parser tokens)
   (-> (List Code) (Meta [Referrals (List Code)]))
   (case tokens
     (pattern (partial_list [_ {#Form (partial_list [_ {#Symbol macro}] defs)}] tokens'))
     (meta#in [{#Referral [macro defs]}
               tokens'])
-
-    (pattern#or (pattern (partial_list [_ {#Variant (partial_list [_ {#Text "-"}] defs)}] tokens'))
-                (pattern (partial_list [_ {#Variant (partial_list [_ {#Text "exclude"}] defs)}] tokens')))
-    (do meta_monad
-      [defs' (..referral_references defs)]
-      (in [{#Exclude defs'} tokens']))
 
     (pattern#or (pattern (partial_list [_ {#Text "*"}] tokens'))
                 (pattern (partial_list [_ {#Text "all"}] tokens')))
@@ -3766,6 +3746,35 @@
 
     {.#None}
     (failure (..wrong_syntax_error (symbol ..only)))))
+
+(macro: .public (|>> tokens)
+  (do meta_monad
+    [g!_ (..generated_symbol "_")
+     g!arg (..generated_symbol "arg")]
+    (meta#in (list (` (function ((~ g!_) (~ g!arg)) (|> (~ g!arg) (~+ tokens))))))))
+
+(macro: .public (<<| tokens)
+  (do meta_monad
+    [g!_ (..generated_symbol "_")
+     g!arg (..generated_symbol "arg")]
+    (meta#in (list (` (function ((~ g!_) (~ g!arg)) (<| (~+ tokens) (~ g!arg))))))))
+
+(macro: .public (except tokens)
+  (case (..parsed (all ..andP
+                       ..textP
+                       ..textP
+                       (..someP ..localP))
+                  tokens)
+    {.#Some [current_module imported_module actual]}
+    (do meta_monad
+      [expected (exported_definitions imported_module)
+       _ (test_referrals current_module imported_module expected actual)]
+      (in (|> expected
+              (..list#only (|>> (is_member? actual) not))
+              (list#each (..alias_definition imported_module)))))
+
+    {.#None}
+    (failure (..wrong_syntax_error (symbol ..except)))))
 
 (def: (in_env name state)
   (-> Text Lux (Maybe Type))
@@ -4121,18 +4130,6 @@
     _
     (failure "Wrong syntax for open:")))
 
-(macro: .public (|>> tokens)
-  (do meta_monad
-    [g!_ (..generated_symbol "_")
-     g!arg (..generated_symbol "arg")]
-    (meta#in (list (` (function ((~ g!_) (~ g!arg)) (|> (~ g!arg) (~+ tokens))))))))
-
-(macro: .public (<<| tokens)
-  (do meta_monad
-    [g!_ (..generated_symbol "_")
-     g!arg (..generated_symbol "arg")]
-    (meta#in (list (` (function ((~ g!_) (~ g!arg)) (<| (~+ tokens) (~ g!arg))))))))
-
 (def: (imported_by? import_name module_name)
   (-> Text Text (Meta Bit))
   (do meta_monad
@@ -4180,13 +4177,6 @@
               (in (list#each (alias_definition module_name)
                              *defs)))
             
-            {#Exclude _defs}
-            (do meta_monad
-              [*defs (exported_definitions module_name)
-               _ (test_referrals module_name *defs _defs)]
-              (in (list#each (alias_definition module_name)
-                             (..list#only (|>> (is_member? _defs) not) *defs))))
-
             {#Ignore}
             (in (list))
 
@@ -4224,9 +4214,6 @@
                           (case r_defs
                             {#All}
                             (list (' "*"))
-                            
-                            {#Exclude defs}
-                            (list (variant$ (partial_list (' "-") (list#each local$ defs))))
                             
                             {#Ignore}
                             (list)
