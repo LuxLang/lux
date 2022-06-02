@@ -155,9 +155,7 @@ There is also the special **^or** macro, which introduces *or patterns*:
 
 Say hi at Gitter: https://gitter.im/LuxProgrammingLanguage/community
 
-Come join the forum: https://lux.hedgewit.ch/forum/
-
-> There is also an older forum at: http://luxlang.freeforums.net/
+Come join the forum: http://luxlang.freeforums.net/
 
 If you want to communicate with me directly, just email: luxlisp@gmail.com
 

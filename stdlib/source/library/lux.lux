@@ -3378,10 +3378,10 @@
 (type: Referrals
   (Variant
    {#All}
-   {#Only (List Text)}
    {#Exclude (List Text)}
    {#Ignore}
-   {#Nothing}))
+   {#Nothing}
+   {#Referral [Symbol (List Code)]}))
 
 (type: Openings
   [Text (List Text)])
@@ -3407,17 +3407,15 @@
                       (meta#in name)
 
                       _
-                      (failure "only/+ and exclude/- require symbols."))))
+                      (failure "+ and exclude/- require symbols."))))
               defs))
 
 (def: (referrals_parser tokens)
   (-> (List Code) (Meta [Referrals (List Code)]))
   (case tokens
-    (pattern#or (pattern (partial_list [_ {#Variant (partial_list [_ {#Text "+"}] defs)}] tokens'))
-                (pattern (partial_list [_ {#Variant (partial_list [_ {#Text "only"}] defs)}] tokens')))
-    (do meta_monad
-      [defs' (..referral_references defs)]
-      (in [{#Only defs'} tokens']))
+    (pattern (partial_list [_ {#Form (partial_list [_ {#Symbol macro}] defs)}] tokens'))
+    (meta#in [{#Referral [macro defs]}
+              tokens'])
 
     (pattern#or (pattern (partial_list [_ {#Variant (partial_list [_ {#Text "-"}] defs)}] tokens'))
                 (pattern (partial_list [_ {#Variant (partial_list [_ {#Text "exclude"}] defs)}] tokens')))
@@ -3722,6 +3720,52 @@
                          #0
                          cases)]
     output))
+
+... TODO: Allow asking the compiler for the name of the definition
+... currently being defined. That name can then be fed into
+... 'wrong_syntax_error' for easier maintenance of the error_messages.
+(def: (wrong_syntax_error it)
+  (-> Symbol Text)
+  (|> it
+      symbol#encoded
+      (text#composite "Wrong syntax for ")))
+
+(macro: .public (symbol tokens)
+  (case tokens
+    (pattern (list [_ {#Symbol [module name]}]))
+    (meta#in (list (` [(~ (text$ module)) (~ (text$ name))])))
+    
+    _
+    (failure (..wrong_syntax_error [..prelude_module "symbol"]))))
+
+(def: (test_referrals current_module imported_module all_defs referred_defs)
+  (-> Text Text (List Text) (List Text) (Meta (List Any)))
+  (monad#each meta_monad
+              (is (-> Text (Meta Any))
+                  (function (_ _def)
+                    (if (is_member? all_defs _def)
+                      (meta#in [])
+                      (failure (all text#composite _def " is not defined in module " imported_module " @ " current_module)))))
+              referred_defs))
+
+(def: (alias_definition imported_module def)
+  (-> Text Text Code)
+  (` ("lux def alias" (~ (local$ def)) (~ (symbol$ [imported_module def])))))
+
+(macro: .public (only tokens)
+  (case (..parsed (all ..andP
+                       ..textP
+                       ..textP
+                       (..someP ..localP))
+                  tokens)
+    {.#Some [current_module imported_module actual]}
+    (do meta_monad
+      [expected (exported_definitions imported_module)
+       _ (test_referrals current_module imported_module expected actual)]
+      (in (list#each (..alias_definition imported_module) actual)))
+
+    {.#None}
+    (failure (..wrong_syntax_error (symbol ..only)))))
 
 (def: (in_env name state)
   (-> Text Lux (Maybe Type))
@@ -4129,32 +4173,32 @@
                                                     (meta#in [])
                                                     (failure (all text#composite _def " is not defined in module " module_name " @ " current_module)))))
                                             referred_defs)))]
-     defs' (case r_defs
-             {#All}
-             (exported_definitions module_name)
+     defs (case r_defs
+            {#All}
+            (do meta_monad
+              [*defs (exported_definitions module_name)]
+              (in (list#each (alias_definition module_name)
+                             *defs)))
+            
+            {#Exclude _defs}
+            (do meta_monad
+              [*defs (exported_definitions module_name)
+               _ (test_referrals module_name *defs _defs)]
+              (in (list#each (alias_definition module_name)
+                             (..list#only (|>> (is_member? _defs) not) *defs))))
 
-             {#Only +defs}
-             (do meta_monad
-               [*defs (exported_definitions module_name)
-                _ (test_referrals module_name *defs +defs)]
-               (in +defs))
-             
-             {#Exclude _defs}
-             (do meta_monad
-               [*defs (exported_definitions module_name)
-                _ (test_referrals module_name *defs _defs)]
-               (in (..list#only (|>> (is_member? _defs) not) *defs)))
+            {#Ignore}
+            (in (list))
 
-             {#Ignore}
-             (in (list))
+            {#Nothing}
+            (in (list))
 
-             {#Nothing}
-             (in (list)))
-     .let [defs (list#each (is (-> Text Code)
-                               (function (_ def)
-                                 (` ("lux def alias" (~ (local$ def)) (~ (symbol$ [module_name def]))))))
-                           defs')
-           openings (|> r_opens
+            {#Referral [macro parameters]}
+            (single_expansion (` ((~ (symbol$ macro))
+                                  (~ (text$ current_module))
+                                  (~ (text$ module_name))
+                                  (~+ parameters)))))
+     .let [openings (|> r_opens
                         (list#each (is (-> Openings (List Code))
                                        (function (_ [alias structs])
                                          (list#each (function (_ name)
@@ -4181,9 +4225,6 @@
                             {#All}
                             (list (' "*"))
                             
-                            {#Only defs}
-                            (list (variant$ (partial_list (' "+") (list#each local$ defs))))
-                            
                             {#Exclude defs}
                             (list (variant$ (partial_list (' "-") (list#each local$ defs))))
                             
@@ -4191,7 +4232,10 @@
                             (list)
 
                             {#Nothing}
-                            (list)))
+                            (list)
+
+                            {#Referral [macro parameters]}
+                            (list (` ((~ (symbol$ macro)) (~+ parameters))))))
         openings (list#each (function (_ [alias structs])
                               (form$ (partial_list (text$ (..module_alias (list (alias_stand_in 0) module_alias) alias))
                                                    (list#each local$ structs))))
@@ -4689,22 +4733,6 @@
     
     _
     (failure "Wrong syntax for pattern#multi")))
-
-... TODO: Allow asking the compiler for the name of the definition
-... currently being defined. That name can then be fed into
-... 'wrong_syntax_error' for easier maintenance of the error_messages.
-(def: wrong_syntax_error
-  (-> Symbol Text)
-  (|>> symbol#encoded
-       (text#composite "Wrong syntax for ")))
-
-(macro: .public (symbol tokens)
-  (case tokens
-    (pattern (list [_ {#Symbol [module name]}]))
-    (meta#in (list (` [(~ (text$ module)) (~ (text$ name))])))
-    
-    _
-    (failure (..wrong_syntax_error [..prelude_module "symbol"]))))
 
 (def: .public (same? reference sample)
   (All (_ a)

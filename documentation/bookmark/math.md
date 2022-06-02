@@ -307,6 +307,7 @@
 
 # Algebraic geometry
 
+0. [The Stacks project](https://stacks.math.columbia.edu/)
 0. http://nautil.us/issue/69/patterns/the-math-that-takes-newton-into-the-quantum-world
 0. [Algebraic Geometry](http://www.mathematik.uni-kl.de/~gathmann/class/alggeom-2014/main.pdf)
 0. https://en.wikipedia.org/wiki/Superformula
