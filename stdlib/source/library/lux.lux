@@ -3377,7 +3377,6 @@
 
 (type: Referrals
   (Variant
-   {#Ignore}
    {#Nothing}
    {#Referral [Symbol (List Code)]}))
 
@@ -3395,19 +3394,39 @@
     #import_alias (Maybe Text)
     #import_refer Refer]))
 
-(def: (referrals_parser tokens)
-  (-> (List Code) (Meta [Referrals (List Code)]))
+... TODO: Allow asking the compiler for the name of the definition
+... currently being defined. That name can then be fed into
+... 'wrong_syntax_error' for easier maintenance of the error_messages.
+(def: (wrong_syntax_error it)
+  (-> Symbol Text)
+  (|> it
+      symbol#encoded
+      (text#composite "Wrong syntax for ")))
+
+(macro: .public (symbol tokens)
+  (case tokens
+    (pattern (list [_ {#Symbol [module name]}]))
+    (meta#in (list (` [(~ (text$ module)) (~ (text$ name))])))
+    
+    _
+    (failure (..wrong_syntax_error [..prelude_module "symbol"]))))
+
+(def: (referrals_parser aliased? tokens)
+  (-> Bit (List Code) (Meta [Referrals (List Code)]))
   (case tokens
     (pattern (partial_list [_ {#Form (partial_list [_ {#Symbol macro}] defs)}] tokens'))
     (meta#in [{#Referral [macro defs]}
               tokens'])
 
-    (pattern#or (pattern (partial_list [_ {#Text "_"}] tokens'))
-                (pattern (partial_list [_ {#Text "ignore"}] tokens')))
-    (meta#in [{#Ignore} tokens'])
-    
+    (pattern (list))
+    (meta#in [(if aliased?
+                {#Referral [(symbol ..none) (list)]}
+                {#Nothing})
+              (list)])
+
     _
-    (meta#in [{#Nothing} tokens])))
+    (meta#in [{#Nothing}
+              tokens])))
 
 (def: (openings_parser parts)
   (-> (List Code) (Meta [(List Openings) (List Code)]))
@@ -3563,7 +3582,7 @@
 
                                                             {#None}
                                                             (..absolute_module_name nested? relative_root module_name))
-                                     referral+extra (referrals_parser extra)
+                                     referral+extra (referrals_parser #0 extra)
                                      .let [[referral extra] referral+extra]
                                      openings+extra (openings_parser extra)
                                      .let [[openings extra] openings+extra]
@@ -3587,14 +3606,14 @@
 
                                                             {#None}
                                                             (..absolute_module_name nested? relative_root module_name))
-                                     referral+extra (referrals_parser extra)
+                                     referral+extra (referrals_parser #1 extra)
                                      .let [[referral extra] referral+extra]
                                      openings+extra (openings_parser extra)
                                      .let [[openings extra] openings+extra
                                            module_alias (..module_alias {#Item module_name context} alias)]
                                      sub_imports (imports_parser #1 absolute_module_name {#Item module_alias context} extra)]
                                     (in (case [referral openings]
-                                          [{#Ignore} {#End}]
+                                          [{#Nothing} {#End}]
                                           sub_imports
                                           
                                           _
@@ -3687,23 +3706,6 @@
                          cases)]
     output))
 
-... TODO: Allow asking the compiler for the name of the definition
-... currently being defined. That name can then be fed into
-... 'wrong_syntax_error' for easier maintenance of the error_messages.
-(def: (wrong_syntax_error it)
-  (-> Symbol Text)
-  (|> it
-      symbol#encoded
-      (text#composite "Wrong syntax for ")))
-
-(macro: .public (symbol tokens)
-  (case tokens
-    (pattern (list [_ {#Symbol [module name]}]))
-    (meta#in (list (` [(~ (text$ module)) (~ (text$ name))])))
-    
-    _
-    (failure (..wrong_syntax_error [..prelude_module "symbol"]))))
-
 (def: (test_referrals current_module imported_module all_defs referred_defs)
   (-> Text Text (List Text) (List Text) (Meta (List Any)))
   (monad#each meta_monad
@@ -3762,16 +3764,23 @@
     {.#None}
     (failure (..wrong_syntax_error (symbol ..except)))))
 
-(macro: .public (full tokens)
-  (case (..parsed (all ..andP
-                       ..anyP
-                       ..anyP)
-                  tokens)
-    {.#Some [current_module imported_module]}
-    (meta#in (list (` (..except (~ current_module) (~ imported_module)))))
+(template [<simple> <complex>]
+  [(macro: .public (<simple> tokens)
+     (case (..parsed (all ..andP
+                          ..anyP
+                          ..anyP)
+                     tokens)
+       {.#Some [current_module imported_module]}
+       (meta#in (list (` (<complex> (~ current_module) (~ imported_module)))))
 
-    {.#None}
-    (failure (..wrong_syntax_error (symbol ..full)))))
+       {.#None}
+       (let [[module _] (symbol .._)
+             [_ short] (symbol <simple>)]
+         (failure (..wrong_syntax_error [module short])))))]
+
+  [full ..except]
+  [none ..only]
+  )
 
 (def: (in_env name state)
   (-> Text Lux (Maybe Type))
@@ -4137,7 +4146,7 @@
 (def: (referrals module_name options)
   (-> Text (List Code) (Meta Refer))
   (do meta_monad
-    [referral+options (referrals_parser options)
+    [referral+options (referrals_parser #0 options)
      .let [[referral options] referral+options]
      openings+options (openings_parser options)
      .let [[openings options] openings+options]
@@ -4168,9 +4177,6 @@
                                                     (failure (all text#composite _def " is not defined in module " module_name " @ " current_module)))))
                                             referred_defs)))]
      defs (case r_defs
-            {#Ignore}
-            (in (list))
-
             {#Nothing}
             (in (list))
 
@@ -4203,9 +4209,6 @@
   (let [module_alias (..maybe#else module_name module_alias')
         localizations (is (List Code)
                           (case r_defs
-                            {#Ignore}
-                            (list)
-
                             {#Nothing}
                             (list)
 
