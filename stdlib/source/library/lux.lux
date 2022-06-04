@@ -2027,7 +2027,7 @@
          (-> Symbol ($' Meta Symbol))
          ({["" name]
            (do meta_monad
-             [module_name current_module_name]
+             [module_name ..current_module_name]
              (in [module_name name]))
 
            _
@@ -2559,6 +2559,40 @@
          _
          {#None}))
 
+(def:' .private (inP it tokens)
+       (All (_ a)
+         (-> a (Parser a)))
+       {#Some [tokens it]})
+
+(def:' .private (orP leftP rightP tokens)
+       (All (_ l r)
+         (-> (Parser l)
+             (Parser r)
+             (Parser (Or l r))))
+       (case (leftP tokens)
+         {#Some [tokens left]}
+         {#Some [tokens {#Left left}]}
+
+         _
+         (case (rightP tokens)
+           {#Some [tokens right]}
+           {#Some [tokens {#Right right}]}
+
+           _
+           {#None})))
+
+(def:' .private (eitherP leftP rightP tokens)
+       (All (_ a)
+         (-> (Parser a)
+             (Parser a)
+             (Parser a)))
+       (case (leftP tokens)
+         {#None}
+         (rightP tokens)
+
+         it
+         it))
+
 (def:' .private (andP leftP rightP tokens)
        (All (_ l r)
          (-> (Parser l)
@@ -2570,6 +2604,16 @@
           right (rightP tokens)
           .let [[tokens right] right]]
          (in [tokens [left right]])))
+
+(def:' .private (afterP leftP rightP tokens)
+       (All (_ l r)
+         (-> (Parser l)
+             (Parser r)
+             (Parser r)))
+       (do maybe_monad
+         [left (leftP tokens)
+          .let [[tokens left] left]]
+         (rightP tokens)))
 
 (def:' .private (someP itP tokens)
        (All (_ a)
@@ -2584,6 +2628,17 @@
 
          {#None}
          {#Some [tokens (list)]}))
+
+(def:' .private (manyP itP tokens)
+       (All (_ a)
+         (-> (Parser a)
+             (Parser (List a))))
+       (do maybe_monad
+         [it (itP tokens)
+          .let [[tokens head] it]
+          it (someP itP tokens)
+          .let [[tokens tail] it]]
+         (in [tokens (partial_list head tail)])))
 
 (def:' .private (maybeP itP tokens)
        (All (_ a)
@@ -2600,9 +2655,21 @@
        (All (_ a)
          (-> (Parser a) (Parser a)))
        (case tokens
-         (pattern (partial_list [_ {#Tuple tuple}] tokens'))
+         (pattern (partial_list [_ {#Tuple input}] tokens'))
          (do maybe_monad
-           [it (parsed itP tuple)]
+           [it (parsed itP input)]
+           (in [tokens' it]))
+
+         _
+         {#None}))
+
+(def:' .private (formP itP tokens)
+       (All (_ a)
+         (-> (Parser a) (Parser a)))
+       (case tokens
+         (pattern (partial_list [_ {#Form input}] tokens'))
+         (do maybe_monad
+           [it (parsed itP input)]
            (in [tokens' it]))
 
          _
@@ -2618,10 +2685,10 @@
          {#None}))
 
 (def:' .private (endP tokens)
-       (-> (List Code) (Maybe Any))
+       (Parser Any)
        (case tokens
          (pattern (list))
-         {#Some []}
+         {#Some [tokens []]}
 
          _
          {#None}))
@@ -2640,6 +2707,15 @@
        (case tokens
          (pattern (partial_list [_ {#Symbol ["" local]}] tokens'))
          {#Some [tokens' local]}
+
+         _
+         {#None}))
+
+(def:' .private (globalP tokens)
+       (-> (List Code) (Maybe [(List Code) Symbol]))
+       (case tokens
+         (pattern (partial_list [_ {#Symbol it}] tokens'))
+         {#Some [tokens' it]}
 
          _
          {#None}))
@@ -3375,24 +3451,14 @@
     {#None}
     (failure "Wrong syntax for type:")))
 
-(type: Referrals
-  (Variant
-   {#Nothing}
-   {#Referral [Symbol (List Code)]}))
-
-(type: Openings
-  [Text (List Text)])
-
-(type: Refer
-  (Record
-   [#refer_defs Referrals
-    #refer_open (List Openings)]))
+(type: Referral
+  [Symbol (List Code)])
 
 (type: Importation
   (Record
    [#import_name Text
     #import_alias (Maybe Text)
-    #import_refer Refer]))
+    #import_referrals (List Referral)]))
 
 ... TODO: Allow asking the compiler for the name of the definition
 ... currently being defined. That name can then be fed into
@@ -3411,47 +3477,19 @@
     _
     (failure (..wrong_syntax_error [..prelude_module "symbol"]))))
 
-(def: (referrals_parser aliased? tokens)
-  (-> Bit (List Code) (Meta [Referrals (List Code)]))
-  (case tokens
-    (pattern (partial_list [_ {#Form (partial_list [_ {#Symbol macro}] defs)}] tokens'))
-    (meta#in [{#Referral [macro defs]}
-              tokens'])
+(def: referral_parser
+  (Parser Referral)
+  (formP (andP globalP (someP anyP))))
 
-    (pattern (list))
-    (meta#in [(if aliased?
-                {#Referral [(symbol ..only) (list)]}
-                {#Nothing})
-              (list)])
-
-    _
-    (meta#in [{#Nothing}
-              tokens])))
-
-(def: (openings_parser parts)
-  (-> (List Code) (Meta [(List Openings) (List Code)]))
-  (case parts
-    {#End}
-    (meta#in [{#End} {#End}])
-
-    (pattern (partial_list [_ {#Form (partial_list [_ {#Text prefix}] structs)}] parts'))
-    (do meta_monad
-      [structs' (monad#each meta_monad
-                            (function (_ struct)
-                              (case struct
-                                [_ {#Symbol ["" struct_name]}]
-                                (meta#in struct_name)
-
-                                _
-                                (failure "Expected all implementations of opening form to be symbols.")))
-                            structs)
-       next+remainder (openings_parser parts')]
-      (let [[next remainder] next+remainder]
-        (meta#in [{#Item [prefix structs'] next}
-                  remainder])))
-
-    _
-    (meta#in [{#End} parts])))
+(def: (referrals_parser aliased?)
+  (-> Bit (Parser (List Referral)))
+  (all eitherP
+       (manyP referral_parser)
+       (afterP endP
+               (inP (if aliased?
+                      (list [(symbol ..only) (list)])
+                      (list))))
+       (inP (list))))
 
 (def: (text#split_at' at x)
   (-> Nat Text [Text Text])
@@ -3582,20 +3620,22 @@
 
                                                             {#None}
                                                             (..absolute_module_name nested? relative_root module_name))
-                                     referral+extra (referrals_parser #0 extra)
-                                     .let [[referral extra] referral+extra]
-                                     openings+extra (openings_parser extra)
-                                     .let [[openings extra] openings+extra]
+                                     extra,referral (case (referrals_parser #0 extra)
+                                                      {#Some extra,referral}
+                                                      (in extra,referral)
+
+                                                      {#None}
+                                                      (failure ""))
+                                     .let [[extra referral] extra,referral]
                                      sub_imports (imports_parser #1 absolute_module_name context extra)]
-                                    (in (case [referral openings]
-                                          [{#Nothing} {#End}]
+                                    (in (case referral
+                                          {#End}
                                           sub_imports
                                           
                                           _
                                           (partial_list [#import_name absolute_module_name
                                                          #import_alias {#None}
-                                                         #import_refer [#refer_defs referral
-                                                                        #refer_open openings]]
+                                                         #import_referrals referral]
                                                         sub_imports))))
 
                                   (pattern [_ {#Tuple (partial_list [_ {#Text alias}] [_ {#Symbol ["" module_name]}] extra)}])
@@ -3606,21 +3646,23 @@
 
                                                             {#None}
                                                             (..absolute_module_name nested? relative_root module_name))
-                                     referral+extra (referrals_parser #1 extra)
-                                     .let [[referral extra] referral+extra]
-                                     openings+extra (openings_parser extra)
-                                     .let [[openings extra] openings+extra
-                                           module_alias (..module_alias {#Item module_name context} alias)]
+                                     extra,referral (case (referrals_parser #1 extra)
+                                                      {#Some extra,referral}
+                                                      (in extra,referral)
+
+                                                      {#None}
+                                                      (failure ""))
+                                     .let [[extra referral] extra,referral]
+                                     .let [module_alias (..module_alias {#Item module_name context} alias)]
                                      sub_imports (imports_parser #1 absolute_module_name {#Item module_alias context} extra)]
-                                    (in (case [referral openings]
-                                          [{#Nothing} {#End}]
+                                    (in (case referral
+                                          {#End}
                                           sub_imports
                                           
                                           _
                                           (partial_list [#import_name absolute_module_name
                                                          #import_alias {#Some module_alias}
-                                                         #import_refer [#refer_defs referral
-                                                                        #refer_open openings]]
+                                                         #import_referrals referral]
                                                         sub_imports))))
 
                                   ... Unrecognized syntax.
@@ -3724,9 +3766,10 @@
   (case (..parsed (all ..andP
                        ..textP
                        ..textP
+                       ..textP
                        (..someP ..localP))
                   tokens)
-    {.#Some [current_module imported_module actual]}
+    {.#Some [current_module imported_module import_alias actual]}
     (do meta_monad
       [expected (exported_definitions imported_module)
        _ (test_referrals current_module imported_module expected actual)]
@@ -3751,9 +3794,10 @@
   (case (..parsed (all ..andP
                        ..textP
                        ..textP
+                       ..textP
                        (..someP ..localP))
                   tokens)
-    {.#Some [current_module imported_module actual]}
+    {.#Some [current_module imported_module import_alias actual]}
     (do meta_monad
       [expected (exported_definitions imported_module)
        _ (test_referrals current_module imported_module expected actual)]
@@ -4059,8 +4103,8 @@
     _
     (failure "Wrong syntax for the")))
 
-(def: (open_declaration alias tags my_tag_index [module short] source type)
-  (-> Text (List Symbol) Nat Symbol Code Type (Meta (List Code)))
+(def: (open_declaration imported_module alias tags my_tag_index [module short] source type)
+  (-> Text Text (List Symbol) Nat Symbol Code Type (Meta (List Code)))
   (do meta_monad
     [output (record_slots type)
      g!_ (..generated_symbol "g!_")
@@ -4079,44 +4123,100 @@
         [decls' (monad#each meta_monad
                             (is (-> [Nat Symbol Type] (Meta (List Code)))
                                 (function (_ [sub_tag_index sname stype])
-                                  (open_declaration alias tags' sub_tag_index sname source+ stype)))
+                                  (open_declaration imported_module alias tags' sub_tag_index sname source+ stype)))
                             (enumeration (zipped_2 tags' members')))]
-        (meta#in (list#conjoint decls')))
+        (in (list#conjoint decls')))
 
       _
-      (meta#in (list (` ("lux def" (~ (local$ (..module_alias (list short) alias)))
-                         (~ source+)
-                         #0)))))))
+      (in (list (` ("lux def" (~ (local$ (..module_alias (list short imported_module) alias)))
+                    (~ source+)
+                    #0)))))))
 
-(macro: .public (open: tokens)
-  (case tokens
-    (pattern (list [_ {#Text alias}] struct))
-    (case struct
-      [_ {#Symbol struct_name}]
+(def: (implementation_declarations imported_module alias implementation)
+  (-> Text Text Symbol (Meta (List Code)))
+  (do meta_monad
+    [interface (type_definition implementation)
+     output (record_slots interface)]
+    (case output
+      {#Some [slots terms]}
       (do meta_monad
-        [struct_type (type_definition struct_name)
-         output (record_slots struct_type)
-         .let [source (symbol$ struct_name)]]
-        (case output
-          {#Some [tags members]}
-          (do meta_monad
-            [decls' (monad#each meta_monad (is (-> [Nat Symbol Type] (Meta (List Code)))
-                                               (function (_ [tag_index sname stype])
-                                                 (open_declaration alias tags tag_index sname source stype)))
-                                (enumeration (zipped_2 tags members)))]
-            (meta#in (list#conjoint decls')))
-
-          _
-          (failure (text#composite "Can only 'open:' structs: " (type#encoded struct_type)))))
+        [.let [g!implementation (symbol$ implementation)]
+         declarations (monad#each meta_monad (is (-> [Nat Symbol Type] (Meta (List Code)))
+                                                 (function (_ [index slot_label slot_type])
+                                                   (open_declaration imported_module alias slots index slot_label g!implementation slot_type)))
+                                  (enumeration (zipped_2 slots terms)))]
+        (in (list#conjoint declarations)))
 
       _
-      (do meta_monad
-        [g!struct (..generated_symbol "struct")]
-        (meta#in (list (` ("lux def" (~ g!struct) (~ struct) #0))
-                       (` (..open: (~ (text$ alias)) (~ g!struct)))))))
+      (failure (all text#composite
+                    "Can only 'open:' structs: " (symbol#encoded implementation)
+                    " : " (type#encoded interface))))))
+
+(def: (localized module global)
+  (-> Text Symbol Symbol)
+  (case global
+    ["" local]
+    [module local]
 
     _
-    (failure "Wrong syntax for open:")))
+    global))
+
+(macro: .public (open: tokens)
+  (case (..parsed (all ..andP
+                       (..maybeP (all ..andP
+                                      ..textP
+                                      ..textP
+                                      ..textP))
+                       ..textP
+                       (..orP (..manyP ..globalP)
+                              (..manyP ..anyP)))
+                  tokens)
+    {.#Some [current_module,imported_module,import_alias alias implementations]}
+    (let [[current_module imported_module import_alias]
+          (case current_module,imported_module,import_alias
+            {#Some [current_module imported_module import_alias]}
+            [current_module imported_module import_alias]
+            
+            {#None}
+            ["" "" ""])]
+      (case implementations
+        {#Left implementations}
+        (do meta_monad
+          [declarations (|> implementations
+                            (list#each (localized imported_module))
+                            (monad#each meta_monad (implementation_declarations import_alias alias)))]
+          (in (list#conjoint declarations)))
+        
+        {#Right implementations}
+        (do meta_monad
+          [pre_defs,implementations (is (Meta [(List Code) (List Code)])
+                                        (monad#mix meta_monad
+                                                   (function (_ it [pre_defs implementations])
+                                                     (case it
+                                                       [_ {#Symbol _}]
+                                                       (in [pre_defs
+                                                            {#Item it implementations}])
+                                                       
+                                                       _
+                                                       (do meta_monad
+                                                         [g!implementation (..generated_symbol "implementation")]
+                                                         (in [{#Item (` ("lux def" (~ g!implementation) (~ it) #0)) pre_defs}
+                                                              {#Item g!implementation implementations}]))))
+                                                   [(list) (list)]
+                                                   implementations))
+           .let [[pre_defs implementations] pre_defs,implementations]]
+          (in (|> pre_defs
+                  {#Item (` (..open:
+                              (~ (text$ current_module))
+                              (~ (text$ imported_module))
+                              (~ (text$ import_alias))
+                              (~ (text$ alias))
+                              (~+ implementations)))}
+                  list#reversed)))))
+    
+
+    {.#None}
+    (failure (..wrong_syntax_error (symbol ..open:)))))
 
 (def: (imported_by? import_name module_name)
   (-> Text Text (Meta Bit))
@@ -4125,84 +4225,44 @@
      .let [[..#module_hash _ ..#module_aliases _ ..#definitions _ ..#imports imports ..#module_state _] module]]
     (in (is_member? imports import_name))))
 
-(def: (referrals module_name options)
-  (-> Text (List Code) (Meta Refer))
+(def: (referrals module_name extra)
+  (-> Text (List Code) (Meta (List Referral)))
   (do meta_monad
-    [referral+options (referrals_parser #0 options)
-     .let [[referral options] referral+options]
-     openings+options (openings_parser options)
-     .let [[openings options] openings+options]
+    [extra,referral (case (referrals_parser #0 extra)
+                      {#Some extra,referral}
+                      (in extra,referral)
+
+                      {#None}
+                      (failure ""))
+     .let [[extra referral] extra,referral]
      current_module current_module_name]
-    (case options
+    (case extra
       {#End}
-      (in [#refer_defs referral
-           #refer_open openings])
+      (in referral)
 
       _
       (failure (all text#composite "Wrong syntax for refer @ " current_module
-                    \n (|> options
+                    \n (|> extra
                            (list#each code#encoded)
                            (list#interposed " ")
                            (list#mix text#composite "")))))))
 
-(def: (referral_definitions module_name [r_defs r_opens])
-  (-> Text Refer (Meta (List Code)))
-  (do meta_monad
-    [current_module ..current_module_name
-     .let [test_referrals (is (-> Text (List Text) (List Text) (Meta (List Any)))
-                              (function (_ module_name all_defs referred_defs)
-                                (monad#each meta_monad
-                                            (is (-> Text (Meta Any))
-                                                (function (_ _def)
-                                                  (if (is_member? all_defs _def)
-                                                    (meta#in [])
-                                                    (failure (all text#composite _def " is not defined in module " module_name " @ " current_module)))))
-                                            referred_defs)))]
-     defs (case r_defs
-            {#Nothing}
-            (in (list))
-
-            {#Referral [macro parameters]}
-            (single_expansion (` ((~ (symbol$ macro))
-                                  (~ (text$ current_module))
-                                  (~ (text$ module_name))
-                                  (~+ parameters)))))
-     .let [openings (|> r_opens
-                        (list#each (is (-> Openings (List Code))
-                                       (function (_ [alias structs])
-                                         (list#each (function (_ name)
-                                                      (` (open: (~ (text$ alias)) (~ (symbol$ [module_name name])))))
-                                                    structs))))
-                        list#conjoint)]]
-    (in (list#composite defs openings))))
-
 (macro: (refer tokens)
   (case tokens
-    (pattern (partial_list [_ {#Text module_name}] options))
+    (pattern (partial_list [_ {#Text imported_module}] [_ {#Text alias}] options))
     (do meta_monad
-      [=refer (referrals module_name options)]
-      (referral_definitions module_name =refer))
+      [referrals (..referrals imported_module options)
+       current_module ..current_module_name]
+      (in (list#each (function (_ [macro parameters])
+                       (` ((~ (symbol$ macro))
+                           (~ (text$ current_module))
+                           (~ (text$ imported_module))
+                           (~ (text$ alias))
+                           (~+ parameters))))
+                     referrals)))
 
     _
     (failure "Wrong syntax for refer")))
-
-(def: (refer_code module_name module_alias' [r_defs r_opens])
-  (-> Text (Maybe Text) Refer Code)
-  (let [module_alias (..maybe#else module_name module_alias')
-        localizations (is (List Code)
-                          (case r_defs
-                            {#Nothing}
-                            (list)
-
-                            {#Referral [macro parameters]}
-                            (list (` ((~ (symbol$ macro)) (~+ parameters))))))
-        openings (list#each (function (_ [alias structs])
-                              (form$ (partial_list (text$ (..module_alias (list (alias_stand_in 0) module_alias) alias))
-                                                   (list#each local$ structs))))
-                            r_opens)]
-    (` ((~! ..refer) (~ (text$ module_name))
-        (~+ localizations)
-        (~+ openings)))))
 
 (macro: .public (# tokens)
   (case tokens
@@ -4891,6 +4951,15 @@
                         (failure (..wrong_syntax_error (symbol ..$))))))
      (these (def: .public parameter "")))
 
+(def: (refer_code imported_module alias referrals)
+  (-> Text Text (List Referral) Code)
+  (` ((~! ..refer)
+      (~ (text$ imported_module))
+      (~ (text$ alias))
+      (~+ (list#each (function (_ [macro parameters])
+                       (` ((~ (symbol$ macro)) (~+ parameters))))
+                     referrals)))))
+
 (macro: .public (using _imports)
   (do meta_monad
     [current_module ..current_module_name
@@ -4902,7 +4971,7 @@
                         tuple$)
            =refers (list#each (is (-> Importation Code)
                                   (function (_ [module_name m_alias =refer])
-                                    (refer_code module_name m_alias =refer)))
+                                    (refer_code module_name (..maybe#else "" m_alias) =refer)))
                               imports)
            =module (` ("lux def module" (~ =imports)))]
      g!_ (..generated_symbol "")]
