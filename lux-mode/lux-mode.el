@@ -381,7 +381,7 @@ Called by `imenu--generic-function'."
 							(type//capability (altRE "capability:"))
 							;; Data
 							(data//record (altRE "the" "has" "revised"))
-							(data//interface (altRE "open:" "implementation" "at"))
+							(data//interface (altRE "open:" "implementation" "with" "at"))
 							(data//implicit (altRE "implicit:" "a/an" "a" "an"))
 							(data//collection (altRE "list" "partial_list" "sequence" "tree"))
 							;; Code
