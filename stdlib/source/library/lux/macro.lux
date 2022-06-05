@@ -1,6 +1,6 @@
 (.using
  [library
-  [lux (.except local symbol)
+  [lux (.except local symbol function macro)
    [abstract
     ["[0]" monad (.only do)]]
    [data
@@ -115,20 +115,21 @@
        (text.prefix (text#composite "Wrong syntax for " text.\''))
        (text.suffix (text#composite text.\'' "."))))
 
-(macro: .public (with_symbols tokens)
-  (case tokens
-    (pattern (list [_ {.#Tuple symbols}] body))
-    (do [! //.monad]
-      [symbol_names (monad.each ! ..local symbols)
-       .let [symbol_defs (list#conjoint (list#each (is (-> Text (List Code))
-                                                       (function (_ name) (list (code.symbol ["" name]) (` (..symbol (~ (code.text name)))))))
-                                                   symbol_names))]]
-      (in (list (` ((~! do) (~! //.monad)
-                    [(~+ symbol_defs)]
-                    (~ body))))))
+(def: .public with_symbols
+  (.macro (_ tokens)
+    (case tokens
+      (pattern (list [_ {.#Tuple symbols}] body))
+      (do [! //.monad]
+        [symbol_names (monad.each ! ..local symbols)
+         .let [symbol_defs (list#conjoint (list#each (is (-> Text (List Code))
+                                                         (.function (_ name) (list (code.symbol ["" name]) (` (..symbol (~ (code.text name)))))))
+                                                     symbol_names))]]
+        (in (list (` ((~! do) (~! //.monad)
+                      [(~+ symbol_defs)]
+                      (~ body))))))
 
-    _
-    (//.failure (..wrong_syntax_error (.symbol ..with_symbols)))))
+      _
+      (//.failure (..wrong_syntax_error (.symbol ..with_symbols))))))
 
 (def: .public (one_expansion token)
   (-> Code (Meta Code))
@@ -142,62 +143,73 @@
       (//.failure "Macro expanded to more than 1 element."))))
 
 (template [<macro> <func>]
-  [(macro: .public (<macro> tokens)
-     (let [[module _] (.symbol .._)
-           [_ short] (.symbol <macro>)
-           macro_name [module short]]
-       (case (is (Maybe [Bit Code])
-                 (case tokens
-                   (pattern (list [_ {.#Text "omit"}]
-                                  token))
-                   {.#Some [#1 token]}
+  [(def: .public <macro>
+     (.macro (_ tokens)
+       (let [[module _] (.symbol .._)
+             [_ short] (.symbol <macro>)
+             macro_name [module short]]
+         (case (is (Maybe [Bit Code])
+                   (case tokens
+                     (pattern (list [_ {.#Text "omit"}]
+                                    token))
+                     {.#Some [#1 token]}
 
-                   (pattern (list token))
-                   {.#Some [#0 token]}
+                     (pattern (list token))
+                     {.#Some [#0 token]}
 
-                   _
-                   {.#None}))
-         {.#Some [omit? token]}
-         (do //.monad
-           [location //.location
-            output (<func> token)
-            .let [_ ("lux io log" (all text#composite (symbol#encoded macro_name) " " (location.format location)))
-                  _ (list#each (|>> code.format "lux io log")
-                               output)
-                  _ ("lux io log" "")]]
-           (in (if omit?
-                 (list)
-                 output)))
+                     _
+                     {.#None}))
+           {.#Some [omit? token]}
+           (do //.monad
+             [location //.location
+              output (<func> token)
+              .let [_ ("lux io log" (all text#composite (symbol#encoded macro_name) " " (location.format location)))
+                    _ (list#each (|>> code.format "lux io log")
+                                 output)
+                    _ ("lux io log" "")]]
+             (in (if omit?
+                   (list)
+                   output)))
 
-         {.#None}
-         (//.failure (..wrong_syntax_error macro_name)))))]
+           {.#None}
+           (//.failure (..wrong_syntax_error macro_name))))))]
 
   [log_single_expansion! ..single_expansion]
   [log_expansion!        ..expansion]
   [log_full_expansion!   ..full_expansion]
   )
 
-(macro: .public (times tokens)
-  (case tokens
-    (pattern (partial_list [_ {.#Nat times}] terms))
-    (loop (again [times times
-                  before terms])
-      (case times
-        0
-        (at //.monad in before)
+(def: .public times
+  (.macro (_ tokens)
+    (case tokens
+      (pattern (partial_list [_ {.#Nat times}] terms))
+      (loop (again [times times
+                    before terms])
+        (case times
+          0
+          (at //.monad in before)
 
-        _
-        (do [! //.monad]
-          [after (|> before
-                     (monad.each ! ..single_expansion)
-                     (at ! each list#conjoint))]
-          (again (-- times) after))))
+          _
+          (do [! //.monad]
+            [after (|> before
+                       (monad.each ! ..single_expansion)
+                       (at ! each list#conjoint))]
+            (again (-- times) after))))
 
-    _
-    (//.failure (..wrong_syntax_error (.symbol ..times)))))
+      _
+      (//.failure (..wrong_syntax_error (.symbol ..times))))))
 
-(macro: .public (final it)
-  (let [! //.monad]
-    (|> it
-        (monad.each ! ..expansion)
-        (at ! each list#conjoint))))
+(def: .public final
+  (.macro (_ it)
+    (let [! //.monad]
+      (|> it
+          (monad.each ! ..expansion)
+          (at ! each list#conjoint)))))
+
+(def: .public function
+  (-> Macro Macro')
+  (|>> (as Macro')))
+
+(def: .public macro
+  (-> Macro' Macro)
+  (|>> (as Macro)))

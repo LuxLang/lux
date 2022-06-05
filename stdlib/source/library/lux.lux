@@ -706,6 +706,41 @@
     {#Left msg})))
  #0)
 
+("lux def" text#composite
+ ("lux type check"
+  {#Function Text {#Function Text Text}}
+  ([_ x]
+   ([_ y]
+    ("lux text concat" x y))))
+ #0)
+
+("lux def" symbol_separator
+ ("lux type check"
+  Text
+  ".")
+ #0)
+
+("lux def" symbol#encoded
+ ("lux type check"
+  {#Function Symbol Text}
+  ([_ full_name]
+   ({[module name]
+     ({"" name
+       _  (text#composite module (text#composite ..symbol_separator name))}
+      module)}
+    full_name)))
+ #0)
+
+... TODO: Allow asking the compiler for the name of the definition
+... currently being defined. That name can then be fed into
+... 'wrong_syntax_error' for easier maintenance of the error_messages.
+("lux def" wrong_syntax_error
+ ("lux type check"
+  {#Function Symbol Text}
+  ([_ it]
+   (text#composite "Wrong syntax for " (symbol#encoded it))))
+ #0)
+
 ("lux def" let''
  ("lux macro"
   ([_ tokens]
@@ -769,11 +804,15 @@
 
 ("lux def" as_function
  ("lux type check" {#Function Code {#Function {#Apply Code List} {#Function Code Code}}}
-  (function'' [self inputs output]
-              (form$ {#Item (symbol$ [..prelude_module "function''"])
-                            {#Item self
-                                   {#Item (tuple$ inputs)
-                                          {#Item output {#End}}}}})))
+  (function'' as_function [self inputs output]
+              ({{#End}
+                output
+
+                {#Item head tail}
+                (_ann {#Form {#Item (_ann {#Tuple {#Item self {#Item head {#End}}}})
+                                    {#Item (as_function (_ann {#Symbol ["" ""]}) tail output)
+                                           {#End}}}})}
+               inputs)))
  #0)
 
 ("lux def" as_macro
@@ -801,40 +840,43 @@
                                  {#End}]})
 
                 _
-                (failure "Wrong syntax for def''")}
+                (failure "Wrong syntax for def:''")}
                tokens)))
  #0)
 
-("lux def" macro:'
+("lux def" macro
  ("lux macro"
   (function'' [tokens]
-              ({{#Item export_policy {#Item [_ {#Form {#Item name args}}] {#Item body {#End}}}}
-                (meta#in {#Item (as_def name (as_macro (as_function name args body))
-                                        export_policy)
+              ({{#Item [_ {#Form {#Item name {#Item head tail}}}] {#Item body {#End}}}
+                (meta#in {#Item (as_macro (as_function name {#Item head tail} body))
                                 {#End}})
 
                 _
-                (failure "Wrong syntax for macro:'")}
+                (failure (wrong_syntax_error [..prelude_module "macro"]))}
                tokens)))
- #0)
+ #1)
 
-(macro:' .public (comment tokens)
-         (meta#in {#End}))
+(def:'' .public comment
+        Macro
+        (macro (_ tokens)
+          (meta#in {#End})))
 
-(macro:' .private ($' tokens)
-         ({{#Item x {#End}}
-           (meta#in tokens)
+(def:'' .private $'
+        Macro
+        (macro (_ tokens)
+          ({{#Item x {#End}}
+            (meta#in tokens)
 
-           {#Item x {#Item y xs}}
-           (meta#in {#Item (form$ {#Item (symbol$ [..prelude_module "$'"])
-                                         {#Item (variant$ {#Item (symbol$ [..prelude_module "#Apply"])
-                                                                 {#Item y {#Item x {#End}}}})
-                                                xs}})
-                           {#End}})
+            {#Item x {#Item y xs}}
+            (meta#in {#Item (form$ {#Item (symbol$ [..prelude_module "$'"])
+                                          {#Item (variant$ {#Item (symbol$ [..prelude_module "#Apply"])
+                                                                  {#Item y {#Item x {#End}}}})
+                                                 xs}})
+                            {#End}})
 
-           _
-           (failure "Wrong syntax for $'")}
-          tokens))
+            _
+            (failure "Wrong syntax for $'")}
+           tokens)))
 
 (def:'' .private (list#mix f init xs)
         ... (All (_ a b) (-> (-> b a a) a (List b) a))
@@ -1085,165 +1127,183 @@
                     scopes)}
          lux))
 
-(macro:' .public (All tokens lux)
-         ({{#Item [_ {#Form {#Item self_name args}}]
-                  {#Item body {#End}}}
-           {#Right [lux
-                    {#Item ({raw
-                             ({[#1] raw
-                               [#0] (..quantified raw)}
-                              (initialized_quantification? lux))}
-                            ({{#End}
-                              body
+(def:'' .public All
+        Macro
+        (macro (_ tokens lux)
+          ({{#Item [_ {#Form {#Item self_name args}}]
+                   {#Item body {#End}}}
+            {#Right [lux
+                     {#Item ({raw
+                              ({[#1] raw
+                                [#0] (..quantified raw)}
+                               (initialized_quantification? lux))}
+                             ({{#End}
+                               body
 
-                              {#Item head tail}
-                              (with_correct_quantification
-                                (let$ self_name (quantified_type_parameter 0)
-                                      ({[_ raw]
-                                        raw}
-                                       (list#mix (function'' [parameter offset,body']
-                                                             ({[offset body']
-                                                               [("lux i64 +" 2 offset)
-                                                                (let$ parameter (quantified_type_parameter ("lux i64 +" offset 1))
-                                                                      (UnivQ$ body'))]}
-                                                              offset,body'))
-                                                 [0 (with_quantification (list#size args)
-                                                      body)]
-                                                 args))))}
-                             args))
-                           {#End}}]}
-           
-           _
-           {#Left "Wrong syntax for All"}}
-          tokens))
+                               {#Item head tail}
+                               (with_correct_quantification
+                                 (let$ self_name (quantified_type_parameter 0)
+                                       ({[_ raw]
+                                         raw}
+                                        (list#mix (function'' [parameter offset,body']
+                                                              ({[offset body']
+                                                                [("lux i64 +" 2 offset)
+                                                                 (let$ parameter (quantified_type_parameter ("lux i64 +" offset 1))
+                                                                       (UnivQ$ body'))]}
+                                                               offset,body'))
+                                                  [0 (with_quantification (list#size args)
+                                                       body)]
+                                                  args))))}
+                              args))
+                            {#End}}]}
+            
+            _
+            {#Left "Wrong syntax for All"}}
+           tokens)))
 
-(macro:' .public (Ex tokens lux)
-         ({{#Item [_ {#Form {#Item self_name args}}]
-                  {#Item body {#End}}}
-           {#Right [lux
-                    {#Item ({raw
-                             ({[#1] raw
-                               [#0] (..quantified raw)}
-                              (initialized_quantification? lux))}
-                            ({{#End}
-                              body
+(def:'' .public Ex
+        Macro
+        (macro (_ tokens lux)
+          ({{#Item [_ {#Form {#Item self_name args}}]
+                   {#Item body {#End}}}
+            {#Right [lux
+                     {#Item ({raw
+                              ({[#1] raw
+                                [#0] (..quantified raw)}
+                               (initialized_quantification? lux))}
+                             ({{#End}
+                               body
 
-                              {#Item head tail}
-                              (with_correct_quantification
-                                (let$ self_name (quantified_type_parameter 0)
-                                      ({[_ raw]
-                                        raw}
-                                       (list#mix (function'' [parameter offset,body']
-                                                             ({[offset body']
-                                                               [("lux i64 +" 2 offset)
-                                                                (let$ parameter (quantified_type_parameter ("lux i64 +" offset 1))
-                                                                      (ExQ$ body'))]}
-                                                              offset,body'))
-                                                 [0 (with_quantification (list#size args)
-                                                      body)]
-                                                 args))))}
-                             args))
-                           {#End}}]}
-           
-           _
-           {#Left "Wrong syntax for Ex"}}
-          tokens))
+                               {#Item head tail}
+                               (with_correct_quantification
+                                 (let$ self_name (quantified_type_parameter 0)
+                                       ({[_ raw]
+                                         raw}
+                                        (list#mix (function'' [parameter offset,body']
+                                                              ({[offset body']
+                                                                [("lux i64 +" 2 offset)
+                                                                 (let$ parameter (quantified_type_parameter ("lux i64 +" offset 1))
+                                                                       (ExQ$ body'))]}
+                                                               offset,body'))
+                                                  [0 (with_quantification (list#size args)
+                                                       body)]
+                                                  args))))}
+                              args))
+                            {#End}}]}
+            
+            _
+            {#Left "Wrong syntax for Ex"}}
+           tokens)))
 
-(macro:' .public (-> tokens)
-         ({{#Item output inputs}
-           (meta#in {#Item (list#mix ("lux type check" {#Function Code {#Function Code Code}}
-                                      (function'' [i o] (variant$ {#Item (symbol$ [..prelude_module "#Function"]) {#Item i {#Item o {#End}}}})))
-                                     output
-                                     inputs)
-                           {#End}})
-           
-           _
-           (failure "Wrong syntax for ->")}
-          (list#reversed tokens)))
+(def:'' .public ->
+        Macro
+        (macro (_ tokens)
+          ({{#Item output inputs}
+            (meta#in {#Item (list#mix ("lux type check" {#Function Code {#Function Code Code}}
+                                       (function'' [i o] (variant$ {#Item (symbol$ [..prelude_module "#Function"]) {#Item i {#Item o {#End}}}})))
+                                      output
+                                      inputs)
+                            {#End}})
+            
+            _
+            (failure "Wrong syntax for ->")}
+           (list#reversed tokens))))
 
-(macro:' .public (list xs)
-         (meta#in {#Item (list#mix |#Item| |#End| (list#reversed xs))
-                         {#End}}))
+(def:'' .public list
+        Macro
+        (macro (_ xs)
+          (meta#in {#Item (list#mix |#Item| |#End| (list#reversed xs))
+                          {#End}})))
 
-(macro:' .public (partial_list xs)
-         ({{#Item last init}
-           (meta#in (list (list#mix |#Item| last init)))
+(def:'' .public partial_list
+        Macro
+        (macro (_ xs)
+          ({{#Item last init}
+            (meta#in (list (list#mix |#Item| last init)))
 
-           _
-           (failure "Wrong syntax for partial_list")}
-          (list#reversed xs)))
+            _
+            (failure "Wrong syntax for partial_list")}
+           (list#reversed xs))))
 
-(macro:' .public (Union tokens)
-         ({{#End}
-           (meta#in (list (symbol$ [..prelude_module "Nothing"])))
+(def:'' .public Union
+        Macro
+        (macro (_ tokens)
+          ({{#End}
+            (meta#in (list (symbol$ [..prelude_module "Nothing"])))
 
-           {#Item last prevs}
-           (meta#in (list (list#mix (function'' [left right] (variant$ (list (symbol$ [..prelude_module "#Sum"]) left right)))
-                                    last
-                                    prevs)))}
-          (list#reversed tokens)))
+            {#Item last prevs}
+            (meta#in (list (list#mix (function'' [left right] (variant$ (list (symbol$ [..prelude_module "#Sum"]) left right)))
+                                     last
+                                     prevs)))}
+           (list#reversed tokens))))
 
-(macro:' .public (Tuple tokens)
-         ({{#End}
-           (meta#in (list (symbol$ [..prelude_module "Any"])))
+(def:'' .public Tuple
+        Macro
+        (macro (_ tokens)
+          ({{#End}
+            (meta#in (list (symbol$ [..prelude_module "Any"])))
 
-           {#Item last prevs}
-           (meta#in (list (list#mix (function'' [left right] (variant$ (list (symbol$ [..prelude_module "#Product"]) left right)))
-                                    last
-                                    prevs)))}
-          (list#reversed tokens)))
+            {#Item last prevs}
+            (meta#in (list (list#mix (function'' [left right] (variant$ (list (symbol$ [..prelude_module "#Product"]) left right)))
+                                     last
+                                     prevs)))}
+           (list#reversed tokens))))
 
-(macro:' .private (function' tokens)
-         (let'' [name tokens'] ({{#Item [[_ {#Symbol ["" name]}] tokens']}
-                                 [name tokens']
+(def:'' .private function'
+        Macro
+        (macro (_ tokens)
+          (let'' [name tokens'] ({{#Item [[_ {#Symbol ["" name]}] tokens']}
+                                  [name tokens']
 
-                                 _
-                                 ["" tokens]}
-                                tokens)
-                ({{#Item [[_ {#Tuple args}] {#Item [body {#End}]}]}
-                  ({{#End}
-                    (failure "function' requires a non-empty arguments tuple.")
-                    
-                    {#Item [harg targs]}
-                    (meta#in (list (form$ (list (tuple$ (list (local$ name)
-                                                              harg))
-                                                (list#mix (function'' [arg body']
-                                                                      (form$ (list (tuple$ (list (local$ "")
-                                                                                                 arg))
-                                                                                   body')))
-                                                          body
-                                                          (list#reversed targs))))))}
-                   args)
+                                  _
+                                  ["" tokens]}
+                                 tokens)
+                 ({{#Item [[_ {#Tuple args}] {#Item [body {#End}]}]}
+                   ({{#End}
+                     (failure "function' requires a non-empty arguments tuple.")
+                     
+                     {#Item [harg targs]}
+                     (meta#in (list (form$ (list (tuple$ (list (local$ name)
+                                                               harg))
+                                                 (list#mix (function'' [arg body']
+                                                                       (form$ (list (tuple$ (list (local$ "")
+                                                                                                  arg))
+                                                                                    body')))
+                                                           body
+                                                           (list#reversed targs))))))}
+                    args)
 
-                  _
-                  (failure "Wrong syntax for function'")}
-                 tokens')))
+                   _
+                   (failure "Wrong syntax for function'")}
+                  tokens'))))
 
-(macro:' .private (def:''' tokens)
-         ({{#Item [export_policy
-                   {#Item [[_ {#Form {#Item [name args]}}]
-                           {#Item [type {#Item [body {#End}]}]}]}]}
-           (meta#in (list (form$ (list (text$ "lux def")
-                                       name
-                                       (form$ (list (text$ "lux type check")
-                                                    type
-                                                    (form$ (list (symbol$ [..prelude_module "function'"])
-                                                                 name
-                                                                 (tuple$ args)
-                                                                 body))))
-                                       export_policy))))
+(def:'' .private def:'''
+        Macro
+        (macro (_ tokens)
+          ({{#Item [export_policy
+                    {#Item [[_ {#Form {#Item [name args]}}]
+                            {#Item [type {#Item [body {#End}]}]}]}]}
+            (meta#in (list (form$ (list (text$ "lux def")
+                                        name
+                                        (form$ (list (text$ "lux type check")
+                                                     type
+                                                     (form$ (list (symbol$ [..prelude_module "function'"])
+                                                                  name
+                                                                  (tuple$ args)
+                                                                  body))))
+                                        export_policy))))
 
-           {#Item [export_policy {#Item [name {#Item [type {#Item [body {#End}]}]}]}]}
-           (meta#in (list (form$ (list (text$ "lux def")
-                                       name
-                                       (form$ (list (text$ "lux type check")
-                                                    type
-                                                    body))
-                                       export_policy))))
+            {#Item [export_policy {#Item [name {#Item [type {#Item [body {#End}]}]}]}]}
+            (meta#in (list (form$ (list (text$ "lux def")
+                                        name
+                                        (form$ (list (text$ "lux type check")
+                                                     type
+                                                     body))
+                                        export_policy))))
 
-           _
-           (failure "Wrong syntax for def:'''")}
-          tokens))
+            _
+            (failure "Wrong syntax for def:'''")}
+           tokens)))
 
 (def:''' .public Or
          Macro
@@ -1270,25 +1330,27 @@
            {#None}}
           xs))
 
-(macro:' .private (let' tokens)
-         ({{#Item [_ {#Tuple bindings}] {#Item body {#End}}}
-           ({{#Some bindings}
-             (meta#in (list (list#mix ("lux type check" (-> (Tuple Code Code) Code
-                                                            Code)
-                                       (function' [binding body]
-                                                  ({[label value]
-                                                    (form$ (list (variant$ (list label body)) value))}
-                                                   binding)))
-                                      body
-                                      (list#reversed bindings))))
-             
-             {#None}
-             (failure "Wrong syntax for let'")}
-            (pairs bindings))
+(def:'' .private let'
+        Macro
+        (macro (_ tokens)
+          ({{#Item [_ {#Tuple bindings}] {#Item body {#End}}}
+            ({{#Some bindings}
+              (meta#in (list (list#mix ("lux type check" (-> (Tuple Code Code) Code
+                                                             Code)
+                                        (function' [binding body]
+                                                   ({[label value]
+                                                     (form$ (list (variant$ (list label body)) value))}
+                                                    binding)))
+                                       body
+                                       (list#reversed bindings))))
+              
+              {#None}
+              (failure "Wrong syntax for let'")}
+             (pairs bindings))
 
-           _
-           (failure "Wrong syntax for let'")}
-          tokens))
+            _
+            (failure "Wrong syntax for let'")}
+           tokens)))
 
 (def:''' .private (any? p xs)
          (All (_ a)
@@ -1337,31 +1399,35 @@
          (function' [right left]
                     (func left right)))
 
-(macro:' .public (left tokens)
-         ({{#Item op tokens'}
-           ({{#Item first nexts}
-             (meta#in (list (list#mix (function#flipped (right_associativity op)) first nexts)))
+(def:'' .public left
+        Macro
+        (macro (_ tokens)
+          ({{#Item op tokens'}
+            ({{#Item first nexts}
+              (meta#in (list (list#mix (function#flipped (right_associativity op)) first nexts)))
 
-             _
-             (failure "Wrong syntax for left")}
-            tokens')
-           
-           _
-           (failure "Wrong syntax for left")}
-          tokens))
+              _
+              (failure "Wrong syntax for left")}
+             tokens')
+            
+            _
+            (failure "Wrong syntax for left")}
+           tokens)))
 
-(macro:' .public (right tokens)
-         ({{#Item op tokens'}
-           ({{#Item last prevs}
-             (meta#in (list (list#mix (right_associativity op) last prevs)))
+(def:'' .public right
+        Macro
+        (macro (_ tokens)
+          ({{#Item op tokens'}
+            ({{#Item last prevs}
+              (meta#in (list (list#mix (right_associativity op) last prevs)))
 
-             _
-             (failure "Wrong syntax for right")}
-            (list#reversed tokens'))
-           
-           _
-           (failure "Wrong syntax for right")}
-          tokens))
+              _
+              (failure "Wrong syntax for right")}
+             (list#reversed tokens'))
+            
+            _
+            (failure "Wrong syntax for right")}
+           tokens)))
 
 (def:''' .public all Macro ..right)
 
@@ -1411,43 +1477,45 @@
                                   (f a state')}
                                  (ma state))))])
 
-(macro:' .private (do tokens)
-         ({{#Item monad {#Item [_ {#Tuple bindings}] {#Item body {#End}}}}
-           ({{#Some bindings}
-             (let' [g!in (local$ "in")
-                    g!then (local$ " then ")
-                    body' (list#mix ("lux type check" (-> (Tuple Code Code) Code Code)
-                                     (function' [binding body']
-                                                (let' [[var value] binding]
-                                                      ({[_ {#Symbol [module short]}]
-                                                        ({""
-                                                          (form$ (list g!then
-                                                                       (form$ (list (tuple$ (list (local$ "") var)) body'))
-                                                                       value))
+(def:'' .private do
+        Macro
+        (macro (_ tokens)
+          ({{#Item monad {#Item [_ {#Tuple bindings}] {#Item body {#End}}}}
+            ({{#Some bindings}
+              (let' [g!in (local$ "in")
+                     g!then (local$ " then ")
+                     body' (list#mix ("lux type check" (-> (Tuple Code Code) Code Code)
+                                      (function' [binding body']
+                                                 (let' [[var value] binding]
+                                                       ({[_ {#Symbol [module short]}]
+                                                         ({""
+                                                           (form$ (list g!then
+                                                                        (form$ (list (tuple$ (list (local$ "") var)) body'))
+                                                                        value))
 
-                                                          _
-                                                          (form$ (list var value body'))}
-                                                         module)
-                                                        
+                                                           _
+                                                           (form$ (list var value body'))}
+                                                          module)
+                                                         
 
-                                                        _
-                                                        (form$ (list g!then
-                                                                     (form$ (list (tuple$ (list (local$ "") var)) body'))
-                                                                     value))}
-                                                       var))))
-                                    body
-                                    (list#reversed bindings))]
-                   (meta#in (list (form$ (list (variant$ (list (tuple$ (list g!in g!then))
-                                                               body'))
-                                               monad)))))
-             
-             {#None}
-             (failure "Wrong syntax for do")}
-            (pairs bindings))
+                                                         _
+                                                         (form$ (list g!then
+                                                                      (form$ (list (tuple$ (list (local$ "") var)) body'))
+                                                                      value))}
+                                                        var))))
+                                     body
+                                     (list#reversed bindings))]
+                    (meta#in (list (form$ (list (variant$ (list (tuple$ (list g!in g!then))
+                                                                body'))
+                                                monad)))))
+              
+              {#None}
+              (failure "Wrong syntax for do")}
+             (pairs bindings))
 
-           _
-           (failure "Wrong syntax for do")}
-          tokens))
+            _
+            (failure "Wrong syntax for do")}
+           tokens)))
 
 (def:''' .private (monad#each m f xs)
          (All (_ m a b)
@@ -1483,15 +1551,17 @@
                    (monad#mix m f y' xs'))}
                 xs)))
 
-(macro:' .public (if tokens)
-         ({{#Item test {#Item then {#Item else {#End}}}}
-           (meta#in (list (form$ (list (variant$ (list (bit$ #1)  then
-                                                       (bit$ #0) else))
-                                       test))))
+(def:'' .public if
+        Macro
+        (macro (_ tokens)
+          ({{#Item test {#Item then {#Item else {#End}}}}
+            (meta#in (list (form$ (list (variant$ (list (bit$ #1)  then
+                                                        (bit$ #0) else))
+                                        test))))
 
-           _
-           (failure "Wrong syntax for if")}
-          tokens))
+            _
+            (failure "Wrong syntax for if")}
+           tokens)))
 
 (def:''' .private PList
          Type
@@ -1520,21 +1590,6 @@
            {#End}
            (list [k v])}
           plist))
-
-(def:''' .private (text#composite x y)
-         (-> Text Text Text)
-         ("lux text concat" x y))
-
-(def:''' .private symbol_separator
-         Text
-         ".")
-
-(def:''' .private (symbol#encoded full_name)
-         (-> Symbol Text)
-         (let' [[module name] full_name]
-               ({"" name
-                 _  (all text#composite module ..symbol_separator name)}
-                module)))
 
 (def:''' .private (global_symbol full_name state)
          (-> Symbol ($' Meta Symbol))
@@ -1680,16 +1735,18 @@
              (in [meta output']))}
           [replace? token]))
 
-(macro:' .public (Primitive tokens)
-         ({{#Item [_ {#Text class_name}] {#End}}
-           (meta#in (list (variant$ (list (symbol$ [..prelude_module "#Primitive"]) (text$ class_name) |#End|))))
+(def:'' .public Primitive
+        Macro
+        (macro (_ tokens)
+          ({{#Item [_ {#Text class_name}] {#End}}
+            (meta#in (list (variant$ (list (symbol$ [..prelude_module "#Primitive"]) (text$ class_name) |#End|))))
 
-           {#Item [_ {#Text class_name}] {#Item [_ {#Tuple params}] {#End}}}
-           (meta#in (list (variant$ (list (symbol$ [..prelude_module "#Primitive"]) (text$ class_name) (untemplated_list params)))))
+            {#Item [_ {#Text class_name}] {#Item [_ {#Tuple params}] {#End}}}
+            (meta#in (list (variant$ (list (symbol$ [..prelude_module "#Primitive"]) (text$ class_name) (untemplated_list params)))))
 
-           _
-           (failure "Wrong syntax for Primitive")}
-          tokens))
+            _
+            (failure "Wrong syntax for Primitive")}
+           tokens)))
 
 (def:'' .private (current_module_name state)
         ($' Meta Text)
@@ -1705,84 +1762,94 @@
            current_module)}
          state))
 
-(macro:' .public (` tokens)
-         ({{#Item template {#End}}
-           (do meta_monad
-             [current_module current_module_name
-              =template (untemplated #1 current_module template)]
-             (in (list (form$ (list (text$ "lux type check")
-                                    (symbol$ [..prelude_module "Code"])
-                                    =template)))))
+(def:'' .public `
+        Macro
+        (macro (_ tokens)
+          ({{#Item template {#End}}
+            (do meta_monad
+              [current_module current_module_name
+               =template (untemplated #1 current_module template)]
+              (in (list (form$ (list (text$ "lux type check")
+                                     (symbol$ [..prelude_module "Code"])
+                                     =template)))))
 
-           _
-           (failure "Wrong syntax for `")}
-          tokens))
+            _
+            (failure "Wrong syntax for `")}
+           tokens)))
 
-(macro:' .public (`' tokens)
-         ({{#Item template {#End}}
-           (do meta_monad
-             [=template (untemplated #1 "" template)]
-             (in (list (form$ (list (text$ "lux type check") (symbol$ [..prelude_module "Code"]) =template)))))
+(def:'' .public `'
+        Macro
+        (macro (_ tokens)
+          ({{#Item template {#End}}
+            (do meta_monad
+              [=template (untemplated #1 "" template)]
+              (in (list (form$ (list (text$ "lux type check") (symbol$ [..prelude_module "Code"]) =template)))))
 
-           _
-           (failure "Wrong syntax for `")}
-          tokens))
+            _
+            (failure "Wrong syntax for `")}
+           tokens)))
 
-(macro:' .public (' tokens)
-         ({{#Item template {#End}}
-           (do meta_monad
-             [=template (untemplated #0 "" template)]
-             (in (list (form$ (list (text$ "lux type check") (symbol$ [..prelude_module "Code"]) =template)))))
+(def:'' .public '
+        Macro
+        (macro (_ tokens)
+          ({{#Item template {#End}}
+            (do meta_monad
+              [=template (untemplated #0 "" template)]
+              (in (list (form$ (list (text$ "lux type check") (symbol$ [..prelude_module "Code"]) =template)))))
 
-           _
-           (failure "Wrong syntax for '")}
-          tokens))
+            _
+            (failure "Wrong syntax for '")}
+           tokens)))
 
-(macro:' .public (|> tokens)
-         ({{#Item [init apps]}
-           (meta#in (list (list#mix ("lux type check" (-> Code Code Code)
-                                     (function' [app acc]
-                                                ({[_ {#Variant parts}]
-                                                  (variant$ (list#composite parts (list acc)))
+(def:'' .public |>
+        Macro
+        (macro (_ tokens)
+          ({{#Item [init apps]}
+            (meta#in (list (list#mix ("lux type check" (-> Code Code Code)
+                                      (function' [app acc]
+                                                 ({[_ {#Variant parts}]
+                                                   (variant$ (list#composite parts (list acc)))
 
-                                                  [_ {#Tuple parts}]
-                                                  (tuple$ (list#composite parts (list acc)))
+                                                   [_ {#Tuple parts}]
+                                                   (tuple$ (list#composite parts (list acc)))
 
-                                                  [_ {#Form parts}]
-                                                  (form$ (list#composite parts (list acc)))
+                                                   [_ {#Form parts}]
+                                                   (form$ (list#composite parts (list acc)))
 
-                                                  _
-                                                  (` ((~ app) (~ acc)))}
-                                                 app)))
-                                    init
-                                    apps)))
+                                                   _
+                                                   (` ((~ app) (~ acc)))}
+                                                  app)))
+                                     init
+                                     apps)))
 
-           _
-           (failure "Wrong syntax for |>")}
-          tokens))
+            _
+            (failure "Wrong syntax for |>")}
+           tokens)))
 
-(macro:' .public (<| tokens)
-         ({{#Item [init apps]}
-           (meta#in (list (list#mix ("lux type check" (-> Code Code Code)
-                                     (function' [app acc]
-                                                ({[_ {#Variant parts}]
-                                                  (variant$ (list#composite parts (list acc)))
+(def:'' .public <|
+        Macro
+        (macro (_ tokens)
+          ({{#Item [init apps]}
+            (meta#in (list (list#mix ("lux type check" (-> Code Code Code)
+                                      (function' [app acc]
+                                                 ({[_ {#Variant parts}]
+                                                   (variant$ (list#composite parts (list acc)))
 
-                                                  [_ {#Tuple parts}]
-                                                  (tuple$ (list#composite parts (list acc)))
+                                                   [_ {#Tuple parts}]
+                                                   (tuple$ (list#composite parts (list acc)))
 
-                                                  [_ {#Form parts}]
-                                                  (form$ (list#composite parts (list acc)))
+                                                   [_ {#Form parts}]
+                                                   (form$ (list#composite parts (list acc)))
 
-                                                  _
-                                                  (` ((~ app) (~ acc)))}
-                                                 app)))
-                                    init
-                                    apps)))
+                                                   _
+                                                   (` ((~ app) (~ acc)))}
+                                                  app)))
+                                     init
+                                     apps)))
 
-           _
-           (failure "Wrong syntax for <|")}
-          (list#reversed tokens)))
+            _
+            (failure "Wrong syntax for <|")}
+           (list#reversed tokens))))
 
 (def:''' .private (function#composite f g)
          (All (_ a b c)
@@ -1873,28 +1940,30 @@
            (-> ($' List ($' List a)) ($' List a)))
          (list#mix list#composite {#End} (list#reversed xs)))
 
-(macro:' .public (template tokens)
-         ({{#Item [[_ {#Tuple bindings}] {#Item [[_ {#Tuple templates}] data]}]}
-           ({[{#Some bindings'} {#Some data'}]
-             (let' [apply ("lux type check" (-> Replacement_Environment ($' List Code))
-                           (function' [env] (list#each (realized_template env) templates)))
-                    num_bindings (list#size bindings')]
-                   (if (every? (function' [size] ("lux i64 =" num_bindings size))
-                               (list#each list#size data'))
-                     (|> data'
-                         (list#each (function#composite apply (replacement_environment bindings')))
-                         list#conjoint
-                         meta#in)
-                     (failure "Irregular arguments tuples for template.")))
+(def:'' .public template
+        Macro
+        (macro (_ tokens)
+          ({{#Item [[_ {#Tuple bindings}] {#Item [[_ {#Tuple templates}] data]}]}
+            ({[{#Some bindings'} {#Some data'}]
+              (let' [apply ("lux type check" (-> Replacement_Environment ($' List Code))
+                            (function' [env] (list#each (realized_template env) templates)))
+                     num_bindings (list#size bindings')]
+                    (if (every? (function' [size] ("lux i64 =" num_bindings size))
+                                (list#each list#size data'))
+                      (|> data'
+                          (list#each (function#composite apply (replacement_environment bindings')))
+                          list#conjoint
+                          meta#in)
+                      (failure "Irregular arguments tuples for template.")))
 
-             _
-             (failure "Wrong syntax for template")}
-            [(monad#each maybe_monad symbol_short bindings)
-             (monad#each maybe_monad tuple_list data)])
+              _
+              (failure "Wrong syntax for template")}
+             [(monad#each maybe_monad symbol_short bindings)
+              (monad#each maybe_monad tuple_list data)])
 
-           _
-           (failure "Wrong syntax for template")}
-          tokens))
+            _
+            (failure "Wrong syntax for template")}
+           tokens)))
 
 (def:''' .private (n// param subject)
          (-> Nat Nat Nat)
@@ -1993,7 +2062,7 @@
            #0}
           type))
 
-(def:''' .private (macro'' modules current_module module name)
+(def:''' .private (named_macro' modules current_module module name)
          (-> ($' List (Tuple Text Module))
              Text Text Text
              ($' Maybe Macro))
@@ -2002,7 +2071,7 @@
             gdef (let' [[..#module_hash _ ..#module_aliases _ ..#definitions bindings ..#imports _ ..#module_state _] ("lux type check" Module $module)]
                        (plist#value name bindings))]
            ({{#Alias [r_module r_name]}
-             (macro'' modules current_module r_module r_name)
+             (named_macro' modules current_module r_module r_name)
 
              {#Definition [exported? def_type def_value]}
              (if (macro_type? def_type)
@@ -2034,7 +2103,7 @@
            (meta#in name)}
           name))
 
-(def:''' .private (macro' full_name)
+(def:''' .private (named_macro full_name)
          (-> Symbol ($' Meta ($' Maybe Macro)))
          (do meta_monad
            [current_module current_module_name]
@@ -2045,14 +2114,14 @@
                                ..#seed   seed ..#expected expected
                                ..#location location ..#extensions extensions
                                ..#scope_type_vars scope_type_vars ..#eval _eval]
-                              {#Right state (macro'' modules current_module module name)}}
+                              {#Right state (named_macro' modules current_module module name)}}
                              state)))))
 
 (def:''' .private (macro? name)
          (-> Symbol ($' Meta Bit))
          (do meta_monad
            [name (normal name)
-            output (macro' name)]
+            output (named_macro name)]
            (in ({{#Some _} #1
                  {#None}   #0}
                 output))))
@@ -2075,7 +2144,7 @@
          ({[_ {#Form {#Item [_ {#Symbol name}] args}}]
            (do meta_monad
              [name' (normal name)
-              ?macro (macro' name')]
+              ?macro (named_macro name')]
              ({{#Some macro}
                (("lux type as" Macro' macro) args)
                
@@ -2092,7 +2161,7 @@
          ({[_ {#Form {#Item [_ {#Symbol name}] args}}]
            (do meta_monad
              [name' (normal name)
-              ?macro (macro' name')]
+              ?macro (named_macro name')]
              ({{#Some macro}
                (do meta_monad
                  [top_level_expansion (("lux type as" Macro' macro) args)
@@ -2111,7 +2180,7 @@
          (-> (-> Code ($' Meta ($' List Code))) Symbol ($' List Code) ($' Meta ($' List Code)))
          (do meta_monad
            [name' (normal name)
-            ?macro (macro' name')]
+            ?macro (named_macro name')]
            ({{#Some macro}
              (do meta_monad
                [expansion (("lux type as" Macro' macro) args)
@@ -2294,44 +2363,50 @@
            type}
           type))
 
-(macro:' .public (type tokens)
-         ({{#Item type {#End}}
-           (do meta_monad
-             [initialized_quantification? (function' [lux] {#Right [lux (initialized_quantification? lux)]})]
-             (if initialized_quantification?
-               (do meta_monad
-                 [type+ (full_expansion #0 type)]
-                 ({{#Item type' {#End}}
-                   (in (list (normal_type type')))
+(def:'' .public type
+        Macro
+        (macro (_ tokens)
+          ({{#Item type {#End}}
+            (do meta_monad
+              [initialized_quantification? (function' [lux] {#Right [lux (initialized_quantification? lux)]})]
+              (if initialized_quantification?
+                (do meta_monad
+                  [type+ (full_expansion #0 type)]
+                  ({{#Item type' {#End}}
+                    (in (list (normal_type type')))
 
-                   _
-                   (failure "The expansion of the type-syntax had to yield a single element.")}
-                  type+))
-               (in (list (..quantified (` (..type (~ type))))))))
+                    _
+                    (failure "The expansion of the type-syntax had to yield a single element.")}
+                   type+))
+                (in (list (..quantified (` (..type (~ type))))))))
 
-           _
-           (failure "Wrong syntax for type")}
-          tokens))
+            _
+            (failure "Wrong syntax for type")}
+           tokens)))
 
-(macro:' .public (is tokens)
-         ({{#Item type {#Item value {#End}}}
-           (meta#in (list (` ("lux type check"
-                              (..type (~ type))
-                              (~ value)))))
+(def:'' .public is
+        Macro
+        (macro (_ tokens)
+          ({{#Item type {#Item value {#End}}}
+            (meta#in (list (` ("lux type check"
+                               (..type (~ type))
+                               (~ value)))))
 
-           _
-           (failure "Wrong syntax for :")}
-          tokens))
+            _
+            (failure "Wrong syntax for :")}
+           tokens)))
 
-(macro:' .public (as tokens)
-         ({{#Item type {#Item value {#End}}}
-           (meta#in (list (` ("lux type as"
-                              (..type (~ type))
-                              (~ value)))))
+(def:'' .public as
+        Macro
+        (macro (_ tokens)
+          ({{#Item type {#Item value {#End}}}
+            (meta#in (list (` ("lux type as"
+                               (..type (~ type))
+                               (~ value)))))
 
-           _
-           (failure "Wrong syntax for as")}
-          tokens))
+            _
+            (failure "Wrong syntax for as")}
+           tokens)))
 
 (def:''' .private (empty? xs)
          (All (_ a)
@@ -2365,56 +2440,60 @@
                    (local$ (all text#composite "__gensym__" prefix (nat#encoded seed)))}}
           state))
 
-(macro:' .public (exec tokens)
-         ({{#Item value actions}
-           (let' [dummy (local$ "")]
-                 (meta#in (list (list#mix ("lux type check" (-> Code Code Code)
-                                           (function' [pre post] (` ({(~ dummy) (~ post)}
-                                                                     (~ pre)))))
-                                          value
-                                          actions))))
+(def:'' .public exec
+        Macro
+        (macro (_ tokens)
+          ({{#Item value actions}
+            (let' [dummy (local$ "")]
+                  (meta#in (list (list#mix ("lux type check" (-> Code Code Code)
+                                            (function' [pre post] (` ({(~ dummy) (~ post)}
+                                                                      (~ pre)))))
+                                           value
+                                           actions))))
 
-           _
-           (failure "Wrong syntax for exec")}
-          (list#reversed tokens)))
+            _
+            (failure "Wrong syntax for exec")}
+           (list#reversed tokens))))
 
-(macro:' .private (def:' tokens)
-         (let' [parts (is (Maybe [Code Code (List Code) (Maybe Code) Code])
-                          ({{#Item export_policy {#Item [_ {#Form {#Item name args}}] {#Item type {#Item body {#End}}}}}
-                            {#Some [export_policy name args {#Some type} body]}
-                            
-                            {#Item export_policy {#Item name {#Item type {#Item body {#End}}}}}
-                            {#Some [export_policy name {#End} {#Some type} body]}
-                            
-                            {#Item export_policy {#Item [_ {#Form {#Item name args}}] {#Item body {#End}}}}
-                            {#Some [export_policy name args {#None} body]}
-                            
-                            {#Item export_policy {#Item name {#Item body {#End}}}}
-                            {#Some [export_policy name {#End} {#None} body]}
+(def:'' .private def:'
+        Macro
+        (macro (_ tokens)
+          (let' [parts (is (Maybe [Code Code (List Code) (Maybe Code) Code])
+                           ({{#Item export_policy {#Item [_ {#Form {#Item name args}}] {#Item type {#Item body {#End}}}}}
+                             {#Some [export_policy name args {#Some type} body]}
+                             
+                             {#Item export_policy {#Item name {#Item type {#Item body {#End}}}}}
+                             {#Some [export_policy name {#End} {#Some type} body]}
+                             
+                             {#Item export_policy {#Item [_ {#Form {#Item name args}}] {#Item body {#End}}}}
+                             {#Some [export_policy name args {#None} body]}
+                             
+                             {#Item export_policy {#Item name {#Item body {#End}}}}
+                             {#Some [export_policy name {#End} {#None} body]}
 
-                            _
-                            {#None}}
-                           tokens))]
-               ({{#Some [export_policy name args ?type body]}
-                 (let' [body' ({{#End}
-                                body
+                             _
+                             {#None}}
+                            tokens))]
+                ({{#Some [export_policy name args ?type body]}
+                  (let' [body' ({{#End}
+                                 body
 
-                                _
-                                (` (function' (~ name) [(~+ args)] (~ body)))}
-                               args)
-                        body'' ({{#Some type}
-                                 (` (is (~ type) (~ body')))
-                                 
-                                 {#None}
-                                 body'}
-                                ?type)]
-                       (meta#in (list (` ("lux def" (~ name)
-                                          (~ body'')
-                                          (~ export_policy))))))
-                 
-                 {#None}
-                 (failure "Wrong syntax for def'")}
-                parts)))
+                                 _
+                                 (` (function' (~ name) [(~+ args)] (~ body)))}
+                                args)
+                         body'' ({{#Some type}
+                                  (` (is (~ type) (~ body')))
+                                  
+                                  {#None}
+                                  body'}
+                                 ?type)]
+                        (meta#in (list (` ("lux def" (~ name)
+                                           (~ body'')
+                                           (~ export_policy))))))
+                  
+                  {#None}
+                  (failure "Wrong syntax for def'")}
+                 parts))))
 
 (def:' .private (expander branches)
        (-> (List Code) (Meta (List Code)))
@@ -2449,45 +2528,51 @@
                                                                                           (list#mix text#composite ""))))}
         branches))
 
-(macro:' .public (case tokens)
-         ({{#Item value branches}
-           (do meta_monad
-             [expansion (expander branches)]
-             (in (list (` ((~ (variant$ expansion)) (~ value))))))
+(def:'' .public case
+        Macro
+        (macro (_ tokens)
+          ({{#Item value branches}
+            (do meta_monad
+              [expansion (expander branches)]
+              (in (list (` ((~ (variant$ expansion)) (~ value))))))
 
-           _
-           (failure "Wrong syntax for case")}
-          tokens))
+            _
+            (failure "Wrong syntax for case")}
+           tokens)))
 
-(macro:' .public (pattern tokens)
-         (case tokens
-           {#Item [_ {#Form {#Item pattern {#End}}}] {#Item body branches}}
-           (do meta_monad
-             [pattern+ (full_expansion #1 pattern)]
-             (case pattern+
-               {#Item pattern' {#End}}
-               (in (partial_list pattern' body branches))
-               
-               _
-               (failure "`pattern` can only expand to 1 pattern.")))
-           
-           _
-           (failure "Wrong syntax for `pattern` macro")))
+(def:'' .public pattern
+        Macro
+        (macro (_ tokens)
+          (case tokens
+            {#Item [_ {#Form {#Item pattern {#End}}}] {#Item body branches}}
+            (do meta_monad
+              [pattern+ (full_expansion #1 pattern)]
+              (case pattern+
+                {#Item pattern' {#End}}
+                (in (partial_list pattern' body branches))
+                
+                _
+                (failure "`pattern` can only expand to 1 pattern.")))
+            
+            _
+            (failure "Wrong syntax for `pattern` macro"))))
 
-(macro:' .private (pattern#or tokens)
-         (case tokens
-           (pattern (partial_list [_ {#Form patterns}] body branches))
-           (case patterns
-             {#End}
-             (failure "pattern#or cannot have 0 patterns")
+(def:'' .private pattern#or
+        Macro
+        (macro (_ tokens)
+          (case tokens
+            (pattern (partial_list [_ {#Form patterns}] body branches))
+            (case patterns
+              {#End}
+              (failure "pattern#or cannot have 0 patterns")
 
-             _
-             (let' [pairs (|> patterns
-                              (list#each (function' [pattern] (list pattern body)))
-                              (list#conjoint))]
-                   (meta#in (list#composite pairs branches))))
-           _
-           (failure "Wrong syntax for pattern#or")))
+              _
+              (let' [pairs (|> patterns
+                               (list#each (function' [pattern] (list pattern body)))
+                               (list#conjoint))]
+                    (meta#in (list#composite pairs branches))))
+            _
+            (failure "Wrong syntax for pattern#or"))))
 
 (def:' .private (symbol? code)
        (-> Code Bit)
@@ -2498,51 +2583,55 @@
          _
          #0))
 
-(macro:' .public (let tokens)
-         (case tokens
-           (pattern (list [_ {#Tuple bindings}] body))
-           (case (..pairs bindings)
-             {#Some bindings}
-             (|>  bindings
-                  list#reversed
-                  (list#mix (is (-> [Code Code] Code Code)
-                                (function' [lr body']
-                                           (let' [[l r] lr]
-                                                 (if (symbol? l)
-                                                   (` ({(~ l) (~ body')} (~ r)))
-                                                   (` (case (~ r) (~ l) (~ body')))))))
-                            body)
-                  list
-                  meta#in)
+(def:'' .public let
+        Macro
+        (macro (_ tokens)
+          (case tokens
+            (pattern (list [_ {#Tuple bindings}] body))
+            (case (..pairs bindings)
+              {#Some bindings}
+              (|>  bindings
+                   list#reversed
+                   (list#mix (is (-> [Code Code] Code Code)
+                                 (function' [lr body']
+                                            (let' [[l r] lr]
+                                                  (if (symbol? l)
+                                                    (` ({(~ l) (~ body')} (~ r)))
+                                                    (` (case (~ r) (~ l) (~ body')))))))
+                             body)
+                   list
+                   meta#in)
 
-             {#None}
-             (failure "let requires an even number of parts"))
+              {#None}
+              (failure "let requires an even number of parts"))
 
-           _
-           (failure "Wrong syntax for let")))
+            _
+            (failure "Wrong syntax for let"))))
 
-(macro:' .public (function tokens)
-         (case (is (Maybe [Text Code (List Code) Code])
-                   (case tokens
-                     (pattern (list [_ {#Form (partial_list [_ {#Symbol ["" name]}] head tail)}] body))
-                     {#Some name head tail body}
-                     
-                     _
-                     {#None}))
-           {#Some g!name head tail body}
-           (let [g!blank (local$ "")
-                 nest (is (-> Code (-> Code Code Code))
-                          (function' [g!name]
-                                     (function' [arg body']
-                                                (if (symbol? arg)
-                                                  (` ([(~ g!name) (~ arg)] (~ body')))
-                                                  (` ([(~ g!name) (~ g!blank)]
-                                                      (.case (~ g!blank) (~ arg) (~ body'))))))))]
-             (meta#in (list (nest (..local$ g!name) head
-                                  (list#mix (nest g!blank) body (list#reversed tail))))))
+(def:'' .public function
+        Macro
+        (macro (_ tokens)
+          (case (is (Maybe [Text Code (List Code) Code])
+                    (case tokens
+                      (pattern (list [_ {#Form (partial_list [_ {#Symbol ["" name]}] head tail)}] body))
+                      {#Some name head tail body}
+                      
+                      _
+                      {#None}))
+            {#Some g!name head tail body}
+            (let [g!blank (local$ "")
+                  nest (is (-> Code (-> Code Code Code))
+                           (function' [g!name]
+                                      (function' [arg body']
+                                                 (if (symbol? arg)
+                                                   (` ([(~ g!name) (~ arg)] (~ body')))
+                                                   (` ([(~ g!name) (~ g!blank)]
+                                                       (.case (~ g!blank) (~ arg) (~ body'))))))))]
+              (meta#in (list (nest (..local$ g!name) head
+                                   (list#mix (nest g!blank) body (list#reversed tail))))))
 
-           {#None}
-           (failure "Wrong syntax for function")))
+            {#None}
+            (failure "Wrong syntax for function"))))
 
 (def:' .private Parser
        Type
@@ -2740,7 +2829,7 @@
 
 (template [<parser> <parameter_type> <parameters_parser>]
   [(def:' .private (<parser> tokens)
-          (-> (List Code) (Maybe [(List Code) [Text (List <parameter_type>)]]))
+          (Parser [Text (List <parameter_type>)])
           (case tokens
             (pattern (partial_list [_ {#Form local_declaration}] tokens'))
             (do maybe_monad
@@ -2816,57 +2905,41 @@
           _ (endP tokens)]
          (in [export_policy name parameters ?type body])))
 
-(macro:' .public (def: tokens)
-         (case (definitionP tokens)
-           {#Some [export_policy name parameters ?type body]}
-           (let [body (case parameters
-                        {#End}
-                        body
+(def:'' .public def:
+        Macro
+        (macro (_ tokens)
+          (case (definitionP tokens)
+            {#Some [export_policy name parameters ?type body]}
+            (let [body (case parameters
+                         {#End}
+                         body
 
-                        _
-                        (` (function ((~ (..local$ name)) (~+ parameters))
-                             (~ body))))
-                 body (case ?type
-                        {#Some type}
-                        (` (is (~ type)
-                               (~ body)))
-                        
-                        {#None}
-                        body)]
-             (meta#in (list (` ("lux def" (~ (..local$ name))
-                                (~ body)
-                                (~ export_policy))))))
-           
-           {#None}
-           (failure "Wrong syntax for def:")))
+                         _
+                         (` (function ((~ (..local$ name)) (~+ parameters))
+                              (~ body))))
+                  body (case ?type
+                         {#Some type}
+                         (` (is (~ type)
+                                (~ body)))
+                         
+                         {#None}
+                         body)]
+              (meta#in (list (` ("lux def" (~ (..local$ name))
+                                 (~ body)
+                                 (~ export_policy))))))
+            
+            {#None}
+            (failure "Wrong syntax for def:"))))
 
-(def:' .private (macroP tokens)
-       (-> (List Code) (Maybe [Code Text (List Text) Code]))
-       (do maybe_monad
-         [% (declarationP tokens)
-          .let' [[tokens [export_policy name parameters]] %]
-          % (anyP tokens)
-          .let' [[tokens body] %]
-          _ (endP tokens)]
-         (in [export_policy name parameters body])))
-
-(macro:' .public (macro: tokens)
-         (case (macroP tokens)
-           {#Some [export_policy name args body]}
-           (let [name (local$ name)
-                 body (case args
-                        {#End}
-                        body
-
-                        _
-                        (` ("lux macro"
-                            (function ((~ name) (~+ (list#each local$ args))) (~ body)))))]
-             (meta#in (list (` ("lux def" (~ name)
-                                (~ body)
-                                (~ export_policy))))))
-
-           {#None}
-           (failure "Wrong syntax for macro:")))
+(def:'' .public symbol
+        Macro
+        (macro (_ tokens)
+          (case tokens
+            (pattern (list [_ {#Symbol [module name]}]))
+            (meta#in (list (` [(~ (text$ module)) (~ (text$ name))])))
+            
+            _
+            (failure (..wrong_syntax_error [..prelude_module "symbol"])))))
 
 (def: (list#one f xs)
   (All (_ a b)
@@ -2884,16 +2957,17 @@
       {#Some y})))
 
 (template [<name> <form> <message>]
-  [(macro: .public (<name> tokens)
-     (case (list#reversed tokens)
-       (pattern (partial_list last init))
-       (meta#in (list (list#mix (is (-> Code Code Code)
-                                    (function (_ pre post) (` <form>)))
-                                last
-                                init)))
-       
-       _
-       (failure <message>)))]
+  [(def: .public <name>
+     (macro (_ tokens)
+       (case (list#reversed tokens)
+         (pattern (partial_list last init))
+         (meta#in (list (list#mix (is (-> Code Code Code)
+                                      (function (_ pre post) (` <form>)))
+                                  last
+                                  init)))
+         
+         _
+         (failure <message>))))]
 
   [and (if (~ pre) (~ post) #0) "'and' requires >=1 clauses."]
   [or  (if (~ pre) #1 (~ post)) "'or' requires >=1 clauses."])
@@ -2906,20 +2980,21 @@
   (-> Text Nothing)
   ("lux io error" message))
 
-(macro: (maybe#else tokens state)
-  (case tokens
-    (pattern (list else maybe))
-    (let [g!temp (is Code [dummy_location {#Symbol ["" ""]}])
-          code (` (case (~ maybe)
-                    {.#Some (~ g!temp)}
-                    (~ g!temp)
+(def: maybe#else
+  (macro (_ tokens state)
+    (case tokens
+      (pattern (list else maybe))
+      (let [g!temp (is Code [dummy_location {#Symbol ["" ""]}])
+            code (` (case (~ maybe)
+                      {.#Some (~ g!temp)}
+                      (~ g!temp)
 
-                    {.#None}
-                    (~ else)))]
-      {#Right [state (list code)]})
+                      {.#None}
+                      (~ else)))]
+        {#Right [state (list code)]})
 
-    _
-    {#Left "Wrong syntax for maybe#else"}))
+      _
+      {#Left "Wrong syntax for maybe#else"})))
 
 (def: (text#all_split_by splitter input)
   (-> Text Text (List Text))
@@ -3198,41 +3273,42 @@
     (symbol#encoded name)
     ))
 
-(macro: .public (implementation tokens)
-  (do meta_monad
-    [tokens' (monad#each meta_monad expansion tokens)
-     struct_type ..expected_type
-     tags+type (record_slots struct_type)
-     tags (is (Meta (List Symbol))
-              (case tags+type
-                {#Some [tags _]}
-                (meta#in tags)
+(def: .public implementation
+  (macro (_ tokens)
+    (do meta_monad
+      [tokens' (monad#each meta_monad expansion tokens)
+       struct_type ..expected_type
+       tags+type (record_slots struct_type)
+       tags (is (Meta (List Symbol))
+                (case tags+type
+                  {#Some [tags _]}
+                  (meta#in tags)
 
-                _
-                (failure (all text#composite
-                              "No tags available for type: "
-                              (type#encoded struct_type)))))
-     .let [tag_mappings (is (List [Text Code])
-                            (list#each (function (_ tag)
-                                         [(product#right tag)
-                                          (symbol$ tag)])
-                                       tags))]
-     members (monad#each meta_monad
-                         (is (-> Code (Meta (List Code)))
-                             (function (_ token)
-                               (case token
-                                 (pattern [_ {#Form (list [_ {#Text "lux def"}] [_ {#Symbol ["" slot_name]}] value export_policy)}])
-                                 (case (plist#value slot_name tag_mappings)
-                                   {#Some tag}
-                                   (in (list tag value))
+                  _
+                  (failure (all text#composite
+                                "No tags available for type: "
+                                (type#encoded struct_type)))))
+       .let [tag_mappings (is (List [Text Code])
+                              (list#each (function (_ tag)
+                                           [(product#right tag)
+                                            (symbol$ tag)])
+                                         tags))]
+       members (monad#each meta_monad
+                           (is (-> Code (Meta (List Code)))
+                               (function (_ token)
+                                 (case token
+                                   (pattern [_ {#Form (list [_ {#Text "lux def"}] [_ {#Symbol ["" slot_name]}] value export_policy)}])
+                                   (case (plist#value slot_name tag_mappings)
+                                     {#Some tag}
+                                     (in (list tag value))
+
+                                     _
+                                     (failure (text#composite "Unknown implementation member: " slot_name)))
 
                                    _
-                                   (failure (text#composite "Unknown implementation member: " slot_name)))
-
-                                 _
-                                 (failure "Invalid implementation member."))))
-                         (list#conjoint tokens'))]
-    (in (list (tuple$ (list#conjoint members))))))
+                                   (failure "Invalid implementation member."))))
+                           (list#conjoint tokens'))]
+      (in (list (tuple$ (list#conjoint members)))))))
 
 (def: (text#interposed separator parts)
   (-> Text (List Text) Text)
@@ -3265,22 +3341,23 @@
      tokens (remainderP tokens)]
     (in [export_policy name parameters type tokens])))
 
-(macro: .public (implementation: tokens)
-  (case (implementationP tokens)
-    {#Some [export_policy name args type definitions]}
-    (let [usage (case args
-                  {#End}
-                  (local$ name)
+(def: .public implementation:
+  (macro (_ tokens)
+    (case (implementationP tokens)
+      {#Some [export_policy name args type definitions]}
+      (let [usage (case args
+                    {#End}
+                    (local$ name)
 
-                  _
-                  (` ((~ (local$ name)) (~+ args))))]
-      (meta#in (list (` (..def: (~ export_policy) (~ usage)
-                          (~ type)
-                          (..implementation
-                           (~+ definitions)))))))
+                    _
+                    (` ((~ (local$ name)) (~+ args))))]
+        (meta#in (list (` (..def: (~ export_policy) (~ usage)
+                            (~ type)
+                            (..implementation
+                             (~+ definitions)))))))
 
-    {#None}
-    (failure "Wrong syntax for implementation:")))
+      {#None}
+      (failure "Wrong syntax for implementation:"))))
 
 (def: (function#identity value)
   (All (_ a)
@@ -3319,16 +3396,17 @@
     _
     {#None}))
 
-(macro: .public (Variant tokens)
-  (case (everyP caseP tokens)
-    {#Some cases}
-    (meta#in (list (` (..Union (~+ (list#each product#right cases))))
-                   (variant$ (list#each (function (_ case)
-                                          (text$ (product#left case)))
-                                        cases))))
-    
-    {#None}
-    (failure "Wrong syntax for Variant")))
+(def: .public Variant
+  (macro (_ tokens)
+    (case (everyP caseP tokens)
+      {#Some cases}
+      (meta#in (list (` (..Union (~+ (list#each product#right cases))))
+                     (variant$ (list#each (function (_ case)
+                                            (text$ (product#left case)))
+                                          cases))))
+      
+      {#None}
+      (failure "Wrong syntax for Variant"))))
 
 (def: (slotP tokens)
   (-> (List Code) (Maybe [(List Code) [Text Code]]))
@@ -3339,21 +3417,22 @@
     _
     {#None}))
 
-(macro: .public (Record tokens)
-  (case tokens
-    (pattern (list [_ {#Tuple record}]))
-    (case (everyP slotP record)
-      {#Some slots}
-      (meta#in (list (` (..Tuple (~+ (list#each product#right slots))))
-                     (tuple$ (list#each (function (_ slot)
-                                          (text$ (product#left slot)))
-                                        slots))))
-      
-      {#None}
-      (failure "Wrong syntax for Record"))
+(def: .public Record
+  (macro (_ tokens)
+    (case tokens
+      (pattern (list [_ {#Tuple record}]))
+      (case (everyP slotP record)
+        {#Some slots}
+        (meta#in (list (` (..Tuple (~+ (list#each product#right slots))))
+                       (tuple$ (list#each (function (_ slot)
+                                            (text$ (product#left slot)))
+                                          slots))))
+        
+        {#None}
+        (failure "Wrong syntax for Record"))
 
-    _
-    (failure "Wrong syntax for Record")))
+      _
+      (failure "Wrong syntax for Record"))))
 
 (def: (typeP tokens)
   (-> (List Code) (Maybe [Code Text (List Text) Code]))
@@ -3406,50 +3485,51 @@
     (meta#in [type {#None}])}
    it))
 
-(macro: .public (type: tokens)
-  (case (typeP tokens)
-    {#Some [export_policy name args type_codes]}
-    (do meta_monad
-      [type+labels?? (..type_declaration type_codes)
-       module_name current_module_name
-       .let' [type_name (local$ name)
-              [type labels??] type+labels??
-              type' (is (Maybe Code)
-                        (case args
-                          {#End}
-                          {#Some type}
+(def: .public type:
+  (macro (_ tokens)
+    (case (typeP tokens)
+      {#Some [export_policy name args type_codes]}
+      (do meta_monad
+        [type+labels?? (..type_declaration type_codes)
+         module_name current_module_name
+         .let' [type_name (local$ name)
+                [type labels??] type+labels??
+                type' (is (Maybe Code)
+                          (case args
+                            {#End}
+                            {#Some type}
 
-                          _
-                          {#Some (` (.All ((~ type_name) (~+ (list#each local$ args)))
-                                      (~ type)))}))]]
-      (case type'
-        {#Some type''}
-        (let [typeC (` {.#Named [(~ (text$ module_name))
-                                 (~ (text$ name))]
-                                (.type (~ type''))})]
-          (meta#in (list (case labels??
-                           {#Some labels}
-                           (` ("lux def type tagged" (~ type_name)
-                               (~ typeC)
-                               (~ (case labels
-                                    {#Left tags}
-                                    (` {(~+ (list#each text$ tags))})
-                                    
-                                    {#Right slots}
-                                    (` [(~+ (list#each text$ slots))])))
-                               (~ export_policy)))
-                           
-                           _
-                           (` ("lux def" (~ type_name)
-                               ("lux type check type"
-                                (~ typeC))
-                               (~ export_policy)))))))
+                            _
+                            {#Some (` (.All ((~ type_name) (~+ (list#each local$ args)))
+                                        (~ type)))}))]]
+        (case type'
+          {#Some type''}
+          (let [typeC (` {.#Named [(~ (text$ module_name))
+                                   (~ (text$ name))]
+                                  (.type (~ type''))})]
+            (meta#in (list (case labels??
+                             {#Some labels}
+                             (` ("lux def type tagged" (~ type_name)
+                                 (~ typeC)
+                                 (~ (case labels
+                                      {#Left tags}
+                                      (` {(~+ (list#each text$ tags))})
+                                      
+                                      {#Right slots}
+                                      (` [(~+ (list#each text$ slots))])))
+                                 (~ export_policy)))
+                             
+                             _
+                             (` ("lux def" (~ type_name)
+                                 ("lux type check type"
+                                  (~ typeC))
+                                 (~ export_policy)))))))
 
-        {#None}
-        (failure "Wrong syntax for type:")))
+          {#None}
+          (failure "Wrong syntax for type:")))
 
-    {#None}
-    (failure "Wrong syntax for type:")))
+      {#None}
+      (failure "Wrong syntax for type:"))))
 
 (type: Referral
   [Symbol (List Code)])
@@ -3459,23 +3539,6 @@
    [#import_name Text
     #import_alias (Maybe Text)
     #import_referrals (List Referral)]))
-
-... TODO: Allow asking the compiler for the name of the definition
-... currently being defined. That name can then be fed into
-... 'wrong_syntax_error' for easier maintenance of the error_messages.
-(def: (wrong_syntax_error it)
-  (-> Symbol Text)
-  (|> it
-      symbol#encoded
-      (text#composite "Wrong syntax for ")))
-
-(macro: .public (symbol tokens)
-  (case tokens
-    (pattern (list [_ {#Symbol [module name]}]))
-    (meta#in (list (` [(~ (text$ module)) (~ (text$ name))])))
-    
-    _
-    (failure (..wrong_syntax_error [..prelude_module "symbol"]))))
 
 (def: referral_parser
   (Parser Referral)
@@ -3762,51 +3825,55 @@
   (-> Text Text Code)
   (` ("lux def alias" (~ (local$ def)) (~ (symbol$ [imported_module def])))))
 
-(macro: .public (only tokens)
-  (case (..parsed (all ..andP
-                       ..textP
-                       ..textP
-                       ..textP
-                       (..someP ..localP))
-                  tokens)
-    {.#Some [current_module imported_module import_alias actual]}
+(def: .public only
+  (macro (_ tokens)
+    (case (..parsed (all ..andP
+                         ..textP
+                         ..textP
+                         ..textP
+                         (..someP ..localP))
+                    tokens)
+      {.#Some [current_module imported_module import_alias actual]}
+      (do meta_monad
+        [expected (exported_definitions imported_module)
+         _ (test_referrals current_module imported_module expected actual)]
+        (in (list#each (..alias_definition imported_module) actual)))
+
+      {.#None}
+      (failure (..wrong_syntax_error (symbol ..only))))))
+
+(def: .public |>>
+  (macro (_ tokens)
     (do meta_monad
-      [expected (exported_definitions imported_module)
-       _ (test_referrals current_module imported_module expected actual)]
-      (in (list#each (..alias_definition imported_module) actual)))
+      [g!_ (..generated_symbol "_")
+       g!arg (..generated_symbol "arg")]
+      (meta#in (list (` (function ((~ g!_) (~ g!arg)) (|> (~ g!arg) (~+ tokens)))))))))
 
-    {.#None}
-    (failure (..wrong_syntax_error (symbol ..only)))))
-
-(macro: .public (|>> tokens)
-  (do meta_monad
-    [g!_ (..generated_symbol "_")
-     g!arg (..generated_symbol "arg")]
-    (meta#in (list (` (function ((~ g!_) (~ g!arg)) (|> (~ g!arg) (~+ tokens))))))))
-
-(macro: .public (<<| tokens)
-  (do meta_monad
-    [g!_ (..generated_symbol "_")
-     g!arg (..generated_symbol "arg")]
-    (meta#in (list (` (function ((~ g!_) (~ g!arg)) (<| (~+ tokens) (~ g!arg))))))))
-
-(macro: .public (except tokens)
-  (case (..parsed (all ..andP
-                       ..textP
-                       ..textP
-                       ..textP
-                       (..someP ..localP))
-                  tokens)
-    {.#Some [current_module imported_module import_alias actual]}
+(def: .public <<|
+  (macro (_ tokens)
     (do meta_monad
-      [expected (exported_definitions imported_module)
-       _ (test_referrals current_module imported_module expected actual)]
-      (in (|> expected
-              (..list#only (|>> (is_member? actual) not))
-              (list#each (..alias_definition imported_module)))))
+      [g!_ (..generated_symbol "_")
+       g!arg (..generated_symbol "arg")]
+      (meta#in (list (` (function ((~ g!_) (~ g!arg)) (<| (~+ tokens) (~ g!arg)))))))))
 
-    {.#None}
-    (failure (..wrong_syntax_error (symbol ..except)))))
+(def: .public except
+  (macro (_ tokens)
+    (case (..parsed (all ..andP
+                         ..textP
+                         ..textP
+                         ..textP
+                         (..someP ..localP))
+                    tokens)
+      {.#Some [current_module imported_module import_alias actual]}
+      (do meta_monad
+        [expected (exported_definitions imported_module)
+         _ (test_referrals current_module imported_module expected actual)]
+        (in (|> expected
+                (..list#only (|>> (is_member? actual) not))
+                (list#each (..alias_definition imported_module)))))
+
+      {.#None}
+      (failure (..wrong_syntax_error (symbol ..except))))))
 
 (def: (in_env name state)
   (-> Text Lux (Maybe Type))
@@ -3973,79 +4040,81 @@
     _
     (list)))
 
-(macro: .public (open tokens)
-  (case tokens
-    (pattern (partial_list [_ {#Form (list [_ {#Text alias}])}] body branches))
-    (do meta_monad
-      [g!temp (..generated_symbol "temp")]
-      (in (partial_list g!temp (` (..open (~ g!temp) (~ (text$ alias)) (~ body))) branches)))
+(def: .public open
+  (macro (_ tokens)
+    (case tokens
+      (pattern (partial_list [_ {#Form (list [_ {#Text alias}])}] body branches))
+      (do meta_monad
+        [g!temp (..generated_symbol "temp")]
+        (in (partial_list g!temp (` (..open (~ g!temp) (~ (text$ alias)) (~ body))) branches)))
 
-    (pattern (list [_ {#Symbol name}] [_ {#Text alias}] body))
-    (do meta_monad
-      [init_type (type_definition name)
-       struct_evidence (record_slots init_type)]
-      (case struct_evidence
+      (pattern (list [_ {#Symbol name}] [_ {#Text alias}] body))
+      (do meta_monad
+        [init_type (type_definition name)
+         struct_evidence (record_slots init_type)]
+        (case struct_evidence
+          {#None}
+          (failure (text#composite "Can only 'open' structs: " (type#encoded init_type)))
+
+          {#Some tags&members}
+          (do meta_monad
+            [full_body ((is (-> Symbol [(List Symbol) (List Type)] Code (Meta Code))
+                            (function (again source [tags members] target)
+                              (let [locals (list#each (function (_ [t_module t_name])
+                                                        [[t_module t_name]
+                                                         ["" (..module_alias (list t_name) alias)]])
+                                                      tags)
+                                    pattern (case locals
+                                              (pattern (list [slot binding]))
+                                              (symbol$ binding)
+
+                                              _
+                                              (|> locals
+                                                  (list#each (function (_ [slot binding])
+                                                               (list (symbol$ slot)
+                                                                     (symbol$ binding))))
+                                                  list#conjoint
+                                                  tuple$))]
+                                (do meta_monad
+                                  [enhanced_target (monad#mix meta_monad
+                                                              (function (_ [[_ m_local] m_type] enhanced_target)
+                                                                (do meta_monad
+                                                                  [m_implementation (record_slots m_type)]
+                                                                  (case m_implementation
+                                                                    {#Some m_tags&members}
+                                                                    (again m_local
+                                                                           m_tags&members
+                                                                           enhanced_target)
+
+                                                                    {#None}
+                                                                    (in enhanced_target))))
+                                                              target
+                                                              (zipped_2 locals members))]
+                                  (in (` ({(~ pattern) (~ enhanced_target)} (~ (symbol$ source)))))))))
+                        name tags&members body)]
+            (in (list full_body)))))
+
+      _
+      (failure "Wrong syntax for open"))))
+
+(def: .public cond
+  (macro (_ tokens)
+    (case (list#reversed tokens)
+      (pattern (partial_list else branches'))
+      (case (pairs branches')
+        {#Some branches'}
+        (meta#in (list (list#mix (is (-> [Code Code] Code Code)
+                                     (function (_ branch else)
+                                       (let [[then ?] branch]
+                                         (` (if (~ ?) (~ then) (~ else))))))
+                                 else
+                                 branches')))
+
         {#None}
-        (failure (text#composite "Can only 'open' structs: " (type#encoded init_type)))
-
-        {#Some tags&members}
-        (do meta_monad
-          [full_body ((is (-> Symbol [(List Symbol) (List Type)] Code (Meta Code))
-                          (function (again source [tags members] target)
-                            (let [locals (list#each (function (_ [t_module t_name])
-                                                      [[t_module t_name]
-                                                       ["" (..module_alias (list t_name) alias)]])
-                                                    tags)
-                                  pattern (case locals
-                                            (pattern (list [slot binding]))
-                                            (symbol$ binding)
-
-                                            _
-                                            (|> locals
-                                                (list#each (function (_ [slot binding])
-                                                             (list (symbol$ slot)
-                                                                   (symbol$ binding))))
-                                                list#conjoint
-                                                tuple$))]
-                              (do meta_monad
-                                [enhanced_target (monad#mix meta_monad
-                                                            (function (_ [[_ m_local] m_type] enhanced_target)
-                                                              (do meta_monad
-                                                                [m_implementation (record_slots m_type)]
-                                                                (case m_implementation
-                                                                  {#Some m_tags&members}
-                                                                  (again m_local
-                                                                         m_tags&members
-                                                                         enhanced_target)
-
-                                                                  {#None}
-                                                                  (in enhanced_target))))
-                                                            target
-                                                            (zipped_2 locals members))]
-                                (in (` ({(~ pattern) (~ enhanced_target)} (~ (symbol$ source)))))))))
-                      name tags&members body)]
-          (in (list full_body)))))
-
-    _
-    (failure "Wrong syntax for open")))
-
-(macro: .public (cond tokens)
-  (case (list#reversed tokens)
-    (pattern (partial_list else branches'))
-    (case (pairs branches')
-      {#Some branches'}
-      (meta#in (list (list#mix (is (-> [Code Code] Code Code)
-                                   (function (_ branch else)
-                                     (let [[then ?] branch]
-                                       (` (if (~ ?) (~ then) (~ else))))))
-                               else
-                               branches')))
-
-      {#None}
-      (failure "cond requires an uneven number of arguments."))
-    
-    _
-    (failure "Wrong syntax for cond")))
+        (failure "cond requires an uneven number of arguments."))
+      
+      _
+      (failure "Wrong syntax for cond"))))
 
 (def: (enumeration' idx xs)
   (All (_ a)
@@ -4062,46 +4131,47 @@
     (-> (List a) (List [Nat a])))
   (enumeration' 0 xs))
 
-(macro: .public (the tokens)
-  (case tokens
-    (pattern (list [_ {#Symbol slot'}] record))
-    (do meta_monad
-      [slot (normal slot')
-       output (..type_slot slot)
-       .let [[idx tags exported? type] output]
-       g!_ (..generated_symbol "_")
-       g!output (..generated_symbol "")]
-      (case (interface_methods type)
-        {#Some members}
-        (let [pattern (|> (zipped_2 tags (enumeration members))
-                          (list#each (is (-> [Symbol [Nat Type]] (List Code))
-                                         (function (_ [[r_module r_name] [r_idx r_type]])
-                                           (list (symbol$ [r_module r_name])
-                                                 (if ("lux i64 =" idx r_idx)
-                                                   g!output
-                                                   g!_)))))
-                          list#conjoint
-                          tuple$)]
-          (meta#in (list (` ({(~ pattern) (~ g!output)} (~ record))))))
+(def: .public the
+  (macro (_ tokens)
+    (case tokens
+      (pattern (list [_ {#Symbol slot'}] record))
+      (do meta_monad
+        [slot (normal slot')
+         output (..type_slot slot)
+         .let [[idx tags exported? type] output]
+         g!_ (..generated_symbol "_")
+         g!output (..generated_symbol "")]
+        (case (interface_methods type)
+          {#Some members}
+          (let [pattern (|> (zipped_2 tags (enumeration members))
+                            (list#each (is (-> [Symbol [Nat Type]] (List Code))
+                                           (function (_ [[r_module r_name] [r_idx r_type]])
+                                             (list (symbol$ [r_module r_name])
+                                                   (if ("lux i64 =" idx r_idx)
+                                                     g!output
+                                                     g!_)))))
+                            list#conjoint
+                            tuple$)]
+            (meta#in (list (` ({(~ pattern) (~ g!output)} (~ record))))))
 
-        _
-        (failure "the can only use records.")))
+          _
+          (failure "the can only use records.")))
 
-    (pattern (list [_ {#Tuple slots}] record))
-    (meta#in (list (list#mix (is (-> Code Code Code)
-                                 (function (_ slot inner)
-                                   (` (..the (~ slot) (~ inner)))))
-                             record
-                             slots)))
+      (pattern (list [_ {#Tuple slots}] record))
+      (meta#in (list (list#mix (is (-> Code Code Code)
+                                   (function (_ slot inner)
+                                     (` (..the (~ slot) (~ inner)))))
+                               record
+                               slots)))
 
-    (pattern (list selector))
-    (do meta_monad
-      [g!_ (..generated_symbol "_")
-       g!record (..generated_symbol "record")]
-      (in (list (` (function ((~ g!_) (~ g!record)) (..the (~ selector) (~ g!record)))))))
-    
-    _
-    (failure "Wrong syntax for the")))
+      (pattern (list selector))
+      (do meta_monad
+        [g!_ (..generated_symbol "_")
+         g!record (..generated_symbol "record")]
+        (in (list (` (function ((~ g!_) (~ g!record)) (..the (~ selector) (~ g!record)))))))
+      
+      _
+      (failure "Wrong syntax for the"))))
 
 (def: (open_declaration imported_module alias tags my_tag_index [module short] source type)
   (-> Text Text (List Symbol) Nat Symbol Code Type (Meta (List Code)))
@@ -4161,62 +4231,63 @@
     _
     global))
 
-(macro: .public (open: tokens)
-  (case (..parsed (all ..andP
-                       (..maybeP (all ..andP
-                                      ..textP
-                                      ..textP
-                                      ..textP))
-                       ..textP
-                       (..orP (..manyP ..symbolP)
-                              (..manyP ..anyP)))
-                  tokens)
-    {.#Some [current_module,imported_module,import_alias alias implementations]}
-    (let [[current_module imported_module import_alias]
-          (case current_module,imported_module,import_alias
-            {#Some [current_module imported_module import_alias]}
-            [current_module imported_module import_alias]
-            
-            {#None}
-            ["" "" ""])]
-      (case implementations
-        {#Left implementations}
-        (do meta_monad
-          [declarations (|> implementations
-                            (list#each (localized imported_module))
-                            (monad#each meta_monad (implementation_declarations import_alias alias)))]
-          (in (list#conjoint declarations)))
-        
-        {#Right implementations}
-        (do meta_monad
-          [pre_defs,implementations (is (Meta [(List Code) (List Code)])
-                                        (monad#mix meta_monad
-                                                   (function (_ it [pre_defs implementations])
-                                                     (case it
-                                                       [_ {#Symbol _}]
-                                                       (in [pre_defs
-                                                            {#Item it implementations}])
-                                                       
-                                                       _
-                                                       (do meta_monad
-                                                         [g!implementation (..generated_symbol "implementation")]
-                                                         (in [{#Item (` ("lux def" (~ g!implementation) (~ it) #0)) pre_defs}
-                                                              {#Item g!implementation implementations}]))))
-                                                   [(list) (list)]
-                                                   implementations))
-           .let [[pre_defs implementations] pre_defs,implementations]]
-          (in (|> pre_defs
-                  {#Item (` (..open:
-                              (~ (text$ current_module))
-                              (~ (text$ imported_module))
-                              (~ (text$ import_alias))
-                              (~ (text$ alias))
-                              (~+ implementations)))}
-                  list#reversed)))))
-    
+(def: .public open:
+  (macro (_ tokens)
+    (case (..parsed (all ..andP
+                         (..maybeP (all ..andP
+                                        ..textP
+                                        ..textP
+                                        ..textP))
+                         ..textP
+                         (..orP (..manyP ..symbolP)
+                                (..manyP ..anyP)))
+                    tokens)
+      {.#Some [current_module,imported_module,import_alias alias implementations]}
+      (let [[current_module imported_module import_alias]
+            (case current_module,imported_module,import_alias
+              {#Some [current_module imported_module import_alias]}
+              [current_module imported_module import_alias]
+              
+              {#None}
+              ["" "" ""])]
+        (case implementations
+          {#Left implementations}
+          (do meta_monad
+            [declarations (|> implementations
+                              (list#each (localized imported_module))
+                              (monad#each meta_monad (implementation_declarations import_alias alias)))]
+            (in (list#conjoint declarations)))
+          
+          {#Right implementations}
+          (do meta_monad
+            [pre_defs,implementations (is (Meta [(List Code) (List Code)])
+                                          (monad#mix meta_monad
+                                                     (function (_ it [pre_defs implementations])
+                                                       (case it
+                                                         [_ {#Symbol _}]
+                                                         (in [pre_defs
+                                                              {#Item it implementations}])
+                                                         
+                                                         _
+                                                         (do meta_monad
+                                                           [g!implementation (..generated_symbol "implementation")]
+                                                           (in [{#Item (` ("lux def" (~ g!implementation) (~ it) #0)) pre_defs}
+                                                                {#Item g!implementation implementations}]))))
+                                                     [(list) (list)]
+                                                     implementations))
+             .let [[pre_defs implementations] pre_defs,implementations]]
+            (in (|> pre_defs
+                    {#Item (` (..open:
+                                (~ (text$ current_module))
+                                (~ (text$ imported_module))
+                                (~ (text$ import_alias))
+                                (~ (text$ alias))
+                                (~+ implementations)))}
+                    list#reversed)))))
+      
 
-    {.#None}
-    (failure (..wrong_syntax_error (symbol ..open:)))))
+      {.#None}
+      (failure (..wrong_syntax_error (symbol ..open:))))))
 
 (def: (imported_by? import_name module_name)
   (-> Text Text (Meta Bit))
@@ -4247,224 +4318,230 @@
                            (list#interposed " ")
                            (list#mix text#composite "")))))))
 
-(macro: (refer tokens)
-  (case tokens
-    (pattern (partial_list [_ {#Text imported_module}] [_ {#Text alias}] options))
-    (do meta_monad
-      [referrals (..referrals imported_module options)
-       current_module ..current_module_name]
-      (in (list#each (function (_ [macro parameters])
-                       (` ((~ (symbol$ macro))
-                           (~ (text$ current_module))
-                           (~ (text$ imported_module))
-                           (~ (text$ alias))
-                           (~+ parameters))))
-                     referrals)))
-
-    _
-    (failure (..wrong_syntax_error (symbol ..refer)))))
-
-(macro: .public (with tokens)
-  (case (..parsed (..andP ..anyP ..anyP)
-                  tokens)
-    {.#Some [implementation expression]}
-    (meta#in (list (` (..let [(..open (~ (text$ (alias_stand_in 0)))) (~ implementation)]
-                        (~ expression)))))
-
-    {.#None}
-    (failure (..wrong_syntax_error (symbol ..with)))))
-
-(macro: .public (at tokens)
-  (case tokens
-    (pattern (list implementation [_ {#Symbol member}]))
-    (meta#in (list (` (..with (~ implementation) (~ (symbol$ member))))))
-
-    (pattern (partial_list struct member args))
-    (meta#in (list (` ((..at (~ struct) (~ member)) (~+ args)))))
-    
-    _
-    (failure (..wrong_syntax_error (symbol ..at)))))
-
-(macro: .public (has tokens)
-  (case tokens
-    (pattern (list [_ {#Symbol slot'}] value record))
-    (do meta_monad
-      [slot (normal slot')
-       output (..type_slot slot)
-       .let [[idx tags exported? type] output]]
-      (case (interface_methods type)
-        {#Some members}
-        (do meta_monad
-          [pattern' (monad#each meta_monad
-                                (is (-> [Symbol [Nat Type]] (Meta [Symbol Nat Code]))
-                                    (function (_ [r_slot_name [r_idx r_type]])
-                                      (do meta_monad
-                                        [g!slot (..generated_symbol "")]
-                                        (meta#in [r_slot_name r_idx g!slot]))))
-                                (zipped_2 tags (enumeration members)))]
-          (let [pattern (|> pattern'
-                            (list#each (is (-> [Symbol Nat Code] (List Code))
-                                           (function (_ [r_slot_name r_idx r_var])
-                                             (list (symbol$ r_slot_name)
-                                                   r_var))))
-                            list#conjoint
-                            tuple$)
-                output (|> pattern'
-                           (list#each (is (-> [Symbol Nat Code] (List Code))
-                                          (function (_ [r_slot_name r_idx r_var])
-                                            (list (symbol$ r_slot_name)
-                                                  (if ("lux i64 =" idx r_idx)
-                                                    value
-                                                    r_var)))))
-                           list#conjoint
-                           tuple$)]
-            (meta#in (list (` ({(~ pattern) (~ output)} (~ record)))))))
-
-        _
-        (failure "has can only use records.")))
-
-    (pattern (list [_ {#Tuple slots}] value record))
-    (case slots
-      {#End}
-      (failure "Wrong syntax for has")
+(def: refer
+  (macro (_ tokens)
+    (case tokens
+      (pattern (partial_list [_ {#Text imported_module}] [_ {#Text alias}] options))
+      (do meta_monad
+        [referrals (..referrals imported_module options)
+         current_module ..current_module_name]
+        (in (list#each (function (_ [macro parameters])
+                         (` ((~ (symbol$ macro))
+                             (~ (text$ current_module))
+                             (~ (text$ imported_module))
+                             (~ (text$ alias))
+                             (~+ parameters))))
+                       referrals)))
 
       _
-      (do meta_monad
-        [bindings (monad#each meta_monad
-                              (is (-> Code (Meta Code))
-                                  (function (_ _) (..generated_symbol "temp")))
-                              slots)
-         .let [pairs (zipped_2 slots bindings)
-               update_expr (list#mix (is (-> [Code Code] Code Code)
-                                         (function (_ [s b] v)
-                                           (` (..has (~ s) (~ v) (~ b)))))
-                                     value
-                                     (list#reversed pairs))
-               [_ accesses'] (list#mix (is (-> [Code Code] [Code (List (List Code))] [Code (List (List Code))])
-                                           (function (_ [new_slot new_binding] [old_record accesses'])
-                                             [(` (the (~ new_slot) (~ new_binding)))
-                                              {#Item (list new_binding old_record) accesses'}]))
-                                       [record (is (List (List Code)) {#End})]
-                                       pairs)
-               accesses (list#conjoint (list#reversed accesses'))]]
-        (in (list (` (let [(~+ accesses)]
-                       (~ update_expr)))))))
-    
-    (pattern (list selector value))
-    (do meta_monad
-      [g!_ (..generated_symbol "_")
-       g!record (..generated_symbol "record")]
-      (in (list (` (function ((~ g!_) (~ g!record))
-                     (..has (~ selector) (~ value) (~ g!record)))))))
+      (failure (..wrong_syntax_error (symbol ..refer))))))
 
-    (pattern (list selector))
-    (do meta_monad
-      [g!_ (..generated_symbol "_")
-       g!value (..generated_symbol "value")
-       g!record (..generated_symbol "record")]
-      (in (list (` (function ((~ g!_) (~ g!value) (~ g!record))
-                     (..has (~ selector) (~ g!value) (~ g!record)))))))
+(def: .public with
+  (macro (_ tokens)
+    (case (..parsed (..andP ..anyP ..anyP)
+                    tokens)
+      {.#Some [implementation expression]}
+      (meta#in (list (` (..let [(..open (~ (text$ (alias_stand_in 0)))) (~ implementation)]
+                          (~ expression)))))
 
-    _
-    (failure "Wrong syntax for has")))
+      {.#None}
+      (failure (..wrong_syntax_error (symbol ..with))))))
 
-(macro: .public (revised tokens)
-  (case tokens
-    (pattern (list [_ {#Symbol slot'}] fun record))
-    (do meta_monad
-      [slot (normal slot')
-       output (..type_slot slot)
-       .let [[idx tags exported? type] output]]
-      (case (interface_methods type)
-        {#Some members}
-        (do meta_monad
-          [pattern' (monad#each meta_monad
-                                (is (-> [Symbol [Nat Type]] (Meta [Symbol Nat Code]))
-                                    (function (_ [r_slot_name [r_idx r_type]])
-                                      (do meta_monad
-                                        [g!slot (..generated_symbol "")]
-                                        (meta#in [r_slot_name r_idx g!slot]))))
-                                (zipped_2 tags (enumeration members)))]
-          (let [pattern (|> pattern'
-                            (list#each (is (-> [Symbol Nat Code] (List Code))
-                                           (function (_ [r_slot_name r_idx r_var])
-                                             (list (symbol$ r_slot_name)
-                                                   r_var))))
-                            list#conjoint
-                            tuple$)
-                output (|> pattern'
-                           (list#each (is (-> [Symbol Nat Code] (List Code))
-                                          (function (_ [r_slot_name r_idx r_var])
-                                            (list (symbol$ r_slot_name)
-                                                  (if ("lux i64 =" idx r_idx)
-                                                    (` ((~ fun) (~ r_var)))
-                                                    r_var)))))
-                           list#conjoint
-                           tuple$)]
-            (meta#in (list (` ({(~ pattern) (~ output)} (~ record)))))))
+(def: .public at
+  (macro (_ tokens)
+    (case tokens
+      (pattern (list implementation [_ {#Symbol member}]))
+      (meta#in (list (` (..with (~ implementation) (~ (symbol$ member))))))
 
-        _
-        (failure "revised can only use records.")))
-
-    (pattern (list [_ {#Tuple slots}] fun record))
-    (case slots
-      {#End}
-      (failure "Wrong syntax for revised")
-
-      _
-      (do meta_monad
-        [g!record (..generated_symbol "record")
-         g!temp (..generated_symbol "temp")]
-        (in (list (` (let [(~ g!record) (~ record)
-                           (~ g!temp) (the [(~+ slots)] (~ g!record))]
-                       (has [(~+ slots)] ((~ fun) (~ g!temp)) (~ g!record))))))))
-
-    (pattern (list selector fun))
-    (do meta_monad
-      [g!_ (..generated_symbol "_")
-       g!record (..generated_symbol "record")]
-      (in (list (` (function ((~ g!_) (~ g!record))
-                     (..revised (~ selector) (~ fun) (~ g!record)))))))
-
-    (pattern (list selector))
-    (do meta_monad
-      [g!_ (..generated_symbol "_")
-       g!fun (..generated_symbol "fun")
-       g!record (..generated_symbol "record")]
-      (in (list (` (function ((~ g!_) (~ g!fun) (~ g!record))
-                     (..revised (~ selector) (~ g!fun) (~ g!record)))))))
-    
-    _
-    (failure "Wrong syntax for revised")))
-
-(macro: .private (pattern#template tokens)
-  (case tokens
-    (pattern (partial_list [_ {#Form (list [_ {#Tuple bindings}]
-                                           [_ {#Tuple templates}])}]
-                           [_ {#Form data}]
-                           branches))
-    (case (is (Maybe (List Code))
-              (do maybe_monad
-                [bindings' (monad#each maybe_monad symbol_short bindings)
-                 data' (monad#each maybe_monad tuple_list data)]
-                (let [num_bindings (list#size bindings')]
-                  (if (every? (|>> ("lux i64 =" num_bindings))
-                              (list#each list#size data'))
-                    (let [apply (is (-> Replacement_Environment (List Code))
-                                    (function (_ env) (list#each (realized_template env) templates)))]
-                      (|> data'
-                          (list#each (function#composite apply (replacement_environment bindings')))
-                          list#conjoint
-                          in))
-                    {#None}))))
-      {#Some output}
-      (meta#in (list#composite output branches))
+      (pattern (partial_list struct member args))
+      (meta#in (list (` ((..at (~ struct) (~ member)) (~+ args)))))
       
-      {#None}
-      (failure "Wrong syntax for pattern#template"))
-    
-    _
-    (failure "Wrong syntax for pattern#template")))
+      _
+      (failure (..wrong_syntax_error (symbol ..at))))))
+
+(def: .public has
+  (macro (_ tokens)
+    (case tokens
+      (pattern (list [_ {#Symbol slot'}] value record))
+      (do meta_monad
+        [slot (normal slot')
+         output (..type_slot slot)
+         .let [[idx tags exported? type] output]]
+        (case (interface_methods type)
+          {#Some members}
+          (do meta_monad
+            [pattern' (monad#each meta_monad
+                                  (is (-> [Symbol [Nat Type]] (Meta [Symbol Nat Code]))
+                                      (function (_ [r_slot_name [r_idx r_type]])
+                                        (do meta_monad
+                                          [g!slot (..generated_symbol "")]
+                                          (meta#in [r_slot_name r_idx g!slot]))))
+                                  (zipped_2 tags (enumeration members)))]
+            (let [pattern (|> pattern'
+                              (list#each (is (-> [Symbol Nat Code] (List Code))
+                                             (function (_ [r_slot_name r_idx r_var])
+                                               (list (symbol$ r_slot_name)
+                                                     r_var))))
+                              list#conjoint
+                              tuple$)
+                  output (|> pattern'
+                             (list#each (is (-> [Symbol Nat Code] (List Code))
+                                            (function (_ [r_slot_name r_idx r_var])
+                                              (list (symbol$ r_slot_name)
+                                                    (if ("lux i64 =" idx r_idx)
+                                                      value
+                                                      r_var)))))
+                             list#conjoint
+                             tuple$)]
+              (meta#in (list (` ({(~ pattern) (~ output)} (~ record)))))))
+
+          _
+          (failure "has can only use records.")))
+
+      (pattern (list [_ {#Tuple slots}] value record))
+      (case slots
+        {#End}
+        (failure "Wrong syntax for has")
+
+        _
+        (do meta_monad
+          [bindings (monad#each meta_monad
+                                (is (-> Code (Meta Code))
+                                    (function (_ _) (..generated_symbol "temp")))
+                                slots)
+           .let [pairs (zipped_2 slots bindings)
+                 update_expr (list#mix (is (-> [Code Code] Code Code)
+                                           (function (_ [s b] v)
+                                             (` (..has (~ s) (~ v) (~ b)))))
+                                       value
+                                       (list#reversed pairs))
+                 [_ accesses'] (list#mix (is (-> [Code Code] [Code (List (List Code))] [Code (List (List Code))])
+                                             (function (_ [new_slot new_binding] [old_record accesses'])
+                                               [(` (the (~ new_slot) (~ new_binding)))
+                                                {#Item (list new_binding old_record) accesses'}]))
+                                         [record (is (List (List Code)) {#End})]
+                                         pairs)
+                 accesses (list#conjoint (list#reversed accesses'))]]
+          (in (list (` (let [(~+ accesses)]
+                         (~ update_expr)))))))
+      
+      (pattern (list selector value))
+      (do meta_monad
+        [g!_ (..generated_symbol "_")
+         g!record (..generated_symbol "record")]
+        (in (list (` (function ((~ g!_) (~ g!record))
+                       (..has (~ selector) (~ value) (~ g!record)))))))
+
+      (pattern (list selector))
+      (do meta_monad
+        [g!_ (..generated_symbol "_")
+         g!value (..generated_symbol "value")
+         g!record (..generated_symbol "record")]
+        (in (list (` (function ((~ g!_) (~ g!value) (~ g!record))
+                       (..has (~ selector) (~ g!value) (~ g!record)))))))
+
+      _
+      (failure "Wrong syntax for has"))))
+
+(def: .public revised
+  (macro (_ tokens)
+    (case tokens
+      (pattern (list [_ {#Symbol slot'}] fun record))
+      (do meta_monad
+        [slot (normal slot')
+         output (..type_slot slot)
+         .let [[idx tags exported? type] output]]
+        (case (interface_methods type)
+          {#Some members}
+          (do meta_monad
+            [pattern' (monad#each meta_monad
+                                  (is (-> [Symbol [Nat Type]] (Meta [Symbol Nat Code]))
+                                      (function (_ [r_slot_name [r_idx r_type]])
+                                        (do meta_monad
+                                          [g!slot (..generated_symbol "")]
+                                          (meta#in [r_slot_name r_idx g!slot]))))
+                                  (zipped_2 tags (enumeration members)))]
+            (let [pattern (|> pattern'
+                              (list#each (is (-> [Symbol Nat Code] (List Code))
+                                             (function (_ [r_slot_name r_idx r_var])
+                                               (list (symbol$ r_slot_name)
+                                                     r_var))))
+                              list#conjoint
+                              tuple$)
+                  output (|> pattern'
+                             (list#each (is (-> [Symbol Nat Code] (List Code))
+                                            (function (_ [r_slot_name r_idx r_var])
+                                              (list (symbol$ r_slot_name)
+                                                    (if ("lux i64 =" idx r_idx)
+                                                      (` ((~ fun) (~ r_var)))
+                                                      r_var)))))
+                             list#conjoint
+                             tuple$)]
+              (meta#in (list (` ({(~ pattern) (~ output)} (~ record)))))))
+
+          _
+          (failure "revised can only use records.")))
+
+      (pattern (list [_ {#Tuple slots}] fun record))
+      (case slots
+        {#End}
+        (failure "Wrong syntax for revised")
+
+        _
+        (do meta_monad
+          [g!record (..generated_symbol "record")
+           g!temp (..generated_symbol "temp")]
+          (in (list (` (let [(~ g!record) (~ record)
+                             (~ g!temp) (the [(~+ slots)] (~ g!record))]
+                         (has [(~+ slots)] ((~ fun) (~ g!temp)) (~ g!record))))))))
+
+      (pattern (list selector fun))
+      (do meta_monad
+        [g!_ (..generated_symbol "_")
+         g!record (..generated_symbol "record")]
+        (in (list (` (function ((~ g!_) (~ g!record))
+                       (..revised (~ selector) (~ fun) (~ g!record)))))))
+
+      (pattern (list selector))
+      (do meta_monad
+        [g!_ (..generated_symbol "_")
+         g!fun (..generated_symbol "fun")
+         g!record (..generated_symbol "record")]
+        (in (list (` (function ((~ g!_) (~ g!fun) (~ g!record))
+                       (..revised (~ selector) (~ g!fun) (~ g!record)))))))
+      
+      _
+      (failure "Wrong syntax for revised"))))
+
+(def: .private pattern#template
+  (macro (_ tokens)
+    (case tokens
+      (pattern (partial_list [_ {#Form (list [_ {#Tuple bindings}]
+                                             [_ {#Tuple templates}])}]
+                             [_ {#Form data}]
+                             branches))
+      (case (is (Maybe (List Code))
+                (do maybe_monad
+                  [bindings' (monad#each maybe_monad symbol_short bindings)
+                   data' (monad#each maybe_monad tuple_list data)]
+                  (let [num_bindings (list#size bindings')]
+                    (if (every? (|>> ("lux i64 =" num_bindings))
+                                (list#each list#size data'))
+                      (let [apply (is (-> Replacement_Environment (List Code))
+                                      (function (_ env) (list#each (realized_template env) templates)))]
+                        (|> data'
+                            (list#each (function#composite apply (replacement_environment bindings')))
+                            list#conjoint
+                            in))
+                      {#None}))))
+        {#Some output}
+        (meta#in (list#composite output branches))
+        
+        {#None}
+        (failure "Wrong syntax for pattern#template"))
+      
+      _
+      (failure "Wrong syntax for pattern#template"))))
 
 (template [<name> <extension>]
   [(def: .public <name>
@@ -4522,47 +4599,48 @@
     ...     (~ (type_code anonymous))})
     (symbol$ [module name])))
 
-(macro: .public (loop tokens)
-  (let [?params (case tokens
-                  (pattern (list [_ {#Form (list name [_ {#Tuple bindings}])}] body))
-                  {#Some [name bindings body]}
+(def: .public loop
+  (macro (_ tokens)
+    (let [?params (case tokens
+                    (pattern (list [_ {#Form (list name [_ {#Tuple bindings}])}] body))
+                    {#Some [name bindings body]}
 
-                  _
-                  {#None})]
-    (case ?params
-      {#Some [name bindings body]}
-      (case (pairs bindings)
-        {#Some pairs}
-        (let [vars (list#each product#left pairs)
-              inits (list#each product#right pairs)]
-          (if (every? symbol? inits)
-            (do meta_monad
-              [inits' (is (Meta (List Symbol))
-                          (case (monad#each maybe_monad symbol_name inits)
-                            {#Some inits'} (meta#in inits')
-                            {#None}        (failure "Wrong syntax for loop")))
-               init_types (monad#each meta_monad type_definition inits')
-               expected ..expected_type]
-              (meta#in (list (` (("lux type check"
-                                  (-> (~+ (list#each type_code init_types))
-                                      (~ (type_code expected)))
-                                  (function ((~ name) (~+ vars))
-                                    (~ body)))
-                                 (~+ inits))))))
-            (do meta_monad
-              [aliases (monad#each meta_monad
-                                   (is (-> Code (Meta Code))
-                                       (function (_ _) (..generated_symbol "")))
-                                   inits)]
-              (meta#in (list (` (..let [(~+ (..interleaved aliases inits))]
-                                  (..loop ((~ name) [(~+ (..interleaved vars aliases))])
-                                    (~ body)))))))))
+                    _
+                    {#None})]
+      (case ?params
+        {#Some [name bindings body]}
+        (case (pairs bindings)
+          {#Some pairs}
+          (let [vars (list#each product#left pairs)
+                inits (list#each product#right pairs)]
+            (if (every? symbol? inits)
+              (do meta_monad
+                [inits' (is (Meta (List Symbol))
+                            (case (monad#each maybe_monad symbol_name inits)
+                              {#Some inits'} (meta#in inits')
+                              {#None}        (failure "Wrong syntax for loop")))
+                 init_types (monad#each meta_monad type_definition inits')
+                 expected ..expected_type]
+                (meta#in (list (` (("lux type check"
+                                    (-> (~+ (list#each type_code init_types))
+                                        (~ (type_code expected)))
+                                    (function ((~ name) (~+ vars))
+                                      (~ body)))
+                                   (~+ inits))))))
+              (do meta_monad
+                [aliases (monad#each meta_monad
+                                     (is (-> Code (Meta Code))
+                                         (function (_ _) (..generated_symbol "")))
+                                     inits)]
+                (meta#in (list (` (..let [(~+ (..interleaved aliases inits))]
+                                    (..loop ((~ name) [(~+ (..interleaved vars aliases))])
+                                      (~ body)))))))))
+
+          {#None}
+          (failure "Wrong syntax for loop"))
 
         {#None}
-        (failure "Wrong syntax for loop"))
-
-      {#None}
-      (failure "Wrong syntax for loop"))))
+        (failure "Wrong syntax for loop")))))
 
 (def: (with_expansions' label tokens target)
   (-> Text (List Code) Code (List Code))
@@ -4583,37 +4661,38 @@
      [#Variant]
      [#Tuple])))
 
-(macro: .public (with_expansions tokens)
-  (case (parsed (andP (tupleP (someP bindingP)) (someP anyP)) tokens)
-    {#Some [bindings bodies]}
-    (loop (again [bindings bindings
-                  map (is (PList (List Code))
-                          (list))])
-      (let [normal (is (-> Code (List Code))
-                       (function (_ it)
-                         (list#mix (function (_ [binding expansion] it)
-                                     (list#conjoint (list#each (with_expansions' binding expansion) it)))
-                                   (list it)
-                                   map)))]
-        (case bindings
-          {#Item [var_name expr] &rest}
-          (do meta_monad
-            [expansion (case (normal expr)
-                         (pattern (list expr))
-                         (single_expansion expr)
+(def: .public with_expansions
+  (macro (_ tokens)
+    (case (parsed (andP (tupleP (someP bindingP)) (someP anyP)) tokens)
+      {#Some [bindings bodies]}
+      (loop (again [bindings bindings
+                    map (is (PList (List Code))
+                            (list))])
+        (let [normal (is (-> Code (List Code))
+                         (function (_ it)
+                           (list#mix (function (_ [binding expansion] it)
+                                       (list#conjoint (list#each (with_expansions' binding expansion) it)))
+                                     (list it)
+                                     map)))]
+          (case bindings
+            {#Item [var_name expr] &rest}
+            (do meta_monad
+              [expansion (case (normal expr)
+                           (pattern (list expr))
+                           (single_expansion expr)
 
-                         _
-                         (failure (all text#composite
-                                       "Incorrect expansion in with_expansions"
-                                       " | Binding: " (text#encoded var_name)
-                                       " | Expression: " (code#encoded expr))))]
-            (again &rest (plist#with var_name expansion map)))
-          
-          {#End}
-          (at meta_monad #in (list#conjoint (list#each normal bodies))))))
-    
-    {#None}
-    (failure "Wrong syntax for with_expansions")))
+                           _
+                           (failure (all text#composite
+                                         "Incorrect expansion in with_expansions"
+                                         " | Binding: " (text#encoded var_name)
+                                         " | Expression: " (code#encoded expr))))]
+              (again &rest (plist#with var_name expansion map)))
+            
+            {#End}
+            (at meta_monad #in (list#conjoint (list#each normal bodies))))))
+      
+      {#None}
+      (failure "Wrong syntax for with_expansions"))))
 
 (def: (flat_alias type)
   (-> Type Type)
@@ -4678,15 +4757,16 @@
     ... (at meta_monad in token)
     ))
 
-(macro: .public (static tokens)
-  (case tokens
-    (pattern (list pattern))
-    (do meta_monad
-      [pattern' (static_literal pattern)]
-      (in (list pattern')))
-    
-    _
-    (failure "Wrong syntax for 'static'.")))
+(def: .public static
+  (macro (_ tokens)
+    (case tokens
+      (pattern (list pattern))
+      (do meta_monad
+        [pattern' (static_literal pattern)]
+        (in (list pattern')))
+      
+      _
+      (failure "Wrong syntax for 'static'."))))
 
 (type: Multi_Level_Case
   [Code (List [Code Code])])
@@ -4732,85 +4812,89 @@
                                      (is (List [Code Code]) (list#reversed levels)))]
     (list init_pattern inner_pattern_body)))
 
-(macro: (pattern#multi tokens)
-  (case tokens
-    (pattern (partial_list [_meta {#Form levels}] body next_branches))
-    (do meta_monad
-      [mlc (multi_level_case^ levels)
-       .let [initial_bind? (case mlc
-                             [[_ {#Symbol _}] _]
-                             #1
+(def: pattern#multi
+  (macro (_ tokens)
+    (case tokens
+      (pattern (partial_list [_meta {#Form levels}] body next_branches))
+      (do meta_monad
+        [mlc (multi_level_case^ levels)
+         .let [initial_bind? (case mlc
+                               [[_ {#Symbol _}] _]
+                               #1
 
-                             _
-                             #0)]
-       expected ..expected_type
-       g!temp (..generated_symbol "temp")]
-      (in (list g!temp
-                (` ({{.#Some (~ g!temp)}
-                     (~ g!temp)
+                               _
+                               #0)]
+         expected ..expected_type
+         g!temp (..generated_symbol "temp")]
+        (in (list g!temp
+                  (` ({{.#Some (~ g!temp)}
+                       (~ g!temp)
 
-                     {.#None}
-                     (case (~ g!temp)
-                       (~+ next_branches))}
-                    ("lux type check" {.#Apply (~ (type_code expected)) Maybe}
-                     (case (~ g!temp)
-                       (~+ (multi_level_case$ g!temp [mlc body]))
+                       {.#None}
+                       (case (~ g!temp)
+                         (~+ next_branches))}
+                      ("lux type check" {.#Apply (~ (type_code expected)) Maybe}
+                       (case (~ g!temp)
+                         (~+ (multi_level_case$ g!temp [mlc body]))
 
-                       (~+ (if initial_bind?
-                             (list)
-                             (list g!temp (` {.#None})))))))))))
-    
-    _
-    (failure "Wrong syntax for pattern#multi")))
+                         (~+ (if initial_bind?
+                               (list)
+                               (list g!temp (` {.#None})))))))))))
+      
+      _
+      (failure "Wrong syntax for pattern#multi"))))
 
 (def: .public (same? reference sample)
   (All (_ a)
     (-> a a Bit))
   ("lux is" reference sample))
 
-(macro: .public (as_expected tokens)
-  (case tokens
-    (pattern (list expr))
-    (do meta_monad
-      [type ..expected_type]
-      (in (list (` ("lux type as" (~ (type_code type)) (~ expr))))))
-    
-    _
-    (failure (..wrong_syntax_error (symbol ..as_expected)))))
+(def: .public as_expected
+  (macro (_ tokens)
+    (case tokens
+      (pattern (list expr))
+      (do meta_monad
+        [type ..expected_type]
+        (in (list (` ("lux type as" (~ (type_code type)) (~ expr))))))
+      
+      _
+      (failure (..wrong_syntax_error (symbol ..as_expected))))))
 
 (def: location
   (Meta Location)
   (function (_ compiler)
     {#Right [compiler (the #location compiler)]}))
 
-(macro: .public (undefined tokens)
-  (case tokens
-    {#End}
-    (do meta_monad
-      [location ..location
-       .let [[module line column] location
-             location (all "lux text concat" (text#encoded module) "," (nat#encoded line) "," (nat#encoded column))
-             message (all "lux text concat" "Undefined behavior @ " location)]]
-      (in (list (` (..panic! (~ (text$ message)))))))
-    
-    _
-    (failure (..wrong_syntax_error (symbol ..undefined)))))
+(def: .public undefined
+  (macro (_ tokens)
+    (case tokens
+      {#End}
+      (do meta_monad
+        [location ..location
+         .let [[module line column] location
+               location (all "lux text concat" (text#encoded module) "," (nat#encoded line) "," (nat#encoded column))
+               message (all "lux text concat" "Undefined behavior @ " location)]]
+        (in (list (` (..panic! (~ (text$ message)))))))
+      
+      _
+      (failure (..wrong_syntax_error (symbol ..undefined))))))
 
-(macro: .public (type_of tokens)
-  (case tokens
-    (pattern (list [_ {#Symbol var_name}]))
-    (do meta_monad
-      [var_type (type_definition var_name)]
-      (in (list (type_code var_type))))
+(def: .public type_of
+  (macro (_ tokens)
+    (case tokens
+      (pattern (list [_ {#Symbol var_name}]))
+      (do meta_monad
+        [var_type (type_definition var_name)]
+        (in (list (type_code var_type))))
 
-    (pattern (list expression))
-    (do meta_monad
-      [g!temp (..generated_symbol "g!temp")]
-      (in (list (` (let [(~ g!temp) (~ expression)]
-                     (..type_of (~ g!temp)))))))
+      (pattern (list expression))
+      (do meta_monad
+        [g!temp (..generated_symbol "g!temp")]
+        (in (list (` (let [(~ g!temp) (~ expression)]
+                       (..type_of (~ g!temp)))))))
 
-    _
-    (failure (..wrong_syntax_error (symbol ..type_of)))))
+      _
+      (failure (..wrong_syntax_error (symbol ..type_of))))))
 
 (def: (templateP tokens)
   (-> (List Code) (Maybe [Code Text (List Text) (List Code)]))
@@ -4822,32 +4906,33 @@
      _ (endP tokens)]
     (in [export_policy name parameters templates])))
 
-(macro: .public (template: tokens)
-  (case (templateP tokens)
-    {#Some [export_policy name args input_templates]}
-    (do meta_monad
-      [g!tokens (..generated_symbol "tokens")
-       g!compiler (..generated_symbol "compiler")
-       g!_ (..generated_symbol "_")
-       .let [rep_env (list#each (function (_ arg)
-                                  [arg (` ((~' ~) (~ (local$ arg))))])
-                                args)]
-       this_module current_module_name]
-      (in (list (` (macro: (~ export_policy)
-                     ((~ (local$ name)) (~ g!tokens) (~ g!compiler))
-                     (case (~ g!tokens)
-                       (pattern (list (~+ (list#each local$ args))))
-                       {.#Right [(~ g!compiler)
-                                 (list (~+ (list#each (function (_ template)
-                                                        (` (`' (~ (with_replacements rep_env
-                                                                    template)))))
-                                                      input_templates)))]}
-                       
-                       (~ g!_)
-                       {.#Left (~ (text$ (..wrong_syntax_error [this_module name])))}))))))
+(def: .public template:
+  (macro (_ tokens)
+    (case (templateP tokens)
+      {#Some [export_policy name args input_templates]}
+      (do meta_monad
+        [g!tokens (..generated_symbol "tokens")
+         g!compiler (..generated_symbol "compiler")
+         g!_ (..generated_symbol "_")
+         .let [rep_env (list#each (function (_ arg)
+                                    [arg (` ((~' ~) (~ (local$ arg))))])
+                                  args)]
+         this_module current_module_name]
+        (in (list (` (..def: (~ export_policy) (~ (local$ name))
+                       (..macro ((~ (local$ name)) (~ g!tokens) (~ g!compiler))
+                         (case (~ g!tokens)
+                           (pattern (list (~+ (list#each local$ args))))
+                           {.#Right [(~ g!compiler)
+                                     (list (~+ (list#each (function (_ template)
+                                                            (` (`' (~ (with_replacements rep_env
+                                                                        template)))))
+                                                          input_templates)))]}
+                           
+                           (~ g!_)
+                           {.#Left (~ (text$ (..wrong_syntax_error [this_module name])))})))))))
 
-    {#None}
-    (failure (..wrong_syntax_error (symbol ..template:)))))
+      {#None}
+      (failure (..wrong_syntax_error (symbol ..template:))))))
 
 (template [<name> <to>]
   [(template: .public (<name> it)
@@ -4859,19 +4944,21 @@
   [rev ..Rev]
   )
 
-(macro: .public (these tokens compiler)
-  {#Right [compiler tokens]})
+(def: .public these
+  (macro (_ tokens compiler)
+    {#Right [compiler tokens]}))
 
-(macro: .public (char tokens compiler)
-  (case tokens
-    (pattern#multi (pattern (list [_ {#Text input}]))
-                   (|> input "lux text size" ("lux i64 =" 1)))
-    (|> input ("lux text char" 0)
-        nat$ list
-        [compiler] {#Right})
+(def: .public char
+  (macro (_ tokens compiler)
+    (case tokens
+      (pattern#multi (pattern (list [_ {#Text input}]))
+                     (|> input "lux text size" ("lux i64 =" 1)))
+      (|> input ("lux text char" 0)
+          nat$ list
+          [compiler] {#Right})
 
-    _
-    {#Left (..wrong_syntax_error (symbol ..char))}))
+      _
+      {#Left (..wrong_syntax_error (symbol ..char))})))
 
 (def: target
   (Meta Text)
@@ -4922,17 +5009,18 @@
         (meta#in (list pick))
         (target_pick target options' default)))))
 
-(macro: .public (for tokens)
-  (case (..parsed (..andP (..someP (..andP ..anyP ..anyP))
-                          (..maybeP ..anyP))
-                  tokens)
-    {.#Some [options default]}
-    (do meta_monad
-      [target ..target]
-      (target_pick target options default))
+(def: .public for
+  (macro (_ tokens)
+    (case (..parsed (..andP (..someP (..andP ..anyP ..anyP))
+                            (..maybeP ..anyP))
+                    tokens)
+      {.#Some [options default]}
+      (do meta_monad
+        [target ..target]
+        (target_pick target options default))
 
-    {.#None}
-    (failure (..wrong_syntax_error (symbol ..for)))))
+      {.#None}
+      (failure (..wrong_syntax_error (symbol ..for))))))
 
 ... TODO: Delete "scope_type_vars" (including the #scope_type_vars Lux state) and "parameter" ASAP.
 (for "{old}" (these (def: (scope_type_vars state)
@@ -4944,20 +5032,21 @@
                          ..#scope_type_vars scope_type_vars ..#eval _eval]
                         {#Right [state scope_type_vars]}))
 
-                    (macro: .public (parameter tokens)
-                      (case tokens
-                        (pattern (list [_ {#Nat idx}]))
-                        (do meta_monad
-                          [stvs ..scope_type_vars]
-                          (case (..item idx (list#reversed stvs))
-                            {#Some var_id}
-                            (in (list (` {.#Ex (~ (nat$ var_id))})))
+                    (def: .public parameter
+                      (macro (_ tokens)
+                        (case tokens
+                          (pattern (list [_ {#Nat idx}]))
+                          (do meta_monad
+                            [stvs ..scope_type_vars]
+                            (case (..item idx (list#reversed stvs))
+                              {#Some var_id}
+                              (in (list (` {.#Ex (~ (nat$ var_id))})))
 
-                            {#None}
-                            (failure (text#composite "Indexed-type does not exist: " (nat#encoded idx)))))
+                              {#None}
+                              (failure (text#composite "Indexed-type does not exist: " (nat#encoded idx)))))
 
-                        _
-                        (failure (..wrong_syntax_error (symbol ..$))))))
+                          _
+                          (failure (..wrong_syntax_error (symbol ..$)))))))
      (these (def: .public parameter "")))
 
 (def: (refer_code imported_module alias referrals)
@@ -4969,31 +5058,32 @@
                        (` ((~ (symbol$ macro)) (~+ parameters))))
                      referrals)))))
 
-(macro: .public (using _imports)
-  (do meta_monad
-    [current_module ..current_module_name
-     imports (imports_parser #0 current_module {#End} _imports)
-     .let [=imports (|> imports
-                        (list#each (is (-> Importation Code)
-                                       (function (_ [module_name m_alias =refer])
-                                         (` [(~ (text$ module_name)) (~ (text$ (..maybe#else "" m_alias)))]))))
-                        tuple$)
-           =refers (list#each (is (-> Importation Code)
-                                  (function (_ [module_name m_alias =refer])
-                                    (refer_code module_name (..maybe#else "" m_alias) =refer)))
-                              imports)
-           =module (` ("lux def module" (~ =imports)))]
-     g!_ (..generated_symbol "")]
-    (in {#Item =module
-               (for "Python"
-                    ... TODO: Remove this hack once Jython is no longer being used as the Python interpreter.
-                    ... Without it, I get this strange error
-                    ... {library/lux/tool/compiler/language/lux/generation.no_buffer_for_saving_code}
-                    ... Artifact ID: 0
-                    ... Which only ever happens for the Python compiler.
-                    (partial_list (` ("lux def" (~ g!_) [] #0))
-                                  =refers)
-                    =refers)})))
+(def: .public using
+  (macro (_ _imports)
+    (do meta_monad
+      [current_module ..current_module_name
+       imports (imports_parser #0 current_module {#End} _imports)
+       .let [=imports (|> imports
+                          (list#each (is (-> Importation Code)
+                                         (function (_ [module_name m_alias =refer])
+                                           (` [(~ (text$ module_name)) (~ (text$ (..maybe#else "" m_alias)))]))))
+                          tuple$)
+             =refers (list#each (is (-> Importation Code)
+                                    (function (_ [module_name m_alias =refer])
+                                      (refer_code module_name (..maybe#else "" m_alias) =refer)))
+                                imports)
+             =module (` ("lux def module" (~ =imports)))]
+       g!_ (..generated_symbol "")]
+      (in {#Item =module
+                 (for "Python"
+                      ... TODO: Remove this hack once Jython is no longer being used as the Python interpreter.
+                      ... Without it, I get this strange error
+                      ... {library/lux/tool/compiler/language/lux/generation.no_buffer_for_saving_code}
+                      ... Artifact ID: 0
+                      ... Which only ever happens for the Python compiler.
+                      (partial_list (` ("lux def" (~ g!_) [] #0))
+                                    =refers)
+                      =refers)}))))
 
 (def: (embedded_expansions code)
   (-> Code (Meta [(List [Code Code]) Code]))
@@ -5016,19 +5106,20 @@
     _
     (meta#in [(list) code])))
 
-(macro: .public (`` tokens)
-  (case tokens
-    (pattern (list raw))
-    (do meta_monad
-      [=raw (..embedded_expansions raw)
-       .let [[labels labelled] =raw]]
-      (in (list (` (with_expansions [(~+ (|> labels
-                                             (list#each (function (_ [label expansion]) (list label expansion)))
-                                             list#conjoint))]
-                     (~ labelled))))))
+(def: .public ``
+  (macro (_ tokens)
+    (case tokens
+      (pattern (list raw))
+      (do meta_monad
+        [=raw (..embedded_expansions raw)
+         .let [[labels labelled] =raw]]
+        (in (list (` (with_expansions [(~+ (|> labels
+                                               (list#each (function (_ [label expansion]) (list label expansion)))
+                                               list#conjoint))]
+                       (~ labelled))))))
 
-    _
-    (failure (..wrong_syntax_error (symbol ..``)))))
+      _
+      (failure (..wrong_syntax_error (symbol ..``))))))
 
 (def: .public false
   Bit
@@ -5038,17 +5129,18 @@
   Bit
   #1)
 
-(macro: .public (try tokens)
-  (case tokens
-    (pattern (list expression))
-    (do meta_monad
-      [g!_ (..generated_symbol "g!_")]
-      (in (list (` ("lux try"
-                    (.function ((~ g!_) (~ g!_))
-                      (~ expression)))))))
+(def: .public try
+  (macro (_ tokens)
+    (case tokens
+      (pattern (list expression))
+      (do meta_monad
+        [g!_ (..generated_symbol "g!_")]
+        (in (list (` ("lux try"
+                      (.function ((~ g!_) (~ g!_))
+                        (~ expression)))))))
 
-    _
-    (..failure (..wrong_syntax_error (symbol ..try)))))
+      _
+      (..failure (..wrong_syntax_error (symbol ..try))))))
 
 (def: (methodP tokens)
   (-> (List Code) (Maybe [(List Code) [Text Code]]))
@@ -5062,16 +5154,17 @@
     _
     {#None}))
 
-(macro: .public (Interface tokens)
-  (do meta_monad
-    [methods' (monad#each meta_monad expansion tokens)]
-    (case (everyP methodP (list#conjoint methods'))
-      {#Some methods}
-      (in (list (` (..Tuple (~+ (list#each product#right methods))))
-                (tuple$ (list#each (|>> product#left text$) methods))))
+(def: .public Interface
+  (macro (_ tokens)
+    (do meta_monad
+      [methods' (monad#each meta_monad expansion tokens)]
+      (case (everyP methodP (list#conjoint methods'))
+        {#Some methods}
+        (in (list (` (..Tuple (~+ (list#each product#right methods))))
+                  (tuple$ (list#each (|>> product#left text$) methods))))
 
-      {#None}
-      (failure "Wrong syntax for Interface"))))
+        {#None}
+        (failure "Wrong syntax for Interface")))))
 
 (def: (recursive_type g!self g!dummy name body)
   (-> Code Code Text Code Code)
@@ -5080,26 +5173,23 @@
                 (~ (let$ (local$ name) (` {.#Apply (..Primitive "") (~ g!self)})
                          body)))}))
 
-(macro: .public (Rec tokens)
-  (case tokens
-    (pattern (list [_ {#Symbol "" name}] body))
-    (do meta_monad
-      [body' (expansion body)
-       g!self (generated_symbol "g!self")
-       g!dummy (generated_symbol "g!dummy")]
-      (case body'
-        (pattern (list body' labels))
-        (in (list (..recursive_type g!self g!dummy name body') labels))
+(def: .public Rec
+  (macro (_ tokens)
+    (case tokens
+      (pattern (list [_ {#Symbol "" name}] body))
+      (do meta_monad
+        [body' (expansion body)
+         g!self (generated_symbol "g!self")
+         g!dummy (generated_symbol "g!dummy")]
+        (case body'
+          (pattern (list body' labels))
+          (in (list (..recursive_type g!self g!dummy name body') labels))
 
-        (pattern (list body'))
-        (in (list (..recursive_type g!self g!dummy name body')))
+          (pattern (list body'))
+          (in (list (..recursive_type g!self g!dummy name body')))
 
-        _
-        (failure "Wrong syntax for Rec")))
+          _
+          (failure "Wrong syntax for Rec")))
 
-    _
-    (failure "Wrong syntax for Rec")))
-
-(def: .public macro
-  (-> Macro Macro')
-  (|>> (as Macro')))
+      _
+      (failure "Wrong syntax for Rec"))))
