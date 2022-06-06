@@ -85,6 +85,10 @@
 
 # _Compendium of resources_
 
+0. [How to Learn Advanced Mathematics Without Heading to University - Part 1](https://www.quantstart.com/articles/How-to-Learn-Advanced-Mathematics-Without-Heading-to-University-Part-1/)
+	0. [How to Learn Advanced Mathematics Without Heading to University - Part 2](https://www.quantstart.com/articles/How-to-Learn-Advanced-Mathematics-Without-Heading-to-University-Part-2/)
+	0. [How to Learn Advanced Mathematics Without Heading to University - Part 3](https://www.quantstart.com/articles/How-to-Learn-Advanced-Mathematics-Without-Heading-to-University-Part-3/)
+	0. [How to Learn Advanced Mathematics Without Heading to University - Part 4](https://www.quantstart.com/articles/how-to-learn-advanced-mathematics-without-heading-to-university-part-4/)
 0. [Free and Open-Source Textbooks](http://danaernst.com/resources/free-and-open-source-textbooks/)
 0. [ALL IN ONE MATHEMATICS CHEAT SHEET](https://ourway.keybase.pub/mathematics_cheat_sheet.pdf)
 0. https://github.com/llSourcell/learn_math_fast

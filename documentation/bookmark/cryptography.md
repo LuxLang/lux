@@ -9,6 +9,7 @@
 
 # Zero-knowledge proof
 
+0. [Hardware Acceleration for Zero Knowledge Proofs](https://www.paradigm.xyz/2022/04/zk-hardware)
 0. ["Rhapsody in Zero Knowledge: Proving Without Revealing" by Tony Arcieri](https://www.youtube.com/watch?v=jKSz7W5dTgY)
 0. [Zero-Knowledge Proofs: What are they, how do they work, and are they fast yet?](https://zkp.science/)
 

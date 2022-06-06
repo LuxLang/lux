@@ -1,3 +1,7 @@
+# State
+
+0. [Jotai: Primitive and flexible state management for React](https://jotai.org/)
+
 # Virtual DOM
 
 0. [Virtual DOM is pure overhead](https://svelte.dev/blog/virtual-dom-is-pure-overhead)

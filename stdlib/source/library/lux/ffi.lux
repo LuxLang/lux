@@ -1,13 +1,13 @@
 (.using
  [library
-  [lux (.except Symbol Alias Global global function type_of)
-   ["@" target]
+  [lux (.except Symbol Alias Global global function type_of undefined)
    ["[0]" meta]
    [abstract
     [monad (.only do)]]
    [control
     ["[0]" io]
     ["[0]" maybe (.open: "[1]#[0]" functor)]
+    ["[0]" try]
     ["<>" parser (.open: "[1]#[0]" monad)
      ["<[0]>" code (.only Parser)]]]
    [data
@@ -20,6 +20,8 @@
     [syntax (.only syntax:)]
     ["[0]" code]
     ["[0]" template]]
+   ["@" target (.only)
+    ["[0]" js]]
    [type
     [primitive (.except)]]]])
 
@@ -334,7 +336,7 @@
      {#Procedure (Named Procedure)}
      {#Global Global}))
 
-  (def: import
+  (def: importP
     (Parser Import)
     (all <>.or
          ..class
@@ -558,7 +560,7 @@
       (virtual_method_definition class alias namespace (the #member it))))
 
   (syntax: .public (import [host_module (<>.maybe <code>.text)
-                            it ..import])
+                            it ..importP])
     (let [host_module_import! (is (List Code)
                                   (case host_module
                                     {.#Some host_module}
@@ -670,6 +672,77 @@
                                           (as Text)
                                           (text#= "[object process]")))
                          (maybe.else false)))
-                   )
+
+                   ... These extensions must be defined this way because importing any of the modules
+                   ... normally used when writing extensions would introduce a circular dependency
+                   ... because the Archive type depends on Binary, and that module depends on this ffi module.
+                   (syntax: (extension_name [])
+                     (do meta.monad
+                       [module meta.current_module_name
+                        unique_id meta.seed]
+                       (in (list (code.text (%.format module " " (%.nat unique_id)))))))
+
+                   (with_expansions [<undefined> (..extension_name)
+                                     <undefined?> (..extension_name)]
+                     (these (template: (extension_call <name> <parameter>)
+                              [{5 #1 [<name> <parameter>]}])
+
+                            (template: (analysis <name> <bindings> <parser> <inputs> <body>)
+                              [("lux def analysis" <name>
+                                (.function (_ name phase archive inputs)
+                                  (.function (_ state)
+                                    (let [<bindings> [name phase archive state]]
+                                      (case (<code>.result <parser> inputs)
+                                        {try.#Failure error}
+                                        {try.#Failure (%.format "Invalid inputs for extension: " (%.text name)
+                                                                text.\n error)}
+
+                                        {try.#Success <inputs>}
+                                        <body>)))))])
+
+                            (template: (generation <name> <bindings> <inputs> <body>)
+                              [("lux def generation" <name>
+                                (.function (_ name phase archive inputs)
+                                  (.function (_ state)
+                                    (let [<bindings> [name phase archive state]]
+                                      (`` (case inputs
+                                            (pattern (list (~~ (template.spliced <inputs>))))
+                                            <body>
+
+                                            _
+                                            {try.#Failure (%.format "Invalid inputs for extension: " (%.text name))}))))))])
+
+                            (analysis <undefined>
+                                      [name phase archive state]
+                                      <code>.end
+                                      _
+                                      {try.#Success [state (extension_call name (list))]})
+
+                            (generation <undefined>
+                                        [name phase archive state]
+                                        []
+                                        {try.#Success [state js.undefined]})
+
+                            (template: .public (undefined)
+                              [(.is .Any (<undefined>))])
+
+                            (analysis <undefined?>
+                                      [name phase archive state]
+                                      <code>.any
+                                      it
+                                      (do try.monad
+                                        [[state it] (phase archive it state)]
+                                        (in [state (extension_call name (list it))])))
+
+                            (generation <undefined?>
+                                        [name phase archive state]
+                                        [it]
+                                        (do try.monad
+                                          [[state it] (phase archive it state)]
+                                          (in [state (js.= js.undefined it)])))
+
+                            (template: .public (undefined? <it>)
+                              [(.as .Bit (.is .Any (<undefined?> (.is .Any <it>))))])
+                            )))
        (these))
   )
