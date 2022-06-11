@@ -17,7 +17,7 @@
     [collection
      ["[0]" list (.open: "[1]#[0]" monad mix)]]]
    ["[0]" macro (.only with_symbols)
-    [syntax (.only syntax:)]
+    [syntax (.only syntax)]
     ["[0]" code]
     ["[0]" template]]
    ["@" target (.only)
@@ -473,16 +473,17 @@
                    (..namespaced namespace class_name alias)
                    code.local)
           :field: (the #anonymous it)]
-      (` ((~! syntax:) ((~ g!it) [])
-          (.at (~! meta.monad) (~' in)
-               (.list (`' (.exec
-                            (~+ import!)
-                            (.as (~ (..output_type :field:))
-                                 (~ (<| (lux_optional :field:)
-                                        (for @.js (` (<constant> (~ (code.text (%.format (..host_path class_name) "." field)))))
-                                             @.ruby (` (<constant> (~ (code.text (%.format (..host_path class_name) "::" field)))))
-                                             (` (<get> (~ (code.text field))
-                                                       (~ (..imported class_name))))))))))))))))
+      (` (def: (~ g!it)
+           ((~! syntax) ((~ g!it) [])
+            (.at (~! meta.monad) (~' in)
+                 (.list (`' (.exec
+                              (~+ import!)
+                              (.as (~ (..output_type :field:))
+                                   (~ (<| (lux_optional :field:)
+                                          (for @.js (` (<constant> (~ (code.text (%.format (..host_path class_name) "." field)))))
+                                               @.ruby (` (<constant> (~ (code.text (%.format (..host_path class_name) "::" field)))))
+                                               (` (<get> (~ (code.text field))
+                                                         (~ (..imported class_name)))))))))))))))))
 
   (def: (virtual_field_definition [class_name class_parameters] alias namespace it)
     (-> Declaration Alias Namespace (Named Output) Code)
@@ -559,93 +560,96 @@
       (static_method_definition import! class alias namespace (the #member it))
       (virtual_method_definition class alias namespace (the #member it))))
 
-  (syntax: .public (import [host_module (<>.maybe <code>.text)
-                            it ..importP])
-    (let [host_module_import! (is (List Code)
-                                  (case host_module
-                                    {.#Some host_module}
-                                    (list (` (<import> (~ (code.text host_module)))))
+  (def: .public import
+    (syntax (_ [host_module (<>.maybe <code>.text)
+                it ..importP])
+      (let [host_module_import! (is (List Code)
+                                    (case host_module
+                                      {.#Some host_module}
+                                      (list (` (<import> (~ (code.text host_module)))))
 
-                                    {.#None}
-                                    (list)))]
-      (case it
-        {#Global it}
-        (in (list (..global_definition host_module_import! it)))
+                                      {.#None}
+                                      (list)))]
+        (case it
+          {#Global it}
+          (in (list (..global_definition host_module_import! it)))
 
-        {#Procedure it}
-        (in (list (..procedure_definition host_module_import!
-                                          (` (<constant> (~ (code.text (..host_path (the #name it))))))
-                                          it)))
+          {#Procedure it}
+          (in (list (..procedure_definition host_module_import!
+                                            (` (<constant> (~ (code.text (..host_path (the #name it))))))
+                                            it)))
 
-        {#Class it}
-        (let [class (the #declaration it)
-              alias (the #class_alias it)
-              [class_name class_parameters] class
-              namespace (the #namespace it)
-              g!class_variables (list#each code.local class_parameters)
-              declaration (` ((~ (code.local (maybe.else class_name alias)))
-                              (~+ g!class_variables)))]
-          (in (partial_list (` (.type: (~ declaration)
-                                 (..Object (.Primitive (~ (code.text (..host_path class_name)))
-                                                       [(~+ g!class_variables)]))))
-                            (list#each (.function (_ member)
-                                         (`` (`` (case member
-                                                   (~~ (for @.lua (~~ (these))
-                                                            @.ruby (~~ (these))
-                                                            (~~ (these {#Constructor it}
-                                                                       (..constructor_definition class alias namespace it)))))
-                                                   
-                                                   {#Field it}
-                                                   (..field_definition host_module_import! class alias namespace it)
-                                                   
-                                                   {#Method it}
-                                                   (..method_definition host_module_import! class alias namespace it)))))
-                                       (the #members it)))))
-        )))
+          {#Class it}
+          (let [class (the #declaration it)
+                alias (the #class_alias it)
+                [class_name class_parameters] class
+                namespace (the #namespace it)
+                g!class_variables (list#each code.local class_parameters)
+                declaration (` ((~ (code.local (maybe.else class_name alias)))
+                                (~+ g!class_variables)))]
+            (in (partial_list (` (.type: (~ declaration)
+                                   (..Object (.Primitive (~ (code.text (..host_path class_name)))
+                                                         [(~+ g!class_variables)]))))
+                              (list#each (.function (_ member)
+                                           (`` (`` (case member
+                                                     (~~ (for @.lua (~~ (these))
+                                                              @.ruby (~~ (these))
+                                                              (~~ (these {#Constructor it}
+                                                                         (..constructor_definition class alias namespace it)))))
+                                                     
+                                                     {#Field it}
+                                                     (..field_definition host_module_import! class alias namespace it)
+                                                     
+                                                     {#Method it}
+                                                     (..method_definition host_module_import! class alias namespace it)))))
+                                         (the #members it)))))
+          ))))
 
   (for @.ruby (these)
-       (syntax: .public (function [[self inputs] (<code>.form
-                                                  (all <>.and
-                                                       <code>.local
-                                                       (<code>.tuple (<>.some (<>.and <code>.any <code>.any)))))
-                                   type <code>.any
-                                   term <code>.any])
-         (in (list (` (.<| (.as ..Function)
-                           (<function> (~ (code.nat (list.size inputs))))
-                           (.as (.-> [(~+ (list.repeated (list.size inputs) (` .Any)))]
-                                     .Any))
-                           (.is (.-> [(~+ (list#each product.right inputs))]
-                                     (~ type)))
-                           (.function ((~ (code.local self)) [(~+ (list#each product.left inputs))])
-                             (~ term))))))))
+       (def: .public function
+         (syntax (_ [[self inputs] (<code>.form
+                                    (all <>.and
+                                         <code>.local
+                                         (<code>.tuple (<>.some (<>.and <code>.any <code>.any)))))
+                     type <code>.any
+                     term <code>.any])
+           (in (list (` (.<| (.as ..Function)
+                             (<function> (~ (code.nat (list.size inputs))))
+                             (.as (.-> [(~+ (list.repeated (list.size inputs) (` .Any)))]
+                                       .Any))
+                             (.is (.-> [(~+ (list#each product.right inputs))]
+                                       (~ type)))
+                             (.function ((~ (code.local self)) [(~+ (list#each product.left inputs))])
+                               (~ term)))))))))
 
   (for @.js (these (template: .public (type_of object)
                      [("js type-of" object)])
 
-                   (syntax: .public (global [type <code>.any
-                                             [head tail] (<code>.tuple (<>.and <code>.local (<>.some <code>.local)))])
-                     (with_symbols [g!_]
-                       (let [global (` ("js constant" (~ (code.text head))))]
-                         (case tail
-                           {.#End}
-                           (in (list (` (is (.Maybe (~ type))
-                                            (case (..type_of (~ global))
-                                              "undefined"
-                                              {.#None}
-
-                                              (~ g!_)
-                                              {.#Some (as (~ type) (~ global))})))))
-                           
-                           {.#Item [next tail]}
-                           (let [separator "."]
+                   (def: .public global
+                     (syntax (_ [type <code>.any
+                                 [head tail] (<code>.tuple (<>.and <code>.local (<>.some <code>.local)))])
+                       (with_symbols [g!_]
+                         (let [global (` ("js constant" (~ (code.text head))))]
+                           (case tail
+                             {.#End}
                              (in (list (` (is (.Maybe (~ type))
                                               (case (..type_of (~ global))
                                                 "undefined"
                                                 {.#None}
 
                                                 (~ g!_)
-                                                (..global (~ type) [(~ (code.local (%.format head "." next)))
-                                                                    (~+ (list#each code.local tail))])))))))))))
+                                                {.#Some (as (~ type) (~ global))})))))
+                             
+                             {.#Item [next tail]}
+                             (let [separator "."]
+                               (in (list (` (is (.Maybe (~ type))
+                                                (case (..type_of (~ global))
+                                                  "undefined"
+                                                  {.#None}
+
+                                                  (~ g!_)
+                                                  (..global (~ type) [(~ (code.local (%.format head "." next)))
+                                                                      (~+ (list#each code.local tail))]))))))))))))
 
                    (template: (!defined? <global>)
                      [(.case (..global Any <global>)
@@ -676,11 +680,12 @@
                    ... These extensions must be defined this way because importing any of the modules
                    ... normally used when writing extensions would introduce a circular dependency
                    ... because the Archive type depends on Binary, and that module depends on this ffi module.
-                   (syntax: (extension_name [])
-                     (do meta.monad
-                       [module meta.current_module_name
-                        unique_id meta.seed]
-                       (in (list (code.text (%.format module " " (%.nat unique_id)))))))
+                   (def: extension_name
+                     (syntax (_ [])
+                       (do meta.monad
+                         [module meta.current_module_name
+                          unique_id meta.seed]
+                         (in (list (code.text (%.format module " " (%.nat unique_id))))))))
 
                    (with_expansions [<undefined> (..extension_name)
                                      <undefined?> (..extension_name)]

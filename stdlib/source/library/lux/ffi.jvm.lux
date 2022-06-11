@@ -20,7 +20,7 @@
      ["[0]" list (.open: "[1]#[0]" monad mix monoid)]
      ["[0]" dictionary (.only Dictionary)]]]
    [macro (.only with_symbols)
-    [syntax (.only syntax:)]
+    [syntax (.only syntax)]
     ["^" pattern]
     ["[0]" code]
     ["[0]" template]]
@@ -1196,112 +1196,121 @@
   (Type Class)
   (jvm.class "java.lang.Object" (list)))
 
-(syntax: .public (class: [.let [! <>.monad]
-                          im inheritance_modifier^
-                          [full_class_name class_vars] (at ! each parser.declaration ..declaration^)
-                          super (<>.else $Object
-                                         (class^ class_vars))
-                          interfaces (<>.else (list)
-                                              (<code>.tuple (<>.some (class^ class_vars))))
-                          annotations ..annotations^
-                          fields (<>.some (..field_decl^ class_vars))
-                          methods (<>.some (..method_def^ class_vars))])
-  (do meta.monad
-    [.let [fully_qualified_class_name full_class_name
-           method_parser (.is (Parser Code)
-                              (|> methods
-                                  (list#each (method->parser class_vars fully_qualified_class_name))
-                                  (list#mix <>.either (<>.failure ""))))]]
-    (in (list (` ("jvm class"
+(def: .public class:
+  (syntax (_ [.let [! <>.monad]
+              im inheritance_modifier^
+              [full_class_name class_vars] (at ! each parser.declaration ..declaration^)
+              super (<>.else $Object
+                             (class^ class_vars))
+              interfaces (<>.else (list)
+                                  (<code>.tuple (<>.some (class^ class_vars))))
+              annotations ..annotations^
+              fields (<>.some (..field_decl^ class_vars))
+              methods (<>.some (..method_def^ class_vars))])
+    (do meta.monad
+      [.let [fully_qualified_class_name full_class_name
+             method_parser (.is (Parser Code)
+                                (|> methods
+                                    (list#each (method->parser class_vars fully_qualified_class_name))
+                                    (list#mix <>.either (<>.failure ""))))]]
+      (in (list (` ("jvm class"
+                    (~ (declaration$ (jvm.declaration full_class_name class_vars)))
+                    (~ (class$ super))
+                    [(~+ (list#each class$ interfaces))]
+                    (~ (inheritance_modifier$ im))
+                    [(~+ (list#each annotation$ annotations))]
+                    [(~+ (list#each field_decl$ fields))]
+                    [(~+ (list#each (method_def$ fully_qualified_class_name method_parser super fields) methods))])))))))
+
+(def: .public interface:
+  (syntax (_ [.let [! <>.monad]
+              [full_class_name class_vars] (at ! each parser.declaration ..declaration^)
+              supers (<>.else (list)
+                              (<code>.tuple (<>.some (class^ class_vars))))
+              annotations ..annotations^
+              members (<>.some (..method_decl^ class_vars))])
+    (in (list (` ("jvm class interface"
                   (~ (declaration$ (jvm.declaration full_class_name class_vars)))
+                  [(~+ (list#each class$ supers))]
+                  [(~+ (list#each annotation$ annotations))]
+                  (~+ (list#each method_decl$ members))))))))
+
+(def: .public object
+  (syntax (_ [class_vars ..vars^
+              super (<>.else $Object
+                             (class^ class_vars))
+              interfaces (<>.else (list)
+                                  (<code>.tuple (<>.some (class^ class_vars))))
+              constructor_args (..constructor_args^ class_vars)
+              methods (<>.some ..overriden_method_def^)])
+    (in (list (` ("jvm class anonymous"
+                  [(~+ (list#each var$ class_vars))]
                   (~ (class$ super))
                   [(~+ (list#each class$ interfaces))]
-                  (~ (inheritance_modifier$ im))
-                  [(~+ (list#each annotation$ annotations))]
-                  [(~+ (list#each field_decl$ fields))]
-                  [(~+ (list#each (method_def$ fully_qualified_class_name method_parser super fields) methods))]))))))
+                  [(~+ (list#each constructor_arg$ constructor_args))]
+                  [(~+ (list#each (method_def$ "" (<>.failure "") super (list)) methods))]))))))
 
-(syntax: .public (interface: [.let [! <>.monad]
-                              [full_class_name class_vars] (at ! each parser.declaration ..declaration^)
-                              supers (<>.else (list)
-                                              (<code>.tuple (<>.some (class^ class_vars))))
-                              annotations ..annotations^
-                              members (<>.some (..method_decl^ class_vars))])
-  (in (list (` ("jvm class interface"
-                (~ (declaration$ (jvm.declaration full_class_name class_vars)))
-                [(~+ (list#each class$ supers))]
-                [(~+ (list#each annotation$ annotations))]
-                (~+ (list#each method_decl$ members)))))))
-
-(syntax: .public (object [class_vars ..vars^
-                          super (<>.else $Object
-                                         (class^ class_vars))
-                          interfaces (<>.else (list)
-                                              (<code>.tuple (<>.some (class^ class_vars))))
-                          constructor_args (..constructor_args^ class_vars)
-                          methods (<>.some ..overriden_method_def^)])
-  (in (list (` ("jvm class anonymous"
-                [(~+ (list#each var$ class_vars))]
-                (~ (class$ super))
-                [(~+ (list#each class$ interfaces))]
-                [(~+ (list#each constructor_arg$ constructor_args))]
-                [(~+ (list#each (method_def$ "" (<>.failure "") super (list)) methods))])))))
-
-(syntax: .public (null [])
-  (in (list (` ("jvm object null")))))
+(def: .public null
+  (syntax (_ [])
+    (in (list (` ("jvm object null"))))))
 
 (def: .public (null? obj)
   (-> (.Primitive "java.lang.Object") Bit)
   ("jvm object null?" obj))
 
-(syntax: .public (??? [expr <code>.any])
-  (with_symbols [g!temp]
-    (in (list (` (let [(~ g!temp) (~ expr)]
-                   (if (not ("jvm object null?" (~ g!temp)))
-                     {.#Some (~ g!temp)}
-                     {.#None})))))))
+(def: .public ???
+  (syntax (_ [expr <code>.any])
+    (with_symbols [g!temp]
+      (in (list (` (let [(~ g!temp) (~ expr)]
+                     (if (not ("jvm object null?" (~ g!temp)))
+                       {.#Some (~ g!temp)}
+                       {.#None}))))))))
 
-(syntax: .public (!!! [expr <code>.any])
-  (with_symbols [g!value]
-    (in (list (` (.case (~ expr)
-                   {.#Some (~ g!value)}
-                   (~ g!value)
+(def: .public !!!
+  (syntax (_ [expr <code>.any])
+    (with_symbols [g!value]
+      (in (list (` (.case (~ expr)
+                     {.#Some (~ g!value)}
+                     (~ g!value)
 
-                   {.#None}
-                   ("jvm object null")))))))
+                     {.#None}
+                     ("jvm object null"))))))))
 
-(syntax: .public (as [class (..type^ (list))
-                      unchecked (<>.maybe <code>.any)])
-  (with_symbols [g!_ g!unchecked]
-    (let [class_name (..reflection class)
-          class_type (` (.Primitive (~ (code.text class_name))))
-          check_type (` (.Maybe (~ class_type)))
-          check_code (` (if ("jvm object instance?" (~ (code.text class_name)) (~ g!unchecked))
-                          {.#Some (.as (~ class_type)
-                                       (~ g!unchecked))}
-                          {.#None}))]
-      (case unchecked
-        {.#Some unchecked}
-        (in (list (` (.is (~ check_type)
-                          (let [(~ g!unchecked) (~ unchecked)]
-                            (~ check_code))))))
+(def: .public as
+  (syntax (_ [class (..type^ (list))
+              unchecked (<>.maybe <code>.any)])
+    (with_symbols [g!_ g!unchecked]
+      (let [class_name (..reflection class)
+            class_type (` (.Primitive (~ (code.text class_name))))
+            check_type (` (.Maybe (~ class_type)))
+            check_code (` (if ("jvm object instance?" (~ (code.text class_name)) (~ g!unchecked))
+                            {.#Some (.as (~ class_type)
+                                         (~ g!unchecked))}
+                            {.#None}))]
+        (case unchecked
+          {.#Some unchecked}
+          (in (list (` (.is (~ check_type)
+                            (let [(~ g!unchecked) (~ unchecked)]
+                              (~ check_code))))))
 
-        {.#None}
-        (in (list (` (.is (-> (.Primitive "java.lang.Object") (~ check_type))
-                          (function ((~ g!_) (~ g!unchecked))
-                            (~ check_code))))))
-        ))))
+          {.#None}
+          (in (list (` (.is (-> (.Primitive "java.lang.Object") (~ check_type))
+                            (function ((~ g!_) (~ g!unchecked))
+                              (~ check_code))))))
+          )))))
 
-(syntax: .public (synchronized [lock <code>.any
-                                body <code>.any])
-  (in (list (` ("jvm object synchronized" (~ lock) (~ body))))))
+(def: .public synchronized
+  (syntax (_ [lock <code>.any
+              body <code>.any])
+    (in (list (` ("jvm object synchronized" (~ lock) (~ body)))))))
 
-(syntax: .public (do_to [obj <code>.any
-                         methods (<>.some partial_call^)])
-  (with_symbols [g!obj]
-    (in (list (` (let [(~ g!obj) (~ obj)]
-                   (exec (~+ (list#each (complete_call$ g!obj) methods))
-                     (~ g!obj))))))))
+(def: .public do_to
+  (syntax (_ [obj <code>.any
+              methods (<>.some partial_call^)])
+    (with_symbols [g!obj]
+      (in (list (` (let [(~ g!obj) (~ obj)]
+                     (exec (~+ (list#each (complete_call$ g!obj) methods))
+                       (~ g!obj)))))))))
 
 (def: (class_import$ declaration)
   (-> (Type Declaration) Code)
@@ -1521,8 +1530,9 @@
                                (with_return_maybe member true classT)
                                (with_return_try member)
                                (with_return_io member))]]
-        (in (list (` ((~! syntax:) ((~ def_name) [(~+ (syntax_inputs (list#each product.right arg_function_inputs)))])
-                      ((~' in) (.list (.` (~ jvm_interop)))))))))
+        (in (list (` (def: (~ def_name)
+                       ((~! syntax) ((~ def_name) [(~+ (syntax_inputs (list#each product.right arg_function_inputs)))])
+                        ((~' in) (.list (.` (~ jvm_interop))))))))))
 
       {#MethodDecl [commons method]}
       (with_symbols [g!obj]
@@ -1575,9 +1585,10 @@
                                     (|> callC
                                         (with_return_try member)
                                         (with_return_io member))))]]
-          (in (list (` ((~! syntax:) ((~ def_name) [(~+ (syntax_inputs (list#each product.right arg_function_inputs)))
-                                                    (~+ (syntax_inputs object_ast))])
-                        ((~' in) (.list (.` (~ jvm_interop))))))))))
+          (in (list (` (def: (~ def_name)
+                         ((~! syntax) ((~ def_name) [(~+ (syntax_inputs (list#each product.right arg_function_inputs)))
+                                                     (~+ (syntax_inputs object_ast))])
+                          ((~' in) (.list (.` (~ jvm_interop)))))))))))
 
       {#FieldAccessDecl fad}
       (do meta.monad
@@ -1599,8 +1610,9 @@
                                 getter_body (if _#import_field_setter?
                                               (` ((~! io.io) (~ getter_body)))
                                               getter_body)]
-                            (in (` ((~! syntax:) (~ getter_call)
-                                    ((~' in) (.list (.` (~ getter_body)))))))))
+                            (in (` (def: (~ getter_name)
+                                     ((~! syntax) (~ getter_call)
+                                      ((~' in) (.list (.` (~ getter_body))))))))))
          setter_interop (.is (Meta (List Code))
                              (if _#import_field_setter?
                                (with_symbols [g!obj g!value]
@@ -1619,8 +1631,9 @@
                                                    (if _#import_field_static?
                                                      (list)
                                                      (list (..un_quoted g!obj))))]
-                                   (in (list (` ((~! syntax:) (~ setter_call)
-                                                 ((~' in) (.list (.` ((~! io.io) ((~ (code.text setter_command)) (~+ g!obj+) (~ setter_value))))))))))))
+                                   (in (list (` (def: (~ setter_name)
+                                                  ((~! syntax) (~ setter_call)
+                                                   ((~' in) (.list (.` ((~! io.io) ((~ (code.text setter_command)) (~+ g!obj+) (~ setter_value)))))))))))))
                                (in (list))))]
         (in (partial_list getter_interop setter_interop)))
       )))
@@ -1659,40 +1672,42 @@
       {.#Left _}
       (meta.failure (format "Unknown class: " class_name)))))
 
-(syntax: .public (import [declaration ..declaration^
-                          .let [[class_name class_type_vars] (parser.declaration declaration)]
-                          import_format <code>.text
-                          members (<>.some (..import_member_decl^ class_type_vars))])
-  (do [! meta.monad]
-    [kind (class_kind declaration)
-     =members (|> members
-                  (list#each (|>> [import_format]))
-                  (monad.each ! (member_import$ class_type_vars kind declaration)))]
-    (in (partial_list (class_import$ declaration) (list#conjoint =members)))))
+(def: .public import
+  (syntax (_ [declaration ..declaration^
+              .let [[class_name class_type_vars] (parser.declaration declaration)]
+              import_format <code>.text
+              members (<>.some (..import_member_decl^ class_type_vars))])
+    (do [! meta.monad]
+      [kind (class_kind declaration)
+       =members (|> members
+                    (list#each (|>> [import_format]))
+                    (monad.each ! (member_import$ class_type_vars kind declaration)))]
+      (in (partial_list (class_import$ declaration) (list#conjoint =members))))))
 
-(syntax: .public (array [type (..type^ (list))
-                         size <code>.any])
-  (let [g!size (` (|> (~ size)
-                      (.is .Nat)
-                      (.as (.Primitive (~ (code.text box.long))))
-                      "jvm object cast"
-                      "jvm conversion long-to-int"))]
-    (`` (cond (~~ (template [<primitive> <array_op>]
-                    [(at jvm.equivalence = <primitive> type)
-                     (in (list (` (<array_op> (~ g!size)))))]
+(def: .public array
+  (syntax (_ [type (..type^ (list))
+              size <code>.any])
+    (let [g!size (` (|> (~ size)
+                        (.is .Nat)
+                        (.as (.Primitive (~ (code.text box.long))))
+                        "jvm object cast"
+                        "jvm conversion long-to-int"))]
+      (`` (cond (~~ (template [<primitive> <array_op>]
+                      [(at jvm.equivalence = <primitive> type)
+                       (in (list (` (<array_op> (~ g!size)))))]
 
-                    [jvm.boolean "jvm array new boolean"]
-                    [jvm.byte    "jvm array new byte"]
-                    [jvm.short   "jvm array new short"]
-                    [jvm.int     "jvm array new int"]
-                    [jvm.long    "jvm array new long"]
-                    [jvm.float   "jvm array new float"]
-                    [jvm.double  "jvm array new double"]
-                    [jvm.char    "jvm array new char"]))
-              ... else
-              (in (list (` (.as ((~! array.Array) (~ (value_type {#ManualPrM} type)))
-                                (.is (~ (value_type {#ManualPrM} (jvm.array type)))
-                                     ("jvm array new object" (~ g!size)))))))))))
+                      [jvm.boolean "jvm array new boolean"]
+                      [jvm.byte    "jvm array new byte"]
+                      [jvm.short   "jvm array new short"]
+                      [jvm.int     "jvm array new int"]
+                      [jvm.long    "jvm array new long"]
+                      [jvm.float   "jvm array new float"]
+                      [jvm.double  "jvm array new double"]
+                      [jvm.char    "jvm array new char"]))
+                ... else
+                (in (list (` (.as ((~! array.Array) (~ (value_type {#ManualPrM} type)))
+                                  (.is (~ (value_type {#ManualPrM} (jvm.array type)))
+                                       ("jvm array new object" (~ g!size))))))))))))
 
 (exception: .public (cannot_convert_to_jvm_type [type .Type])
   (exception.report
@@ -1797,140 +1812,146 @@
         _
         <failure>))))
 
-(syntax: .public (length [array <code>.any])
-  (case array
-    [_ {.#Symbol array_name}]
-    (do meta.monad
-      [array_type (meta.type array_name)
-       context meta.type_context
-       array_jvm_type (lux_type->jvm_type context array_type)
-       .let [g!extension (code.text (`` (cond (~~ (template [<primitive> <extension>]
-                                                    [(at jvm.equivalence =
-                                                         (jvm.array <primitive>)
-                                                         array_jvm_type)
-                                                     <extension>]
+(def: .public length
+  (syntax (_ [array <code>.any])
+    (case array
+      [_ {.#Symbol array_name}]
+      (do meta.monad
+        [array_type (meta.type array_name)
+         context meta.type_context
+         array_jvm_type (lux_type->jvm_type context array_type)
+         .let [g!extension (code.text (`` (cond (~~ (template [<primitive> <extension>]
+                                                      [(at jvm.equivalence =
+                                                           (jvm.array <primitive>)
+                                                           array_jvm_type)
+                                                       <extension>]
 
-                                                    [jvm.boolean "jvm array length boolean"]
-                                                    [jvm.byte "jvm array length byte"]
-                                                    [jvm.short "jvm array length short"]
-                                                    [jvm.int "jvm array length int"]
-                                                    [jvm.long "jvm array length long"]
-                                                    [jvm.float "jvm array length float"]
-                                                    [jvm.double "jvm array length double"]
-                                                    [jvm.char "jvm array length char"]))
-                                              
-                                              ... else
-                                              "jvm array length object")))]]
-      (in (list (` (.|> ((~ g!extension) (~ array))
-                        "jvm conversion int-to-long"
-                        "jvm object cast"
-                        (.is (.Primitive (~ (code.text box.long))))
-                        (.as .Nat))))))
+                                                      [jvm.boolean "jvm array length boolean"]
+                                                      [jvm.byte "jvm array length byte"]
+                                                      [jvm.short "jvm array length short"]
+                                                      [jvm.int "jvm array length int"]
+                                                      [jvm.long "jvm array length long"]
+                                                      [jvm.float "jvm array length float"]
+                                                      [jvm.double "jvm array length double"]
+                                                      [jvm.char "jvm array length char"]))
+                                                
+                                                ... else
+                                                "jvm array length object")))]]
+        (in (list (` (.|> ((~ g!extension) (~ array))
+                          "jvm conversion int-to-long"
+                          "jvm object cast"
+                          (.is (.Primitive (~ (code.text box.long))))
+                          (.as .Nat))))))
 
-    _
-    (with_symbols [g!array]
-      (in (list (` (let [(~ g!array) (~ array)]
-                     (..length (~ g!array)))))))))
+      _
+      (with_symbols [g!array]
+        (in (list (` (let [(~ g!array) (~ array)]
+                       (..length (~ g!array))))))))))
 
-(syntax: .public (read! [idx <code>.any
-                         array <code>.any])
-  (case array
-    [_ {.#Symbol array_name}]
-    (do meta.monad
-      [array_type (meta.type array_name)
-       context meta.type_context
-       array_jvm_type (lux_type->jvm_type context array_type)
-       .let [g!idx (` (.|> (~ idx)
-                           (.is .Nat)
-                           (.as (.Primitive (~ (code.text box.long))))
-                           "jvm object cast"
-                           "jvm conversion long-to-int"))]]
-      (`` (cond (~~ (template [<primitive> <extension> <box>]
-                      [(at jvm.equivalence =
-                           (jvm.array <primitive>)
-                           array_jvm_type)
-                       (in (list (` (.|> (<extension> (~ g!idx) (~ array))
-                                         "jvm object cast"
-                                         (.is (.Primitive (~ (code.text <box>))))))))]
+(def: .public read!
+  (syntax (_ [idx <code>.any
+              array <code>.any])
+    (case array
+      [_ {.#Symbol array_name}]
+      (do meta.monad
+        [array_type (meta.type array_name)
+         context meta.type_context
+         array_jvm_type (lux_type->jvm_type context array_type)
+         .let [g!idx (` (.|> (~ idx)
+                             (.is .Nat)
+                             (.as (.Primitive (~ (code.text box.long))))
+                             "jvm object cast"
+                             "jvm conversion long-to-int"))]]
+        (`` (cond (~~ (template [<primitive> <extension> <box>]
+                        [(at jvm.equivalence =
+                             (jvm.array <primitive>)
+                             array_jvm_type)
+                         (in (list (` (.|> (<extension> (~ g!idx) (~ array))
+                                           "jvm object cast"
+                                           (.is (.Primitive (~ (code.text <box>))))))))]
 
-                      [jvm.boolean "jvm array read boolean" box.boolean]
-                      [jvm.byte "jvm array read byte" box.byte]
-                      [jvm.short "jvm array read short" box.short]
-                      [jvm.int "jvm array read int" box.int]
-                      [jvm.long "jvm array read long" box.long]
-                      [jvm.float "jvm array read float" box.float]
-                      [jvm.double "jvm array read double" box.double]
-                      [jvm.char "jvm array read char" box.char]))
-                
-                ... else
-                (in (list (` ("jvm array read object" (~ g!idx) (~ array))))))))
+                        [jvm.boolean "jvm array read boolean" box.boolean]
+                        [jvm.byte "jvm array read byte" box.byte]
+                        [jvm.short "jvm array read short" box.short]
+                        [jvm.int "jvm array read int" box.int]
+                        [jvm.long "jvm array read long" box.long]
+                        [jvm.float "jvm array read float" box.float]
+                        [jvm.double "jvm array read double" box.double]
+                        [jvm.char "jvm array read char" box.char]))
+                  
+                  ... else
+                  (in (list (` ("jvm array read object" (~ g!idx) (~ array))))))))
 
-    _
-    (with_symbols [g!array]
-      (in (list (` (let [(~ g!array) (~ array)]
-                     (..read! (~ idx) (~ g!array)))))))))
+      _
+      (with_symbols [g!array]
+        (in (list (` (let [(~ g!array) (~ array)]
+                       (..read! (~ idx) (~ g!array))))))))))
 
-(syntax: .public (write! [idx <code>.any
-                          value <code>.any
-                          array <code>.any])
-  (case array
-    [_ {.#Symbol array_name}]
-    (do meta.monad
-      [array_type (meta.type array_name)
-       context meta.type_context
-       array_jvm_type (lux_type->jvm_type context array_type)
-       .let [g!idx (` (.|> (~ idx)
-                           (.is .Nat)
-                           (.as (.Primitive (~ (code.text box.long))))
-                           "jvm object cast"
-                           "jvm conversion long-to-int"))]]
-      (`` (cond (~~ (template [<primitive> <extension> <box>]
-                      [(at jvm.equivalence =
-                           (jvm.array <primitive>)
-                           array_jvm_type)
-                       (let [g!value (` (.|> (~ value)
-                                             (.as (.Primitive (~ (code.text <box>))))
-                                             "jvm object cast"))]
-                         (in (list (` (<extension> (~ g!idx) (~ g!value) (~ array))))))]
+(def: .public write!
+  (syntax (_ [idx <code>.any
+              value <code>.any
+              array <code>.any])
+    (case array
+      [_ {.#Symbol array_name}]
+      (do meta.monad
+        [array_type (meta.type array_name)
+         context meta.type_context
+         array_jvm_type (lux_type->jvm_type context array_type)
+         .let [g!idx (` (.|> (~ idx)
+                             (.is .Nat)
+                             (.as (.Primitive (~ (code.text box.long))))
+                             "jvm object cast"
+                             "jvm conversion long-to-int"))]]
+        (`` (cond (~~ (template [<primitive> <extension> <box>]
+                        [(at jvm.equivalence =
+                             (jvm.array <primitive>)
+                             array_jvm_type)
+                         (let [g!value (` (.|> (~ value)
+                                               (.as (.Primitive (~ (code.text <box>))))
+                                               "jvm object cast"))]
+                           (in (list (` (<extension> (~ g!idx) (~ g!value) (~ array))))))]
 
-                      [jvm.boolean "jvm array write boolean" box.boolean]
-                      [jvm.byte "jvm array write byte" box.byte]
-                      [jvm.short "jvm array write short" box.short]
-                      [jvm.int "jvm array write int" box.int]
-                      [jvm.long "jvm array write long" box.long]
-                      [jvm.float "jvm array write float" box.float]
-                      [jvm.double "jvm array write double" box.double]
-                      [jvm.char "jvm array write char" box.char]))
-                
-                ... else
-                (in (list (` ("jvm array write object" (~ g!idx) (~ value) (~ array))))))))
+                        [jvm.boolean "jvm array write boolean" box.boolean]
+                        [jvm.byte "jvm array write byte" box.byte]
+                        [jvm.short "jvm array write short" box.short]
+                        [jvm.int "jvm array write int" box.int]
+                        [jvm.long "jvm array write long" box.long]
+                        [jvm.float "jvm array write float" box.float]
+                        [jvm.double "jvm array write double" box.double]
+                        [jvm.char "jvm array write char" box.char]))
+                  
+                  ... else
+                  (in (list (` ("jvm array write object" (~ g!idx) (~ value) (~ array))))))))
 
-    _
-    (with_symbols [g!array]
-      (in (list (` (let [(~ g!array) (~ array)]
-                     (..write! (~ idx) (~ value) (~ g!array)))))))))
+      _
+      (with_symbols [g!array]
+        (in (list (` (let [(~ g!array) (~ array)]
+                       (..write! (~ idx) (~ value) (~ g!array))))))))))
 
-(syntax: .public (class_for [type (..type^ (list))])
-  (in (list (` ("jvm object class" (~ (code.text (..reflection type))))))))
+(def: .public class_for
+  (syntax (_ [type (..type^ (list))])
+    (in (list (` ("jvm object class" (~ (code.text (..reflection type)))))))))
 
-(syntax: .public (type [type (..type^ (list))])
-  (in (list (..value_type {#ManualPrM} type))))
+(def: .public type
+  (syntax (_ [type (..type^ (list))])
+    (in (list (..value_type {#ManualPrM} type)))))
 
 (exception: .public (cannot_cast_to_non_object [type (Type Value)])
   (exception.report
    "Signature" (..signature type)
    "Reflection" (..reflection type)))
 
-(syntax: .public (is [type (..type^ (list))
-                      object <code>.any])
-  (case [(parser.array? type)
-         (parser.class? type)]
-    (^.or [{.#Some _} _] [_ {.#Some _}])
-    (in (list (` (.is (~ (..value_type {#ManualPrM} type))
-                      ("jvm object cast" (~ object))))))
+(def: .public is
+  (syntax (_ [type (..type^ (list))
+              object <code>.any])
+    (case [(parser.array? type)
+           (parser.class? type)]
+      (^.or [{.#Some _} _] [_ {.#Some _}])
+      (in (list (` (.is (~ (..value_type {#ManualPrM} type))
+                        ("jvm object cast" (~ object))))))
 
-    _
-    (meta.failure (exception.error ..cannot_cast_to_non_object [type]))))
+      _
+      (meta.failure (exception.error ..cannot_cast_to_non_object [type])))))
 
 (template [<forward> <from> <to> <backward>]
   [(template: .public (<forward> it)

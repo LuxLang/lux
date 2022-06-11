@@ -399,7 +399,7 @@ Called by `imenu--generic-function'."
 							(definition (altRE "\\.using"
 											   "def:" "type:" "program:" "inline:"
 											   "implementation:"
-											   "macro" "syntax:"
+											   "macro" "syntax"
 											   "exception:"
 											   "word:"
 											   "analysis:" "synthesis:" "generation:" "directive:")))
@@ -584,6 +584,7 @@ This function also returns nil meaning don't specify the indentation."
 (define-lux-indent
   (function 'defun)
   (macro 'defun)
+  ("syntax" 'defun)
 
   (import 'defun)
   (export 'defun)
