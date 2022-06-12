@@ -70,25 +70,25 @@
                           {.#None})))
             (dictionary.of_list text.hash)))))
 
-(`` (implementation: .public (async program)
+(`` (def: .public (async program)
       (-> (Program IO) (Program Async))
+      (implementation
+       (~~ (with_template [<method>]
+             [(def: <method>
+                (at program <method>))]
 
-      (~~ (with_template [<method>]
-            [(def: <method>
-               (at program <method>))]
+             [home]
+             [directory]
+             ))
 
-            [home]
-            [directory]
-            ))
+       (~~ (with_template [<method>]
+             [(def: <method>
+                (|>> (at program <method>) async.future))]
 
-      (~~ (with_template [<method>]
-            [(def: <method>
-               (|>> (at program <method>) async.future))]
-
-            [available_variables]
-            [variable]
-            [exit]
-            ))))
+             [available_variables]
+             [variable]
+             [exit]
+             )))))
 
 (def: .public (mock environment home directory)
   (-> Environment Path Path (Program IO))
@@ -283,158 +283,158 @@
        
        (these)))
 
-(implementation: .public default
+(def: .public default
   (Program IO)
-
-  (def: (available_variables _)
-    (with_expansions [<jvm> (|> (java/lang/System::getenv)
-                                java/util/Map::keySet
-                                java/util/Set::iterator
-                                ..jvm::consume
-                                (list#each (|>> ffi.of_string))
-                                io.io)]
-      (for @.old <jvm>
-           @.jvm <jvm>
-           @.js (io.io (if ffi.on_node_js?
-                         (case (ffi.global Object [process env])
-                           {.#Some process/env}
-                           (|> (Object::entries [process/env])
-                               (array.list {.#None})
-                               (list#each (|>> (array.item 0) maybe.trusted)))
-
-                           {.#None}
-                           (list))
-                         (list)))
-           @.python (at io.monad each (array.list {.#None}) (os/environ::keys []))
-           ... Lua offers no way to get all the environment variables available.
-           @.lua (io.io (list))
-           @.ruby (io.io (array.list {.#None} (Env::keys [])))
-           ... @.php (do io.monad
-           ...         [environment (..getenv/0 [])]
-           ...         (in (|> environment
-           ...                   ..array_keys
-           ...                   (array.list {.#None})
-           ...                   (list#each (function (_ variable)
-           ...                               [variable ("php array read" (as Nat variable) environment)]))
-           ...                   (dictionary.of_list text.hash))))
-           ... @.scheme (do io.monad
-           ...            [input (..get-environment-variables [])]
-           ...            (loop (again [input input
-           ...                          output environment.empty])
-           ...              (if ("scheme object nil?" input)
-           ...                (in output)
-           ...                (let [entry (..head input)]
-           ...                  (again (..tail input)
-           ...                         (dictionary.has (..car entry) (..cdr entry) output))))))
-           )))
-
-  (def: (variable name)
-    (template.let [(!fetch <method> <post>)
-                   [(do io.monad
-                      [value (|> name <method>)]
-                      (in (case value
-                            {.#Some value}
-                            {try.#Success (<post> value)}
+  (implementation
+   (def: (available_variables _)
+     (with_expansions [<jvm> (|> (java/lang/System::getenv)
+                                 java/util/Map::keySet
+                                 java/util/Set::iterator
+                                 ..jvm::consume
+                                 (list#each (|>> ffi.of_string))
+                                 io.io)]
+       (for @.old <jvm>
+            @.jvm <jvm>
+            @.js (io.io (if ffi.on_node_js?
+                          (case (ffi.global Object [process env])
+                            {.#Some process/env}
+                            (|> (Object::entries [process/env])
+                                (array.list {.#None})
+                                (list#each (|>> (array.item 0) maybe.trusted)))
 
                             {.#None}
-                            (exception.except ..unknown_environment_variable [name]))))]]
-      (with_expansions [<jvm> (!fetch (<| java/lang/System::resolveEnv ffi.as_string) ffi.of_string)]
-        (for @.old <jvm>
-             @.jvm <jvm>
-             @.js (io.io (if ffi.on_node_js?
-                           (case (do maybe.monad
-                                   [process/env (ffi.global Object [process env])]
-                                   (array.item (as Nat name)
-                                               (as (Array Text) process/env)))
+                            (list))
+                          (list)))
+            @.python (at io.monad each (array.list {.#None}) (os/environ::keys []))
+            ... Lua offers no way to get all the environment variables available.
+            @.lua (io.io (list))
+            @.ruby (io.io (array.list {.#None} (Env::keys [])))
+            ... @.php (do io.monad
+            ...         [environment (..getenv/0 [])]
+            ...         (in (|> environment
+            ...                   ..array_keys
+            ...                   (array.list {.#None})
+            ...                   (list#each (function (_ variable)
+            ...                               [variable ("php array read" (as Nat variable) environment)]))
+            ...                   (dictionary.of_list text.hash))))
+            ... @.scheme (do io.monad
+            ...            [input (..get-environment-variables [])]
+            ...            (loop (again [input input
+            ...                          output environment.empty])
+            ...              (if ("scheme object nil?" input)
+            ...                (in output)
+            ...                (let [entry (..head input)]
+            ...                  (again (..tail input)
+            ...                         (dictionary.has (..car entry) (..cdr entry) output))))))
+            )))
+
+   (def: (variable name)
+     (template.let [(!fetch <method> <post>)
+                    [(do io.monad
+                       [value (|> name <method>)]
+                       (in (case value
                              {.#Some value}
-                             {try.#Success value}
+                             {try.#Success (<post> value)}
 
                              {.#None}
-                             (exception.except ..unknown_environment_variable [name]))
-                           (exception.except ..unknown_environment_variable [name])))
-             @.python (!fetch os/environ::get |>)
-             @.lua (!fetch os/getenv |>)
-             @.ruby (!fetch Env::fetch |>)
-             ))))
-  
-  (def: home
-    (io.run!
-     (with_expansions [<default> (io.io "~")
-                       <jvm> (|> (java/lang/System::getProperty (ffi.as_string "user.home"))
-                                 (maybe#each (|>> ffi.of_string))
-                                 (maybe.else "")
-                                 io.io)]
+                             (exception.except ..unknown_environment_variable [name]))))]]
+       (with_expansions [<jvm> (!fetch (<| java/lang/System::resolveEnv ffi.as_string) ffi.of_string)]
+         (for @.old <jvm>
+              @.jvm <jvm>
+              @.js (io.io (if ffi.on_node_js?
+                            (case (do maybe.monad
+                                    [process/env (ffi.global Object [process env])]
+                                    (array.item (as Nat name)
+                                                (as (Array Text) process/env)))
+                              {.#Some value}
+                              {try.#Success value}
+
+                              {.#None}
+                              (exception.except ..unknown_environment_variable [name]))
+                            (exception.except ..unknown_environment_variable [name])))
+              @.python (!fetch os/environ::get |>)
+              @.lua (!fetch os/getenv |>)
+              @.ruby (!fetch Env::fetch |>)
+              ))))
+   
+   (def: home
+     (io.run!
+      (with_expansions [<default> (io.io "~")
+                        <jvm> (|> (java/lang/System::getProperty (ffi.as_string "user.home"))
+                                  (maybe#each (|>> ffi.of_string))
+                                  (maybe.else "")
+                                  io.io)]
+        (for @.old <jvm>
+             @.jvm <jvm>
+             @.js (if ffi.on_node_js?
+                    (|> (node_js.require "os")
+                        maybe.trusted
+                        (as NodeJs_OS)
+                        NodeJs_OS::homedir)
+                    <default>)
+             @.python (os/path::expanduser "~")
+             @.lua (..run_command "~" "echo ~")
+             @.ruby (io.io (Dir::home))
+             ... @.php (do io.monad
+             ...         [output (..getenv/1 ["HOME"])]
+             ...         (in (if (bit#= false (as Bit output))
+             ...                 "~"
+             ...                 output)))
+             
+             ... TODO: Replace dummy implementation.
+             <default>))))
+
+   (def: directory
+     (io.run!
+      (with_expansions [<default> "."
+                        <jvm> (|> (java/lang/System::getProperty (ffi.as_string "user.dir"))
+                                  (maybe#each (|>> ffi.of_string))
+                                  (maybe.else "")
+                                  io.io)]
+        (for @.old <jvm>
+             @.jvm <jvm>
+             @.js (if ffi.on_node_js?
+                    (case (ffi.global ..NodeJs_Process [process])
+                      {.#Some process}
+                      (NodeJs_Process::cwd process)
+                      
+                      {.#None}
+                      (io.io <default>))
+                    (io.io <default>))
+             @.python (os::getcwd [])
+             @.lua (do io.monad
+                     [.let [default <default>]
+                      on_windows (..run_command default "cd")]
+                     (if (same? default on_windows)
+                       (..run_command default "pwd")
+                       (in on_windows)))
+             @.ruby (io.io (FileUtils::pwd))
+             ... @.php (do io.monad
+             ...         [output (..getcwd [])]
+             ...         (in (if (bit#= false (as Bit output))
+             ...                 "."
+             ...                 output)))
+             
+             ... TODO: Replace dummy implementation.
+             (io.io <default>)))))
+   
+   (def: (exit code)
+     (with_expansions [<jvm> (do io.monad
+                               [_ (java/lang/System::exit (ffi.as_int code))]
+                               (in (undefined)))]
        (for @.old <jvm>
             @.jvm <jvm>
-            @.js (if ffi.on_node_js?
-                   (|> (node_js.require "os")
-                       maybe.trusted
-                       (as NodeJs_OS)
-                       NodeJs_OS::homedir)
-                   <default>)
-            @.python (os/path::expanduser "~")
-            @.lua (..run_command "~" "echo ~")
-            @.ruby (io.io (Dir::home))
-            ... @.php (do io.monad
-            ...         [output (..getenv/1 ["HOME"])]
-            ...         (in (if (bit#= false (as Bit output))
-            ...                 "~"
-            ...                 output)))
-            
-            ... TODO: Replace dummy implementation.
-            <default>))))
+            @.js (cond ffi.on_node_js?
+                       (..exit_node_js! code)
 
-  (def: directory
-    (io.run!
-     (with_expansions [<default> "."
-                       <jvm> (|> (java/lang/System::getProperty (ffi.as_string "user.dir"))
-                                 (maybe#each (|>> ffi.of_string))
-                                 (maybe.else "")
-                                 io.io)]
-       (for @.old <jvm>
-            @.jvm <jvm>
-            @.js (if ffi.on_node_js?
-                   (case (ffi.global ..NodeJs_Process [process])
-                     {.#Some process}
-                     (NodeJs_Process::cwd process)
-                     
-                     {.#None}
-                     (io.io <default>))
-                   (io.io <default>))
-            @.python (os::getcwd [])
-            @.lua (do io.monad
-                    [.let [default <default>]
-                     on_windows (..run_command default "cd")]
-                    (if (same? default on_windows)
-                      (..run_command default "pwd")
-                      (in on_windows)))
-            @.ruby (io.io (FileUtils::pwd))
-            ... @.php (do io.monad
-            ...         [output (..getcwd [])]
-            ...         (in (if (bit#= false (as Bit output))
-            ...                 "."
-            ...                 output)))
-            
-            ... TODO: Replace dummy implementation.
-            (io.io <default>)))))
-  
-  (def: (exit code)
-    (with_expansions [<jvm> (do io.monad
-                              [_ (java/lang/System::exit (ffi.as_int code))]
-                              (in (undefined)))]
-      (for @.old <jvm>
-           @.jvm <jvm>
-           @.js (cond ffi.on_node_js?
-                      (..exit_node_js! code)
+                       ffi.on_browser?
+                       (..exit_browser! code)
 
-                      ffi.on_browser?
-                      (..exit_browser! code)
-
-                      ... else
-                      (..default_exit! code))
-           @.python (os::_exit code)
-           @.lua (os/exit code)
-           @.ruby (Kernel::exit code)
-           ... @.php (..exit [code])
-           ... @.scheme (..exit [code])
-           ))))
+                       ... else
+                       (..default_exit! code))
+            @.python (os::_exit code)
+            @.lua (os/exit code)
+            @.ruby (Kernel::exit code)
+            ... @.php (..exit [code])
+            ... @.scheme (..exit [code])
+            )))))

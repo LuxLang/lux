@@ -200,105 +200,105 @@
                                      "[1]::[0]"
                                      (new [java/io/File] "io" "try"))
 
-                                   (`` (implementation: .public default
+                                   (`` (def: .public default
                                          (System IO)
+                                         (implementation
+                                          (def: separator
+                                            (ffi.of_string (java/io/File::separator)))
 
-                                         (def: separator
-                                           (ffi.of_string (java/io/File::separator)))
+                                          (~~ (with_template [<name> <method>]
+                                                [(def: <name>
+                                                   (|>> ffi.as_string
+                                                        java/io/File::new
+                                                        <method>
+                                                        (io#each (|>> (try#each (|>> ffi.of_boolean)) (try.else false)))))]
 
-                                         (~~ (with_template [<name> <method>]
-                                               [(def: <name>
-                                                  (|>> ffi.as_string
-                                                       java/io/File::new
-                                                       <method>
-                                                       (io#each (|>> (try#each (|>> ffi.of_boolean)) (try.else false)))))]
+                                                [file? java/io/File::isFile]
+                                                [directory? java/io/File::isDirectory]
+                                                ))
 
-                                               [file? java/io/File::isFile]
-                                               [directory? java/io/File::isDirectory]
-                                               ))
+                                          (def: make_directory
+                                            (|>> ffi.as_string
+                                                 java/io/File::new
+                                                 java/io/File::mkdir))
 
-                                         (def: make_directory
-                                           (|>> ffi.as_string
+                                          (~~ (with_template [<name> <method>]
+                                                [(def: (<name> path)
+                                                   (do [! (try.with io.monad)]
+                                                     [?children (java/io/File::listFiles (java/io/File::new (ffi.as_string path)))]
+                                                     (case ?children
+                                                       {.#Some children}
+                                                       (|> children
+                                                           (array.list {.#None})
+                                                           (monad.only ! (|>> <method> (at ! each (|>> ffi.of_boolean))))
+                                                           (at ! each (monad.each ! (|>> java/io/File::getAbsolutePath (at ! each (|>> ffi.of_string)))))
+                                                           (at ! conjoint))
+
+                                                       {.#None}
+                                                       (at io.monad in (exception.except ..cannot_find_directory [path])))))]
+
+                                                [directory_files java/io/File::isFile]
+                                                [sub_directories java/io/File::isDirectory]
+                                                ))
+
+                                          (def: file_size
+                                            (|>> ffi.as_string
+                                                 java/io/File::new
+                                                 java/io/File::length
+                                                 (at (try.with io.monad) each (|>> ffi.of_long .nat))))
+
+                                          (def: last_modified
+                                            (|>> ffi.as_string
+                                                 java/io/File::new
+                                                 (java/io/File::lastModified)
+                                                 (at (try.with io.monad) each (|>> ffi.of_long duration.of_millis instant.absolute))))
+
+                                          (def: can_execute?
+                                            (|>> ffi.as_string
+                                                 java/io/File::new
+                                                 java/io/File::canExecute
+                                                 (io#each (try#each (|>> ffi.of_boolean)))))
+
+                                          (def: (read path)
+                                            (do (try.with io.monad)
+                                              [.let [file (java/io/File::new (ffi.as_string path))]
+                                               size (java/io/File::length file)
+                                               stream (java/io/FileInputStream::new file)
+                                               .let [data (binary.empty (.nat (ffi.of_long size)))]
+                                               bytes_read (java/io/InputStream::read data stream)
+                                               _ (java/lang/AutoCloseable::close stream)]
+                                              (in data)))
+
+                                          (def: (delete path)
+                                            (|> path
+                                                ffi.as_string
                                                 java/io/File::new
-                                                java/io/File::mkdir))
+                                                java/io/File::delete))
 
-                                         (~~ (with_template [<name> <method>]
-                                               [(def: (<name> path)
-                                                  (do [! (try.with io.monad)]
-                                                    [?children (java/io/File::listFiles (java/io/File::new (ffi.as_string path)))]
-                                                    (case ?children
-                                                      {.#Some children}
-                                                      (|> children
-                                                          (array.list {.#None})
-                                                          (monad.only ! (|>> <method> (at ! each (|>> ffi.of_boolean))))
-                                                          (at ! each (monad.each ! (|>> java/io/File::getAbsolutePath (at ! each (|>> ffi.of_string)))))
-                                                          (at ! conjoint))
-
-                                                      {.#None}
-                                                      (at io.monad in (exception.except ..cannot_find_directory [path])))))]
-
-                                               [directory_files java/io/File::isFile]
-                                               [sub_directories java/io/File::isDirectory]
-                                               ))
-
-                                         (def: file_size
-                                           (|>> ffi.as_string
+                                          (def: (modify path time_stamp)
+                                            (|> path
+                                                ffi.as_string
                                                 java/io/File::new
-                                                java/io/File::length
-                                                (at (try.with io.monad) each (|>> ffi.of_long .nat))))
+                                                (java/io/File::setLastModified (|> time_stamp instant.relative duration.millis ffi.as_long))))
+                                          
+                                          (~~ (with_template [<flag> <name>]
+                                                [(def: (<name> path data)
+                                                   (do (try.with io.monad)
+                                                     [stream (java/io/FileOutputStream::new (java/io/File::new (ffi.as_string path)) (ffi.as_boolean <flag>))
+                                                      _ (java/io/OutputStream::write data stream)
+                                                      _ (java/io/OutputStream::flush stream)]
+                                                     (java/lang/AutoCloseable::close stream)))]
 
-                                         (def: last_modified
-                                           (|>> ffi.as_string
+                                                [#0 write]
+                                                [#1 append]
+                                                ))
+
+                                          (def: (move origin destination)
+                                            (|> origin
+                                                ffi.as_string
                                                 java/io/File::new
-                                                (java/io/File::lastModified)
-                                                (at (try.with io.monad) each (|>> ffi.of_long duration.of_millis instant.absolute))))
-
-                                         (def: can_execute?
-                                           (|>> ffi.as_string
-                                                java/io/File::new
-                                                java/io/File::canExecute
-                                                (io#each (try#each (|>> ffi.of_boolean)))))
-
-                                         (def: (read path)
-                                           (do (try.with io.monad)
-                                             [.let [file (java/io/File::new (ffi.as_string path))]
-                                              size (java/io/File::length file)
-                                              stream (java/io/FileInputStream::new file)
-                                              .let [data (binary.empty (.nat (ffi.of_long size)))]
-                                              bytes_read (java/io/InputStream::read data stream)
-                                              _ (java/lang/AutoCloseable::close stream)]
-                                             (in data)))
-
-                                         (def: (delete path)
-                                           (|> path
-                                               ffi.as_string
-                                               java/io/File::new
-                                               java/io/File::delete))
-
-                                         (def: (modify path time_stamp)
-                                           (|> path
-                                               ffi.as_string
-                                               java/io/File::new
-                                               (java/io/File::setLastModified (|> time_stamp instant.relative duration.millis ffi.as_long))))
-                                         
-                                         (~~ (with_template [<flag> <name>]
-                                               [(def: (<name> path data)
-                                                  (do (try.with io.monad)
-                                                    [stream (java/io/FileOutputStream::new (java/io/File::new (ffi.as_string path)) (ffi.as_boolean <flag>))
-                                                     _ (java/io/OutputStream::write data stream)
-                                                     _ (java/io/OutputStream::flush stream)]
-                                                    (java/lang/AutoCloseable::close stream)))]
-
-                                               [#0 write]
-                                               [#1 append]
-                                               ))
-
-                                         (def: (move origin destination)
-                                           (|> origin
-                                               ffi.as_string
-                                               java/io/File::new
-                                               (java/io/File::renameTo (java/io/File::new (ffi.as_string destination)))))
-                                         )))]
+                                                (java/io/File::renameTo (java/io/File::new (ffi.as_string destination)))))
+                                          ))))]
   (for @.old (these <for_jvm>)
        @.jvm (these <for_jvm>)
 
@@ -548,87 +548,87 @@
               (def: python_separator
                 (os/path::sep))
 
-              (`` (implementation: .public default
+              (`` (def: .public default
                     (System IO)
-                    
-                    (def: separator
-                      ..python_separator)
+                    (implementation
+                     (def: separator
+                       ..python_separator)
 
-                    (~~ (with_template [<name> <method>]
-                          [(def: <name>
-                             (|>> <method>
-                                  (io#each (|>> (try.else false)))))]
+                     (~~ (with_template [<name> <method>]
+                           [(def: <name>
+                              (|>> <method>
+                                   (io#each (|>> (try.else false)))))]
 
-                          [file?      os/path::isfile]
-                          [directory? os/path::isdir]
-                          ))
+                           [file?      os/path::isfile]
+                           [directory? os/path::isdir]
+                           ))
 
-                    (def: make_directory
-                      os::mkdir)
+                     (def: make_directory
+                       os::mkdir)
 
-                    (~~ (with_template [<name> <method>]
-                          [(def: (<name> path)
-                             (let [! (try.with io.monad)]
-                               (|> path
-                                   os::listdir
-                                   (at ! each (|>> (array.list {.#None})
-                                                   (list#each (|>> (format path ..python_separator)))
-                                                   (monad.each ! (function (_ sub)
-                                                                   (at ! each (|>> [sub]) (<method> sub))))
-                                                   (at ! each (|>> (list.only product.right)
-                                                                   (list#each product.left)))))
-                                   (at ! conjoint))))]
+                     (~~ (with_template [<name> <method>]
+                           [(def: (<name> path)
+                              (let [! (try.with io.monad)]
+                                (|> path
+                                    os::listdir
+                                    (at ! each (|>> (array.list {.#None})
+                                                    (list#each (|>> (format path ..python_separator)))
+                                                    (monad.each ! (function (_ sub)
+                                                                    (at ! each (|>> [sub]) (<method> sub))))
+                                                    (at ! each (|>> (list.only product.right)
+                                                                    (list#each product.left)))))
+                                    (at ! conjoint))))]
 
-                          [directory_files os/path::isfile]
-                          [sub_directories os/path::isdir]
-                          ))
+                           [directory_files os/path::isfile]
+                           [sub_directories os/path::isdir]
+                           ))
 
-                    (def: file_size
-                      (|>> os/path::getsize
-                           (at (try.with io.monad) each (|>> .nat))))
+                     (def: file_size
+                       (|>> os/path::getsize
+                            (at (try.with io.monad) each (|>> .nat))))
 
-                    (def: last_modified
-                      (|>> os/path::getmtime
-                           (at (try.with io.monad) each (|>> f.int
-                                                             (i.* +1,000)
-                                                             duration.of_millis
-                                                             instant.absolute))))
+                     (def: last_modified
+                       (|>> os/path::getmtime
+                            (at (try.with io.monad) each (|>> f.int
+                                                              (i.* +1,000)
+                                                              duration.of_millis
+                                                              instant.absolute))))
 
-                    (def: (can_execute? path)
-                      (os::access path (os::X_OK)))
+                     (def: (can_execute? path)
+                       (os::access path (os::X_OK)))
 
-                    (def: (read path)
-                      (do (try.with io.monad)
-                        [file (..open path "rb")
-                         data (PyFile::read file)
-                         _ (PyFile::close file)]
-                        (in data)))
+                     (def: (read path)
+                       (do (try.with io.monad)
+                         [file (..open path "rb")
+                          data (PyFile::read file)
+                          _ (PyFile::close file)]
+                         (in data)))
 
-                    (def: (delete path)
-                      (do (try.with io.monad)
-                        [? (os/path::isfile path)]
-                        (if ?
-                          (os::remove path)
-                          (os::rmdir path))))
+                     (def: (delete path)
+                       (do (try.with io.monad)
+                         [? (os/path::isfile path)]
+                         (if ?
+                           (os::remove path)
+                           (os::rmdir path))))
 
-                    (def: (modify path time_stamp)
-                      (let [when (|> time_stamp instant.relative duration.millis (i./ +1,000))]
-                        (os::utime path (..tuple [when when]))))
+                     (def: (modify path time_stamp)
+                       (let [when (|> time_stamp instant.relative duration.millis (i./ +1,000))]
+                         (os::utime path (..tuple [when when]))))
 
-                    (~~ (with_template [<name> <mode>]
-                          [(def: (<name> path data)
-                             (do (try.with io.monad)
-                               [file (..open path <mode>)
-                                _ (PyFile::write data file)]
-                               (PyFile::close file)))]
-                          
-                          [write  "w+b"]
-                          [append "ab"]
-                          ))
+                     (~~ (with_template [<name> <mode>]
+                           [(def: (<name> path data)
+                              (do (try.with io.monad)
+                                [file (..open path <mode>)
+                                 _ (PyFile::write data file)]
+                                (PyFile::close file)))]
+                           
+                           [write  "w+b"]
+                           [append "ab"]
+                           ))
 
-                    (def: (move origin destination)
-                      (os::rename origin destination))
-                    )))
+                     (def: (move origin destination)
+                       (os::rename origin destination))
+                     ))))
 
        @.ruby
        (these (ffi.import Time
@@ -674,108 +674,108 @@
                 Text
                 (..RubyFile::SEPARATOR))
 
-              (`` (implementation: .public default
+              (`` (def: .public default
                     (System IO)
+                    (implementation
+                     (def: separator
+                       ..ruby_separator)
 
-                    (def: separator
-                      ..ruby_separator)
+                     (~~ (with_template [<name> <test>]
+                           [(def: <name>
+                              (|>> <test>
+                                   (io#each (|>> (try.else false)))))]
 
-                    (~~ (with_template [<name> <test>]
-                          [(def: <name>
-                             (|>> <test>
-                                  (io#each (|>> (try.else false)))))]
+                           [file? RubyFile::file?]
+                           [directory? RubyFile::directory?]
+                           ))
+                     
+                     (def: make_directory
+                       FileUtils::mkdir)
 
-                          [file? RubyFile::file?]
-                          [directory? RubyFile::directory?]
-                          ))
-                    
-                    (def: make_directory
-                      FileUtils::mkdir)
+                     (~~ (with_template [<name> <test>]
+                           [(def: (<name> path)
+                              (do [! (try.with io.monad)]
+                                [self (Dir::open path)
+                                 children (Dir::children self)
+                                 output (loop (again [input (|> children
+                                                                (array.list {.#None})
+                                                                (list#each (|>> (format path ..ruby_separator))))
+                                                      output (is (List ..Path)
+                                                                 (list))])
+                                          (case input
+                                            {.#End}
+                                            (in output)
 
-                    (~~ (with_template [<name> <test>]
-                          [(def: (<name> path)
-                             (do [! (try.with io.monad)]
-                               [self (Dir::open path)
-                                children (Dir::children self)
-                                output (loop (again [input (|> children
-                                                               (array.list {.#None})
-                                                               (list#each (|>> (format path ..ruby_separator))))
-                                                     output (is (List ..Path)
-                                                                (list))])
-                                         (case input
-                                           {.#End}
-                                           (in output)
+                                            {.#Item head tail}
+                                            (do !
+                                              [verdict (<test> head)]
+                                              (again tail (if verdict
+                                                            {.#Item head output}
+                                                            output)))))
+                                 _ (Dir::close self)]
+                                (in output)))]
 
-                                           {.#Item head tail}
-                                           (do !
-                                             [verdict (<test> head)]
-                                             (again tail (if verdict
-                                                           {.#Item head output}
-                                                           output)))))
-                                _ (Dir::close self)]
-                               (in output)))]
+                           [directory_files RubyFile::file?]
+                           [sub_directories RubyFile::directory?]
+                           ))
 
-                          [directory_files RubyFile::file?]
-                          [sub_directories RubyFile::directory?]
-                          ))
+                     (~~ (with_template [<name> <pipeline>]
+                           [(def: <name>
+                              (let [! (try.with io.monad)]
+                                (|>> RubyFile::stat
+                                     (at ! each (`` (|>> (~~ (template.spliced <pipeline>))))))))]
 
-                    (~~ (with_template [<name> <pipeline>]
-                          [(def: <name>
-                             (let [! (try.with io.monad)]
-                               (|>> RubyFile::stat
-                                    (at ! each (`` (|>> (~~ (template.spliced <pipeline>))))))))]
+                           [file_size [Stat::size .nat]]
+                           [last_modified [Stat::mtime
+                                           Time::to_f
+                                           (f.* +1,000.0)
+                                           f.int
+                                           duration.of_millis
+                                           instant.absolute]]
+                           [can_execute? [Stat::executable?]]
+                           ))
 
-                          [file_size [Stat::size .nat]]
-                          [last_modified [Stat::mtime
-                                          Time::to_f
-                                          (f.* +1,000.0)
-                                          f.int
-                                          duration.of_millis
-                                          instant.absolute]]
-                          [can_execute? [Stat::executable?]]
-                          ))
+                     (def: (read path)
+                       (do (try.with io.monad)
+                         [file (RubyFile::open path "rb")
+                          data (RubyFile::read file)
+                          _ (RubyFile::close file)]
+                         (in data)))
 
-                    (def: (read path)
-                      (do (try.with io.monad)
-                        [file (RubyFile::open path "rb")
-                         data (RubyFile::read file)
-                         _ (RubyFile::close file)]
-                        (in data)))
+                     (def: (delete path)
+                       (do (try.with io.monad)
+                         [? (RubyFile::file? path)]
+                         (if ?
+                           (RubyFile::delete path)
+                           (FileUtils::rmdir path))))
 
-                    (def: (delete path)
-                      (do (try.with io.monad)
-                        [? (RubyFile::file? path)]
-                        (if ?
-                          (RubyFile::delete path)
-                          (FileUtils::rmdir path))))
+                     (def: (modify path moment)
+                       (let [moment (|> moment
+                                        instant.relative
+                                        duration.millis
+                                        i.frac
+                                        (f./ +1,000.0)
+                                        Time::at)]
+                         (RubyFile::utime moment moment path)))
 
-                    (def: (modify path moment)
-                      (let [moment (|> moment
-                                       instant.relative
-                                       duration.millis
-                                       i.frac
-                                       (f./ +1,000.0)
-                                       Time::at)]
-                        (RubyFile::utime moment moment path)))
+                     (~~ (with_template [<mode> <name>]
+                           [(def: (<name> path data)
+                              (do [! (try.with io.monad)]
+                                [file (RubyFile::open path <mode>)
+                                 data (RubyFile::write data file)
+                                 _ (RubyFile::flush file)
+                                 _ (RubyFile::close file)]
+                                (in [])))]
+                           
+                           ["wb" write]
+                           ["ab" append]
+                           ))
 
-                    (~~ (with_template [<mode> <name>]
-                          [(def: (<name> path data)
-                             (do [! (try.with io.monad)]
-                               [file (RubyFile::open path <mode>)
-                                data (RubyFile::write data file)
-                                _ (RubyFile::flush file)
-                                _ (RubyFile::close file)]
-                               (in [])))]
-                          
-                          ["wb" write]
-                          ["ab" append]
-                          ))
-
-                    (def: (move origin destination)
-                      (do (try.with io.monad)
-                        [_ (FileUtils::move origin destination)]
-                        (in [])))
-                    )))
+                     (def: (move origin destination)
+                       (do (try.with io.monad)
+                         [_ (FileUtils::move origin destination)]
+                         (in [])))
+                     ))))
 
        ... @.php
        ... (these (ffi.import (FILE_APPEND Int))
@@ -818,143 +818,143 @@
        ...          [cannot_write_to_file]
        ...          )
 
-       ...        (`` (implementation: (file path)
+       ...        (`` (def: (file path)
        ...              (-> Path (File IO))
-
-       ...              (~~ (with_template [<name> <mode>]
-       ...                    [(def: (<name> data)
-       ...                       (do [! (try.with io.monad)]
-       ...                         [outcome (..file_put_contents [path ("php pack" ..byte_array_format data) <mode>])]
-       ...                         (if (bit#= false (as Bit outcome))
-       ...                           (at io.monad in (exception.except ..cannot_write_to_file [path]))
-       ...                           (in []))))]
+       ...              (implementation
+       ...               (~~ (with_template [<name> <mode>]
+       ...                     [(def: (<name> data)
+       ...                        (do [! (try.with io.monad)]
+       ...                          [outcome (..file_put_contents [path ("php pack" ..byte_array_format data) <mode>])]
+       ...                          (if (bit#= false (as Bit outcome))
+       ...                            (at io.monad in (exception.except ..cannot_write_to_file [path]))
+       ...                            (in []))))]
        
-       ...                    [over_write  +0]
-       ...                    [append      (..FILE_APPEND)]
-       ...                    ))
+       ...                     [over_write  +0]
+       ...                     [append      (..FILE_APPEND)]
+       ...                     ))
 
-       ...              (def: (content _)
-       ...                (do [! (try.with io.monad)]
-       ...                  [data (..file_get_contents [path])]
-       ...                  (if (bit#= false (as Bit data))
-       ...                    (at io.monad in (exception.except ..cannot_find_file [path]))
-       ...                    (in (..unpack [..byte_array_format data])))))
+       ...               (def: (content _)
+       ...                 (do [! (try.with io.monad)]
+       ...                   [data (..file_get_contents [path])]
+       ...                   (if (bit#= false (as Bit data))
+       ...                     (at io.monad in (exception.except ..cannot_find_file [path]))
+       ...                     (in (..unpack [..byte_array_format data])))))
 
-       ...              (def: path
-       ...                path)
+       ...               (def: path
+       ...                 path)
 
-       ...              (~~ (with_template [<name> <ffi> <pipeline>]
-       ...                    [(def: (<name> _)
-       ...                       (do [! (try.with io.monad)]
-       ...                         [value (<ffi> [path])]
-       ...                         (if (bit#= false (as Bit value))
-       ...                           (at io.monad in (exception.except ..cannot_find_file [path]))
-       ...                           (in (`` (|> value (~~ (template.spliced <pipeline>))))))))]
+       ...               (~~ (with_template [<name> <ffi> <pipeline>]
+       ...                     [(def: (<name> _)
+       ...                        (do [! (try.with io.monad)]
+       ...                          [value (<ffi> [path])]
+       ...                          (if (bit#= false (as Bit value))
+       ...                            (at io.monad in (exception.except ..cannot_find_file [path]))
+       ...                            (in (`` (|> value (~~ (template.spliced <pipeline>))))))))]
 
-       ...                    [size ..filesize [.nat]]
-       ...                    [last_modified ..filemtime [(i.* +1,000) duration.of_millis instant.absolute]]
-       ...                    ))
+       ...                     [size ..filesize [.nat]]
+       ...                     [last_modified ..filemtime [(i.* +1,000) duration.of_millis instant.absolute]]
+       ...                     ))
 
-       ...              (def: (can_execute? _)
-       ...                (..is_executable [path]))
+       ...               (def: (can_execute? _)
+       ...                 (..is_executable [path]))
 
-       ...              (def: (modify moment)
-       ...                (do [! (try.with io.monad)]
-       ...                  [verdict (..touch [path (|> moment instant.relative duration.millis (i./ +1,000))])]
-       ...                  (if (bit#= false (as Bit verdict))
-       ...                    (at io.monad in (exception.except ..cannot_find_file [path]))
-       ...                    (in []))))
+       ...               (def: (modify moment)
+       ...                 (do [! (try.with io.monad)]
+       ...                   [verdict (..touch [path (|> moment instant.relative duration.millis (i./ +1,000))])]
+       ...                   (if (bit#= false (as Bit verdict))
+       ...                     (at io.monad in (exception.except ..cannot_find_file [path]))
+       ...                     (in []))))
 
-       ...              (def: (move destination)
-       ...                (do [! (try.with io.monad)]
-       ...                  [verdict (..rename [path destination])]
-       ...                  (if (bit#= false (as Bit verdict))
-       ...                    (at io.monad in (exception.except ..cannot_find_file [path]))
-       ...                    (in (file destination)))))
+       ...               (def: (move destination)
+       ...                 (do [! (try.with io.monad)]
+       ...                   [verdict (..rename [path destination])]
+       ...                   (if (bit#= false (as Bit verdict))
+       ...                     (at io.monad in (exception.except ..cannot_find_file [path]))
+       ...                     (in (file destination)))))
 
-       ...              (def: (delete _)
-       ...                (do (try.with io.monad)
-       ...                  [verdict (..unlink [path])]
-       ...                  (if (bit#= false (as Bit verdict))
-       ...                    (at io.monad in (exception.except ..cannot_find_file [path]))
-       ...                    (in []))))
-       ...              ))
+       ...               (def: (delete _)
+       ...                 (do (try.with io.monad)
+       ...                   [verdict (..unlink [path])]
+       ...                   (if (bit#= false (as Bit verdict))
+       ...                     (at io.monad in (exception.except ..cannot_find_file [path]))
+       ...                     (in []))))
+       ...               )))
 
-       ...        (`` (implementation: (directory path)
+       ...        (`` (def: (directory path)
        ...              (-> Path (Directory IO))
+       ...              (implementation
+       ...               (def: scope
+       ...                 path)
 
-       ...              (def: scope
-       ...                path)
+       ...               (~~ (with_template [<name> <test> <constructor> <capability>]
+       ...                     [(def: (<name> _)
+       ...                        (do [! (try.with io.monad)]
+       ...                          [children (..scandir [path])]
+       ...                          (loop (again [input (|> children
+       ...                                                  (array.list {.#None})
+       ...                                                  (list.only (function (_ child)
+       ...                                                               (not (or (text#= "." child)
+       ...                                                                        (text#= ".." child))))))
+       ...                                        output (is (List (<capability> IO))
+       ...                                                   (list))])
+       ...                            (case input
+       ...                              {.#End}
+       ...                              (in output)
 
-       ...              (~~ (with_template [<name> <test> <constructor> <capability>]
-       ...                    [(def: (<name> _)
-       ...                       (do [! (try.with io.monad)]
-       ...                         [children (..scandir [path])]
-       ...                         (loop (again [input (|> children
-       ...                                                 (array.list {.#None})
-       ...                                                 (list.only (function (_ child)
-       ...                                                              (not (or (text#= "." child)
-       ...                                                                       (text#= ".." child))))))
-       ...                                       output (is (List (<capability> IO))
-       ...                                                  (list))])
-       ...                           (case input
-       ...                             {.#End}
-       ...                             (in output)
+       ...                              {.#Item head tail}
+       ...                              (do !
+       ...                                [verdict (<test> head)]
+       ...                                (if verdict
+       ...                                  (again tail {.#Item (<constructor> head) output})
+       ...                                  (again tail output)))))))]
 
-       ...                             {.#Item head tail}
-       ...                             (do !
-       ...                               [verdict (<test> head)]
-       ...                               (if verdict
-       ...                                 (again tail {.#Item (<constructor> head) output})
-       ...                                 (again tail output)))))))]
+       ...                     [files ..is_file ..file File]
+       ...                     [directories ..is_dir directory Directory]
+       ...                     ))
 
-       ...                    [files ..is_file ..file File]
-       ...                    [directories ..is_dir directory Directory]
-       ...                    ))
+       ...               (def: (discard _)
+       ...                 (do (try.with io.monad)
+       ...                   [verdict (..rmdir [path])]
+       ...                   (if (bit#= false (as Bit verdict))
+       ...                     (at io.monad in (exception.except ..cannot_find_directory [path]))
+       ...                     (in []))))
+       ...               )))
 
-       ...              (def: (discard _)
-       ...                (do (try.with io.monad)
-       ...                  [verdict (..rmdir [path])]
-       ...                  (if (bit#= false (as Bit verdict))
-       ...                    (at io.monad in (exception.except ..cannot_find_directory [path]))
-       ...                    (in []))))
-       ...              ))
-
-       ...        (`` (implementation: .public default
+       ...        (`` (def: .public default
        ...              (System IO)
+       ...              (implementation
+       ...               (~~ (with_template [<name> <test> <constructor> <exception>]
+       ...                     [(def: (<name> path)
+       ...                        (do [! (try.with io.monad)]
+       ...                          [verdict (<test> path)]
+       ...                          (at io.monad in
+       ...                              (if verdict
+       ...                                {try.#Success (<constructor> path)}
+       ...                                (exception.except <exception> [path])))))]
 
-       ...              (~~ (with_template [<name> <test> <constructor> <exception>]
-       ...                    [(def: (<name> path)
-       ...                       (do [! (try.with io.monad)]
-       ...                         [verdict (<test> path)]
-       ...                         (at io.monad in
-       ...                            (if verdict
-       ...                              {try.#Success (<constructor> path)}
-       ...                              (exception.except <exception> [path])))))]
+       ...                     [file ..is_file ..file ..cannot_find_file]
+       ...                     [directory ..is_dir ..directory ..cannot_find_directory]
+       ...                     ))
 
-       ...                    [file ..is_file ..file ..cannot_find_file]
-       ...                    [directory ..is_dir ..directory ..cannot_find_directory]
-       ...                    ))
-
-       ...              (def: (make_file path)
-       ...                (do [! (try.with io.monad)]
-       ...                  [verdict (..touch [path (|> instant.now io.run! instant.relative duration.millis (i./ +1,000))])]
-       ...                  (at io.monad in
-       ...                     (if verdict
-       ...                       {try.#Success (..file path)}
-       ...                       (exception.except ..cannot_make_file [path])))))
+       ...               (def: (make_file path)
+       ...                 (do [! (try.with io.monad)]
+       ...                   [verdict (..touch [path (|> instant.now io.run! instant.relative duration.millis (i./ +1,000))])]
+       ...                   (at io.monad in
+       ...                       (if verdict
+       ...                         {try.#Success (..file path)}
+       ...                         (exception.except ..cannot_make_file [path])))))
        
-       ...              (def: (make_directory path)
-       ...                (do [! (try.with io.monad)]
-       ...                  [verdict (..mkdir path)]
-       ...                  (at io.monad in
-       ...                     (if verdict
-       ...                       {try.#Success (..directory path)}
-       ...                       (exception.except ..cannot_make_directory [path])))))
+       ...               (def: (make_directory path)
+       ...                 (do [! (try.with io.monad)]
+       ...                   [verdict (..mkdir path)]
+       ...                   (at io.monad in
+       ...                       (if verdict
+       ...                         {try.#Success (..directory path)}
+       ...                         (exception.except ..cannot_make_directory [path])))))
 
-       ...              (def: separator
-       ...                ..default_separator)
-       ...              ))
+       ...               (def: separator
+       ...                 ..default_separator)
+       ...               )))
        ...        )
        
        (these)))

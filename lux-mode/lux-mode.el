@@ -398,11 +398,10 @@ Called by `imenu--generic-function'."
 							(remember (altRE "remember" "to_do" "fix_me"))
 							(definition (altRE "\\.using"
 											   "def:" "type:" "program:" "inline:"
-											   "implementation:"
 											   "macro" "syntax"
 											   "exception:"
 											   "word:"
-											   "analysis:" "synthesis:" "generation:" "directive:")))
+											   "analysis" "synthesis" "generation" "directive")))
 						(let ((control (altRE control//flow
 											  control//pattern-matching
 											  control//logic
@@ -586,6 +585,11 @@ This function also returns nil meaning don't specify the indentation."
   ("macro" 'defun)
   ("syntax" 'defun)
   ("template" 'defun)
+
+  ("analysis" 'defun)
+  ("synthesis" 'defun)
+  ("generation" 'defun)
+  ("directive" 'defun)
 
   (import 'defun)
   (export 'defun)

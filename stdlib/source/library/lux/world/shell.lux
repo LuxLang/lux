@@ -291,21 +291,21 @@
                                      (|>> java/lang/String::toLowerCase ffi.of_string (text.starts_with? "windows"))
                                      (java/lang/System::getProperty (ffi.as_string "os.name"))))
 
-                               (implementation: .public default
+                               (def: .public default
                                  (Shell IO)
-
-                                 (def: (execute [environment working_directory the_command arguments])
-                                   (do [! (try.with io.monad)]
-                                     [.let [builder (|> (partial_list the_command arguments)
-                                                        ..jvm::arguments_array
-                                                        java/lang/ProcessBuilder::new
-                                                        (java/lang/ProcessBuilder::directory (java/io/File::new (ffi.as_string working_directory))))]
-                                      _ (|> builder
-                                            java/lang/ProcessBuilder::environment
-                                            (at try.functor each (..jvm::load_environment environment))
-                                            (at io.monad in))
-                                      process (java/lang/ProcessBuilder::start builder)]
-                                     (..default_process process))))
+                                 (implementation
+                                  (def: (execute [environment working_directory the_command arguments])
+                                    (do [! (try.with io.monad)]
+                                      [.let [builder (|> (partial_list the_command arguments)
+                                                         ..jvm::arguments_array
+                                                         java/lang/ProcessBuilder::new
+                                                         (java/lang/ProcessBuilder::directory (java/io/File::new (ffi.as_string working_directory))))]
+                                       _ (|> builder
+                                             java/lang/ProcessBuilder::environment
+                                             (at try.functor each (..jvm::load_environment environment))
+                                             (at io.monad in))
+                                       process (java/lang/ProcessBuilder::start builder)]
+                                      (..default_process process)))))
                                )]
   (for @.old (these <jvm>)
        @.jvm (these <jvm>)
@@ -324,57 +324,57 @@
    (is (-> s (Try [s Exit]))
        on_await)))
 
-(`` (implementation: (mock_process state mock)
+(`` (def: (mock_process state mock)
       (All (_ s) (-> (Atom s) (Mock s) (Process IO)))
+      (implementation
+       (~~ (with_template [<name> <mock>]
+             [(def: (<name> _)
+                (do [! io.monad]
+                  [|state| (atom.read! state)]
+                  (case (at mock <mock> |state|)
+                    {try.#Success [|state| output]}
+                    (do !
+                      [_ (atom.write! |state| state)]
+                      (in {try.#Success output}))
+                    
+                    {try.#Failure error}
+                    (in {try.#Failure error}))))]
 
-      (~~ (with_template [<name> <mock>]
-            [(def: (<name> _)
-               (do [! io.monad]
-                 [|state| (atom.read! state)]
-                 (case (at mock <mock> |state|)
-                   {try.#Success [|state| output]}
-                   (do !
-                     [_ (atom.write! |state| state)]
-                     (in {try.#Success output}))
-                   
-                   {try.#Failure error}
-                   (in {try.#Failure error}))))]
+             [read on_read]
+             [fail on_fail]
+             [await on_await]
+             ))
+       (def: (write message)
+         (do [! io.monad]
+           [|state| (atom.read! state)]
+           (case (at mock on_write message |state|)
+             {try.#Success |state|}
+             (do !
+               [_ (atom.write! |state| state)]
+               (in {try.#Success []}))
+             
+             {try.#Failure error}
+             (in {try.#Failure error}))))
+       (def: (destroy _)
+         (do [! io.monad]
+           [|state| (atom.read! state)]
+           (case (at mock on_destroy |state|)
+             {try.#Success |state|}
+             (do !
+               [_ (atom.write! |state| state)]
+               (in {try.#Success []}))
+             
+             {try.#Failure error}
+             (in {try.#Failure error})))))))
 
-            [read on_read]
-            [fail on_fail]
-            [await on_await]
-            ))
-      (def: (write message)
-        (do [! io.monad]
-          [|state| (atom.read! state)]
-          (case (at mock on_write message |state|)
-            {try.#Success |state|}
-            (do !
-              [_ (atom.write! |state| state)]
-              (in {try.#Success []}))
-            
-            {try.#Failure error}
-            (in {try.#Failure error}))))
-      (def: (destroy _)
-        (do [! io.monad]
-          [|state| (atom.read! state)]
-          (case (at mock on_destroy |state|)
-            {try.#Success |state|}
-            (do !
-              [_ (atom.write! |state| state)]
-              (in {try.#Success []}))
-            
-            {try.#Failure error}
-            (in {try.#Failure error}))))))
-
-(implementation: .public (mock mock init)
+(def: .public (mock mock init)
   (All (_ s)
     (-> (-> [Environment Path Command (List Argument)]
             (Try (Mock s)))
         s
         (Shell IO)))
-
-  (def: execute
-    (|>> mock
-         (at try.monad each (..mock_process (atom.atom init)))
-         io.io)))
+  (implementation
+   (def: execute
+     (|>> mock
+          (at try.monad each (..mock_process (atom.atom init)))
+          io.io))))
