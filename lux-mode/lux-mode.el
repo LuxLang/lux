@@ -389,7 +389,7 @@ Called by `imenu--generic-function'."
 							(code//super-quotation (altRE "``" "~~"))
 							(code//template (altRE "with_template" "template"))
 							;; Miscellaneous
-							(actor (altRE "actor:" "message:" "actor"))
+							(actor (altRE "actor:" "message" "actor"))
 							(jvm-host (altRE "import" "export" "class:" "interface:" "object" "do_to" "synchronized" "class_for"))
 							(alternative-format (altRE "char" "bin" "oct" "hex"))
 							(documentation (altRE "comment" "documentation:"))
@@ -585,6 +585,7 @@ This function also returns nil meaning don't specify the indentation."
   ("macro" 'defun)
   ("syntax" 'defun)
   ("template" 'defun)
+  ("message" 'defun)
 
   ("analysis" 'defun)
   ("synthesis" 'defun)
