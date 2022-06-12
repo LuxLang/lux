@@ -8,11 +8,12 @@
     [\\specification
      ["$[0]" equivalence]]]
    [control
+    ["<>" parser]
     ["[0]" pipe]
-    ["[0]" function]
-    ["[0]" maybe]
     ["[0]" try]
-    ["[0]" exception (.only exception:)]]
+    ["[0]" exception (.only exception:)]
+    ["[0]" function]
+    ["[0]" maybe]]
    [data
     ["[0]" bit (.open: "[1]#[0]" equivalence)]
     ["[0]" text (.open: "[1]#[0]" equivalence)]
@@ -23,10 +24,27 @@
    [math
     ["[0]" random (.only Random) (.open: "[1]#[0]" monad)]
     [number
-     ["f" frac]]]
+     ["n" nat]
+     ["i" int]
+     ["f" frac]
+     ["r" rev]]]
    [meta
+    ["[0]" symbol (.open: "[1]#[0]" equivalence)]
     ["[0]" configuration
-     ["$[1]" \\test]]]]]
+     ["$[1]" \\test]]]
+   [tool
+    [compiler
+     [reference (.only Constant)
+      [variable (.only)]]]]]]
+ ["[0]" \\parser]
+ [\\library
+  ["[0]" / (.only)
+   [//
+    [phase
+     ["[0]" extension]]
+    [///
+     ["[0]" phase]
+     ["[0]" version]]]]]
  ["[0]" /
   ["[1][0]" complex]
   ["[1][0]" inference]
@@ -45,15 +63,129 @@
      ["[1][0]" symbol]
      ["[0]" location
       ["[2][1]" /]
-      ["[1]" \\library (.open: "[1]#[0]" equivalence)]]]]]]
- [\\library
-  ["[0]" / (.only)
-   [//
-    [phase
-     ["[0]" extension]]
-    [///
-     ["[0]" phase]
-     ["[0]" version]]]]])
+      ["[1]" \\library (.open: "[1]#[0]" equivalence)]]]]]])
+
+(def: !expect
+  (template (_ <expectation> <computation>)
+    [(case <computation>
+       <expectation>
+       true
+
+       _
+       false)]))
+
+(def: constant
+  (Random Constant)
+  (random.and (random.unicode 10)
+              (random.unicode 10)))
+
+(def: \\parser
+  Test
+  (<| (_.covering \\parser._)
+      (_.for [\\parser.Parser])
+      (do [! random.monad]
+        []
+        (`` (all _.and
+                 (do [! random.monad]
+                   [expected (at ! each (|>> /.bit) random.bit)]
+                   (_.coverage [\\parser.result \\parser.any]
+                     (|> (list expected)
+                         (\\parser.result \\parser.any)
+                         (pipe.case
+                           {try.#Success actual}
+                           (at /.equivalence = expected actual)
+
+                           {try.#Failure _}
+                           false))))
+                 (~~ (with_template [<query> <check> <random> <analysis> <=>]
+                       [(do [! random.monad]
+                          [expected <random>]
+                          (_.coverage [<query>]
+                            (|> (list (<analysis> expected))
+                                (\\parser.result <query>)
+                                (pipe.case
+                                  {try.#Success actual}
+                                  (<=> expected actual)
+
+                                  {try.#Failure _}
+                                  false))))
+                        (do [! random.monad]
+                          [expected <random>]
+                          (_.coverage [<check>]
+                            (|> (list (<analysis> expected))
+                                (\\parser.result (<check> expected))
+                                (!expect {try.#Success _}))))]
+                       
+                       [\\parser.bit \\parser.this_bit random.bit /.bit bit#=]
+                       [\\parser.nat \\parser.this_nat random.nat /.nat n.=]
+                       [\\parser.int \\parser.this_int random.int /.int i.=]
+                       [\\parser.frac \\parser.this_frac random.safe_frac /.frac f.=]
+                       [\\parser.rev \\parser.this_rev random.rev /.rev r.=]
+                       [\\parser.text \\parser.this_text (random.unicode 10) /.text text#=]
+                       [\\parser.local \\parser.this_local random.nat /.local n.=]
+                       [\\parser.foreign \\parser.this_foreign random.nat /.foreign n.=]
+                       [\\parser.constant \\parser.this_constant ..constant /.constant symbol#=]
+                       ))
+                 (do [! random.monad]
+                   [expected random.bit]
+                   (_.coverage [\\parser.tuple]
+                     (|> (list (/.tuple (list (/.bit expected))))
+                         (\\parser.result (\\parser.tuple \\parser.bit))
+                         (pipe.case
+                           {try.#Success actual}
+                           (bit#= expected actual)
+
+                           {try.#Failure _}
+                           false))))
+                 (do [! random.monad]
+                   [dummy random.bit]
+                   (_.coverage [\\parser.end?]
+                     (and (|> (\\parser.result \\parser.end? (list))
+                              (!expect {try.#Success #1}))
+                          (|> (\\parser.result (do <>.monad
+                                                 [verdict \\parser.end?
+                                                  _ \\parser.bit]
+                                                 (in verdict))
+                                               (list (/.bit dummy)))
+                              (!expect {try.#Success #0})))))
+                 (do [! random.monad]
+                   [dummy random.bit]
+                   (_.coverage [\\parser.end]
+                     (and (|> (\\parser.result \\parser.end (list))
+                              (!expect {try.#Success _}))
+                          (|> (\\parser.result \\parser.end (list (/.bit dummy)))
+                              (!expect {try.#Failure _})))))
+                 (do [! random.monad]
+                   [expected random.bit]
+                   (_.coverage [\\parser.cannot_parse]
+                     (and (|> (list (/.bit expected))
+                              (\\parser.result \\parser.nat)
+                              (pipe.case
+                                {try.#Success _}
+                                false
+
+                                {try.#Failure error}
+                                (exception.match? \\parser.cannot_parse error)))
+                          (|> (list)
+                              (\\parser.result \\parser.bit)
+                              (pipe.case
+                                {try.#Success _}
+                                false
+
+                                {try.#Failure error}
+                                (exception.match? \\parser.cannot_parse error))))))
+                 (do [! random.monad]
+                   [expected random.bit]
+                   (_.coverage [\\parser.unconsumed_input]
+                     (|> (list (/.bit expected) (/.bit expected))
+                         (\\parser.result \\parser.bit)
+                         (pipe.case
+                           {try.#Success _}
+                           false
+
+                           {try.#Failure error}
+                           (exception.match? \\parser.unconsumed_input error)))))
+                 )))))
 
 (def: (random_branch random)
   (All (_ a) (-> (Random a) (Random (/.Branch' a))))
@@ -491,4 +623,6 @@
              /simple.test
              /type.test
              /coverage.test
+
+             ..\\parser
              ))))
