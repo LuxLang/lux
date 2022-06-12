@@ -387,7 +387,7 @@ Called by `imenu--generic-function'."
 							;; Code
 							(code//quotation (altRE "`" "`'" "'" "~" "~\\+" "~!" "~'"))
 							(code//super-quotation (altRE "``" "~~"))
-							(code//template (altRE "template" "template:"))
+							(code//template (altRE "with_template" "template"))
 							;; Miscellaneous
 							(actor (altRE "actor:" "message:" "actor"))
 							(jvm-host (altRE "import" "export" "class:" "interface:" "object" "do_to" "synchronized" "class_for"))
@@ -582,9 +582,10 @@ This function also returns nil meaning don't specify the indentation."
                kvs)))
 
 (define-lux-indent
-  (function 'defun)
-  (macro 'defun)
+  ("function" 'defun)
+  ("macro" 'defun)
   ("syntax" 'defun)
+  ("template" 'defun)
 
   (import 'defun)
   (export 'defun)
@@ -597,7 +598,6 @@ This function also returns nil meaning don't specify the indentation."
   (if 1)
   (cond 0)
   (loop 1)
-  (template 'defun)
   (All 'defun)
   (Ex 'defun)
   (Rec 'defun)

@@ -33,8 +33,9 @@
    [control
     ["[0]" maybe]
     ["[0]" exception (.only exception:)]
-    [parser
-     [text (.only Offset)]]]
+    ["<>" parser (.only)
+     [text (.only Offset)]
+     ["<[0]>" code]]]
    [data
     ["[0]" text (.only)
      ["%" format (.only format)]]
@@ -42,6 +43,7 @@
      ["[0]" list]
      ["[0]" dictionary (.only Dictionary)]]]
    [macro
+    [syntax (.only syntax)]
     ["[0]" template]]
    [meta
     ["[0]" symbol]]
@@ -52,11 +54,18 @@
      ["[0]" rev]
      ["[0]" frac]]]]])
 
-(template: (inline: <declaration> <type> <body>)
-  [(for @.python (def: <declaration> <type> <body>)
-        ... TODO: No longer skip inlining Lua after Rembulan isn't being used anymore.
-        @.lua (def: <declaration> <type> <body>)
-        (template: <declaration> [<body>]))])
+(def: declaration_name
+  (syntax (_ [[name parameters] (<code>.form (<>.and <code>.any (<>.some <code>.any)))])
+    (in (list name))))
+
+(def: inline:
+  (template (_ <declaration> <type> <body>)
+    [(for @.python (def: <declaration> <type> <body>)
+          ... TODO: No longer skip inlining Lua after Rembulan isn't being used anymore.
+          @.lua (def: <declaration> <type> <body>)
+          (`` (def: (~~ (..declaration_name <declaration>))
+                (template <declaration>
+                  [<body>]))))]))
 
 ... TODO: Implement "lux syntax char case!" as a custom extension.
 ... That way, it should be possible to obtain the char without wrapping
@@ -74,29 +83,33 @@
 (type: Char
   Nat)
 
-(template [<extension> <diff> <name>]
-  [(template: (<name> value)
-     [(<extension> <diff> value)])]
+(with_template [<extension> <diff> <name>]
+  [(def: <name>
+     (template (_ value)
+       [(<extension> <diff> value)]))]
 
   ["lux i64 +" 1 !++]
   ["lux i64 +" 2 !++/2]
   ["lux i64 -" 1 !--]
   )
 
-(template: (!clip from to text)
-  [("lux text clip" from (n.- from to) text)])
+(def: !clip
+  (template (_ from to text)
+    [("lux text clip" from (n.- from to) text)]))
 
-(template [<name> <extension>]
-  [(template: (<name> reference subject)
-     [(<extension> reference subject)])]
+(with_template [<name> <extension>]
+  [(def: <name>
+     (template (_ reference subject)
+       [(<extension> reference subject)]))]
 
   [!n/= "lux i64 ="]
   [!i/< "lux i64 <"]
   )
 
-(template [<name> <extension>]
-  [(template: (<name> param subject)
-     [(<extension> param subject)])]
+(with_template [<name> <extension>]
+  [(def: <name>
+     (template (_ param subject)
+       [(<extension> param subject)]))]
 
   [!n/+ "lux i64 +"]
   [!n/- "lux i64 -"]
@@ -114,7 +127,7 @@
 
 (def: .public text_delimiter text.double_quote)
 
-(template [<char> <definition>]
+(with_template [<char> <definition>]
   [(def: .public <definition> <char>)]
 
   ... Form delimiters
@@ -174,40 +187,46 @@
   (exception.report
    "Text" (%.text text)))
 
-(template: (!failure parser where offset source_code)
-  [{.#Left [[where offset source_code]
-            (exception.error ..unrecognized_input [where (%.symbol (symbol parser)) source_code offset])]}])
+(def: !failure
+  (template (_ parser where offset source_code)
+    [{.#Left [[where offset source_code]
+              (exception.error ..unrecognized_input [where (%.symbol (symbol parser)) source_code offset])]}]))
 
-(template: (!end_of_file where offset source_code current_module)
-  [{.#Left [[where offset source_code]
-            (exception.error ..end_of_file current_module)]}])
+(def: !end_of_file
+  (template (_ where offset source_code current_module)
+    [{.#Left [[where offset source_code]
+              (exception.error ..end_of_file current_module)]}]))
 
 (type: (Parser a)
   (-> Source (Either [Source Text] [Source a])))
 
-(template: (!with_char+ @source_code_size @source_code @offset @char @else @body)
-  [(if (!i/< (as Int @source_code_size)
-             (as Int @offset))
-     (let [@char ("lux text char" @offset @source_code)]
-       @body)
-     @else)])
+(def: !with_char+
+  (template (_ @source_code_size @source_code @offset @char @else @body)
+    [(if (!i/< (as Int @source_code_size)
+               (as Int @offset))
+       (let [@char ("lux text char" @offset @source_code)]
+         @body)
+       @else)]))
 
-(template: (!with_char @source_code @offset @char @else @body)
-  [(!with_char+ ("lux text size" @source_code) @source_code @offset @char @else @body)])
+(def: !with_char
+  (template (_ @source_code @offset @char @else @body)
+    [(!with_char+ ("lux text size" @source_code) @source_code @offset @char @else @body)]))
 
-(template: (!letE <binding> <computation> <body>)
-  [(case <computation>
-     {.#Right <binding>}
-     <body>
+(def: !letE
+  (template (_ <binding> <computation> <body>)
+    [(case <computation>
+       {.#Right <binding>}
+       <body>
 
-     ... {.#Left error}
-     <<otherwise>>
-     (as_expected <<otherwise>>))])
+       ... {.#Left error}
+       <<otherwise>>
+       (as_expected <<otherwise>>))]))
 
-(template: (!horizontal where offset source_code)
-  [[(revised .#column ++ where)
-    (!++ offset)
-    source_code]])
+(def: !horizontal
+  (template (_ where offset source_code)
+    [[(revised .#column ++ where)
+      (!++ offset)
+      source_code]]))
 
 (inline: (!new_line where)
   (-> Location Location)
@@ -219,12 +238,13 @@
   (let [[where::file where::line where::column] where]
     [where::file where::line (!n/+ length where::column)]))
 
-(template: (!vertical where offset source_code)
-  [[(!new_line where)
-    (!++ offset)
-    source_code]])
+(def: !vertical
+  (template (_ where offset source_code)
+    [[(!new_line where)
+      (!++ offset)
+      source_code]]))
 
-(template [<name> <close> <tag>]
+(with_template [<name> <close> <tag>]
   [(inline: (<name> parse where offset source_code)
      (-> (Parser Code) Location Offset Text
          (Either [Source Text] [Source Code]))
@@ -248,14 +268,15 @@
   [tuple_parser   ..close_tuple   .#Tuple]
   )
 
-(template: (!guarantee_no_new_lines where offset source_code content body)
-  [(case ("lux text index" 0 (static text.new_line) content)
-     {.#None}
-     body
+(def: !guarantee_no_new_lines
+  (template (_ where offset source_code content body)
+    [(case ("lux text index" 0 (static text.new_line) content)
+       {.#None}
+       body
 
-     g!_
-     {.#Left [[where offset source_code]
-              (exception.error ..text_cannot_contain_new_lines content)]})])
+       g!_
+       {.#Left [[where offset source_code]
+                (exception.error ..text_cannot_contain_new_lines content)]})]))
 
 (def: (text_parser where offset source_code)
   (-> Location Offset Text (Either [Source Text] [Source Code]))
@@ -274,7 +295,7 @@
     (!failure ..text_parser where offset source_code)))
 
 (with_expansions [<digits> (these "0" "1" "2" "3" "4" "5" "6" "7" "8" "9")
-                  <non_symbol_chars> (template [<char>]
+                  <non_symbol_chars> (with_template [<char>]
                                        [(~~ (static <char>))]
 
                                        [text.space]
@@ -285,56 +306,61 @@
                                        [..open_tuple] [..close_tuple]
                                        [..text_delimiter])
                   <digit_separator> (static ..digit_separator)]
-  (template: (!if_digit? @char @then @else)
-    [("lux syntax char case!" @char
-      [[<digits>]
-       @then]
+  (def: !if_digit?
+    (template (_ @char @then @else)
+      [("lux syntax char case!" @char
+        [[<digits>]
+         @then]
 
-      ... else
-      @else)])
+        ... else
+        @else)]))
 
-  (template: (!if_digit?+ @char @then @else_options @else)
-    [(`` ("lux syntax char case!" @char
-          [[<digits> <digit_separator>]
-           @then
+  (def: !if_digit?+
+    (template (_ @char @then @else_options @else)
+      [(`` ("lux syntax char case!" @char
+            [[<digits> <digit_separator>]
+             @then
 
-           (~~ (template.spliced @else_options))]
+             (~~ (template.spliced @else_options))]
 
-          ... else
-          @else))])
+            ... else
+            @else))]))
 
-  (`` (template: (!if_symbol_char?|tail @char @then @else)
-        [("lux syntax char case!" @char
-          [[<non_symbol_chars>]
-           @else]
+  (`` (def: !if_symbol_char?|tail
+        (template (_ @char @then @else)
+          [("lux syntax char case!" @char
+            [[<non_symbol_chars>]
+             @else]
 
-          ... else
-          @then)]))
+            ... else
+            @then)])))
 
-  (`` (template: (!if_symbol_char?|head @char @then @else)
-        [("lux syntax char case!" @char
-          [[<non_symbol_chars> <digits>]
-           @else]
+  (`` (def: !if_symbol_char?|head
+        (template (_ @char @then @else)
+          [("lux syntax char case!" @char
+            [[<non_symbol_chars> <digits>]
+             @else]
 
-          ... else
-          @then)]))
+            ... else
+            @then)])))
   )
 
-(template: (!number_output <source_code> <start> <end> <codec> <tag>)
-  [(case (|> <source_code>
-             (!clip <start> <end>)
-             (text.replaced ..digit_separator "")
-             (at <codec> decoded))
-     {.#Right output}
-     {.#Right [[(let [[where::file where::line where::column] where]
-                  [where::file where::line (!n/+ (!n/- <start> <end>) where::column)])
-                <end>
-                <source_code>]
-               [where {<tag> output}]]}
-     
-     {.#Left error}
-     {.#Left [[where <start> <source_code>]
-              error]})])
+(def: !number_output
+  (template (_ <source_code> <start> <end> <codec> <tag>)
+    [(case (|> <source_code>
+               (!clip <start> <end>)
+               (text.replaced ..digit_separator "")
+               (at <codec> decoded))
+       {.#Right output}
+       {.#Right [[(let [[where::file where::line where::column] where]
+                    [where::file where::line (!n/+ (!n/- <start> <end>) where::column)])
+                  <end>
+                  <source_code>]
+                 [where {<tag> output}]]}
+       
+       {.#Left error}
+       {.#Left [[where <start> <source_code>]
+                error]})]))
 
 (def: no_exponent
   Offset
@@ -344,7 +370,7 @@
                   <frac_output> (these (!number_output source_code start end frac.decimal .#Frac))
                   <failure> (!failure ..frac_parser where offset source_code)
                   <frac_separator> (static ..frac_separator)
-                  <signs> (template [<sign>]
+                  <signs> (with_template [<sign>]
                             [(~~ (static <sign>))]
 
                             [..positive_sign]
@@ -388,7 +414,7 @@
                        <int_output>))))
   )
 
-(template [<parser> <codec> <tag>]
+(with_template [<parser> <codec> <tag>]
   [(inline: (<parser> source_code//size start where offset source_code)
      (-> Nat Nat Location Offset Text
          (Either [Source Text] [Source Code]))
@@ -403,12 +429,13 @@
   [rev_parser rev.decimal .#Rev]
   )
 
-(template: (!signed_parser source_code//size offset where source_code @aliases @end)
-  [(<| (let [g!offset/1 (!++ offset)])
-       (!with_char+ source_code//size source_code g!offset/1 g!char/1 @end)
-       (!if_digit? g!char/1
-                   (signed_parser source_code//size offset where (!++/2 offset) source_code)
-                   (!full_symbol_parser offset [where (!++ offset) source_code] where @aliases .#Symbol)))])
+(def: !signed_parser
+  (template (_ source_code//size offset where source_code @aliases @end)
+    [(<| (let [g!offset/1 (!++ offset)])
+         (!with_char+ source_code//size source_code g!offset/1 g!char/1 @end)
+         (!if_digit? g!char/1
+                     (signed_parser source_code//size offset where (!++/2 offset) source_code)
+                     (!full_symbol_parser offset [where (!++ offset) source_code] where @aliases .#Symbol)))]))
 
 (with_expansions [<output> {.#Right [[(revised .#column (|>> (!n/+ (!n/- start end))) where)
                                       end
@@ -424,11 +451,12 @@
                                    (again (!++ end))
                                    <output>))))))
 
-(template: (!half_symbol_parser @offset @char @module)
-  [(!if_symbol_char?|head @char
-                          (!letE [source' symbol] (..symbol_part_parser @offset (!forward 1 where) (!++ @offset) source_code)
-                                 {.#Right [source' [@module symbol]]})
-                          (!failure ..!half_symbol_parser where @offset source_code))])
+(def: !half_symbol_parser
+  (template (_ @offset @char @module)
+    [(!if_symbol_char?|head @char
+                            (!letE [source' symbol] (..symbol_part_parser @offset (!forward 1 where) (!++ @offset) source_code)
+                                   {.#Right [source' [@module symbol]]})
+                            (!failure ..!half_symbol_parser where @offset source_code))]))
 
 (`` (def: (short_symbol_parser source_code//size current_module [where offset/0 source_code])
       (-> Nat Text (Parser Symbol))
@@ -441,9 +469,10 @@
                 (!half_symbol_parser offset/1 char/1 current_module))
             (!half_symbol_parser offset/0 char/0 (static ..prelude))))))
 
-(template: (!short_symbol_parser source_code//size @current_module @source @where @tag)
-  [(!letE [source' symbol] (..short_symbol_parser source_code//size @current_module @source)
-          {.#Right [source' [@where {@tag symbol}]]})])
+(def: !short_symbol_parser
+  (template (_ source_code//size @current_module @source @where @tag)
+    [(!letE [source' symbol] (..short_symbol_parser source_code//size @current_module @source)
+            {.#Right [source' [@where {@tag symbol}]]})]))
 
 (with_expansions [<simple> (these {.#Right [source' ["" simple]]})]
   (`` (def: (full_symbol_parser aliases start source)
@@ -464,9 +493,10 @@
                                         complex]]}))
               <simple>)))))
 
-(template: (!full_symbol_parser @offset @source @where @aliases @tag)
-  [(!letE [source' full_symbol] (..full_symbol_parser @aliases @offset @source)
-          {.#Right [source' [@where {@tag full_symbol}]]})])
+(def: !full_symbol_parser
+  (template (_ @offset @source @where @aliases @tag)
+    [(!letE [source' full_symbol] (..full_symbol_parser @aliases @offset @source)
+            {.#Right [source' [@where {@tag full_symbol}]]})]))
 
 ... TODO: Grammar macro for specifying syntax.
 ... (grammar: lux_grammar
@@ -478,8 +508,9 @@
                   <move_2> (these [(!forward 1 where) (!++/2 offset/0) source_code])
                   <again> (these (parse current_module aliases source_code//size))]
 
-  (template: (!close closer)
-    [{.#Left [<move_1> closer]}])
+  (def: !close
+    (template (_ closer)
+      [{.#Left [<move_1> closer]}]))
 
   (def: (bit_syntax value [where offset/0 source_code])
     (-> Bit (Parser Code))
@@ -497,7 +528,7 @@
       (function (again [where offset/0 source_code])
         (<| (!with_char+ source_code//size source_code offset/0 char/0
                          (!end_of_file where offset/0 source_code current_module))
-            (with_expansions [<composites> (template [<open> <close> <parser>]
+            (with_expansions [<composites> (with_template [<open> <close> <parser>]
                                              [[(~~ (static <open>))]
                                               (<parser> <again> <consume_1>)
 
@@ -568,7 +599,7 @@
                         (!with_char+ source_code//size source_code offset/1 char/1
                                      (!end_of_file where offset/1 source_code current_module))
                         ("lux syntax char case!" char/1
-                         [(~~ (template [<char> <bit>]
+                         [(~~ (with_template [<char> <bit>]
                                 [[<char>]
                                  (..bit_syntax <bit> [where offset/0 source_code])]
 
