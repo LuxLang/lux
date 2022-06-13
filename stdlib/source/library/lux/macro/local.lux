@@ -1,12 +1,14 @@
 (.using
  [library
-  [lux (.except)
+  [lux (.except with let)
    ["[0]" meta]
    [abstract
     ["[0]" monad (.only do)]]
    [control
     ["[0]" try (.only Try)]
-    ["[0]" exception (.only exception:)]]
+    ["[0]" exception (.only exception:)]
+    ["<>" parser (.only)
+     ["<[0]>" code]]]
    [data
     ["[0]" product]
     ["[0]" text]
@@ -15,6 +17,7 @@
      [dictionary
       ["[0]" plist (.only PList)]]]]]]
  ["[0]" // (.only)
+  [syntax (.only syntax)]
   ["[1][0]" code]])
 
 (exception: .public (unknown_module [module Text])
@@ -102,7 +105,41 @@
     [_ (monad.each meta.monad ..push_one macros)
      seed meta.seed
      g!pop (//.symbol "pop")
-     _ (let [g!pop (is Symbol
-                       ["" (//code.format g!pop)])]
+     _ (.let [g!pop (is Symbol
+                        ["" (//code.format g!pop)])]
          (..push_one [g!pop (..pop_all (list#each product.left macros) g!pop)]))]
     (in (` ((~ g!pop))))))
+
+(def: .public (with macros body)
+  (-> (List [Symbol Macro]) Code (Meta (List Code)))
+  (do [! meta.monad]
+    [expression? (is (Meta Bit)
+                     (function (_ lux)
+                       {try.#Success [lux (case (the .#expected lux)
+                                            {.#None}
+                                            false
+
+                                            {.#Some _}
+                                            true)]}))
+     g!pop (..push macros)]
+    (.if expression?
+      (//.with_symbols [g!body]
+        (in (list (` (.let [(~ g!body) (~ body)]
+                       (exec
+                         (~ g!pop)
+                         (~ g!body)))))))
+      (in (list body
+                g!pop)))))
+
+(def: .public let
+  (syntax (_ [locals (<code>.tuple (<>.some (<>.and <code>.local <code>.any)))
+              body <code>.any])
+    (do [! meta.monad]
+      [here_name meta.current_module_name
+       locals (monad.each ! (function (_ [name value])
+                              (|> value
+                                  (meta.eval .Macro)
+                                  (at ! each (|>> (as .Macro)
+                                                  [[here_name name]]))))
+                          locals)]
+      (..with locals body))))
