@@ -1,21 +1,22 @@
 (.using
  [library
-  [lux (.except Alias if loop)
+  [lux (.except Alias if loop left right)
    ["[0]" meta]
+   ["[0]" type]
    [abstract
     ["[0]" monad]]
    [control
     ["[0]" maybe (.open: "[1]#[0]" monad)]]
    [data
+    ["[0]" product]
     ["[0]" text (.only)
      ["%" \\format (.only format)]]
     [collection
      ["[0]" list (.open: "[1]#[0]" mix functor)]]]
    ["[0]" macro (.only with_symbols)
+    [syntax (.only syntax)]
     ["[0]" code]
-    ["[0]" template]
-    [syntax (.only syntax)
-     ["|[0]|" export]]]
+    ["[0]" template]]
    [math
     [number
      ["n" nat]
@@ -26,111 +27,55 @@
   ["<>" parser (.open: "[1]#[0]" monad)
    ["<[0]>" code (.only Parser)]]])
 
-(type: Alias
-  [Text Code])
-
 (type: Stack
   (Record
    [#bottom (Maybe Code)
     #top (List Code)]))
 
-(def: aliases^
-  (Parser (List Alias))
-  (|> (<>.and <code>.local <code>.any)
-      <>.some
-      <code>.tuple))
-
-(def: top^
+(def: top
   (Parser (List Code))
   (<code>.tuple (<>.some <code>.any)))
 
-(def: bottom^
+(def: bottom
   (Parser Code)
-  (<code>.not ..top^))
+  (<code>.not ..top))
 
-(def: stack^
+(def: stack
   (Parser Stack)
-  (<>.either (<>.and (<>.maybe bottom^)
-                     ..top^)
-             (<>.and (<>#each (|>> {.#Some}) bottom^)
+  (<>.either (<>.and (<>.maybe bottom)
+                     ..top)
+             (<>.and (<>#each (|>> {.#Some}) bottom)
                      (<>#in (list)))))
 
-(def: (stack_mix tops bottom)
+(def: (stack_type tops bottom)
   (-> (List Code) Code Code)
   (list#mix (function (_ top bottom)
               (` [(~ bottom) (~ top)]))
             bottom
             tops))
 
-(def: (singleton expander)
-  (-> (Meta (List Code)) (Meta Code))
-  (monad.do meta.monad
-    [expansion expander]
-    (case expansion
-      {.#Item singleton {.#End}}
-      (in singleton)
-
-      _
-      (meta.failure (format "Cannot expand to more than a single AST/Code node:" text.new_line
-                            (|> expansion (list#each %.code) (text.interposed " ")))))))
-
-(def: signature^
-  (Parser [(List Alias) Stack Stack])
-  (<>.either (all <>.and aliases^ stack^ stack^)
-             (all <>.and (<>#in (list)) stack^ stack^)))
-
 (def: .public =>
-  (syntax (_ [[aliases inputs outputs] signature^])
-    (let [de_alias (function (_ aliased)
-                     (list#mix (function (_ [from to] pre)
-                                 (code.replaced (code.local from) to pre))
-                               aliased
-                               aliases))]
-      (case [(the #bottom inputs)
-             (the #bottom outputs)]
-        [{.#Some bottomI} {.#Some bottomO}]
-        (monad.do meta.monad
-          [inputC (singleton (macro.full_expansion (stack_mix (the #top inputs) bottomI)))
-           outputC (singleton (macro.full_expansion (stack_mix (the #top outputs) bottomO)))]
-          (in (list (` (-> (~ (de_alias inputC))
-                           (~ (de_alias outputC)))))))
+  (syntax (_ [inputs stack
+              outputs stack])
+    (with_symbols [g!_ common_bottom]
+      (let [input_bottom (maybe.else common_bottom (the #bottom inputs))
+            output_bottom (maybe.else common_bottom (the #bottom outputs))
+            input_stack (stack_type (the #top inputs) input_bottom)
+            output_stack (stack_type (the #top outputs) output_bottom)]
+        (in (list (.if (or (same? common_bottom input_bottom)
+                           (same? common_bottom output_bottom))
+                    (` (All ((~ g!_) (~ common_bottom))
+                         (-> (~ input_stack)
+                             (~ output_stack))))
+                    (` (-> (~ input_stack)
+                           (~ output_stack))))))))))
 
-        [?bottomI ?bottomO]
-        (with_symbols [g!stack]
-          (monad.do meta.monad
-            [inputC (singleton (macro.full_expansion (stack_mix (the #top inputs) (maybe.else g!stack ?bottomI))))
-             outputC (singleton (macro.full_expansion (stack_mix (the #top outputs) (maybe.else g!stack ?bottomO))))]
-            (with_symbols [g!_]
-              (in (list (` (All ((~ g!_) (~ g!stack))
-                             (-> (~ (de_alias inputC))
-                                 (~ (de_alias outputC))))))))))))))
-
-(def: beginning
-  Any
-  [])
-
-(def: end
-  (All (_ a) (-> [Any a] a))
-  (function (_ [_ top])
-    top))
-
-(def: .public ||>
-  (syntax (_ [commands (<>.some <code>.any)])
-    (in (list (` (|> (~! ..beginning) (~+ commands) ((~! ..end))))))))
-
-(def: word
-  (Parser [Code Text Code (List Code)])
-  (|export|.parser
-   (all <>.and
-        <code>.local
-        <code>.any
-        (<>.many <code>.any))))
-
-(def: .public word:
-  (syntax (_ [[export_policy name type commands] ..word])
-    (in (list (` (def: (~ export_policy) (~ (code.local name))
-                   (~ type)
-                   (|>> (~+ commands))))))))
+(def: .public (value it)
+  (All (_ ,,, a)
+    (-> (=> []
+            ,,, [a])
+        a))
+  (|> [] it product.right))
 
 (def: .public apply
   (syntax (_ [arity (<>.only (n.> 0) <code>.nat)])
@@ -141,7 +86,7 @@
                            (-> (-> (~+ g!inputs) (~ g!output))
                                (=> [(~+ g!inputs)] [(~ g!output)])))
                          (function ((~ g!_) (~ g!func))
-                           (function ((~ g!_) (~ (stack_mix g!inputs g!stack)))
+                           (function ((~ g!_) (~ (stack_type g!inputs g!stack)))
                              [(~ g!stack) ((~ g!func) (~+ g!inputs))]))))))))))
 
 (with_template [<arity>]
@@ -177,12 +122,12 @@
   (function (_ [[stack l] r])
     [[stack r] l]))
 
-(def: .public rotL
+(def: .public left_rotation
   (All (_ a b c) (=> [a b c] [b c a]))
   (function (_ [[[stack a] b] c])
     [[[stack b] c] a]))
 
-(def: .public rotR
+(def: .public right_rotation
   (All (_ a b c) (=> [a b c] [c a b]))
   (function (_ [[[stack a] b] c])
     [[[stack c] a] b]))
@@ -192,12 +137,12 @@
   (function (_ [[stack l] r])
     [stack [l r]]))
 
-(def: .public ||L
+(def: .public left
   (All (_ a b) (=> [a] [(Or a b)]))
   (function (_ [stack l])
     [stack {0 #0 l}]))
 
-(def: .public ||R
+(def: .public right
   (All (_ a b) (=> [b] [(Or a b)]))
   (function (_ [stack r])
     [stack {0 #1 r}]))
@@ -255,9 +200,10 @@
 
 (def: .public if
   (All (_ ,,,0 ,,,1)
-    (=> [then (=> ,,,0 ,,,1)
-         else (=> ,,,0 ,,,1)]
-        ,,,0 [Bit then else] ,,,1))
+    (type.let [then (=> ,,,0 ,,,1)
+               else (=> ,,,0 ,,,1)]
+      (=> ,,,0 [Bit then else]
+          ,,,1)))
   (function (_ [[[stack test] then] else])
     (.if test
       (then stack)
@@ -265,15 +211,18 @@
 
 (def: .public call
   (All (_ ,,,0 ,,,1)
-    (=> [quote (=> ,,,0 ,,,1)]
-        ,,,0 [quote] ,,,1))
+    (type.let [quote (=> ,,,0 ,,,1)]
+      (=> ,,,0 [quote]
+          ,,,1)))
   (function (_ [stack quote])
     (quote stack)))
 
 (def: .public loop
   (All (_ ,,,)
-    (=> [test (=> ,,, ,,, [Bit])]
-        ,,, [test] ,,,))
+    (type.let [test (=> ,,,
+                        ,,, [Bit])]
+      (=> ,,, [test]
+          ,,,)))
   (function (loop [stack pred])
     (let [[stack' verdict] (pred stack)]
       (.if verdict
@@ -296,19 +245,19 @@
 
 (def: .public do
   (All (_ ,,,0 ,,,1)
-    (=> [body (=> ,,,0 ,,,1)
-         pred (=> ,,,1 ,,,0 [Bit])]
-        ,,,0 [pred body]
-        ,,,1 [pred body]))
+    (type.let [body (=> ,,,0 ,,,1)
+               pred (=> ,,,1 ,,,0 [Bit])]
+      (=> ,,,0 [pred body]
+          ,,,1 [pred body])))
   (function (_ [[stack pred] body])
     [[(body stack) pred] body]))
 
 (def: .public while
   (All (_ ,,,0 ,,,1)
-    (=> [body (=> ,,,1 ,,,0)
-         pred (=> ,,,0 ,,,1 [Bit])]
-        ,,,0 [pred body]
-        ,,,1))
+    (type.let [body (=> ,,,1 ,,,0)
+               pred (=> ,,,0 ,,,1 [Bit])]
+      (=> ,,,0 [pred body]
+          ,,,1)))
   (function (while [[stack pred] body])
     (let [[stack' verdict] (pred stack)]
       (.if verdict
@@ -329,20 +278,20 @@
   (function (_ [[stack arg] quote])
     [stack (|>> (push arg) quote)]))
 
-(word: .public when
+(def: .public when
   (All (_ ,,,)
-    (=> [body (=> ,,, ,,,)]
-        ,,, [Bit body]
-        ,,,))
-  swap
-  (push ..call)
-  (push ..drop)
-  if)
+    (type.let [body (=> ,,, ,,,)]
+      (=> ,,, [Bit body]
+          ,,,)))
+  (|>> swap
+       (push ..call)
+       (push ..drop)
+       if))
 
-(word: .public ?
+(def: .public ?
   (All (_ a)
     (=> [Bit a a] [a]))
-  rotL
-  (push ..drop)
-  (push ..nip)
-  if)
+  (|>> left_rotation
+       (push ..drop)
+       (push ..nip)
+       if))

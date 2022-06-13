@@ -5,7 +5,7 @@
 ;; Authors: Eduardo Julian <eduardoejp@gmail.com>
 ;; URL: https://github.com/LuxLang/lux/tree/master/lux-mode
 ;; Keywords: languages lisp lux
-;; Version: 0.6.0
+;; Version: 0.6.6
 ;; Package-Requires: ((emacs "24.1"))
 
 ;; This file is not part of GNU Emacs.
@@ -393,13 +393,12 @@ Called by `imenu--generic-function'."
 							(alternative-format (altRE "char" "bin" "oct" "hex"))
 							(documentation (altRE "comment" "documentation:"))
 							(function-application (altRE "|>" "<|" "left" "right" "all"))
-							(function-definition (altRE "function" "|>>" "<<|" "||>"))
+							(function-definition (altRE "function" "|>>" "<<|"))
 							(remember (altRE "remember" "to_do" "fix_me"))
 							(definition (altRE "\\.using"
 											   "def:" "type:" "program:" "inline:"
 											   "macro" "syntax"
 											   "exception:"
-											   "word:"
 											   "analysis" "synthesis" "generation" "directive")))
 						(let ((control (altRE control//flow
 											  control//pattern-matching
