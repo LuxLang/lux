@@ -2,13 +2,17 @@
  [library
   [lux (.except char)
    ["_" test (.only Test)]
+   ["[0]" type]
    [abstract
     [monad (.only do)]
+    [equivalence (.only Equivalence)]
     [\\specification
      ["$[0]" equivalence]
      ["$[0]" hash]
      ["$[0]" order]
-     ["$[0]" monoid]]]
+     ["$[0]" monoid]
+     [functor
+      ["$[0]" contravariant]]]]
    [control
     ["[0]" pipe]
     ["[0]" maybe]
@@ -16,15 +20,18 @@
     ["[0]" exception (.only Exception)]
     ["[0]" function]
     ["<>" parser (.only)
-     ["<c>" code]]]
+     ["<[0]>" code]]]
    [data
+    ["[0]" bit]
     [collection
      ["[0]" set]
      ["[0]" list (.open: "[1]#[0]" functor)]
      [tree
       ["[0]" finger]]]
+    [format
+     ["[0]" xml]
+     ["[0]" json]]
     [text
-     ["%" format (.only format)]
      ["[0]" unicode
       ["[1]" set]
       ["[1]/[0]" block]]]]
@@ -32,20 +39,178 @@
     ["^" pattern]
     ["[0]" code]]
    [math
-    ["[0]" random]
-    [number (.only hex)
-     ["n" nat]]]]]
+    ["[0]" random (.only Random) (.open: "[1]#[0]" monad)]
+    ["[0]" modulus]
+    ["[0]" modular]
+    [number
+     ["[0]" nat]
+     ["[0]" int]
+     ["[0]" rev]
+     ["[0]" frac]
+     ["[0]" ratio]]]
+   [meta
+    ["[0]" location]
+    ["[0]" symbol]]
+   ["[0]" time (.only)
+    ["[0]" day]
+    ["[0]" month]
+    ["[0]" instant]
+    ["[0]" duration]
+    ["[0]" date]]]]
+ ["$[0]" //
+  [format
+   ["[1][0]" xml]
+   ["[1][0]" json]]
+  [//
+   ["[1][0]" type]
+   [macro
+    ["[1][0]" code]]
+   [meta
+    ["[1][0]" symbol]]]]
  ["[0]" /
   ["[1][0]" buffer]
   ["[1][0]" encoding]
-  ["[1][0]" format]
   ["[1][0]" regex]
   ["[1][0]" escape]
   ["[1][0]" unicode
    ["[1]" set]]]
  [\\library
   ["[0]" / (.open: "[1]#[0]" equivalence)]]
- ["[0]" \\parser])
+ ["[0]" \\parser]
+ ["[0]" \\format])
+
+(def: (equivalence example)
+  (All (_ a) (-> a (Equivalence (\\format.Format a))))
+  (implementation
+   (def: (= reference subject)
+     (/#= (reference example) (subject example)))))
+
+(def: random_contravariant
+  (Random (Ex (_ a)
+            [(\\format.Format a)
+             (Random a)]))
+  (all random.either
+       (random#in [\\format.bit random.bit])
+       (random#in [\\format.nat random.nat])
+       (random#in [\\format.int random.int])
+       (random#in [\\format.rev random.rev])
+       (random#in [\\format.frac random.frac])
+       ))
+
+(def: codec
+  Test
+  (`` (all _.and
+           (~~ (with_template [<format> <codec> <random>]
+                 [(do random.monad
+                    [sample <random>]
+                    (_.coverage [<format>]
+                      (/#= (at <codec> encoded sample)
+                           (<format> sample))))]
+
+                 [\\format.bit bit.codec random.bit]
+                 [\\format.nat nat.decimal random.nat]
+                 [\\format.int int.decimal random.int]
+                 [\\format.rev rev.decimal random.rev]
+                 [\\format.frac frac.decimal random.frac]
+                 [\\format.ratio ratio.codec random.ratio]
+                 [\\format.symbol symbol.codec ($//symbol.random 5 5)]
+                 [\\format.xml xml.codec $//xml.random]
+                 [\\format.json json.codec $//json.random]
+                 [\\format.day day.codec random.day]
+                 [\\format.month month.codec random.month]
+                 [\\format.instant instant.codec random.instant]
+                 [\\format.duration duration.codec random.duration]
+                 [\\format.date date.codec random.date]
+                 [\\format.time time.codec random.time]
+                 
+                 [\\format.nat_2 nat.binary random.nat]
+                 [\\format.nat_8 nat.octal random.nat]
+                 [\\format.nat_10 nat.decimal random.nat]
+                 [\\format.nat_16 nat.hex random.nat]
+                 
+                 [\\format.int_2 int.binary random.int]
+                 [\\format.int_8 int.octal random.int]
+                 [\\format.int_10 int.decimal random.int]
+                 [\\format.int_16 int.hex random.int]
+                 
+                 [\\format.rev_2 rev.binary random.rev]
+                 [\\format.rev_8 rev.octal random.rev]
+                 [\\format.rev_10 rev.decimal random.rev]
+                 [\\format.rev_16 rev.hex random.rev]
+                 
+                 [\\format.frac_2 frac.binary random.frac]
+                 [\\format.frac_8 frac.octal random.frac]
+                 [\\format.frac_10 frac.decimal random.frac]
+                 [\\format.frac_16 frac.hex random.frac]
+                 ))
+           )))
+
+(def: \\format
+  Test
+  (<| (_.covering \\format._)
+      (_.for [\\format.Format])
+      (`` (all _.and
+               (_.for [\\format.functor]
+                      (do random.monad
+                        [[format random] ..random_contravariant
+                         example random]
+                        ($contravariant.spec (..equivalence example)
+                                             format
+                                             \\format.functor)))
+               
+               (do random.monad
+                 [left (random.unicode 5)
+                  mid (random.unicode 5)
+                  right (random.unicode 5)]
+                 (_.coverage [\\format.format]
+                   (/#= (\\format.format left mid right)
+                        (all "lux text concat" left mid right))))
+               ..codec
+               (~~ (with_template [<format> <alias> <random>]
+                     [(do random.monad
+                        [sample <random>]
+                        (_.coverage [<format>]
+                          (/#= (<alias> sample)
+                               (<format> sample))))]
+
+                     [\\format.text /.format (random.unicode 5)]
+                     [\\format.code code.format $//code.random]
+                     [\\format.type type.format ($//type.random 0)]
+                     [\\format.location location.format
+                      (all random.and
+                           (random.unicode 5)
+                           random.nat
+                           random.nat)]
+                     ))
+               (do random.monad
+                 [members (random.list 5 random.nat)]
+                 (_.coverage [\\format.list]
+                   (/#= (\\format.list \\format.nat members)
+                        (|> members
+                            (list#each \\format.nat)
+                            (/.interposed " ")
+                            list
+                            (\\format.list (|>>))))))
+               (do random.monad
+                 [sample (random.maybe random.nat)]
+                 (_.coverage [\\format.maybe]
+                   (case sample
+                     {.#None}
+                     true
+                     
+                     {.#Some value}
+                     (/.contains? (\\format.nat value)
+                                  (\\format.maybe \\format.nat sample)))))
+               (do [! random.monad]
+                 [modulus (random.one (|>> modulus.modulus
+                                           try.maybe)
+                                      random.int)
+                  sample (at ! each (modular.modular modulus)
+                             random.int)]
+                 (_.coverage [\\format.mod]
+                   (/#= (at (modular.codec modulus) encoded sample)
+                        (\\format.mod sample))))
+               ))))
 
 (def: !expect
   (template (_ <pattern> <value>)
@@ -89,13 +254,13 @@
   Test
   (all _.and
        (do [! random.monad]
-         [offset (at ! each (n.% 50) random.nat)
-          range (at ! each (|>> (n.% 50) (n.+ 10)) random.nat)
-          .let [limit (n.+ offset range)]
-          expected (at ! each (|>> (n.% range) (n.+ offset) /.of_char) random.nat)
+         [offset (at ! each (nat.% 50) random.nat)
+          range (at ! each (|>> (nat.% 50) (nat.+ 10)) random.nat)
+          .let [limit (nat.+ offset range)]
+          expected (at ! each (|>> (nat.% range) (nat.+ offset) /.of_char) random.nat)
           out_of_range (case offset
-                         0 (at ! each (|>> (n.% 10) ++ (n.+ limit) /.of_char) random.nat)
-                         _ (at ! each (|>> (n.% offset) /.of_char) random.nat))]
+                         0 (at ! each (|>> (nat.% 10) ++ (nat.+ limit) /.of_char) random.nat)
+                         _ (at ! each (|>> (nat.% offset) /.of_char) random.nat))]
          (_.coverage [\\parser.range]
            (and (..should_pass expected (\\parser.range offset limit))
                 (..should_fail out_of_range (\\parser.range offset limit)))))
@@ -114,22 +279,22 @@
            (and (..should_pass (/.of_char expected) \\parser.lower)
                 (..should_fail (/.of_char invalid) \\parser.lower))))
        (do [! random.monad]
-         [expected (at ! each (n.% 10) random.nat)
+         [expected (at ! each (nat.% 10) random.nat)
           invalid (random.char (unicode.set [unicode/block.number_forms (list)]))]
          (_.coverage [\\parser.decimal]
-           (and (..should_pass (at n.decimal encoded expected) \\parser.decimal)
+           (and (..should_pass (at nat.decimal encoded expected) \\parser.decimal)
                 (..should_fail (/.of_char invalid) \\parser.decimal))))
        (do [! random.monad]
-         [expected (at ! each (n.% 8) random.nat)
+         [expected (at ! each (nat.% 8) random.nat)
           invalid (random.char (unicode.set [unicode/block.number_forms (list)]))]
          (_.coverage [\\parser.octal]
-           (and (..should_pass (at n.octal encoded expected) \\parser.octal)
+           (and (..should_pass (at nat.octal encoded expected) \\parser.octal)
                 (..should_fail (/.of_char invalid) \\parser.octal))))
        (do [! random.monad]
-         [expected (at ! each (n.% 16) random.nat)
+         [expected (at ! each (nat.% 16) random.nat)
           invalid (random.char (unicode.set [unicode/block.number_forms (list)]))]
          (_.coverage [\\parser.hexadecimal]
-           (and (..should_pass (at n.hex encoded expected) \\parser.hexadecimal)
+           (and (..should_pass (at nat.hex encoded expected) \\parser.hexadecimal)
                 (..should_fail (/.of_char invalid) \\parser.hexadecimal))))
        (do [! random.monad]
          [expected (random.char unicode.alphabetic)
@@ -171,13 +336,13 @@
        (do [! random.monad]
          [.let [num_options 3]
           options (|> (random.char unicode.character)
-                      (random.set n.hash num_options)
+                      (random.set nat.hash num_options)
                       (at ! each (|>> set.list
                                       (list#each /.of_char)
                                       /.together)))
           expected (at ! each (function (_ value)
                                 (|> options
-                                    (/.char (n.% num_options value))
+                                    (/.char (nat.% num_options value))
                                     maybe.trusted))
                        random.nat)
           invalid (random.only (function (_ char)
@@ -197,13 +362,13 @@
        (do [! random.monad]
          [.let [num_options 3]
           options (|> (random.char unicode.character)
-                      (random.set n.hash num_options)
+                      (random.set nat.hash num_options)
                       (at ! each (|>> set.list
                                       (list#each /.of_char)
                                       /.together)))
           invalid (at ! each (function (_ value)
                                (|> options
-                                   (/.char (n.% num_options value))
+                                   (/.char (nat.% num_options value))
                                    maybe.trusted))
                       random.nat)
           expected (random.only (function (_ char)
@@ -227,26 +392,26 @@
   (let [octal! (\\parser.one_of! "01234567")]
     (all _.and
          (do [! random.monad]
-           [left (at ! each (|>> (n.% 8) (at n.octal encoded)) random.nat)
-            right (at ! each (|>> (n.% 8) (at n.octal encoded)) random.nat)
-            .let [expected (format left right)]
+           [left (at ! each (|>> (nat.% 8) (at nat.octal encoded)) random.nat)
+            right (at ! each (|>> (nat.% 8) (at nat.octal encoded)) random.nat)
+            .let [expected (\\format.format left right)]
             invalid (|> random.nat
-                        (at ! each (n.% 16))
-                        (random.only (n.>= 8))
-                        (at ! each (at n.hex encoded)))]
+                        (at ! each (nat.% 16))
+                        (random.only (nat.>= 8))
+                        (at ! each (at nat.hex encoded)))]
            (_.coverage [\\parser.many \\parser.many!]
              (and (..should_pass expected (\\parser.many \\parser.octal))
                   (..should_fail invalid (\\parser.many \\parser.octal))
 
                   (..should_pass! expected (\\parser.many! octal!)))))
          (do [! random.monad]
-           [left (at ! each (|>> (n.% 8) (at n.octal encoded)) random.nat)
-            right (at ! each (|>> (n.% 8) (at n.octal encoded)) random.nat)
-            .let [expected (format left right)]
+           [left (at ! each (|>> (nat.% 8) (at nat.octal encoded)) random.nat)
+            right (at ! each (|>> (nat.% 8) (at nat.octal encoded)) random.nat)
+            .let [expected (\\format.format left right)]
             invalid (|> random.nat
-                        (at ! each (n.% 16))
-                        (random.only (n.>= 8))
-                        (at ! each (at n.hex encoded)))]
+                        (at ! each (nat.% 16))
+                        (random.only (nat.>= 8))
+                        (at ! each (at nat.hex encoded)))]
            (_.coverage [\\parser.some \\parser.some!]
              (and (..should_pass expected (\\parser.some \\parser.octal))
                   (..should_pass "" (\\parser.some \\parser.octal))
@@ -255,57 +420,57 @@
                   (..should_pass! expected (\\parser.some! octal!))
                   (..should_pass! "" (\\parser.some! octal!)))))
          (do [! random.monad]
-           [.let [octal (at ! each (|>> (n.% 8) (at n.octal encoded)) random.nat)]
+           [.let [octal (at ! each (|>> (nat.% 8) (at nat.octal encoded)) random.nat)]
             first octal
             second octal
             third octal]
            (_.coverage [\\parser.exactly \\parser.exactly!]
-             (and (..should_pass (format first second) (\\parser.exactly 2 \\parser.octal))
-                  (..should_fail (format first second third) (\\parser.exactly 2 \\parser.octal))
-                  (..should_fail (format first) (\\parser.exactly 2 \\parser.octal))
+             (and (..should_pass (\\format.format first second) (\\parser.exactly 2 \\parser.octal))
+                  (..should_fail (\\format.format first second third) (\\parser.exactly 2 \\parser.octal))
+                  (..should_fail (\\format.format first) (\\parser.exactly 2 \\parser.octal))
 
-                  (..should_pass! (format first second) (\\parser.exactly! 2 octal!))
-                  (..should_fail (format first second third) (\\parser.exactly! 2 octal!))
-                  (..should_fail (format first) (\\parser.exactly! 2 octal!)))))
+                  (..should_pass! (\\format.format first second) (\\parser.exactly! 2 octal!))
+                  (..should_fail (\\format.format first second third) (\\parser.exactly! 2 octal!))
+                  (..should_fail (\\format.format first) (\\parser.exactly! 2 octal!)))))
          (do [! random.monad]
-           [.let [octal (at ! each (|>> (n.% 8) (at n.octal encoded)) random.nat)]
+           [.let [octal (at ! each (|>> (nat.% 8) (at nat.octal encoded)) random.nat)]
             first octal
             second octal
             third octal]
            (_.coverage [\\parser.at_most \\parser.at_most!]
-             (and (..should_pass (format first second) (\\parser.at_most 2 \\parser.octal))
-                  (..should_pass (format first) (\\parser.at_most 2 \\parser.octal))
-                  (..should_fail (format first second third) (\\parser.at_most 2 \\parser.octal))
+             (and (..should_pass (\\format.format first second) (\\parser.at_most 2 \\parser.octal))
+                  (..should_pass (\\format.format first) (\\parser.at_most 2 \\parser.octal))
+                  (..should_fail (\\format.format first second third) (\\parser.at_most 2 \\parser.octal))
 
-                  (..should_pass! (format first second) (\\parser.at_most! 2 octal!))
-                  (..should_pass! (format first) (\\parser.at_most! 2 octal!))
-                  (..should_fail (format first second third) (\\parser.at_most! 2 octal!)))))
+                  (..should_pass! (\\format.format first second) (\\parser.at_most! 2 octal!))
+                  (..should_pass! (\\format.format first) (\\parser.at_most! 2 octal!))
+                  (..should_fail (\\format.format first second third) (\\parser.at_most! 2 octal!)))))
          (do [! random.monad]
-           [.let [octal (at ! each (|>> (n.% 8) (at n.octal encoded)) random.nat)]
+           [.let [octal (at ! each (|>> (nat.% 8) (at nat.octal encoded)) random.nat)]
             first octal
             second octal
             third octal]
            (_.coverage [\\parser.at_least \\parser.at_least!]
-             (and (..should_pass (format first second) (\\parser.at_least 2 \\parser.octal))
-                  (..should_pass (format first second third) (\\parser.at_least 2 \\parser.octal))
-                  (..should_fail (format first) (\\parser.at_least 2 \\parser.octal))
+             (and (..should_pass (\\format.format first second) (\\parser.at_least 2 \\parser.octal))
+                  (..should_pass (\\format.format first second third) (\\parser.at_least 2 \\parser.octal))
+                  (..should_fail (\\format.format first) (\\parser.at_least 2 \\parser.octal))
 
-                  (..should_pass! (format first second) (\\parser.at_least! 2 octal!))
-                  (..should_pass! (format first second third) (\\parser.at_least! 2 octal!))
-                  (..should_fail (format first) (\\parser.at_least! 2 octal!)))))
+                  (..should_pass! (\\format.format first second) (\\parser.at_least! 2 octal!))
+                  (..should_pass! (\\format.format first second third) (\\parser.at_least! 2 octal!))
+                  (..should_fail (\\format.format first) (\\parser.at_least! 2 octal!)))))
          (do [! random.monad]
-           [.let [octal (at ! each (|>> (n.% 8) (at n.octal encoded)) random.nat)]
+           [.let [octal (at ! each (|>> (nat.% 8) (at nat.octal encoded)) random.nat)]
             first octal
             second octal
             third octal]
            (_.coverage [\\parser.between \\parser.between!]
-             (and (..should_pass (format first second) (\\parser.between 2 1 \\parser.octal))
-                  (..should_pass (format first second third) (\\parser.between 2 1 \\parser.octal))
-                  (..should_fail (format first) (\\parser.between 2 1 \\parser.octal))
+             (and (..should_pass (\\format.format first second) (\\parser.between 2 1 \\parser.octal))
+                  (..should_pass (\\format.format first second third) (\\parser.between 2 1 \\parser.octal))
+                  (..should_fail (\\format.format first) (\\parser.between 2 1 \\parser.octal))
 
-                  (..should_pass! (format first second) (\\parser.between! 2 1 octal!))
-                  (..should_pass! (format first second third) (\\parser.between! 2 1 octal!))
-                  (..should_fail (format first) (\\parser.between! 2 1 octal!)))))
+                  (..should_pass! (\\format.format first second) (\\parser.between! 2 1 octal!))
+                  (..should_pass! (\\format.format first second third) (\\parser.between! 2 1 octal!))
+                  (..should_fail (\\format.format first) (\\parser.between! 2 1 octal!)))))
          )))
 
 (def: \\parser
@@ -359,7 +524,7 @@
            (do [! random.monad]
              [dummy (random.unicode 1)]
              (_.coverage [\\parser.unconsumed_input]
-               (|> (format dummy dummy)
+               (|> (\\format.format dummy dummy)
                    (\\parser.result \\parser.any)
                    (!expect (^.multi {try.#Failure error}
                                      (exception.match? \\parser.unconsumed_input error))))))
@@ -376,7 +541,7 @@
            (do [! random.monad]
              [left (random.unicode 1)
               right (random.unicode 1)
-              .let [input (format left right)]]
+              .let [input (\\format.format left right)]]
              (_.coverage [\\parser.remaining]
                (|> input
                    (\\parser.result (do <>.monad
@@ -393,7 +558,7 @@
               expected (random.only (|>> (/#= right) not)
                                     (random.unicode 1))]
              (_.coverage [\\parser.enclosed]
-               (|> (format left expected right)
+               (|> (\\format.format left expected right)
                    (\\parser.result (\\parser.enclosed [left right] (\\parser.this expected)))
                    (!expect {try.#Success _}))))
            (do [! random.monad]
@@ -406,10 +571,10 @@
                                       (\\parser.this output)))
                    (!expect {try.#Success _}))))
            (do [! random.monad]
-             [expected (at ! each (|>> (n.% 8) (at n.octal encoded)) random.nat)]
+             [expected (at ! each (|>> (nat.% 8) (at nat.octal encoded)) random.nat)]
              (_.coverage [\\parser.then]
                (|> (list (code.text expected))
-                   (<c>.result (\\parser.then \\parser.octal <c>.text))
+                   (<code>.result (\\parser.then \\parser.octal <code>.text))
                    (!expect (^.multi {try.#Success actual}
                                      (/#= expected actual))))))
            (do [! random.monad]
@@ -440,13 +605,13 @@
               .let [upper! (\\parser.one_of! "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
                     lower! (\\parser.one_of! "abcdefghijklmnopqrstuvwxyz")]]
              (_.coverage [\\parser.and \\parser.and!]
-               (and (..should_pass (format upper lower) (\\parser.and \\parser.upper \\parser.lower))
-                    (..should_fail (format (/.of_char invalid) lower) (\\parser.and \\parser.upper \\parser.lower))
-                    (..should_fail (format upper (/.of_char invalid)) (\\parser.and \\parser.upper \\parser.lower))
+               (and (..should_pass (\\format.format upper lower) (\\parser.and \\parser.upper \\parser.lower))
+                    (..should_fail (\\format.format (/.of_char invalid) lower) (\\parser.and \\parser.upper \\parser.lower))
+                    (..should_fail (\\format.format upper (/.of_char invalid)) (\\parser.and \\parser.upper \\parser.lower))
 
-                    (..should_pass! (format upper lower) (\\parser.and! upper! lower!))
-                    (..should_fail (format (/.of_char invalid) lower) (\\parser.and! upper! lower!))
-                    (..should_fail (format upper (/.of_char invalid)) (\\parser.and! upper! lower!)))))
+                    (..should_pass! (\\format.format upper lower) (\\parser.and! upper! lower!))
+                    (..should_fail (\\format.format (/.of_char invalid) lower) (\\parser.and! upper! lower!))
+                    (..should_fail (\\format.format upper (/.of_char invalid)) (\\parser.and! upper! lower!)))))
            (do [! random.monad]
              [expected (random.unicode 1)
               invalid (random.unicode 1)]
@@ -462,19 +627,19 @@
 (def: bounded_size
   (random.Random Nat)
   (|> random.nat
-      (at random.monad each (|>> (n.% 20) (n.+ 1)))))
+      (at random.monad each (|>> (nat.% 20) (nat.+ 1)))))
 
 (def: size
   Test
   (do [! random.monad]
-    [size (at ! each (n.% 10) random.nat)
+    [size (at ! each (nat.% 10) random.nat)
      sample (random.unicode size)]
     (all _.and
          (_.coverage [/.size]
-           (n.= size (/.size sample)))
+           (nat.= size (/.size sample)))
          (_.coverage [/.empty?]
            (or (/.empty? sample)
-               (not (n.= 0 size)))))))
+               (not (nat.= 0 size)))))))
 
 (def: affix
   Test
@@ -520,36 +685,36 @@
          (_.coverage [/.index]
            (and (|> (/.index inner (at /.monoid composite inner outer))
                     (maybe.else fake_index)
-                    (n.= 0))
+                    (nat.= 0))
                 (|> (/.index outer (at /.monoid composite inner outer))
                     (maybe.else fake_index)
-                    (n.= 1))))
+                    (nat.= 1))))
          (_.coverage [/.index_since]
            (let [full (at /.monoid composite inner outer)]
              (and (|> (/.index_since 0 inner full)
                       (maybe.else fake_index)
-                      (n.= 0))
+                      (nat.= 0))
                   (|> (/.index_since 1 inner full)
                       (maybe.else fake_index)
-                      (n.= fake_index))
+                      (nat.= fake_index))
                   
                   (|> (/.index_since 0 outer full)
                       (maybe.else fake_index)
-                      (n.= 1))
+                      (nat.= 1))
                   (|> (/.index_since 1 outer full)
                       (maybe.else fake_index)
-                      (n.= 1))
+                      (nat.= 1))
                   (|> (/.index_since 2 outer full)
                       (maybe.else fake_index)
-                      (n.= fake_index)))))
+                      (nat.= fake_index)))))
          (_.coverage [/.last_index]
            (let [full (all (at /.monoid composite) outer inner outer)]
              (and (|> (/.last_index inner full)
                       (maybe.else fake_index)
-                      (n.= 1))
+                      (nat.= 1))
                   (|> (/.last_index outer full)
                       (maybe.else fake_index)
-                      (n.= 2)))))
+                      (nat.= 2)))))
          )))
 
 (def: char
@@ -574,16 +739,16 @@
                          (at /.equivalence = /.new_line /.line_feed))
                        )))
        (do [! random.monad]
-         [size (at ! each (|>> (n.% 10) ++) random.nat)
+         [size (at ! each (|>> (nat.% 10) ++) random.nat)
           characters (random.set /.hash size (random.alphabetic 1))
           .let [sample (|> characters set.list /.together)]
-          expected (at ! each (n.% size) random.nat)]
+          expected (at ! each (nat.% size) random.nat)]
          (_.coverage [/.char]
            (case (/.char expected sample)
              {.#Some char}
              (case (/.index (/.of_char char) sample)
                {.#Some actual}
-               (n.= expected actual)
+               (nat.= expected actual)
 
                _
                false)
@@ -606,7 +771,7 @@
 (def: manipulation
   Test
   (do [! random.monad]
-    [size (at ! each (|>> (n.% 10) (n.+ 2)) random.nat)
+    [size (at ! each (|>> (nat.% 10) (nat.+ 2)) random.nat)
      characters (random.set /.hash size (random.alphabetic 1))
      separator (random.only (|>> (set.member? characters) not)
                             (random.alphabetic 1))
@@ -621,8 +786,8 @@
      upper (random.upper_case 1)]
     (all _.and
          (_.coverage [/.together]
-           (n.= (set.size characters)
-                (/.size (/.together (set.list characters)))))
+           (nat.= (set.size characters)
+                  (/.size (/.together (set.list characters)))))
          (_.coverage [/.interposed /.all_split_by]
            (and (|> (set.list characters)
                     (/.interposed separator)
@@ -727,7 +892,7 @@
                           #0)))
                   (_.coverage [/.clip /.clip_since]
                     (|> [(/.clip 0 sizeL sample)
-                         (/.clip sizeL (n.- sizeL (/.size sample)) sample)
+                         (/.clip sizeL (nat.- sizeL (/.size sample)) sample)
                          (/.clip_since sizeL sample)
                          (/.clip_since 0 sample)]
                         (pipe.case
@@ -746,7 +911,7 @@
               .let [... The wider unicode charset includes control characters that
                     ... can make text replacement work improperly.
                     ... Because of that, I restrict the charset.
-                    normal_char_gen (|> random.nat (at ! each (|>> (n.% 128) (n.max 1))))]
+                    normal_char_gen (|> random.nat (at ! each (|>> (nat.% 128) (nat.max 1))))]
               sep1 (random.text normal_char_gen 1)
               sep2 (random.text normal_char_gen 1)
               .let [part_gen (|> (random.text normal_char_gen sizeP)
@@ -761,10 +926,10 @@
 
            /buffer.test
            /encoding.test
-           /format.test
            /regex.test
            /escape.test
            /unicode.test
 
            ..\\parser
+           ..\\format
            )))
