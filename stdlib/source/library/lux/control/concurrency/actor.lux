@@ -21,6 +21,7 @@
      ["[0]" list (.open: "[1]#[0]" monoid monad)]]]
    ["[0]" macro (.only with_symbols)
     ["[0]" code]
+    ["[0]" local]
     [syntax (.only syntax)
      ["|[0]|" input]
      ["|[0]|" export]]]
@@ -38,312 +39,171 @@
 (exception: .public poisoned)
 (exception: .public dead)
 
-(with_expansions
-  [<Mail> (these (-> s (Actor s) (Async (Try s))))
-   <Obituary> (these [Text s (List <Mail>)])
-   <Mailbox> (these (Rec Mailbox
-                      [(Async [<Mail> Mailbox])
-                       (Resolver [<Mail> Mailbox])]))]
-
-  (def: (pending [read write])
-    (All (_ a)
-      (-> (Rec Mailbox
-            [(Async [a Mailbox])
-             (Resolver [a Mailbox])])
-          (IO (List a))))
-    (do [! io.monad]
-      [current (async.value read)]
-      (case current
-        {.#Some [head tail]}
-        (at ! each (|>> {.#Item head})
-            (pending tail))
-        
-        {.#None}
-        (in {.#End}))))
-  
-  (primitive: .public (Actor s)
-    (Record
-     [#obituary [(Async <Obituary>)
-                 (Resolver <Obituary>)]
-      #mailbox (Atom <Mailbox>)])
-
-    (type: .public (Mail s)
-      <Mail>)
-
-    (type: .public (Obituary s)
-      <Obituary>)
-
-    (type: .public (Behavior o s)
-      (Record
-       [#on_init (-> o s)
-        #on_mail (-> (Mail s) s (Actor s) (Async (Try s)))]))
-
-    (def: .public (spawn! behavior init)
-      (All (_ o s) (-> (Behavior o s) o (IO (Actor s))))
-      (io (let [[on_init on_mail] behavior
-                self (sharing [o s]
-                              (Behavior o s)
-                              behavior
-                              
-                              (Actor s)
-                              (abstraction [#obituary (async.async [])
-                                            #mailbox (atom (async.async []))]))
-                process (loop (again [state (on_init init)
-                                      [|mailbox| _] (io.run! (atom.read! (the #mailbox (representation self))))])
-                          (do [! async.monad]
-                            [[head tail] |mailbox|
-                             ?state' (on_mail head state self)]
-                            (case ?state'
-                              {try.#Failure error}
-                              (let [[_ resolve] (the #obituary (representation self))]
-                                (exec (io.run!
-                                       (do io.monad
-                                         [pending (..pending tail)]
-                                         (resolve [error state {.#Item head pending}])))
-                                  (in [])))
-
-                              {try.#Success state'}
-                              (again state' tail))))]
-            self)))
-
-    (def: .public (alive? actor)
-      (All (_ s) (-> (Actor s) (IO Bit)))
-      (let [[obituary _] (the #obituary (representation actor))]
-        (|> obituary
-            async.value
-            (at io.functor each
-                (|>> (pipe.case
-                       {.#None}
-                       bit.yes
-
-                       _
-                       bit.no))))))
-
-    (def: .public (obituary' actor)
-      (All (_ s) (-> (Actor s) (IO (Maybe (Obituary s)))))
-      (let [[obituary _] (the #obituary (representation actor))]
-        (async.value obituary)))
-
-    (def: .public obituary
-      (All (_ s) (-> (Actor s) (Async (Obituary s))))
-      (|>> representation
-           (the #obituary)
-           product.left))
-
-    (def: .public (mail! mail actor)
-      (All (_ s) (-> (Mail s) (Actor s) (IO (Try Any))))
-      (do [! io.monad]
-        [alive? (..alive? actor)]
-        (if alive?
-          (let [entry [mail (async.async [])]]
-            (do !
-              [|mailbox|&resolve (atom.read! (the #mailbox (representation actor)))]
-              (loop (again [[|mailbox| resolve] |mailbox|&resolve])
-                (do !
-                  [|mailbox| (async.value |mailbox|)]
-                  (case |mailbox|
-                    {.#None}
-                    (do !
-                      [resolved? (resolve entry)]
-                      (if resolved?
-                        (do !
-                          [_ (atom.write! (product.right entry) (the #mailbox (representation actor)))]
-                          (in {try.#Success []}))
-                        (again |mailbox|&resolve)))
-                    
-                    {.#Some [_ |mailbox|']}
-                    (again |mailbox|'))))))
-          (in (exception.except ..dead [])))))
-
-    (type: .public (Message s o)
-      (-> s (Actor s) (Async (Try [s o]))))
-
-    (def: (mail message)
-      (All (_ s o) (-> (Message s o) [(Async (Try o)) (Mail s)]))
-      (let [[async resolve] (sharing [s o]
-                                     (Message s o)
-                                     message
-                                     
-                                     [(Async (Try o))
-                                      (Resolver (Try o))]
-                                     (async.async []))]
-        [async
-         (function (_ state self)
-           (do [! async.monad]
-             [outcome (message state self)]
-             (case outcome
-               {try.#Success [state' return]}
-               (exec
-                 (io.run! (resolve {try.#Success return}))
-                 (async.resolved {try.#Success state'}))
+(local.let [<Mail> (template (_ Actor s)
+                     [(-> s (Actor s) (Async (Try s)))])
+            <Obituary> (template (_ Actor s)
+                         [[Text s (List (<Mail> Actor s))]])
+            <Mailbox> (template (_ Actor s)
+                        [(Rec Mailbox
+                           [(Async [(<Mail> Actor s) Mailbox])
+                            (Resolver [(<Mail> Actor s) Mailbox])])])]
+  (these (def: (pending [read write])
+           (All (_ a)
+             (-> (Rec Mailbox
+                   [(Async [a Mailbox])
+                    (Resolver [a Mailbox])])
+                 (IO (List a))))
+           (do [! io.monad]
+             [current (async.value read)]
+             (case current
+               {.#Some [head tail]}
+               (at ! each (|>> {.#Item head})
+                   (pending tail))
                
-               {try.#Failure error}
-               (exec
-                 (io.run! (resolve {try.#Failure error}))
-                 (async.resolved {try.#Failure error})))))]))
+               {.#None}
+               (in {.#End}))))
+         
+         (primitive: .public (Actor s)
+           (Record
+            [#obituary [(Async (<Obituary> Actor s))
+                        (Resolver (<Obituary> Actor s))]
+             #mailbox (Atom (<Mailbox> Actor s))])
 
-    (def: .public (tell! message actor)
-      (All (_ s o) (-> (Message s o) (Actor s) (Async (Try o))))
-      (let [[async mail] (..mail message)]
-        (do async.monad
-          [outcome (async.future (..mail! mail actor))]
-          (case outcome
-            {try.#Success}
-            async
-            
-            {try.#Failure error}
-            (in {try.#Failure error})))))
-    )
-  )
+           (type: .public (Mail s)
+             (<Mail> Actor s))
 
-(def: (default_on_mail mail state self)
-  (All (_ s) (-> (Mail s) s (Actor s) (Async (Try s))))
-  (mail state self))
+           (type: .public (Obituary s)
+             (<Obituary> Actor s))
+
+           (type: .public (Behavior s)
+             (-> (Mail s) s (Actor s) (Async (Try s))))
+
+           (def: .public (spawn! behavior init)
+             (All (_ s) (-> (Behavior s) s (IO (Actor s))))
+             (io (let [self (sharing [s]
+                                     (Behavior s)
+                                     behavior
+                                     
+                                     (Actor s)
+                                     (abstraction [#obituary (async.async [])
+                                                   #mailbox (atom (async.async []))]))
+                       process (loop (again [state init
+                                             [|mailbox| _] (io.run! (atom.read! (the #mailbox (representation self))))])
+                                 (do [! async.monad]
+                                   [[head tail] |mailbox|
+                                    ?state' (behavior head state self)]
+                                   (case ?state'
+                                     {try.#Failure error}
+                                     (let [[_ resolve] (the #obituary (representation self))]
+                                       (exec (io.run!
+                                              (do io.monad
+                                                [pending (..pending tail)]
+                                                (resolve [error state {.#Item head pending}])))
+                                         (in [])))
+
+                                     {try.#Success state'}
+                                     (again state' tail))))]
+                   self)))
+
+           (def: .public (alive? actor)
+             (All (_ s) (-> (Actor s) (IO Bit)))
+             (let [[obituary _] (the #obituary (representation actor))]
+               (|> obituary
+                   async.value
+                   (at io.functor each
+                       (|>> (pipe.case
+                              {.#None}
+                              bit.yes
+
+                              _
+                              bit.no))))))
+
+           (def: .public (obituary' actor)
+             (All (_ s) (-> (Actor s) (IO (Maybe (Obituary s)))))
+             (let [[obituary _] (the #obituary (representation actor))]
+               (async.value obituary)))
+
+           (def: .public obituary
+             (All (_ s) (-> (Actor s) (Async (Obituary s))))
+             (|>> representation
+                  (the #obituary)
+                  product.left))
+
+           (def: .public (mail! mail actor)
+             (All (_ s) (-> (Mail s) (Actor s) (IO (Try Any))))
+             (do [! io.monad]
+               [alive? (..alive? actor)]
+               (if alive?
+                 (let [entry [mail (async.async [])]]
+                   (do !
+                     [|mailbox|&resolve (atom.read! (the #mailbox (representation actor)))]
+                     (loop (again [[|mailbox| resolve] |mailbox|&resolve])
+                       (do !
+                         [|mailbox| (async.value |mailbox|)]
+                         (case |mailbox|
+                           {.#None}
+                           (do !
+                             [resolved? (resolve entry)]
+                             (if resolved?
+                               (do !
+                                 [_ (atom.write! (product.right entry) (the #mailbox (representation actor)))]
+                                 (in {try.#Success []}))
+                               (again |mailbox|&resolve)))
+                           
+                           {.#Some [_ |mailbox|']}
+                           (again |mailbox|'))))))
+                 (in (exception.except ..dead [])))))
+
+           (type: .public (Message s o)
+             (-> s (Actor s) (Async (Try [s o]))))
+
+           (def: (mail message)
+             (All (_ s o) (-> (Message s o) [(Async (Try o)) (Mail s)]))
+             (let [[async resolve] (sharing [s o]
+                                            (Message s o)
+                                            message
+                                            
+                                            [(Async (Try o))
+                                             (Resolver (Try o))]
+                                            (async.async []))]
+               [async
+                (function (_ state self)
+                  (do [! async.monad]
+                    [outcome (message state self)]
+                    (case outcome
+                      {try.#Success [state' return]}
+                      (exec
+                        (io.run! (resolve {try.#Success return}))
+                        (async.resolved {try.#Success state'}))
+                      
+                      {try.#Failure error}
+                      (exec
+                        (io.run! (resolve {try.#Failure error}))
+                        (async.resolved {try.#Failure error})))))]))
+
+           (def: .public (tell! message actor)
+             (All (_ s o) (-> (Message s o) (Actor s) (Async (Try o))))
+             (let [[async mail] (..mail message)]
+               (do async.monad
+                 [outcome (async.future (..mail! mail actor))]
+                 (case outcome
+                   {try.#Success}
+                   async
+                   
+                   {try.#Failure error}
+                   (in {try.#Failure error})))))
+           )))
 
 (def: .public default
-  (All (_ s) (Behavior s s))
-  [#on_init function.identity
-   #on_mail ..default_on_mail])
+  Behavior
+  (function (_ mail state self)
+    (mail state self)))
 
 (def: .public (poison! actor)
   (All (_ s) (-> (Actor s) (IO (Try Any))))
   (..mail! (function (_ state self)
              (async.resolved (exception.except ..poisoned [])))
            actor))
-
-(def: actor_decl^
-  (Parser [Text (List Text)])
-  (<>.either (<code>.form (<>.and <code>.local (<>.some <code>.local)))
-             (<>.and <code>.local (at <>.monad in (list)))))
-
-(type: On_MailC
-  [[Text Text Text] Code])
-
-(type: BehaviorC
-  [(Maybe On_MailC) (List Code)])
-
-(def: argument
-  (Parser Text)
-  <code>.local)
-
-(def: on_mail^
-  (Parser (Maybe On_MailC))
-  (<>.maybe (<code>.form (<>.and (<code>.form (<>.after (<code>.this (' on_mail))
-                                                        (all <>.and ..argument ..argument ..argument)))
-                                 <code>.any))))
-
-(def: behavior^
-  (Parser BehaviorC)
-  (all <>.and
-       ..on_mail^
-       (<>.some <code>.any)))
-
-(def: (on_mail g!_ ?on_mail)
-  (-> Code (Maybe On_MailC) Code)
-  (case ?on_mail
-    {.#None}
-    (` (~! ..default_on_mail))
-
-    {.#Some [[mailN stateN selfN] bodyC]}
-    (` (function ((~ g!_)
-                  (~ (code.local mailN))
-                  (~ (code.local stateN))
-                  (~ (code.local selfN)))
-         (~ bodyC)))))
-
-(def: actorP
-  (Parser [Code [Text (List Text)] Code BehaviorC])
-  (|export|.parser
-   (all <>.and
-        ..actor_decl^
-        <code>.any
-        behavior^)))
-
-(def: .public actor:
-  (syntax (_ [[export_policy [name vars] state_type [?on_mail messages]] ..actorP])
-    (with_symbols [g!_]
-      (do meta.monad
-        [g!type (macro.symbol (format name "_primitive_type"))
-         .let [g!actor (code.local name)
-               g!vars (list#each code.local vars)]]
-        (in (list (` ((~! primitive:) (~ export_policy) ((~ g!type) (~+ g!vars))
-                      (~ state_type)
-
-                      (def: (~ export_policy) (~ g!actor)
-                        (All ((~ g!_) (~+ g!vars))
-                          (..Behavior (~ state_type) ((~ g!type) (~+ g!vars))))
-                        [..#on_init (|>> ((~! primitive.abstraction) (~ g!type)))
-                         ..#on_mail (~ (..on_mail g!_ ?on_mail))])
-
-                      (~+ messages)))))))))
-
-(def: .public actor
-  (syntax (_ [[state_type init] (<code>.tuple (<>.and <code>.any <code>.any))
-              ?on_mail on_mail^])
-    (with_symbols [g!_]
-      (in (list (` (is ((~! io.IO) (..Actor (~ state_type)))
-                       (..spawn! (is (..Behavior (~ state_type) (~ state_type))
-                                     [..#on_init (|>>)
-                                      ..#on_mail (~ (..on_mail g!_ ?on_mail))])
-                                 (is (~ state_type)
-                                     (~ init))))))))))
-
-(type: Signature
-  (Record
-   [#vars (List Text)
-    #name Text
-    #inputs (List |input|.Input)
-    #state Text
-    #self Text]))
-
-(def: signature^
-  (Parser Signature)
-  (<code>.form (all <>.and
-                    (<>.else (list) (<code>.tuple (<>.some <code>.local)))
-                    <code>.local
-                    |input|.parser
-                    <code>.local
-                    <code>.local)))
-
-(def: reference^
-  (Parser [Symbol (List Text)])
-  (<>.either (<code>.form (<>.and <code>.symbol (<>.some <code>.local)))
-             (<>.and <code>.symbol (at <>.monad in (list)))))
-
-(def: messageP
-  (Parser [Signature Code Code])
-  (all <>.and
-       ..signature^
-       <code>.any
-       <code>.any))
-
-(def: .public message
-  (syntax (_ [[signature output_type body] ..messageP])
-    (with_symbols [g!_ g!return]
-      (do meta.monad
-        [actor_scope primitive.current
-         .let [g!type (code.local (the primitive.#name actor_scope))
-               g!message (code.local (the #name signature))
-               g!actor_vars (the primitive.#type_vars actor_scope)
-               g!all_vars (|> signature (the #vars) (list#each code.local) (list#composite g!actor_vars))
-               g!inputsC (|> signature (the #inputs) (list#each product.left))
-               g!inputsT (|> signature (the #inputs) (list#each product.right))
-               g!state (|> signature (the #state) code.local)
-               g!self (|> signature (the #self) code.local)]]
-        (in (list (` (is (All ((~ g!_) (~+ g!all_vars))
-                           (-> (~+ g!inputsT)
-                               (..Message (~ (the primitive.#abstraction actor_scope))
-                                          (~ output_type))))
-                         (function ((~ g!message) (~+ g!inputsC))
-                           (function ((~ g!_) (~ g!state) (~ g!self))
-                             (let [(~ g!state) (as (~ (the primitive.#representation actor_scope))
-                                                   (~ g!state))]
-                               (|> (~ body)
-                                   (is ((~! async.Async) ((~! try.Try) [(~ (the primitive.#representation actor_scope))
-                                                                        (~ output_type)])))
-                                   (as ((~! async.Async) ((~! try.Try) [(~ (the primitive.#abstraction actor_scope))
-                                                                        (~ output_type)])))))))))
-                  ))))))
 
 (type: .public Stop
   (IO Any))

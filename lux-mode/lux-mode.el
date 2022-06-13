@@ -382,14 +382,13 @@ Called by `imenu--generic-function'."
 							;; Data
 							(data//record (altRE "the" "has" "revised"))
 							(data//interface (altRE "open:" "implementation" "with" "at"))
-							(data//implicit (altRE "implicit:" "a/an" "a" "an"))
+							(data//implicit (altRE "implicitly" "a/an" "a" "an"))
 							(data//collection (altRE "list" "sequence" "tree"))
 							;; Code
 							(code//quotation (altRE "`" "`'" "'" "~" "~\\+" "~!" "~'"))
 							(code//super-quotation (altRE "``" "~~"))
 							(code//template (altRE "with_template" "template"))
 							;; Miscellaneous
-							(actor (altRE "actor:" "message" "actor"))
 							(jvm-host (altRE "import" "export" "class:" "interface:" "object" "do_to" "synchronized" "class_for"))
 							(alternative-format (altRE "char" "bin" "oct" "hex"))
 							(documentation (altRE "comment" "documentation:"))
@@ -428,7 +427,6 @@ Called by `imenu--generic-function'."
 							data
 							code
 							;; ;;;;;;;;;;;;;;;;;;;;;;
-							actor
 							jvm-host
 							alternative-format
 							documentation

@@ -19,7 +19,7 @@
     [number
      ["n" nat]]]]]
  [\\library
-  ["[0]" / (.only actor: message)
+  ["[0]" / (.only)
    [//
     ["[0]" atom (.only Atom)]
     ["[0]" async (.only Async Resolver) (.open: "[1]#[0]" monad)]
@@ -27,18 +27,16 @@
 
 (exception: got_wrecked)
 
-(actor: counter
-  Nat
+(def: counter
+  (/.Behavior Nat)
+  (function (_ message state self)
+    (message state self)))
 
-  ((on_mail message state self)
-   (message state self))
-
-  (def: count!
-    (message (_ [increment Nat] state self)
-      Nat
-      (let [state' (n.+ increment state)]
-        (async#in {try.#Success [state' state']}))))
-  )
+(def: (count! increment)
+  (-> Nat (/.Message Nat Nat))
+  (function (_ state self)
+    (let [state' (n.+ increment state)]
+      (async#in {try.#Success [state' state']}))))
 
 (def: (mailed? outcome)
   (-> (Try Any) Bit)
@@ -87,19 +85,18 @@
                                     (async.async []))]
                (in (do async.monad
                      [_ (async.future (do io.monad
-                                        [actor (/.spawn! (is (/.Behavior Any Any)
-                                                             [/.#on_init (|>>)
-                                                              /.#on_mail (function (_ message state self)
-                                                                           (do [! async.monad]
-                                                                             [outcome (message state self)]
-                                                                             (case outcome
-                                                                               {try.#Failure cause}
-                                                                               (do !
-                                                                                 [_ (async.future (write cause))]
-                                                                                 (in outcome))
-                                                                               
-                                                                               {try.#Success _}
-                                                                               (in outcome))))])
+                                        [actor (/.spawn! (is (/.Behavior Any)
+                                                             (function (_ message state self)
+                                                               (do [! async.monad]
+                                                                 [outcome (message state self)]
+                                                                 (case outcome
+                                                                   {try.#Failure cause}
+                                                                   (do !
+                                                                     [_ (async.future (write cause))]
+                                                                     (in outcome))
+                                                                   
+                                                                   {try.#Success _}
+                                                                   (in outcome)))))
                                                          [])]
                                         (/.poison! actor)))
                       _ (async.delay 100)
@@ -165,38 +162,13 @@
                              (in (and (n.= 1 output_1)
                                       (n.= 2 output_2)
                                       (n.= 3 output_3))))]
-                   (_.coverage' [/.Message /.message /.actor: /.tell!]
+                   (_.coverage' [/.Message /.tell!]
                      (case result
                        {try.#Success outcome}
                        outcome
 
                        {try.#Failure error}
                        false))))
-
-             (in (do async.monad
-                   [verdict (async.future
-                             (do io.monad
-                               [anonymous (/.actor [Nat
-                                                    initial_state]
-                                                   ((on_mail message state self)
-                                                    (message (++ state) self)))
-                                sent/++? (/.mail! ++! anonymous)
-                                sent/--? (/.mail! --! anonymous)
-                                poisoned? (/.poison! anonymous)
-                                obituary (/.obituary' anonymous)]
-                               (in (and (..mailed? sent/++?)
-                                        (..mailed? sent/--?)
-                                        (..mailed? poisoned?)
-                                        (case obituary
-                                          (pattern {.#Some [error final_state (list poison_pill)]})
-                                          (and (exception.match? /.poisoned error)
-                                               (n.= (++ (++ initial_state))
-                                                    final_state))
-                                          
-                                          _
-                                          false)))))]
-                   (_.coverage' [/.actor]
-                     verdict)))
              
              (do !
                [num_events (at ! each (|>> (n.% 10) ++) random.nat)
@@ -208,7 +180,7 @@
                (in (do async.monad
                      [agent (async.future
                              (do [! io.monad]
-                               [agent (/.actor [Nat 0])
+                               [agent (/.spawn! /.default 0)
                                 _ (/.observe! (function (_ event stop)
                                                 (function (_ events_seen self)
                                                   (async.future
