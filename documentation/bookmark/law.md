@@ -1,5 +1,6 @@
 # Reference
 
+0. [Text Prudent](https://textprudent.com/)
 0. [Reviewers Edition](https://reviewersedition.org/)
 0. [Legal Versioning: refined scheme for functional prose projects](https://writing.kemitchell.com/2022/05/28/Legal-Versioning)
 	0. [Legal Versioning](https://legalversioning.com/)

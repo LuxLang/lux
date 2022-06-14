@@ -10,6 +10,8 @@
      ["<[0]>" synthesis (.only Parser)]]]
    [data
     ["[0]" product]
+    [binary
+     ["[0]" \\format]]
     ["[0]" text (.open: "[1]#[0]" equivalence)
      ["%" \\format]
      ["<[1]>" \\parser]]
@@ -17,9 +19,7 @@
      ["[0]" list (.open: "[1]#[0]" monad mix monoid)]
      ["[0]" dictionary (.only Dictionary)]
      ["[0]" set (.only Set)]
-     ["[0]" sequence]]
-    ["[0]" format
-     ["[1]" binary]]]
+     ["[0]" sequence]]]
    [macro
     ["^" pattern]
     ["[0]" template]]
@@ -64,9 +64,10 @@
     [analysis
      ["/" jvm]]]
    ["/[1]" //
-    [analysis (.only Environment)]
     ["[1][0]" synthesis (.only Synthesis Path %synthesis)]
     ["[1][0]" generation]
+    [analysis (.only Environment)
+     ["[0]" complex]]
     [///
      ["[1]" phase]
      ["[1][0]" reference (.only)
@@ -846,6 +847,129 @@
       _
       <oops>)))
 
+(def: (without_fake_parameter#path without_fake_parameter)
+  (-> (-> Synthesis Synthesis)
+      (-> Path Path))
+  (function (again it)
+    (case it
+      (^.or {//////synthesis.#Pop}
+            {//////synthesis.#Access _})
+      it
+      
+      {//////synthesis.#Bind it}
+      {//////synthesis.#Bind (-- it)}
+      
+      {//////synthesis.#Bit_Fork when then else}
+      {//////synthesis.#Bit_Fork when
+                                 (again then)
+                                 (maybe#each again else)}
+
+      (^.with_template [<tag>]
+        [{<tag> [head tail]}
+         {<tag> [(revised //////synthesis.#then again head)
+                 (list#each (revised //////synthesis.#then again) tail)]}])
+      ([//////synthesis.#I64_Fork]
+       [//////synthesis.#F64_Fork]
+       [//////synthesis.#Text_Fork])
+      
+      (^.with_template [<tag>]
+        [{<tag> left right}
+         {<tag> (again left) (again right)}])
+      ([//////synthesis.#Seq]
+       [//////synthesis.#Alt])
+      
+      {//////synthesis.#Then it}
+      {//////synthesis.#Then (without_fake_parameter it)})))
+
+(def: .public (without_fake_parameter it)
+  (-> Synthesis Synthesis)
+  (case it
+    {//////synthesis.#Simple _}
+    it
+    
+    {//////synthesis.#Structure it}
+    {//////synthesis.#Structure
+     (case it
+       {complex.#Variant it}
+       {complex.#Variant (revised complex.#value without_fake_parameter it)}
+
+       {complex.#Tuple it}
+       {complex.#Tuple (list#each without_fake_parameter it)})}
+    
+    {//////synthesis.#Reference it}
+    {//////synthesis.#Reference
+     (case it
+       {//////reference.#Variable it}
+       {//////reference.#Variable
+        (case it
+          {//////variable.#Local it}
+          {//////variable.#Local (-- it)}
+          
+          {//////variable.#Foreign _}
+          it)}
+       
+       {//////reference.#Constant _}
+       it)}
+    
+    {//////synthesis.#Control it}
+    {//////synthesis.#Control
+     (case it
+       {//////synthesis.#Branch it}
+       {//////synthesis.#Branch
+        (case it
+          {//////synthesis.#Exec before after}
+          {//////synthesis.#Exec (without_fake_parameter before)
+                                 (without_fake_parameter after)}
+          
+          {//////synthesis.#Let value register body}
+          {//////synthesis.#Let (without_fake_parameter value)
+                                (-- register)
+                                (without_fake_parameter body)}
+          
+          {//////synthesis.#If when then else}
+          {//////synthesis.#If (without_fake_parameter when)
+                               (without_fake_parameter then)
+                               (without_fake_parameter else)}
+          
+          {//////synthesis.#Get members record}
+          {//////synthesis.#Get members
+                                (without_fake_parameter record)}
+          
+          {//////synthesis.#Case value path}
+          {//////synthesis.#Case (without_fake_parameter value)
+                                 (without_fake_parameter#path without_fake_parameter path)})}
+       
+       {//////synthesis.#Loop it}
+       {//////synthesis.#Loop
+        (case it
+          {//////synthesis.#Scope [//////synthesis.#start start
+                                   //////synthesis.#inits inits
+                                   //////synthesis.#iteration iteration]}
+          {//////synthesis.#Scope [//////synthesis.#start (-- start)
+                                   //////synthesis.#inits (list#each without_fake_parameter inits)
+                                   //////synthesis.#iteration iteration]}
+          
+          {//////synthesis.#Again _}
+          it)}
+       
+       {//////synthesis.#Function it}
+       {//////synthesis.#Function
+        (case it
+          {//////synthesis.#Abstraction [//////synthesis.#environment environment
+                                         //////synthesis.#arity arity
+                                         //////synthesis.#body body]}
+          {//////synthesis.#Abstraction [//////synthesis.#environment (list#each without_fake_parameter environment)
+                                         //////synthesis.#arity arity
+                                         //////synthesis.#body body]}
+          
+          {//////synthesis.#Apply [//////synthesis.#function function
+                                   //////synthesis.#arguments arguments]}
+          {//////synthesis.#Apply [//////synthesis.#function (without_fake_parameter function)
+                                   //////synthesis.#arguments (list#each without_fake_parameter arguments)]})})}
+
+    {//////synthesis.#Extension name parameters}
+    {//////synthesis.#Extension name (list#each without_fake_parameter parameters)}))
+
 (def: overriden_method_definition
   (Parser [(Environment Synthesis) (/.Overriden_Method Synthesis)])
   (<synthesis>.tuple (do <>.monad
@@ -863,12 +987,16 @@
                                                    (<synthesis>.loop (<>.exactly 0 <synthesis>.any))
                                                    <synthesis>.tuple
                                                    (<>.after <synthesis>.any)
-                                                   <synthesis>.any)]
+                                                   <synthesis>.any)
+                        .let [arity (list.size arguments)]]
                        (in [environment
                             [ownerT name
                              strict_fp? annotations vars
                              self_name arguments returnT exceptionsT
-                             (..hidden_method_body (list.size arguments) body)]]))))
+                             (<| (..hidden_method_body arity)
+                                 (case arity
+                                   0 (without_fake_parameter body)
+                                   _ body))]]))))
 
 (def: (normalize_path normalize)
   (-> (-> Synthesis Synthesis)
@@ -1222,7 +1350,7 @@
          methods! (|> overriden_methods
                       (list#each (normalized_method global_mapping))
                       (monad.each ! (method_definition generate archive artifact_id)))
-         bytecode (<| (at ! each (format.result class.writer))
+         bytecode (<| (at ! each (\\format.result class.writer))
                       //////.lifted
                       (class.class version.v6_0 (all modifier#composite class.public class.final)
                                    (name.internal anonymous_class_name)

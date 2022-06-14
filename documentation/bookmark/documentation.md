@@ -31,6 +31,7 @@
 
 # Philosophy
 
+0. [Documentation as practical empathy](https://developerrelations.com/developer-experience/documentation-as-practical-empathy)
 0. [What Makes Documentation Bad?](https://arunkprasad.com/log/what-makes-documentation-bad/)
 0. [Forget reusability, aim for perfection](https://www.openbsd.org/papers/bsdcan18-mandoc.pdf)
 0. https://increment.com/documentation/
@@ -55,6 +56,7 @@
 
 # Reference
 
+0. [Building a community of open-source documentation contributors](https://news.ycombinator.com/newest?next=31705868&n=1171)
 0. [Documentation in the Era of Concepts and Ranges - Christopher Di Bella & Sy Brand - CppCon 2021](https://www.youtube.com/watch?v=nm45t2fnUms)
 0. [conventional: comments](https://conventionalcomments.org/)
 0. [Architecture decision record (ADR)](https://github.com/joelparkerhenderson/architecture_decision_record)

@@ -67,7 +67,6 @@
 
 0. [Deft for Emacs](https://jblevins.org/projects/deft/)
 0. [Text Editing Hates You Too](https://lord.io/text-editing-hates-you-too/)
-0. [Build Your Own Text Editor](https://viewsourcecode.org/snaptoken/kilo/index.html)
 0. [On the design of text editors](https://arxiv.org/abs/2008.06030)
 0. [The Piece Table - the Unsung Hero of Your Text Editor](https://darrenburns.net/posts/piece-table/)
 0. [Build Your Own Text Editor](https://viewsourcecode.org/snaptoken/kilo/)

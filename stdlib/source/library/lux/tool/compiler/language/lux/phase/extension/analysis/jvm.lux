@@ -14,7 +14,8 @@
     ["<>" parser (.only)
      ["<[0]>" code (.only Parser)]]]
    [data
-    [binary (.only Binary)]
+    [binary (.only Binary)
+     ["[0]" \\format]]
     ["[0]" product]
     ["[0]" text (.open: "[1]#[0]" equivalence)
      ["%" \\format (.only format)]
@@ -23,9 +24,7 @@
      ["[0]" list (.open: "[1]#[0]" mix monad monoid)]
      ["[0]" array]
      ["[0]" dictionary (.only Dictionary)]
-     ["[0]" sequence]]
-    ["[0]" format
-     ["[1]" binary]]]
+     ["[0]" sequence]]]
    [macro
     ["^" pattern]
     ["[0]" template]]
@@ -79,6 +78,8 @@
       ["[0]" scope]]
      [///
       ["[0]" phase (.open: "[1]#[0]" monad)]
+      ["[0]" reference (.only)
+       ["[0]" variable]]
       [meta
        [archive (.only Archive)
         [module
@@ -2235,6 +2236,74 @@
                                  (/////analysis.tuple (list forced_refencing bodyA))]
                                 (list)]}))))
 
+(def: (with_fake_parameter#pattern it)
+  (-> pattern.Pattern pattern.Pattern)
+  (case it
+    {pattern.#Simple _}
+    it
+    
+    {pattern.#Complex it}
+    {pattern.#Complex
+     (case it
+       {complex.#Variant it}
+       {complex.#Variant (revised complex.#value with_fake_parameter#pattern it)}
+
+       {complex.#Tuple it}
+       {complex.#Tuple (list#each with_fake_parameter#pattern it)})}
+    
+    {pattern.#Bind it}
+    {pattern.#Bind (++ it)}))
+
+(def: (with_fake_parameter it)
+  (-> Analysis Analysis)
+  (case it
+    {/////analysis.#Simple _}
+    it
+
+    {/////analysis.#Structure it}
+    {/////analysis.#Structure
+     (case it
+       {complex.#Variant it}
+       {complex.#Variant (revised complex.#value with_fake_parameter it)}
+
+       {complex.#Tuple it}
+       {complex.#Tuple (list#each with_fake_parameter it)})}
+
+    {/////analysis.#Reference it}
+    {/////analysis.#Reference
+     (case it
+       {reference.#Variable it}
+       {reference.#Variable
+        (case it
+          {variable.#Local it}
+          {variable.#Local (++ it)}
+          
+          {variable.#Foreign _}
+          it)}
+       
+       {reference.#Constant _}
+       it)}
+    
+    {/////analysis.#Case value [head tail]}
+    {/////analysis.#Case (with_fake_parameter value)
+                         (let [with_fake_parameter (is (-> /////analysis.Branch /////analysis.Branch)
+                                                       (|>> (revised /////analysis.#when with_fake_parameter#pattern)
+                                                            (revised /////analysis.#then with_fake_parameter)))]
+                           [(with_fake_parameter head)
+                            (list#each with_fake_parameter tail)])}
+    
+    {/////analysis.#Function environment body}
+    {/////analysis.#Function (list#each with_fake_parameter environment)
+                             body}
+    
+    {/////analysis.#Apply parameter abstraction}
+    {/////analysis.#Apply (with_fake_parameter parameter)
+                          (with_fake_parameter abstraction)}
+    
+    {/////analysis.#Extension name parameters}
+    {/////analysis.#Extension name
+                              (list#each with_fake_parameter parameters)}))
+
 (def: .public (analyse_overriden_method analyse archive selfT mapping supers method)
   (-> Phase Archive .Type Mapping (List (Type Class)) (Overriden_Method Code) (Operation Analysis))
   (let [[parent_type method_name
@@ -2265,7 +2334,8 @@
                          list.reversed
                          (list#mix scope.with_local (analyse archive body))
                          (typeA.expecting :return:)
-                         scope.with)]
+                         scope.with)
+       .let [arity (list.size arguments)]]
       (in (/////analysis.tuple (list (/////analysis.text ..overriden_tag)
                                      (class_analysis parent_type)
                                      (/////analysis.text method_name)
@@ -2280,7 +2350,10 @@
                                      {/////analysis.#Function
                                       (list#each (|>> /////analysis.variable)
                                                  (scope.environment scope))
-                                      (..hidden_method_body (list.size arguments) bodyA)}
+                                      (<| (..hidden_method_body arity)
+                                          (case arity
+                                            0 (with_fake_parameter bodyA)
+                                            _ bodyA))}
                                      ))))))
 
 (def: (matched? [sub sub_method subJT] [super super_method superJT])
@@ -2394,7 +2467,7 @@
   (let [signature (signature.inheritance (list#each jvm.signature parameters)
                                          (jvm.signature super)
                                          (list#each jvm.signature interfaces))]
-    (try#each (|>> (format.result class.writer)
+    (try#each (|>> (\\format.result class.writer)
                    [name])
               (class.class version.v6_0
                            (all modifier#composite
