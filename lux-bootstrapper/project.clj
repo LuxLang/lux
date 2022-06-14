@@ -1,4 +1,4 @@
-(def version "0.6.5")
+(def version "0.6.6-SNAPSHOT")
 
 (defproject com.github.luxlang/lux-bootstrapper #=(identity version)
   :min-lein-version  "2.1.0" ;; 2.1.0 introduced jar classifiers
@@ -16,7 +16,7 @@
   :dependencies [[org.clojure/clojure "1.6.0"]
                  [org.clojure/core.match "0.2.1"]
 
-                 [com.github.luxlang/lux-jvm-function ~version]
+                 [com.github.luxlang/lux-jvm-function "0.6.5"]
                  
                  ;; Prefer when building JS compiler.
                  [org.ow2.asm/asm "7.3.1"]

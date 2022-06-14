@@ -26,46 +26,55 @@
               elemT <code>.any])
     (in (list (` [(~+ (list.repeated size elemT))])))))
 
-(type: .public (Nullary of) (-> (Vector 0 of) of))
-(type: .public (Unary of)   (-> (Vector 1 of) of))
-(type: .public (Binary of)  (-> (Vector 2 of) of))
-(type: .public (Trinary of) (-> (Vector 3 of) of))
-(type: .public (Variadic of) (-> (List of) of))
+(def: Arity
+  (template (_ arity)
+    [(All (_ of)
+       (-> (Vector arity of) of))]))
 
-(def: arity:
-  (syntax (_ [arity <code>.nat
-              name <code>.local
-              type <code>.any])
-    (with_symbols [g!_ g!extension g!name g!phase g!archive g!inputs g!of g!anchor g!expression g!directive]
+(def: arity
+  (syntax (_ [arity <code>.nat])
+    (with_symbols [g!_ g!extension g!name g!phase g!archive g!inputs g!anchor g!expression g!directive]
       (do [! meta.monad]
         [g!input+ (monad.all ! (list.repeated arity (macro.symbol "input")))]
-        (in (list (` (def: .public ((~ (code.local name)) (~ g!extension))
-                       (All ((~ g!_) (~ g!anchor) (~ g!expression) (~ g!directive))
-                         (-> ((~ type) (~ g!expression))
-                             (generation.Handler (~ g!anchor) (~ g!expression) (~ g!directive))))
-                       (function ((~ g!_) (~ g!name) (~ g!phase) (~ g!archive) (~ g!inputs))
-                         (case (~ g!inputs)
-                           (pattern (list (~+ g!input+)))
-                           (do ///.monad
-                             [(~+ (|> g!input+
-                                      (list#each (function (_ g!input)
-                                                   (list g!input (` ((~ g!phase) (~ g!archive) (~ g!input))))))
-                                      list.together))]
-                             ((~' in) ((~ g!extension) [(~+ g!input+)])))
+        (in (list (` (is (All ((~ g!_) (~ g!anchor) (~ g!expression) (~ g!directive))
+                           (-> ((Arity (~ (code.nat arity))) (~ g!expression))
+                               (generation.Handler (~ g!anchor) (~ g!expression) (~ g!directive))))
+                         (function ((~ g!_) (~ g!extension))
+                           (function ((~ g!_) (~ g!name) (~ g!phase) (~ g!archive) (~ g!inputs))
+                             (case (~ g!inputs)
+                               (pattern (list (~+ g!input+)))
+                               (do ///.monad
+                                 [(~+ (|> g!input+
+                                          (list#each (function (_ g!input)
+                                                       (list g!input (` ((~ g!phase) (~ g!archive) (~ g!input))))))
+                                          list.together))]
+                                 ((~' in) ((~ g!extension) [(~+ g!input+)])))
 
-                           (~ g!_)
-                           (///.except ///extension.incorrect_arity [(~ g!name) 1 (list.size (~ g!inputs))])))))))))))
+                               (~ g!_)
+                               (///.except ///extension.incorrect_arity [(~ g!name)
+                                                                         (~ (code.nat arity))
+                                                                         (list.size (~ g!inputs))]))
+                             ))))))))))
 
-(arity: 0 nullary ..Nullary)
-(arity: 1 unary ..Unary)
-(arity: 2 binary ..Binary)
-(arity: 3 trinary ..Trinary)
+(with_template [<arity> <type> <term>]
+  [(type: .public <type> (Arity <arity>))
+   (def: .public <term> (arity <arity>))]
+
+  [0 Nullary nullary]
+  [1 Unary unary]
+  [2 Binary binary]
+  [3 Trinary trinary]
+  )
+
+(type: .public (Variadic of)
+  (-> (List of) of))
 
 (def: .public (variadic extension)
   (All (_ anchor expression directive)
     (-> (Variadic expression) (generation.Handler anchor expression directive)))
   (function (_ extension_name)
     (function (_ phase archive inputsS)
-      (do [! ///.monad]
-        [inputsI (monad.each ! (phase archive) inputsS)]
-        (in (extension inputsI))))))
+      (let [! ///.monad]
+        (|> inputsS
+            (monad.each ! (phase archive))
+            (at ! each extension))))))
