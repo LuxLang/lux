@@ -376,7 +376,7 @@ Called by `imenu--generic-function'."
 							(type//checking (altRE "is" "as" "let" "as_expected" "type_of" "sharing" "by_example" "hole"))
 							(type//primitive (altRE "primitive:" "abstraction" "representation" "transmutation"))
 							(type//unit (altRE "unit:" "scale:"))
-							(type//poly (altRE "poly:"))
+							(type//poly (altRE "polytypic"))
 							(type//dynamic (altRE "dynamic" "static"))
 							(type//capability (altRE "capability:"))
 							;; Data
@@ -389,7 +389,7 @@ Called by `imenu--generic-function'."
 							(code//super-quotation (altRE "``" "~~"))
 							(code//template (altRE "with_template" "template"))
 							;; Miscellaneous
-							(jvm-host (altRE "import" "export" "class:" "interface:" "object" "do_to" "synchronized" "class_for"))
+							(jvm-host (altRE "import" "export" "class:" "interface" "object" "do_to" "synchronized" "class_for"))
 							(alternative-format (altRE "char" "bin" "oct" "hex"))
 							(documentation (altRE "comment" "documentation:"))
 							(function-application (altRE "|>" "<|" "left" "right" "all"))
@@ -579,18 +579,20 @@ This function also returns nil meaning don't specify the indentation."
 
 (define-lux-indent
   ("function" 'defun)
+  
   ("macro" 'defun)
   ("syntax" 'defun)
   ("template" 'defun)
-  ("message" 'defun)
+  ("polytypic" 'defun)
 
   ("analysis" 'defun)
   ("synthesis" 'defun)
   ("generation" 'defun)
   ("directive" 'defun)
 
-  (import 'defun)
-  (export 'defun)
+  ("interface" 'defun)
+  ("import" 'defun)
+  ("export" 'defun)
   
   (let 'defun)
   (case 'defun)
