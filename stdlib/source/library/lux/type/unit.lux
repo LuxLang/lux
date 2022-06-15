@@ -1,6 +1,6 @@
 (.using
  [library
-  [lux (.except)
+  [lux (.except type)
    ["[0]" meta]
    [abstract
     [monad (.only Monad do)]
@@ -13,7 +13,7 @@
    [data
     ["[0]" text (.only)
      ["%" \\format (.only format)]]]
-   [macro
+   ["[0]" macro (.only)
     ["[0]" code]
     ["[0]" template]
     [syntax (.only syntax)
@@ -22,20 +22,44 @@
     [number
      ["n" nat]
      ["i" int]
-     ["[0]" ratio (.only Ratio)]]]
-   [type
-    [primitive (.except)]]]])
+     ["[0]" ratio (.only Ratio)]]]]]
+ ["[0]" // (.only)
+  [primitive (.except)]])
 
 (primitive: .public (Qty unit)
   Int
-  
-  (def: in'
-    (All (_ unit) (-> Int (Qty unit)))
+
+  (type: .public Pure
+    (Qty Any))
+
+  (def: .public pure
+    (-> Int Pure)
     (|>> abstraction))
 
-  (def: out'
-    (All (_ unit) (-> (Qty unit) Int))
+  (def: .public number
+    (-> Pure Int)
     (|>> representation))
+
+  (def: .public equivalence
+    (All (_ unit) (Equivalence (Qty unit)))
+    (implementation
+     (def: (= reference sample)
+       (i.= (representation reference) (representation sample)))))
+
+  (def: .public order
+    (All (_ unit) (Order (Qty unit)))
+    (implementation
+     (def: equivalence ..equivalence)
+     
+     (def: (< reference sample)
+       (i.< (representation reference) (representation sample)))))
+
+  (def: .public enum
+    (All (_ unit) (Enum (Qty unit)))
+    (implementation
+     (def: order ..order)
+     (def: succ (|>> representation ++ abstraction))
+     (def: pred (|>> representation -- abstraction))))
 
   (with_template [<name> <op>]
     [(def: .public (<name> param subject)
@@ -56,14 +80,50 @@
     [* i.* p s [p s]]
     [/ i./ p [p s] s]
     )
+
+  (type: .public (Unit a)
+    (Interface
+     (is (-> Int (Qty a))
+         in)
+     (is (-> (Qty a) Int)
+         out)))
+
+  (def: .public (unit _)
+    (Ex (_ a) (-> Any (Unit a)))
+    (implementation
+     (def: in (|>> abstraction))
+     (def: out (|>> representation))))
+  
+  (def: in'
+    (All (_ unit) (-> Int (Qty unit)))
+    (|>> abstraction))
+
+  (def: out'
+    (All (_ unit) (-> (Qty unit) Int))
+    (|>> representation))
   )
 
-(type: .public (Unit a)
-  (Interface
-   (is (-> Int (Qty a))
-       in)
-   (is (-> (Qty a) Int)
-       out)))
+(def: .public type
+  (syntax (_ [it <code>.any])
+    (macro.with_symbols [g!a]
+      (in (list (` ((~! //.by_example) [(~ g!a)]
+                    (Unit (~ g!a))
+                    (~ it)
+
+                    (~ g!a))))))))
+
+(with_template [<unit> <type>]
+  [(def: .public <unit>
+     (..unit []))
+   
+   (type: .public <type>
+     (~ (..type <unit>)))]
+
+  [gram Gram]
+  [meter Meter]
+  [litre Litre]
+  [second Second]
+  )
 
 (type: .public (Scale s)
   (Interface
@@ -73,36 +133,6 @@
        de_scale)
    (is Ratio
        ratio)))
-
-(type: .public Pure
-  (Qty Any))
-
-(def: .public pure
-  (-> Int Pure)
-  ..in')
-
-(def: .public number
-  (-> Pure Int)
-  ..out')
-
-(def: .public unit:
-  (syntax (_ [[export_policy type_name unit_name]
-              (|export|.parser
-               (all <>.and
-                    <code>.local
-                    <code>.local))])
-    (do meta.monad
-      [@ meta.current_module_name
-       .let [g!type (code.local type_name)]]
-      (in (list (` (type: (~ export_policy) (~ g!type)
-                     (Primitive (~ (code.text (%.symbol [@ type_name]))))))
-
-                (` (def: (~ export_policy) (~ (code.local unit_name))
-                     (..Unit (~ g!type))
-                     (implementation
-                      (def: (~' in) (~! ..in'))
-                      (def: (~' out) (~! ..out')))))
-                )))))
 
 (def: scaleP
   (Parser Ratio)
@@ -174,34 +204,3 @@
   [Micro 1,000,000     1]
   [Nano  1,000,000,000 1]
   )
-
-(with_template [<type>]
-  [(`` (unit: .public <type>
-         (~~ (implementation_name <type>))))]
-
-  [Gram]
-  [Meter]
-  [Litre]
-  [Second]
-  )
-
-(def: .public equivalence
-  (All (_ unit) (Equivalence (Qty unit)))
-  (implementation
-   (def: (= reference sample)
-     (i.= (..out' reference) (..out' sample)))))
-
-(def: .public order
-  (All (_ unit) (Order (Qty unit)))
-  (implementation
-   (def: equivalence ..equivalence)
-   
-   (def: (< reference sample)
-     (i.< (..out' reference) (..out' sample)))))
-
-(def: .public enum
-  (All (_ unit) (Enum (Qty unit)))
-  (implementation
-   (def: order ..order)
-   (def: succ (|>> ..out' ++ ..in'))
-   (def: pred (|>> ..out' -- ..in'))))
