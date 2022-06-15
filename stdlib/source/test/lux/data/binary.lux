@@ -3,30 +3,401 @@
   [lux (.except)
    [ffi (.only)]
    ["_" test (.only Test)]
+   ["[0]" type]
    [abstract
     [equivalence (.only Equivalence)]
+    [predicate (.only Predicate)]
     ["[0]" monad (.only do)]
     ["[0]" enum]
     [\\specification
      ["$[0]" equivalence]
      ["$[0]" monoid]]]
    [control
+    ["<>" parser]
+    ["[0]" pipe]
+    ["[0]" maybe]
     ["[0]" try (.only Try)]
     ["[0]" exception (.only Exception)]]
    [data
+    ["[0]" sum]
+    ["[0]" bit]
+    ["[0]" text (.open: "[1]#[0]" equivalence)
+     ["%" \\format (.only format)]
+     [encoding
+      ["[0]" utf8]]]
     [collection
      ["[0]" list (.open: "[1]#[0]" functor)]
+     ["[0]" sequence]
+     ["[0]" set]
      [array
       [\\unsafe (.only)]]]]
+   [macro
+    ["^" pattern]
+    ["[0]" code]]
    [math
     ["[0]" random (.only Random)]
     [number
      ["n" nat]
-     ["[0]" i64]]]]]
+     ["[0]" i64]
+     ["[0]" int]
+     ["[0]" rev]
+     ["[0]" frac]]]
+   [meta
+    ["[0]" symbol]]]]
  [\\library
   ["[0]" / (.only) (.open: "[1]#[0]" equivalence)
    ["!" \\unsafe]
-   ["[0]" \\format]]])
+   ["[0]" \\format]
+   ["[0]" \\parser]]])
+
+(def: !expect
+  (template (_ <expectation> <computation>)
+    [(case <computation>
+       <expectation>
+       true
+
+       _
+       false)]))
+
+(def: segment_size 10)
+
+(def: (utf8_conversion_does_not_alter? value)
+  (Predicate Text)
+  (|> value
+      (at utf8.codec encoded)
+      (at utf8.codec decoded)
+      (pipe.case
+        {try.#Success converted}
+        (text#= value converted)
+        
+        {try.#Failure error}
+        false)))
+
+(def: random_text
+  (Random Text)
+  (random.only ..utf8_conversion_does_not_alter?
+               (random.unicode ..segment_size)))
+
+(def: random_symbol
+  (Random Symbol)
+  (random.and ..random_text ..random_text))
+
+(def: location_equivalence
+  (Equivalence Location)
+  (implementation
+   (def: (= [expected_module expected_line expected_column]
+            [sample_module sample_line sample_column])
+     (and (text#= expected_module sample_module)
+          (n.= expected_line sample_line)
+          (n.= expected_column sample_column)))))
+
+(def: random_location
+  (Random Location)
+  (all random.and
+       ..random_text
+       random.nat
+       random.nat))
+
+(def: random_code
+  (Random Code)
+  (random.rec
+   (function (_ again)
+     (let [random_sequence (do [! random.monad]
+                             [size (at ! each (n.% 2) random.nat)]
+                             (random.list size again))]
+       (all random.and
+            ..random_location
+            (is (Random (Code' (Ann Location)))
+                (all random.or
+                     random.bit
+                     random.nat
+                     random.int
+                     random.rev
+                     random.safe_frac
+                     ..random_text
+                     ..random_symbol
+                     random_sequence
+                     random_sequence
+                     random_sequence
+                     )))))))
+
+(def: random_type
+  (Random Type)
+  (let [(open "[0]") random.monad]
+    (all random.either
+         (in .Nat)
+         (in .List)
+         (in .Code)
+         (in .Type))))
+
+(def: size
+  Test
+  (<| (_.for [\\parser.Size])
+      (`` (all _.and
+               (~~ (with_template [<size> <parser> <format>]
+                     [(do [! random.monad]
+                        [expected (at ! each (i64.and (i64.mask <size>))
+                                      random.nat)]
+                        (_.coverage [<size> <parser> <format>]
+                          (|> (\\format.result <format> expected)
+                              (\\parser.result <parser>)
+                              (!expect (^.multi {try.#Success actual}
+                                                (n.= (.nat expected)
+                                                     (.nat actual)))))))]
+
+                     [\\parser.size_8 \\parser.bits_8 \\format.bits_8]
+                     [\\parser.size_16 \\parser.bits_16 \\format.bits_16]
+                     [\\parser.size_32 \\parser.bits_32 \\format.bits_32]
+                     [\\parser.size_64 \\parser.bits_64 \\format.bits_64]
+                     ))))))
+
+(def: binary
+  Test
+  (`` (all _.and
+           (~~ (with_template [<parser> <format>]
+                 [(do [! random.monad]
+                    [expected (at ! each (at utf8.codec encoded) (random.ascii ..segment_size))]
+                    (_.coverage [<parser> <format>]
+                      (|> (\\format.result <format> expected)
+                          (\\parser.result <parser>)
+                          (!expect (^.multi {try.#Success actual}
+                                            (at /.equivalence = expected actual))))))]
+
+                 [\\parser.binary_8 \\format.binary_8]
+                 [\\parser.binary_16 \\format.binary_16]
+                 [\\parser.binary_32 \\format.binary_32]
+                 [\\parser.binary_64 \\format.binary_64]
+                 )))))
+
+(def: utf8
+  Test
+  (`` (all _.and
+           (~~ (with_template [<parser> <format>]
+                 [(do [! random.monad]
+                    [expected (random.ascii ..segment_size)]
+                    (_.coverage [<parser> <format>]
+                      (|> (\\format.result <format> expected)
+                          (\\parser.result <parser>)
+                          (!expect (^.multi {try.#Success actual}
+                                            (at text.equivalence = expected actual))))))]
+
+                 [\\parser.utf8_8 \\format.utf8_8]
+                 [\\parser.utf8_16 \\format.utf8_16]
+                 [\\parser.utf8_32 \\format.utf8_32]
+                 [\\parser.utf8_64 \\format.utf8_64]
+                 [\\parser.text \\format.text]
+                 )))))
+
+(def: sequence
+  Test
+  (`` (all _.and
+           (~~ (with_template [<parser> <format>]
+                 [(do [! random.monad]
+                    [expected (random.sequence ..segment_size random.nat)]
+                    (_.coverage [<parser> <format>]
+                      (|> expected
+                          (\\format.result (<format> \\format.nat))
+                          (\\parser.result (<parser> \\parser.nat))
+                          (!expect (^.multi {try.#Success actual}
+                                            (at (sequence.equivalence n.equivalence) = expected actual))))))]
+
+                 [\\parser.sequence_8 \\format.sequence_8]
+                 [\\parser.sequence_16 \\format.sequence_16]
+                 [\\parser.sequence_32 \\format.sequence_32]
+                 [\\parser.sequence_64 \\format.sequence_64]
+                 )))))
+
+(def: simple
+  Test
+  (`` (all _.and
+           (~~ (with_template [<parser> <format> <random> <equivalence>]
+                 [(do [! random.monad]
+                    [expected <random>]
+                    (_.coverage [<parser> <format>]
+                      (|> expected
+                          (\\format.result <format>)
+                          (\\parser.result <parser>)
+                          (!expect (^.multi {try.#Success actual}
+                                            (at <equivalence> = expected actual))))))]
+
+                 [\\parser.bit \\format.bit random.bit bit.equivalence]
+                 [\\parser.nat \\format.nat random.nat n.equivalence]
+                 [\\parser.int \\format.int random.int int.equivalence]
+                 [\\parser.rev \\format.rev random.rev rev.equivalence]))
+           (do [! random.monad]
+             [expected random.frac]
+             (_.coverage [\\parser.frac \\format.frac]
+               (|> expected
+                   (\\format.result \\format.frac)
+                   (\\parser.result \\parser.frac)
+                   (!expect (^.multi {try.#Success actual}
+                                     (or (at frac.equivalence = expected actual)
+                                         (and (frac.not_a_number? expected)
+                                              (frac.not_a_number? actual))))))))
+           (do [! random.monad]
+             [expected (at ! each (|>> (i64.and (i64.mask \\parser.size_8))
+                                       (n.max 2))
+                           random.nat)]
+             (_.coverage [\\parser.not_a_bit]
+               (|> expected
+                   (\\format.result \\format.bits_8)
+                   (\\parser.result \\parser.bit)
+                   (!expect (^.multi {try.#Failure error}
+                                     (exception.match? \\parser.not_a_bit error))))))
+           )))
+
+(def: complex
+  Test
+  (`` (all _.and
+           (~~ (with_template [<parser> <format> <random> <equivalence>]
+                 [(do [! random.monad]
+                    [expected <random>]
+                    (_.coverage [<parser> <format>]
+                      (|> expected
+                          (\\format.result <format>)
+                          (\\parser.result <parser>)
+                          (!expect (^.multi {try.#Success actual}
+                                            (at <equivalence> = expected actual))))))]
+
+                 [\\parser.location \\format.location random_location location_equivalence]
+                 [\\parser.code \\format.code random_code code.equivalence]
+                 [\\parser.type \\format.type random_type type.equivalence]
+                 ))
+           (~~ (with_template [<parser_coverage> <parser> <coverage_format> <format> <random> <equivalence>]
+                 [(do [! random.monad]
+                    [expected <random>]
+                    (_.coverage [<parser_coverage> <coverage_format>]
+                      (|> expected
+                          (\\format.result <format>)
+                          (\\parser.result <parser>)
+                          (!expect (^.multi {try.#Success actual}
+                                            (at <equivalence> = expected actual))))))]
+
+                 [\\parser.maybe (\\parser.maybe \\parser.nat) \\format.maybe (\\format.maybe \\format.nat) (random.maybe random.nat) (maybe.equivalence n.equivalence)]
+                 [\\parser.list (\\parser.list \\parser.nat) \\format.list (\\format.list \\format.nat) (random.list ..segment_size random.nat) (list.equivalence n.equivalence)]
+                 [\\parser.set (\\parser.set n.hash \\parser.nat) \\format.set (\\format.set \\format.nat) (random.set n.hash ..segment_size random.nat) set.equivalence]
+                 [\\parser.symbol \\parser.symbol \\format.symbol \\format.symbol ..random_symbol symbol.equivalence]))
+           (do [! random.monad]
+             [expected (at ! each (list.repeated ..segment_size) random.nat)]
+             (_.coverage [\\parser.set_elements_are_not_unique]
+               (|> expected
+                   (\\format.result (\\format.list \\format.nat))
+                   (\\parser.result (\\parser.set n.hash \\parser.nat))
+                   (!expect (^.multi {try.#Failure error}
+                                     (exception.match? \\parser.set_elements_are_not_unique error))))))
+           (do [! random.monad]
+             [expected (random.or random.bit random.nat)]
+             (_.coverage [\\parser.or \\format.or]
+               (|> expected
+                   (\\format.result (\\format.or \\format.bit \\format.nat))
+                   (\\parser.result (is (\\parser.Parser (Either Bit Nat))
+                                        (\\parser.or \\parser.bit \\parser.nat)))
+                   (!expect (^.multi {try.#Success actual}
+                                     (at (sum.equivalence bit.equivalence n.equivalence) =
+                                         expected
+                                         actual))))))
+           (do [! random.monad]
+             [tag (at ! each (|>> (i64.and (i64.mask \\parser.size_8))
+                                  (n.max 2))
+                      random.nat)
+              value random.bit]
+             (_.coverage [\\parser.invalid_tag]
+               (|> [tag value]
+                   (\\format.result (\\format.and \\format.bits_8 \\format.bit))
+                   (\\parser.result (is (\\parser.Parser (Either Bit Nat))
+                                        (\\parser.or \\parser.bit \\parser.nat)))
+                   (!expect (^.multi {try.#Failure error}
+                                     (exception.match? \\parser.invalid_tag error))))))
+           (do [! random.monad]
+             [expected (random.list ..segment_size random.nat)]
+             (_.coverage [\\parser.rec \\format.rec \\format.and \\format.any]
+               (|> expected
+                   (\\format.result (\\format.rec (|>> (\\format.and \\format.nat)
+                                                       (\\format.or \\format.any))))
+                   (\\parser.result (is (\\parser.Parser (List Nat))
+                                        (\\parser.rec
+                                         (function (_ again)
+                                           (\\parser.or \\parser.any
+                                                        (<>.and \\parser.nat
+                                                                again))))))
+                   (!expect (^.multi {try.#Success actual}
+                                     (at (list.equivalence n.equivalence) =
+                                         expected
+                                         actual))))))
+           )))
+
+(def: \\parser
+  Test
+  (<| (_.covering \\parser._)
+      (_.for [\\parser.Parser])
+      (`` (all _.and
+               (_.coverage [\\parser.result \\parser.any
+                            \\format.no_op \\format.instance]
+                 (|> (\\format.instance \\format.no_op)
+                     (\\parser.result \\parser.any)
+                     (!expect {try.#Success _})))
+               (do [! random.monad]
+                 [data (at ! each (at utf8.codec encoded) (random.ascii ..segment_size))]
+                 (_.coverage [\\parser.binary_was_not_fully_read]
+                   (|> data
+                       (\\parser.result \\parser.any)
+                       (!expect (^.multi {try.#Failure error}
+                                         (exception.match? \\parser.binary_was_not_fully_read error))))))
+               (do [! random.monad]
+                 [expected (at ! each (at utf8.codec encoded) (random.ascii ..segment_size))]
+                 (_.coverage [\\parser.segment \\format.segment \\format.result]
+                   (|> expected
+                       (\\format.result (\\format.segment ..segment_size))
+                       (\\parser.result (\\parser.segment ..segment_size))
+                       (!expect (^.multi {try.#Success actual}
+                                         (at /.equivalence = expected actual))))))
+               (do [! random.monad]
+                 [data (at ! each (at utf8.codec encoded) (random.ascii ..segment_size))]
+                 (_.coverage [\\parser.end?]
+                   (|> data
+                       (\\parser.result (do <>.monad
+                                          [pre \\parser.end?
+                                           _ (\\parser.segment ..segment_size)
+                                           post \\parser.end?]
+                                          (in (and (not pre)
+                                                   post))))
+                       (!expect {try.#Success #1}))))
+               (do [! random.monad]
+                 [to_read (at ! each (n.% (++ ..segment_size)) random.nat)
+                  data (at ! each (at utf8.codec encoded) (random.ascii ..segment_size))]
+                 (_.coverage [\\parser.Offset \\parser.offset]
+                   (|> data
+                       (\\parser.result (do <>.monad
+                                          [start \\parser.offset
+                                           _ (\\parser.segment to_read)
+                                           offset \\parser.offset
+                                           _ (\\parser.segment (n.- to_read ..segment_size))
+                                           nothing_left \\parser.offset]
+                                          (in (and (n.= 0 start)
+                                                   (n.= to_read offset)
+                                                   (n.= ..segment_size nothing_left)))))
+                       (!expect {try.#Success #1}))))
+               (do [! random.monad]
+                 [to_read (at ! each (n.% (++ ..segment_size)) random.nat)
+                  data (at ! each (at utf8.codec encoded) (random.ascii ..segment_size))]
+                 (_.coverage [\\parser.remaining]
+                   (|> data
+                       (\\parser.result (do <>.monad
+                                          [_ (\\parser.segment to_read)
+                                           remaining \\parser.remaining
+                                           _ (\\parser.segment (n.- to_read ..segment_size))
+                                           nothing_left \\parser.remaining]
+                                          (in (and (n.= ..segment_size
+                                                        (n.+ to_read remaining))
+                                                   (n.= 0 nothing_left)))))
+                       (!expect {try.#Success #1}))))
+               ..size
+               ..binary
+               ..utf8
+               ..sequence
+               ..simple
+               ..complex
+               ))))
 
 (def: equivalence
   (Equivalence \\format.Specification)
@@ -263,4 +634,5 @@
 
              ..test|unsafe
              ..\\format
+             ..\\parser
              ))))
