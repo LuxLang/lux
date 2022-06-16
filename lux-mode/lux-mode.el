@@ -596,6 +596,9 @@ This function also returns nil meaning don't specify the indentation."
 
   ("comment" 'defun)
   ("documentation" 'defun)
+
+  ("sharing" 'defun)
+  ("by_example" 'defun)
   
   (let 'defun)
   (case 'defun)
