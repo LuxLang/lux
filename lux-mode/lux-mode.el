@@ -374,7 +374,7 @@ Called by `imenu--generic-function'."
 												 "Interface"
 												 "type"))
 							(type//checking (altRE "is" "as" "let" "as_expected" "type_of" "sharing" "by_example" "hole"))
-							(type//primitive (altRE "primitive:" "abstraction" "representation" "transmutation"))
+							(type//primitive (altRE "primitive" "abstraction" "representation" "transmutation"))
 							(type//poly (altRE "polytypic"))
 							(type//dynamic (altRE "dynamic" "static"))
 							(type//capability (altRE "capability:"))
@@ -390,7 +390,7 @@ Called by `imenu--generic-function'."
 							;; Miscellaneous
 							(jvm-host (altRE "import" "export" "class" "interface" "object" "do_to" "synchronized" "class_for"))
 							(alternative-format (altRE "char" "bin" "oct" "hex"))
-							(documentation (altRE "comment" "documentation:"))
+							(documentation (altRE "comment" "documentation"))
 							(function-application (altRE "|>" "<|" "left" "right" "all"))
 							(function-definition (altRE "function" "|>>" "<<|"))
 							(remember (altRE "remember" "to_do" "fix_me"))
@@ -583,6 +583,7 @@ This function also returns nil meaning don't specify the indentation."
   ("template" 'defun)
   ("polytypic" 'defun)
 
+  ("primitive" 'defun)
   ("analysis" 'defun)
   ("synthesis" 'defun)
   ("generation" 'defun)
@@ -592,6 +593,9 @@ This function also returns nil meaning don't specify the indentation."
   ("interface" 'defun)
   ("import" 'defun)
   ("export" 'defun)
+
+  ("comment" 'defun)
+  ("documentation" 'defun)
   
   (let 'defun)
   (case 'defun)
@@ -607,7 +611,6 @@ This function also returns nil meaning don't specify the indentation."
   (synchronized 'defun)
   (object 'defun)
   (do_to 'defun)
-  (comment 'defun)
   (remember 'defun)
   (to_do 'defun)
   (fix_me 'defun)
