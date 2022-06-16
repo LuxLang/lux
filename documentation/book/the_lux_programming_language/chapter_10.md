@@ -130,7 +130,7 @@ The beautiful thing is that `(' (you can use the "'" #macro [to generate {arbitr
 ... Hygienic quasi-quotation as a macro.
 ... Unquote (~) and unquote-splice (~+) must also be used as forms.
 ... All unprefixed symbols will receive their parent module's prefix if imported; otherwise will receive the prefix of the module on which the quasi-quote is being used.
-(` (def: (~ name)
+(` (def (~ name)
      (function ((~ name) (~+ args))
        (~ body))))
 ```
@@ -154,7 +154,7 @@ With these tools, you can introduce a lot of complexity and customization into y
 ```clojure
 ... Unhygienic quasi-quotation as a macro.
 ... Unquote (~) and unquote-splice (~+) must also be used as forms.
-(`' (def: (~ name)
+(`' (def (~ name)
       (function ((~ name) (~+ args))
         (~ body))))
 ```

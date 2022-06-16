@@ -51,7 +51,7 @@ The result is that, through the `do` macro, you can implement complex concurrent
 If you're curious about how that looks, take a peek:
 
 ```clojure
-(def: .public (and left right)
+(def .public (and left right)
   (All (_ a b) (-> (Async a) (Async b) (Async [a b])))
   (do monad
     [a left

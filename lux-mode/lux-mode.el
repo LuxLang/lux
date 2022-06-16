@@ -395,7 +395,7 @@ Called by `imenu--generic-function'."
 							(function-definition (altRE "function" "|>>" "<<|"))
 							(remember (altRE "remember" "to_do" "fix_me"))
 							(definition (altRE "\\.using"
-											   "def:" "type:" "program:" "inline:"
+											   "def" "inlined" "type:" "program:"
 											   "macro" "syntax"
 											   "exception:"
 											   "analysis" "synthesis" "generation" "directive")))
@@ -583,6 +583,8 @@ This function also returns nil meaning don't specify the indentation."
   ("template" 'defun)
   ("polytypic" 'defun)
 
+  ("def" 'defun)
+  ("inlined" 'defun)
   ("primitive" 'defun)
   ("analysis" 'defun)
   ("synthesis" 'defun)

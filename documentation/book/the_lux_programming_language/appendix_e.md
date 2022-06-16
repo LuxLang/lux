@@ -93,7 +93,7 @@ Here are some examples from the `library/lux/ffi` module, where I have some type
    {#ProtectedP}
    {#DefaultP}))
 
-(def: privacy_modifier^
+(def privacy_modifier^
   (Parser Privacy)
   (let [(^open "[0]") <>.monad]
     ($_ <>.or
@@ -121,7 +121,7 @@ Here's an example of `<>.and` in action:
   [Text (Type Value)])
 
 ... From library/lux/ffi
-(def: (argument^ type_vars)
+(def (argument^ type_vars)
   (-> (List (Type Var)) (Parser Argument))
   (<code>.tuple (<>.and <code>.local_symbol
                         (..type^ type_vars))))

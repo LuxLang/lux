@@ -100,7 +100,7 @@ We can see its power by looking at some examples.
 For instance, the `factorial'` function you saw in the previous chapter could have been written like this:
 
 ```clojure
-(def: (factorial' acc n)
+(def (factorial' acc n)
   (-> Nat Nat Nat)
   (case n
     0 acc
@@ -121,7 +121,7 @@ The _"default"_ branch works because we're binding the value of `n` onto a varia
 However, since it is binding a variable, that means we could have used `_` instead of `n` during our calculations; like this:
 
 ```clojure
-(def: (factorial' acc n)
+(def (factorial' acc n)
   (-> Nat Nat Nat)
   (case n
     0 acc
@@ -221,7 +221,7 @@ Recursion is nothing more than the capacity for a function to call itself (often
 It's not hard to see how this mechanism can be used to loop in any way you want, and we've already seen examples of recursion in action.
 
 ```clojure
-(def: (factorial' acc n)
+(def (factorial' acc n)
   (-> Nat Nat Nat)
   (if (n.= 0 n)
     acc
@@ -241,7 +241,7 @@ Our example `factorial'` function has its recursive call in the _tail position_ 
 This alternative doesn't:
 
 ```clojure
-(def: (factorial' acc n)
+(def (factorial' acc n)
   (-> Nat Nat Nat)
   (if (n.= 0 n)
     acc
@@ -269,7 +269,7 @@ Lux also offers a macro that gives you a slightly similar experience to those ki
 To see it in action, let's rewrite (once more!) our `factorial` function:
 
 ```clojure
-(def: (factorial n)
+(def (factorial n)
   (-> Nat Nat)
   (loop [acc 1
          n n]
@@ -346,7 +346,7 @@ Well, we haven't really seen that in action yet.
 It's time to put that theory into practice... with an example:
 
 ```clojure
-(def: (iterate_list f list)
+(def (iterate_list f list)
   (All (_ a b) (-> (-> a b) (List a) (List b)))
   (case list
     {.#End}

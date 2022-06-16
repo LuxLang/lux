@@ -62,7 +62,7 @@ The possibilities are endless when it comes to the refinement you can do, and wh
 
 ```clojure
 ... Allows you to simultaneously bind and de-structure a value.
-(def: (hash (^@ set [element_hash _]))
+(def (hash (^@ set [element_hash _]))
   (list#mix (function (_ elem acc)
               (n.+ (# element_hash hash elem) acc))
             0
@@ -74,7 +74,7 @@ The possibilities are endless when it comes to the refinement you can do, and wh
 ```clojure
 ... Same as the "open" macro, but meant to be used as a pattern-matching macro for generating local bindings.
 ... Can optionally take an aliasing text for the generated local bindings.
-(def: .public (range (^open "[0]") from to)
+(def .public (range (^open "[0]") from to)
   (All (_ a) (-> (Enum a) a a (List a)))
   (range' <= succ from to))
 ```
@@ -95,7 +95,7 @@ It's excellent when taking structures as function arguments, or when opening str
    {#Friday}
    {#Saturday}))
 
-(def: (weekend? day)
+(def (weekend? day)
   (-> Day Bit)
   (case day
     (^or {#Saturday} {#Sunday})
@@ -111,7 +111,7 @@ It's a real time-saver.
 
 ```clojure
 ... It's similar to do-template, but meant to be used during pattern-matching.
-(def: (beta_reduce env type)
+(def (beta_reduce env type)
   (-> (List Type) Type Type)
   (case type
     {.#Primitive name params}

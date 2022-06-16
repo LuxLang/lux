@@ -102,9 +102,9 @@ Let's take a look at how you make one:
 (implementation: .public order
   (Order Frac)
   
-  (def: &equivalence ..equivalence)
+  (def &equivalence ..equivalence)
   
-  (def: < ..<))
+  (def < ..<))
 ```
 
 This implementation comes from `library/lux/math/number/frac`.
@@ -120,10 +120,10 @@ Here is another example, from the `library/lux/data/collection/list` module:
   (All (_ a)
     (Monoid (List a)))
     
-  (def: identity
+  (def identity
     {.#End})
   
-  (def: (compose xs ys)
+  (def (compose xs ys)
     (case xs
       {.#End}        ys
       {.#Item x xs'} {.#Item x (compose xs' ys)})))
@@ -166,8 +166,8 @@ Let's check them out.
 (open library/lux/math/number/int.order "i::[0]")
 
 ... Will generate:
-(def: .private i::= (# library/lux/math/number/int.order =))
-(def: .private i::< (# library/lux/math/number/int.order <))
+(def .private i::= (# library/lux/math/number/int.order =))
+(def .private i::< (# library/lux/math/number/int.order <))
 ```
 
 The `open:` macro serves as a directive that creates private/un-exported definitions in your module for every member of a particular implementation.
@@ -206,7 +206,7 @@ I can't emphasize enough that _implementations_ are values.
 And to exemplify it for you, here's a function from the `library/lux/abstract/monad` module that takes in an implementation (among other things) and uses it within its code:
 
 ```clojure
-(def: .public (each monad f xs)
+(def .public (each monad f xs)
   (All (_ M a b)
     (-> (Monad M) (-> a (M b)) (List a) (M (List b))))
   (case xs

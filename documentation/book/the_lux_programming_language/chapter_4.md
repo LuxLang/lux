@@ -52,7 +52,7 @@ How do we use the `plus_two` function without having to inline its definition (l
 Well, we just need to define it!
 
 ```clojure
-(def: plus_two
+(def plus_two
   (: (-> Nat Nat)
      (function (_ x)
        (++ (++ x)))))
@@ -61,13 +61,13 @@ Well, we just need to define it!
 Or, alternatively:
 
 ```clojure
-(def: plus_two
+(def plus_two
   (-> Nat Nat)
   (function (_ x)
     (++ (++ x))))
 ```
 
-Notice how the `def:` macro can take the type of its value before the value itself, so we don't need to wrap it in the type-annotation `:` macro.
+Notice how the `def` macro can take the type of its value before the value itself, so we don't need to wrap it in the type-annotation `:` macro.
 
 Now, we can use the square function more conveniently.
 
@@ -78,15 +78,15 @@ Now, we can use the square function more conveniently.
 
 Nice!
 
-Also, I forgot to mention another form of the `def:` macro which is even more convenient:
+Also, I forgot to mention another form of the `def` macro which is even more convenient:
 
 ```clojure
-(def: (plus_two x)
+(def (plus_two x)
   (-> Nat Nat)
   (++ (++ x)))
 ```
 
-The `def:` macro is very versatile, and it allows us to define constants and functions.
+The `def` macro is very versatile, and it allows us to define constants and functions.
 
 If you omit the type, the compiler will try to infer it for you, and you will get an error if there are any ambiguities.
 
@@ -103,13 +103,13 @@ Functions, of course, can take more than one argument, and you can even refer to
 Check this one out:
 
 ```clojure
-(def: (factorial' acc n)
+(def (factorial' acc n)
   (-> Nat Nat Nat)
   (if (n.= 0 n)
     acc
     (factorial' (n.* n acc) (-- n))))
 
-(def: (factorial n)
+(def (factorial n)
   (-> Nat Nat)
   (factorial' 1 n))
 ```
@@ -155,7 +155,7 @@ This means that if a function takes N arguments, and you give it M arguments, wh
 That means, our factorial function could have been implemented like this:
 
 ```clojure
-(def: factorial
+(def factorial
   (-> Nat Nat)
   (factorial' 1))
 ```
@@ -163,7 +163,7 @@ That means, our factorial function could have been implemented like this:
 Or, to make it shorter:
 
 ```clojure
-(def: factorial (factorial' 1))
+(def factorial (factorial' 1))
 ```
 
 Nice, huh?

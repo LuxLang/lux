@@ -100,11 +100,11 @@ To know how tests work, let's take a look at one of those modules.
   [\\library
    ["[0]" /]])
 
-(def: (injection value)
+(def (injection value)
   (Injection /.Stack)
   (/.top value /.empty))
 
-(def: .public test
+(def .public test
   Test
   (<| (_.covering /._)
       (_.for [/.Stack])

@@ -100,7 +100,7 @@ And the other is meant for when the changes are so massive, you might as well ju
 First, let's go with the smaller mechanism:
 
 ```clojure
-(def: js "JavaScript")
+(def js "JavaScript")
 
 (for ["JVM" (do jvm stuff)
       ..js (do js stuff)]
@@ -129,7 +129,7 @@ The module `library/lux/target` contains constants with the names of currently s
 To give you an example of `for` in action, here is a definition from the `library/lux/data/text` module:
 
 ```clojure
-(def: .public (replaced pattern replacement template)
+(def .public (replaced pattern replacement template)
   (-> Text Text Text Text)
   (for [@.old
         (:as Text

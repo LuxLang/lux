@@ -138,7 +138,7 @@ There is also the special **^or** macro, which introduces *or patterns*:
     {#Sunday})))
 
 ... Returns TRUE if it's either Saturday OR Sunday.
-(def: (weekend? day)
+(def (weekend? day)
   (-> Weekday Bit)
   (case day
     (^or {#Saturday}

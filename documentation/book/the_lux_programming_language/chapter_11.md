@@ -104,7 +104,7 @@ Here is an example:
      {#Unary Code Infix}
      {#Binary Infix Code Infix})))
 
-(def: literal
+(def literal
   (Parser Code)
   ($_ <>.either
       (<>#each code.bit <code>.bit)
@@ -115,7 +115,7 @@ Here is an example:
       (<>#each code.text <code>.text)
       (<>#each code.symbol <code>.symbol)))
 
-(def: expression
+(def expression
   (Parser Infix)
   (<| <>.rec (function (_ expression))
       ($_ <>.or
@@ -139,7 +139,7 @@ And here are some examples of syntax macros:
 ```clojure
 ... Also from library/lux/math/infix.
 
-(def: (prefix infix)
+(def (prefix infix)
   (-> Infix Code)
   (case infix
     {#Const value}

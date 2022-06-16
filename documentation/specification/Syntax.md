@@ -124,7 +124,7 @@ For example:
 
 * `(this #is "a" valid.form)`
 * `(+ 123 456)`
-* `(def: my-constant +3.14)`
+* `(def my-constant +3.14)`
 
 # Tuple
 
@@ -136,7 +136,7 @@ For example:
 
 * `[this #is "a" valid.form]`
 * `[+ 123 456]`
-* `[def: my-constant +3.14]`
+* `[def my-constant +3.14]`
 
 # Record
 
@@ -148,7 +148,7 @@ For example:
 
 * `{this #is "a" valid.form}`
 * `{+ [123 456]}`
-* `{def: {my-constant +3.14}}`
+* `{def {my-constant +3.14}}`
 
 Because pairs of syntax tokens are expected, _the number of elements in a record must always be an **even** number_.
 

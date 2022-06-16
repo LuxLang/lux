@@ -76,7 +76,7 @@ Here is its `Functor` implementation.
 (implementation: .public functor
   (Functor Maybe)
   
-  (def: (each f ma)
+  (def (each f ma)
     (case ma
       {.#None}   {.#None}
       {.#Some a} {.#Some (f a)})))
@@ -107,7 +107,7 @@ Turns out, that's just the `Functor` implementation from `library/lux/data/colle
 (implementation: .public functor
   (Functor List)
   
-  (def: (each f ma)
+  (def (each f ma)
     (case ma
       {.#End}        {.#End}
       {.#Item a ma'} {.#Item (f a) (each f ma')})))
@@ -175,7 +175,7 @@ Here are the relevant `Functor` and `Monad` implementations:
 (implementation: .public functor
   (Functor Try)
   
-  (def: (each f ma)
+  (def (each f ma)
     (case ma
       {#Failure msg}
       {#Failure msg}
@@ -186,12 +186,12 @@ Here are the relevant `Functor` and `Monad` implementations:
 (implementation: .public monad
   (Monad Try)
   
-  (def: &functor ..functor)
+  (def &functor ..functor)
 
-  (def: (in a)
+  (def (in a)
     {#Success a})
 
-  (def: (join mma)
+  (def (join mma)
     (case mma
       {#Failure msg}
       {#Failure msg}
@@ -235,7 +235,7 @@ Not really. It's just the `Monad` for `List`:
 (implementation: .public functor
   (Functor List)
   
-  (def: (each f ma)
+  (def (each f ma)
     (case ma
       {.#End}
       {.#End}
@@ -246,7 +246,7 @@ Not really. It's just the `Monad` for `List`:
 (implementation: .public mix
   (Mix List)
   
-  (def: (mix f init xs)
+  (def (mix f init xs)
     (case xs
       {.#End}
       init
@@ -257,10 +257,10 @@ Not really. It's just the `Monad` for `List`:
 (implementation: .public monoid
   (All (_ a) (Monoid (List a)))
   
-  (def: identity
+  (def identity
     {.#End})
     
-  (def: (composite xs ys)
+  (def (composite xs ys)
     (case xs
       {.#End}
       ys
@@ -273,12 +273,12 @@ Not really. It's just the `Monad` for `List`:
 (implementation: .public monad
   (Monad List)
   
-  (def: &functor ..functor)
+  (def &functor ..functor)
 
-  (def: (in a)
+  (def (in a)
     {.#Item a {.#End}})
 
-  (def: (conjoint list_of_lists)
+  (def (conjoint list_of_lists)
     (mix composite
          identity
          (reversed list_of_lists))))
