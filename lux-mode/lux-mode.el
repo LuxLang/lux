@@ -375,7 +375,6 @@ Called by `imenu--generic-function'."
 												 "type"))
 							(type//checking (altRE "is" "as" "let" "as_expected" "type_of" "sharing" "by_example" "hole"))
 							(type//primitive (altRE "primitive:" "abstraction" "representation" "transmutation"))
-							(type//unit (altRE "scale:"))
 							(type//poly (altRE "polytypic"))
 							(type//dynamic (altRE "dynamic" "static"))
 							(type//capability (altRE "capability:"))
@@ -407,7 +406,6 @@ Called by `imenu--generic-function'."
 							  (type (altRE type//syntax
 										   type//checking
 										   type//primitive
-										   type//unit
 										   type//poly
 										   type//dynamic
 										   type//capability))

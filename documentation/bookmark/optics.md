@@ -1,5 +1,6 @@
 # Reference
 
+0. [Existential optics](https://www.tweag.io/blog/2022-05-05-existential-optics/)
 0. [Optics vs Lenses, Operationally](https://www.brunogavranovic.com/posts/2022-02-10-optics-vs-lenses-operationally.html)
 0. [Optics By Example](https://leanpub.com/optics-by-example)
 0. [Profunctor optics, a categorical update](https://arxiv.org/abs/2001.07488)

@@ -20,6 +20,7 @@
 
 # Reference
 
+0. [Traces vs. Snapshots: Print Statements and Debuggers](https://www.scott-a-s.com/traces-vs-snapshots/)
 0. [Unobtrusive runtime warnings for libraries](https://www.pointfree.co/blog/posts/70-unobtrusive-runtime-warnings-for-libraries)
 0. [Debugging in Clojure](https://blog.davemartin.me/posts/debugging-in-clojure/)
 0. [The Debugging Book: Tools and Techniques for Automated Software Debugging](https://www.debuggingbook.org/)

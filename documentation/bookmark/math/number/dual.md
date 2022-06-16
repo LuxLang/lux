@@ -1,5 +1,6 @@
 # Reference
 
+0. [Automatic Differentiation: Forward and Reverse](https://jingnanshi.com/blog/autodiff.html)
 0. [Dual/Codual numbers for Forward/Reverse Automatic Differentiation](https://higherlogics.blogspot.com/2020/05/dualcodual-numbers-for-forwardreverse.html)
 0. [Sensitivity of y w.r.t. to x in y=f(x) where f is a routine](https://scicomp.stackexchange.com/questions/38899/sensitivity-of-y-w-r-t-to-x-in-y-fx-where-f-is-a-routine/38900#38900)
 0. [Differentiable programming](https://en.wikipedia.org/wiki/Differentiable_programming)
