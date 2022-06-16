@@ -2,16 +2,17 @@
  [library
   [lux (.except char symbol)
    ["_" test (.only Test)]
+   ["[0]" type (.open: "[1]#[0]" equivalence)]
    [abstract
-    [monad (.only Monad do)]
+    [monad (.only do)]
     [\\specification
      ["$[0]" equivalence]
      ["$[0]" codec]]]
    [control
+    ["<>" parser (.open: "[1]#[0]" monad)]
     ["[0]" maybe]
-    ["[0]" try]
-    ["p" parser
-     ["</>" xml]]]
+    ["[0]" try (.open: "[1]#[0]" functor)]
+    ["[0]" exception]]
    [data
     ["[0]" text (.open: "[1]#[0]" equivalence)
      ["%" \\format (.only format)]]
@@ -19,15 +20,170 @@
      ["[0]" dictionary]
      ["[0]" list (.open: "[1]#[0]" functor)]]]
    [macro
-    ["^" pattern]]
+    ["^" pattern]
+    ["[0]" template]]
    [math
     ["[0]" random (.only Random) (.open: "[1]#[0]" monad)]
     [number
      ["n" nat]]]
    [meta
-    ["[0]" symbol]]]]
+    ["[0]" symbol (.open: "[1]#[0]" equivalence)]]]]
+ ["[0]" \\parser]
  [\\library
-  ["[0]" / (.only XML)]])
+  ["[0]" / (.open: "[1]#[0]" equivalence)]])
+
+(def !expect
+  (template (_ <pattern> <value>)
+    [(case <value>
+       <pattern>
+       true
+       
+       _
+       false)]))
+
+(def !failure
+  (template (_ <exception> <cases>)
+    [(with_expansions [<<cases>> (template.spliced <cases>)]
+       (do [! random.monad]
+         [expected (random.alphabetic 1)]
+         (_.coverage [<exception>]
+           (`` (and (~~ (with_template [<parser> <input>]
+                          [(|> (\\parser.result <parser> (list <input>))
+                               (!expect (^.multi {try.#Failure error}
+                                                 (exception.match? <exception> error))))]
+
+                          <<cases>>)))))))]))
+
+(def random_label
+  (Random Symbol)
+  (random.and (random.alphabetic 1)
+              (random.alphabetic 1)))
+
+(def random_tag ..random_label)
+(def random_attribute ..random_label)
+
+(def \\parser
+  Test
+  (<| (_.covering \\parser._)
+      (_.for [\\parser.Parser])
+      (all _.and
+           (do [! random.monad]
+             [expected (random.alphabetic 1)]
+             (_.coverage [\\parser.result \\parser.text]
+               (|> (\\parser.result \\parser.text (list {/.#Text expected}))
+                   (!expect (^.multi {try.#Success actual}
+                                     (text#= expected actual))))))
+           (!failure \\parser.unconsumed_inputs
+                     [[(<>#in expected)
+                       {/.#Text expected}]])
+           (do [! random.monad]
+             [expected (at ! each (|>> {/.#Text}) (random.alphabetic 1))]
+             (_.coverage [\\parser.any]
+               (|> (\\parser.result \\parser.any (list expected))
+                   (try#each (/#= expected))
+                   (try.else false))))
+           (do [! random.monad]
+             [expected ..random_tag]
+             (_.coverage [\\parser.tag]
+               (|> (\\parser.result (do <>.monad
+                                      [actual \\parser.tag
+                                       _ \\parser.any]
+                                      (in (symbol#= expected actual)))
+                                    (list {/.#Node expected (dictionary.empty symbol.hash) (list)}))
+                   (!expect {try.#Success #1}))))
+           (do [! random.monad]
+             [expected ..random_tag]
+             (_.coverage [\\parser.node]
+               (|> (\\parser.result (\\parser.node expected (<>#in []))
+                                    (list {/.#Node expected (dictionary.empty symbol.hash) (list)}))
+                   (!expect {try.#Success []}))))
+           (!failure \\parser.wrong_tag
+                     [[(\\parser.node ["" expected] (<>#in []))
+                       {/.#Node [expected ""] (dictionary.empty symbol.hash) (list)}]])
+           (do [! random.monad]
+             [expected_tag ..random_tag
+              expected_attribute ..random_attribute
+              expected_value (random.alphabetic 1)]
+             (_.coverage [\\parser.attribute]
+               (|> (\\parser.result (<| (\\parser.node expected_tag)
+                                        (<>.after (\\parser.attribute expected_attribute))
+                                        (<>#in []))
+                                    (list {/.#Node expected_tag
+                                                   (|> (dictionary.empty symbol.hash)
+                                                       (dictionary.has expected_attribute expected_value))
+                                                   (list)}))
+                   (!expect {try.#Success []}))))
+           (!failure \\parser.unknown_attribute
+                     [[(\\parser.attribute ["" expected])
+                       {/.#Node [expected expected]
+                                (|> (dictionary.empty symbol.hash)
+                                    (dictionary.has [expected ""] expected))
+                                (list)}]])
+           (!failure \\parser.empty_input
+                     [[(do <>.monad
+                         [_ \\parser.any]
+                         \\parser.any)
+                       {/.#Text expected}]
+                      [(do <>.monad
+                         [_ \\parser.any]
+                         \\parser.text)
+                       {/.#Text expected}]
+                      [(do <>.monad
+                         [_ \\parser.any]
+                         (\\parser.node [expected expected]
+                                        (<>#in [])))
+                       {/.#Node [expected expected]
+                                (dictionary.empty symbol.hash)
+                                (list)}]
+                      [(do <>.monad
+                         [_ \\parser.any]
+                         (\\parser.node [expected expected]
+                                        (\\parser.attribute [expected expected])))
+                       {/.#Node [expected expected]
+                                (|> (dictionary.empty symbol.hash)
+                                    (dictionary.has [expected expected] expected))
+                                (list)}]])
+           (!failure \\parser.unexpected_input
+                     [[\\parser.text
+                       {/.#Node [expected expected] (dictionary.empty symbol.hash) (list)}]
+                      [(\\parser.node [expected expected]
+                                      (<>#in []))
+                       {/.#Text expected}]
+                      [(\\parser.node [expected expected]
+                                      (\\parser.attribute [expected expected]))
+                       {/.#Text expected}]])
+           (do [! random.monad]
+             [.let [node (is (-> /.Tag (List /.XML) /.XML)
+                             (function (_ tag children)
+                               {/.#Node tag (dictionary.empty symbol.hash) children}))]
+              parent ..random_tag
+              right ..random_tag
+              wrong (random.only (|>> (symbol#= right) not)
+                                 ..random_tag)
+              .let [parser (<| (\\parser.node parent)
+                               (do <>.monad
+                                 [_ (<| \\parser.somewhere
+                                        (\\parser.node right)
+                                        (<>#in []))
+                                  _ (<>.some \\parser.any)]
+                                 (in [])))]
+              repetitions (at ! each (n.% 10) random.nat)]
+             (all _.and
+                  (_.coverage [\\parser.somewhere]
+                    (|> (\\parser.result parser
+                                         (list (node parent
+                                                     (list.together (list (list.repeated repetitions (node wrong (list)))
+                                                                          (list (node right (list)))
+                                                                          (list.repeated repetitions (node wrong (list))))))))
+                        (!expect {try.#Success []})))
+                  (_.coverage [\\parser.nowhere]
+                    (|> (\\parser.result parser
+                                         (list (node parent
+                                                     (list.repeated repetitions (node wrong (list))))))
+                        (!expect (^.multi {try.#Failure error}
+                                          (exception.match? \\parser.nowhere error)))))
+                  ))
+           )))
 
 (def char_range
   Text
@@ -58,7 +214,7 @@
               (..text 1 10)))
 
 (def .public random
-  (Random XML)
+  (Random /.XML)
   (random.rec (function (_ random)
                 (random.or (..text 1 10)
                            (do random.monad
@@ -94,4 +250,6 @@
                       (_.coverage [/.Attrs /.attributes]
                         (dictionary.empty? /.attributes))
                       )))
+
+           ..\\parser
            )))

@@ -13,40 +13,178 @@
      ["$[0]" equivalence]
      ["$[0]" codec]]]
    [control
-    ["[0]" try (.open: "[1]#[0]" functor)]
-    ["p" parser
-     ... TODO: Get rid of this import ASAP
-     [json (.only)]]]
+    ["<>" parser]
+    ["[0]" pipe]
+    ["[0]" maybe]
+    ["[0]" exception]
+    ["[0]" try (.open: "[1]#[0]" functor)]]
    [data
     ["[0]" product]
     ["[0]" bit]
     ["[0]" text (.only)
      ["%" \\format (.only format)]]
     [collection
-     ["[0]" sequence (.only sequence)]
+     ["[0]" sequence (.only sequence) (.open: "[1]#[0]" functor)]
      ["[0]" dictionary (.only Dictionary)]
      ["[0]" set]
      ["[0]" list (.open: "[1]#[0]" functor)]]]
+   ["[0]" macro (.only)
+    ["^" pattern]
+    ["[0]" syntax (.only syntax)]
+    ["[0]" code]]
    [math
     ["[0]" random (.only Random)]
     [number
      ["n" nat]
      ["[0]" frac]]]
-   ["[0]" macro (.only)
-    ["[0]" syntax (.only syntax)]
-    ["[0]" code]]
    [time
     ["[0]" date]
     ["[0]" instant
      ["[0]/[1]" \\test]]
     ["[0]" duration
-     ["[0]/[1]" \\test]]
-    ]
+     ["[0]/[1]" \\test]]]
    [type
     ["[0]" unit]]]]
  ["[0]" \\polytypic]
+ ["[0]" \\parser]
  [\\library
   ["[0]" / (.only JSON) (.open: "[1]#[0]" equivalence)]])
+
+(def !expect
+  (template (_ <pattern> <value>)
+    [(case <value>
+       <pattern>
+       true
+       
+       _
+       false)]))
+
+(def safe_frac
+  (Random Frac)
+  (random.only (|>> frac.not_a_number? not) random.frac))
+
+(def \\parser
+  Test
+  (<| (_.covering \\parser._)
+      (_.for [\\parser.Parser])
+      (`` (all _.and
+               (do [! random.monad]
+                 [expected (at ! each (|>> {/.#String}) (random.unicode 1))]
+                 (_.coverage [\\parser.result \\parser.any]
+                   (|> (\\parser.result \\parser.any expected)
+                       (!expect (^.multi {try.#Success actual}
+                                         (at /.equivalence = expected actual))))))
+               (_.coverage [\\parser.null]
+                 (|> (\\parser.result \\parser.null {/.#Null})
+                     (!expect {try.#Success _})))
+               (~~ (with_template [<query> <test> <check> <random> <json> <equivalence>]
+                     [(do [! random.monad]
+                        [expected <random>
+                         dummy (|> <random> (random.only (|>> (at <equivalence> = expected) not)))]
+                        (all _.and
+                             (_.coverage [<query>]
+                               (|> (\\parser.result <query> {<json> expected})
+                                   (!expect (^.multi {try.#Success actual}
+                                                     (at <equivalence> = expected actual)))))
+                             (_.coverage [<test>]
+                               (and (|> (\\parser.result (<test> expected) {<json> expected})
+                                        (!expect {try.#Success #1}))
+                                    (|> (\\parser.result (<test> expected) {<json> dummy})
+                                        (!expect {try.#Success #0}))))
+                             (_.coverage [<check>]
+                               (and (|> (\\parser.result (<check> expected) {<json> expected})
+                                        (!expect {try.#Success _}))
+                                    (|> (\\parser.result (<check> expected) {<json> dummy})
+                                        (!expect {try.#Failure _}))))))]
+
+                     [\\parser.boolean \\parser.boolean? \\parser.this_boolean random.bit /.#Boolean bit.equivalence]
+                     [\\parser.number \\parser.number? \\parser.this_number ..safe_frac /.#Number frac.equivalence]
+                     [\\parser.string \\parser.string? \\parser.this_string (random.unicode 1) /.#String text.equivalence]
+                     ))
+               (do [! random.monad]
+                 [expected (random.unicode 1)
+                  dummy random.bit]
+                 (_.coverage [\\parser.unexpected_value]
+                   (|> (\\parser.result \\parser.string {/.#Boolean dummy})
+                       (!expect (^.multi {try.#Failure error}
+                                         (exception.match? \\parser.unexpected_value error))))))
+               (do [! random.monad]
+                 [expected (random.unicode 1)
+                  dummy (|> (random.unicode 1) (random.only (|>> (at text.equivalence = expected) not)))]
+                 (_.coverage [\\parser.value_mismatch]
+                   (|> (\\parser.result (\\parser.this_string expected) {/.#String dummy})
+                       (!expect (^.multi {try.#Failure error}
+                                         (exception.match? \\parser.value_mismatch error))))))
+               (do [! random.monad]
+                 [expected (random.unicode 1)]
+                 (_.coverage [\\parser.nullable]
+                   (and (|> (\\parser.result (\\parser.nullable \\parser.string) {/.#Null})
+                            (!expect (^.multi {try.#Success actual}
+                                              (at (maybe.equivalence text.equivalence) = {.#None} actual))))
+                        (|> (\\parser.result (\\parser.nullable \\parser.string) {/.#String expected})
+                            (!expect (^.multi {try.#Success actual}
+                                              (at (maybe.equivalence text.equivalence) = {.#Some expected} actual)))))))
+               (do [! random.monad]
+                 [size (at ! each (n.% 10) random.nat)
+                  expected (|> (random.unicode 1)
+                               (random.list size)
+                               (at ! each sequence.of_list))]
+                 (_.coverage [\\parser.array]
+                   (|> (\\parser.result (\\parser.array (<>.some \\parser.string))
+                                        {/.#Array (sequence#each (|>> {/.#String}) expected)})
+                       (!expect (^.multi {try.#Success actual}
+                                         (at (sequence.equivalence text.equivalence) = expected (sequence.of_list actual)))))))
+               (do [! random.monad]
+                 [expected (at ! each (|>> {/.#String}) (random.unicode 1))]
+                 (_.coverage [\\parser.unconsumed_input]
+                   (|> (\\parser.result (\\parser.array \\parser.any) {/.#Array (sequence expected expected)})
+                       (!expect (^.multi {try.#Failure error}
+                                         (exception.match? \\parser.unconsumed_input error))))))
+               (_.coverage [\\parser.empty_input]
+                 (|> (\\parser.result (\\parser.array \\parser.any) {/.#Array (sequence)})
+                     (!expect (^.multi {try.#Failure error}
+                                       (exception.match? \\parser.empty_input error)))))
+               (do [! random.monad]
+                 [expected_boolean random.bit
+                  expected_number ..safe_frac
+                  expected_string (random.unicode 1)
+                  [boolean_field number_field string_field] (|> (random.set text.hash 3 (random.unicode 3))
+                                                                (at ! each (|>> set.list
+                                                                                (pipe.case
+                                                                                  (pattern (list boolean_field number_field string_field))
+                                                                                  [boolean_field number_field string_field]
+
+                                                                                  _
+                                                                                  (undefined)))))]
+                 (_.coverage [\\parser.object \\parser.field]
+                   (|> (\\parser.result (\\parser.object (all <>.and
+                                                              (\\parser.field boolean_field \\parser.boolean)
+                                                              (\\parser.field number_field \\parser.number)
+                                                              (\\parser.field string_field \\parser.string)))
+                                        {/.#Object
+                                         (dictionary.of_list text.hash
+                                                             (list [boolean_field {/.#Boolean expected_boolean}]
+                                                                   [number_field {/.#Number expected_number}]
+                                                                   [string_field {/.#String expected_string}]))})
+                       (!expect (^.multi {try.#Success [actual_boolean actual_number actual_string]}
+                                         (and (at bit.equivalence = expected_boolean actual_boolean)
+                                              (at frac.equivalence = expected_number actual_number)
+                                              (at text.equivalence = expected_string actual_string)))))))
+               (do [! random.monad]
+                 [size (at ! each (n.% 10) random.nat)
+                  keys (random.list size (random.unicode 1))
+                  values (random.list size (random.unicode 1))
+                  .let [expected (dictionary.of_list text.hash (list.zipped_2 keys values))]]
+                 (_.coverage [\\parser.dictionary]
+                   (|> (\\parser.result (\\parser.dictionary \\parser.string)
+                                        {/.#Object
+                                         (|> values
+                                             (list#each (|>> {/.#String}))
+                                             (list.zipped_2 keys)
+                                             (dictionary.of_list text.hash))})
+                       (!expect (^.multi {try.#Success actual}
+                                         (at (dictionary.equivalence text.equivalence) = expected actual))))))
+               ))))
 
 (type: Variant
   (.Variant
@@ -294,4 +432,5 @@
                         )))
 
                ..\\polytypic
+               ..\\parser
                ))))
