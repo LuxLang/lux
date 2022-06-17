@@ -138,7 +138,7 @@ The reason it exists is that Lux's arithmetic functions are not polymorphic on t
 If you import the module for `Nat` numbers, like so:
 
 ```clojure
-(.using
+(.require
  [library
   [lux
    [math

@@ -44,7 +44,7 @@ The `"test"` parameter specifies the name of a Lux module that serves as the ent
 Here is a summary of the file:
 
 ```clojure
-(.using
+(.require
  [library
   ["/" lux "*"
    [program {"+" program:}]
@@ -80,7 +80,7 @@ To know how tests work, let's take a look at one of those modules.
 	From `test/lux/data/collection/stack`.
 
 ```clojure
-(.using
+(.require
   [library
    [lux "*"
     ["_" test {"+" Test}]

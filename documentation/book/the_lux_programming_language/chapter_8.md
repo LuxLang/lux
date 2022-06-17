@@ -209,14 +209,14 @@ The thing about `Monad` is that, with it, you can use `each` functions that also
 Let's see that in action:
 
 ```clojure
-(.using
+(.require
  [library
    [lux "*"
      [data
        [collection
          ["[0]" list]]]]])
 
-(open: list.monad)
+(use list.monad)
 
 (def foo
   (|> (list 1 2 3 4)
@@ -268,7 +268,7 @@ Not really. It's just the `Monad` for `List`:
       {.#Item x xs'}
       {.#Item x (compose xs' ys)})))
 
-(open: "[0]" ..monoid)
+(use "[0]" ..monoid)
 
 (implementation: .public monad
   (Monad List)
@@ -300,7 +300,7 @@ Time for the VIP treatment.
 These macros always show up at the right time to saves us from our hurdles!
 
 ```clojure
-(.using
+(.require
  [library
    [lux "*"
      [data

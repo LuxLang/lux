@@ -155,7 +155,7 @@ We've put functions and values inside our implementations.
 
 It's time to get them out and use them.
 
-There are 2 main ways to use the stuff inside your implementations: `open:` and `#`.
+There are 2 main ways to use the stuff inside your implementations: `use` and `#`.
 
 Let's check them out.
 
@@ -170,11 +170,11 @@ Let's check them out.
 (def .private i::< (# library/lux/math/number/int.order <))
 ```
 
-The `open:` macro serves as a directive that creates private/un-exported definitions in your module for every member of a particular implementation.
+The `use` macro serves as a directive that creates private/un-exported definitions in your module for every member of a particular implementation.
 
 You may also give it an optional _aliasing pattern_ for the definitions, in case you want to avoid any name clash.
 
-	You might want to check out [Appendix C](appendix_c.md) to discover a pattern-matching macro version of `open:` called `^open`.
+	You might want to check out [Appendix C](appendix_c.md) to discover a pattern-matching macro version of `use` called `^open`.
 
 ```clojure
 ... Allows accessing the value of a implementation's member.

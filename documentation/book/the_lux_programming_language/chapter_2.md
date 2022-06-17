@@ -80,7 +80,7 @@ Directives looks similar to expressions, except that their purpose is not to pro
 
 This is a bit of a fuzzy line, since some things which also communicate stuff to the compiler are actually expressions (for example, type annotations, which we'll see in next chapter).
 
-Examples of directives are `.using` declarations at the top of modules, and definitions of all kinds (such as program definitions).
+Examples of directives are `.require` declarations at the top of modules, and definitions of all kinds (such as program definitions).
 
 ## Programs
 
@@ -112,7 +112,7 @@ In the previous chapter we compiled and ran a Lux program, but nothing has been 
 
 ```clojure
 ... This will be our program's main module.
-(.using
+(.require
  [library
   [lux "*"
    [program {"+" program:}]
@@ -124,13 +124,13 @@ In the previous chapter we compiled and ran a Lux program, but nothing has been 
   (io.io (debug.log! "Hello, world!")))
 ```
 
-The first part of this program specifies which dependencies we're `using`.
+The first part of this program specifies which dependencies we `require`.
 
 All Lux modules automatically import the `library/lux` module, but they don't locally import every single definition, so everything would have to be accessed by using the `library/lux.` prefix or the `.` (short-cut) prefix.
 
 To avoid that, we import the `library/lux` module in a plain way.
 
-	By the way, what I just explained about the `library/lux` module is the reason why we couldn't just use the `.using` macro as `using`.
+	By the way, what I just explained about the `library/lux` module is the reason why we couldn't just use the `.require` macro as `require`.
 
 Then we import the `library/lux/control/io` module. We're giving this module an alias, using that `"[0]"` syntax. The way aliasing works here is that it replaces the `[0]` with the short name of the import, and so `[0]` becomes `io`, and that is the alias given to the import. The same process happens when we import the `library/lux/debug` module. This might seems weird and sort of useless, but the aliasing syntax has some more features and flexibility, enabling you to have your own naming convention when importing modules.
 

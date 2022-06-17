@@ -60,7 +60,7 @@ You can actually write computations that can read and even modify (_careful with
 
 This turns out to be massively useful when implementing a variety of powerful macros.
 
-For example, remember the `open:` and `#` macros from [chapter 7](chapter_7.md)?
+For example, remember the `use` and `#` macros from [chapter 7](chapter_7.md)?
 
 They actually look up the typing information for the structures you give them to figure out the names of members and generate the code necessary to get that functionality going.
 

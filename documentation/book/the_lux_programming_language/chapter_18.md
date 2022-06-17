@@ -85,7 +85,7 @@ And so, Lux provides 4 different types of extensions.
 The first type of extension we'll see is the `Analysis` extension:
 
 ```clojure
-(.using
+(.require
  [library
   [lux "*"
    [extension {"+" [analysis: synthesis: generation:]}]

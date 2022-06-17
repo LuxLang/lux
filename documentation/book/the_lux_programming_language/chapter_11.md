@@ -76,7 +76,7 @@ Here is an example:
 ```clojure
 ... Taken from library/lux/math/infix.
 
-(.using
+(.require
   [library
    [lux "*"
     [abstract

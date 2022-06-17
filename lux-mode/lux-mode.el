@@ -377,10 +377,10 @@ Called by `imenu--generic-function'."
 							(type//primitive (altRE "primitive" "abstraction" "representation" "transmutation"))
 							(type//poly (altRE "polytypic"))
 							(type//dynamic (altRE "dynamic" "static"))
-							(type//capability (altRE "capability:"))
+							(type//capability (altRE "capability"))
 							;; Data
 							(data//record (altRE "the" "has" "revised"))
-							(data//interface (altRE "open:" "implementation" "with" "at"))
+							(data//interface (altRE "use" "implementation" "with" "at"))
 							(data//implicit (altRE "implicitly" "a/an" "a" "an"))
 							(data//collection (altRE "list" "sequence" "tree"))
 							;; Code
@@ -394,7 +394,7 @@ Called by `imenu--generic-function'."
 							(function-application (altRE "|>" "<|" "left" "right" "all"))
 							(function-definition (altRE "function" "|>>" "<<|"))
 							(remember (altRE "remember" "to_do" "fix_me"))
-							(definition (altRE "\\.using"
+							(definition (altRE "\\.require"
 											   "def" "inlined" "type:" "program:"
 											   "macro" "syntax"
 											   "exception:"
@@ -601,6 +601,7 @@ This function also returns nil meaning don't specify the indentation."
 
   ("sharing" 'defun)
   ("by_example" 'defun)
+  ("capability" 'defun)
   
   (let 'defun)
   (case 'defun)
