@@ -394,11 +394,11 @@ Called by `imenu--generic-function'."
 							(function-application (altRE "|>" "<|" "left" "right" "all"))
 							(function-definition (altRE "function" "|>>" "<<|"))
 							(remember (altRE "remember" "to_do" "fix_me"))
+							(extension (altRE "analysis" "synthesis" "generation" "directive"))
 							(definition (altRE "\\.require"
 											   "def" "inlined" "type:" "program:"
 											   "macro" "syntax"
-											   "exception:"
-											   "analysis" "synthesis" "generation" "directive")))
+											   "exception:")))
 						(let ((control (altRE control//flow
 											  control//pattern-matching
 											  control//logic
@@ -430,6 +430,7 @@ Called by `imenu--generic-function'."
 							function-application
 							function-definition
 							remember
+							extension
 							definition
 							;; ;;;;;;;;;;;;;;;;;;;;;;
 							"with_expansions"
@@ -577,7 +578,6 @@ This function also returns nil meaning don't specify the indentation."
 
 (define-lux-indent
   ("function" 'defun)
-  
   ("macro" 'defun)
   ("syntax" 'defun)
   ("template" 'defun)
@@ -585,6 +585,7 @@ This function also returns nil meaning don't specify the indentation."
 
   ("def" 'defun)
   ("inlined" 'defun)
+  ("context" 'defun)
   ("primitive" 'defun)
   ("analysis" 'defun)
   ("synthesis" 'defun)

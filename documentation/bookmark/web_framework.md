@@ -32,6 +32,7 @@
 
 # Exemplar
 
+0. [Voby](https://github.com/vobyjs/voby)
 0. ["Janus: Easy Complex UI with Declarative FRP" by Issa Tseng](https://www.youtube.com/watch?v=7S57O3VwIyQ)
 0. https://github.com/alpinejs/alpine
 0. [Mint: The programming language for writing single page applications.](https://www.mint-lang.com/)

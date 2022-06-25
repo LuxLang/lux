@@ -3,38 +3,24 @@
   [lux (.except)
    ["[0]" meta]
    [abstract
-    [monad (.only Monad do)]]
+    [monad (.only do)]]
    [control
     ["[0]" exception (.only exception:)]
     ["<>" parser (.use "[1]#[0]" monad)
      ["<[0]>" code (.only Parser)]]]
    [data
-    ["[0]" text (.use "[1]#[0]" equivalence monoid)]
+    ["[0]" text (.use "[1]#[0]" equivalence)]
     [collection
-     ["[0]" list (.use "[1]#[0]" functor monoid)]]]
-   [macro
+     ["[0]" list (.use "[1]#[0]" functor)]]]
+   ["[0]" macro (.only)
     ["^" pattern]
     ["[0]" code]
+    ["[0]" context]
     [syntax (.only syntax)
      ["|[0]|" export]]]
    [meta
     ["[0]" symbol (.use "[1]#[0]" codec)]]]]
  ["[0]" //])
-
-(type: Stack
-  List)
-
-(def peek
-  (All (_ a) (-> (Stack a) (Maybe a)))
-  list.head)
-
-(def (push value stack)
-  (All (_ a) (-> a (Stack a) (Stack a)))
-  {.#Item value stack})
-
-(def pop
-  (All (_ a) (-> (Stack a) (Maybe (Stack a))))
-  list.tail)
 
 (type: .public Frame
   (Record
@@ -43,144 +29,15 @@
     #abstraction Code
     #representation Code]))
 
-(def frames
-  (Stack Frame)
-  {.#End})
+(context.def [frames expression declaration] Frame)
 
-(def !peek
-  (template (_ <source> <reference> <then>)
-    [(loop (again [entries <source>])
-       (case entries
-         {.#Item [head_name head] tail}
-         (if (text#= <reference> head_name)
-           <then>
-           (again tail))
-
-         {.#End}
-         (undefined)))]))
-
-(def (peek_frames_definition reference source)
-  (-> Text (List [Text Global]) (Stack Frame))
-  (!peek source reference
-         (case head
-           {.#Definition [exported? frame_type frame_value]}
-           (as (Stack Frame) frame_value)
-
-           (^.or {.#Type _}
-                 {.#Alias _}
-                 {.#Tag _}
-                 {.#Slot _})
-           (undefined))))
-
-(def (peek_frames reference definition_reference source)
-  (-> Text Text (List [Text Module]) (Stack Frame))
-  (!peek source reference
-         (peek_frames_definition definition_reference (the .#definitions head))))
-
-(exception: .public no_active_frames)
-
-(def (peek! frame)
-  (-> (Maybe Text) (Meta Frame))
-  (function (_ compiler)
-    (let [[reference definition_reference] (symbol ..frames)
-          current_frames (peek_frames reference definition_reference (the .#modules compiler))]
-      (case (case frame
-              {.#Some frame}
-              (list.example (function (_ [actual _])
-                              (text#= frame actual))
-                            current_frames)
-              
-              {.#None}
-              (..peek current_frames))
-        {.#Some frame}
-        {.#Right [compiler frame]}
-        
-        {.#None}
-        (exception.except ..no_active_frames [])))))
-
-(def .public current
+(.def .public current
   (Meta Frame)
-  (..peek! {.#None}))
+  (context.peek ..frames))
 
-(def .public (specific name)
+(.def .public (specific name)
   (-> Text (Meta Frame))
-  (..peek! {.#Some name}))
-
-(def !push
-  (template (_ <source> <reference> <then>)
-    [(loop (again [entries <source>])
-       (case entries
-         {.#Item [head_name head] tail}
-         (if (text#= <reference> head_name)
-           {.#Item [head_name <then>]
-                   tail}
-           {.#Item [head_name head]
-                   (again tail)})
-
-         {.#End}
-         (undefined)))]))
-
-(def (push_frame_definition reference frame source)
-  (-> Text Frame (List [Text Global]) (List [Text Global]))
-  (!push source reference
-         (case head
-           {.#Definition [exported? frames_type frames_value]}
-           {.#Definition [exported?
-                          frames_type
-                          (..push frame (as (Stack Frame) frames_value))]}
-
-           (^.or {.#Type _}
-                 {.#Alias _}
-                 {.#Tag _}
-                 {.#Slot _})
-           (undefined))))
-
-(def (push_frame [module_reference definition_reference] frame source)
-  (-> Symbol Frame (List [Text Module]) (List [Text Module]))
-  (!push source module_reference
-         (revised .#definitions (push_frame_definition definition_reference frame) head)))
-
-(def (push! frame)
-  (-> Frame (Meta Any))
-  (function (_ compiler)
-    {.#Right [(revised .#modules
-                       (..push_frame (symbol ..frames) frame)
-                       compiler)
-              []]}))
-
-(def (pop_frame_definition reference source)
-  (-> Text (List [Text Global]) (List [Text Global]))
-  (!push source reference
-         (case head
-           {.#Definition [exported? frames_type frames_value]}
-           {.#Definition [exported?
-                          frames_type
-                          (let [current_frames (as (Stack Frame) frames_value)]
-                            (case (..pop current_frames)
-                              {.#Some current_frames'}
-                              current_frames'
-
-                              {.#None}
-                              current_frames))]}
-
-           (^.or {.#Type _}
-                 {.#Alias _}
-                 {.#Tag _}
-                 {.#Slot _})
-           (undefined))))
-
-(def (pop_frame [module_reference definition_reference] source)
-  (-> Symbol (List [Text Module]) (List [Text Module]))
-  (!push source module_reference
-         (|> head (revised .#definitions (pop_frame_definition definition_reference)))))
-
-(def pop!
-  (syntax (_ [])
-    (function (_ compiler)
-      {.#Right [(revised .#modules
-                         (..pop_frame (symbol ..frames))
-                         compiler)
-                (list)]})))
+  (context.search ..frames (|>> (the #name) (text#= name))))
 
 (def cast
   (Parser [(Maybe Text) Code])
@@ -191,7 +48,12 @@
   [(def .public <name>
      (syntax (_ [[frame value] ..cast])
        (do meta.monad
-         [[name type_vars abstraction representation] (peek! frame)]
+         [[name type_vars abstraction representation] (case frame
+                                                        {.#Some frame}
+                                                        (..specific frame)
+                                                        
+                                                        {.#None}
+                                                        ..current)]
          (in (list (` ((~! //.as) [(~+ type_vars)] (~ <from>) (~ <to>)
                        (~ value))))))))]
 
@@ -199,17 +61,7 @@
   [representation abstraction representation]
   )
 
-(def abstraction_type_name
-  (-> Symbol Text)
-  symbol#encoded)
-
-(def representation_definition_name
-  (-> Text Text)
-  (|>> (all text#composite
-            (symbol#encoded (symbol ..#Representation))
-            " ")))
-
-(def declaration
+(def declarationP
   (Parser [Text (List Text)])
   (<>.either (<code>.form (<>.and <code>.local (<>.some <code>.local)))
              (<>.and <code>.local (at <>.monad in (list)))))
@@ -218,7 +70,7 @@
   (Parser [Code [Text (List Text)] Code (List Code)])
   (|export|.parser
    (all <>.and
-        ..declaration
+        ..declarationP
         <code>.any
         (<>.some <code>.any)
         )))
@@ -230,40 +82,25 @@
               ..abstract])
     (do meta.monad
       [current_module meta.current_module_name
+       g!Representation (macro.symbol "Representation")
        .let [type_varsC (list#each code.local type_vars)
              abstraction_declaration (` ((~ (code.local name)) (~+ type_varsC)))
-             representation_declaration (` ((~ (code.local (representation_definition_name name)))
-                                            (~+ type_varsC)))]
-       _ (..push! [name
-                   type_varsC
-                   abstraction_declaration
-                   representation_declaration])]
-      (in (list.partial (` (type: (~ export_policy) (~ abstraction_declaration)
-                             (Primitive (~ (code.text (abstraction_type_name [current_module name])))
-                                        [(~+ type_varsC)])))
-                        (` (type: (~ representation_declaration)
-                             (~ representation_type)))
-                        (all list#composite
-                             primitives
-                             (list (` ((~! ..pop!))))))))))
+             representation_declaration (` ((~ g!Representation) (~+ type_varsC)))]]
+      (..declaration [name type_varsC abstraction_declaration representation_declaration]
+                     (` (.these (type: (~ export_policy) (~ abstraction_declaration)
+                                  (Primitive (~ (code.text (symbol#encoded [current_module name])))
+                                             [(~+ type_varsC)]))
+                                (type: (~ representation_declaration)
+                                  (~ representation_type))
+                                (~+ primitives)))))))
 
-(type: (Selection a)
-  (Variant
-   {#Specific Code a}
-   {#Current a}))
-
-(def (selection parser)
-  (All (_ a) (-> (Parser a) (Parser (Selection a))))
-  (<>.or (<>.and <code>.any parser)
-         parser))
+(def selection
+  (Parser [(List Code) Code])
+  (<>.either (<>.and (<>#each (|>> list) <code>.any) <code>.any)
+             (<>.and (<>#in (list)) <code>.any)))
 
 (def .public transmutation
-  (syntax (_ [selection (..selection <code>.any)])
-    (case selection
-      {#Specific specific value}
-      (in (list (` (.|> (~ value)
-                        (..representation (~ specific))
-                        (..abstraction (~ specific))))))
-      
-      {#Current value}
-      (in (list (` (.|> (~ value) ..representation ..abstraction)))))))
+  (syntax (_ [[specific value] ..selection])
+    (in (list (` (.|> (~ value)
+                      (..representation (~+ specific))
+                      (..abstraction (~+ specific))))))))
