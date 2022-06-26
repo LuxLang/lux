@@ -578,7 +578,7 @@
     (eval! (optimize analysis))))
 
 (defn analyse-def* [analyse optimize eval! compile-def ?name ?value exported? type? & [?expected-type]]
-  (|do [_ &/ensure-directive
+  (|do [_ &/ensure-declaration
         module-name &/get-module-name
         _ (ensure-undefined! module-name ?name)
         =value (&/without-repl-closure
@@ -684,7 +684,7 @@
                   (deliver (&/$Right _compiler))))))))
 
 (defn analyse-module [analyse optimize eval! compile-module ?imports]
-  (|do [_ &/ensure-directive
+  (|do [_ &/ensure-declaration
         module-name &/get-module-name
         _imports (&&module/fetch-imports ?imports)
         current-module &/get-module-name
@@ -741,7 +741,7 @@
 (let [program-type (&/$Function (&/$Apply &type/Text &type/List)
                                 (&/$Apply &type/Any &type/IO))]
   (defn analyse-program [analyse optimize compile-program ?program]
-    (|do [_ &/ensure-directive
+    (|do [_ &/ensure-declaration
           =program (&&/analyse-1 analyse program-type ?program)
           _ (compile-program (optimize =program))]
       (return &/$End))))

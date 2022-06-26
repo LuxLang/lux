@@ -478,7 +478,7 @@
               ($Item head tail))
             ($Item (T [slot value]) $End)
             prefix)
-    
+      
       ($Item [k v] input*)
       (if (= k slot)
         (fold (fn [tail head]
@@ -487,7 +487,7 @@
               prefix)
         (recur ($Item (T [k v]) prefix)
                input*))
-    )))
+      )))
 
 (defmacro |table [& elems]
   (reduce (fn [table [k v]]
@@ -1115,14 +1115,14 @@
             output))))))
 
 (def ^{:doc "(Meta Any)"}
-  ensure-directive
+  ensure-declaration
   (fn [state]
     (|case (get$ $expected state)
       ($None)
       (return* state unit-tag)
 
       ($Some _)
-      ((fail-with-loc "[Error] All directives must be top-level forms.")
+      ((fail-with-loc "[Error] All declarations must be top-level forms.")
        state))))
 
 (def location
