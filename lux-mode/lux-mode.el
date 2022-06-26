@@ -372,7 +372,7 @@ Called by `imenu--generic-function'."
 												 "Primitive" "->"
 												 "All" "Ex"
 												 "Interface"
-												 "type"))
+												 "type_literal"))
 							(type//checking (altRE "is" "as" "let" "as_expected" "type_of" "sharing" "by_example" "hole"))
 							(type//primitive (altRE "primitive" "abstraction" "representation" "transmutation"))
 							(type//poly (altRE "polytypic"))
@@ -396,7 +396,7 @@ Called by `imenu--generic-function'."
 							(remember (altRE "remember" "to_do" "fix_me"))
 							(extension (altRE "analysis" "synthesis" "generation" "directive"))
 							(definition (altRE "\\.require"
-											   "def" "inlined" "type:" "program:"
+											   "def" "inlined" "type" "program:"
 											   "macro" "syntax"
 											   "exception:")))
 						(let ((control (altRE control//flow
@@ -584,6 +584,7 @@ This function also returns nil meaning don't specify the indentation."
   ("polytypic" 'defun)
 
   ("def" 'defun)
+  ("type" 'defun)
   ("inlined" 'defun)
   ("context" 'defun)
   ("primitive" 'defun)

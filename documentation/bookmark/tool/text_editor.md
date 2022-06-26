@@ -65,6 +65,8 @@
 
 # Reference
 
+0. []()
+0. [keenwrite: Java-based desktop text editor with live preview, string interpolation, and formulas](https://github.com/DaveJarvis/keenwrite)
 0. [Deft for Emacs](https://jblevins.org/projects/deft/)
 0. [Text Editing Hates You Too](https://lord.io/text-editing-hates-you-too/)
 0. [On the design of text editors](https://arxiv.org/abs/2008.06030)
