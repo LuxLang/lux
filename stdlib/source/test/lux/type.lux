@@ -7,11 +7,15 @@
     [\\specification
      ["$[0]" equivalence]]]
    [control
+    ["<>" parser]
     ["[0]" pipe]
-    ["[0]" maybe]]
+    ["[0]" maybe]
+    ["[0]" try]
+    ["[0]" exception]]
    [data
     ["[0]" bit (.use "[1]#[0]" equivalence)]
-    ["[0]" text (.use "[1]#[0]" equivalence)]
+    ["[0]" text (.use "[1]#[0]" equivalence)
+     ["%" \\format (.only format)]]
     [collection
      ["[0]" list]
      ["[0]" array]]]
@@ -21,7 +25,10 @@
    [math
     ["[0]" random (.only Random) (.use "[1]#[0]" monad)]
     [number
-     ["n" nat]]]]]
+     ["n" nat]]]
+   [meta
+    ["[0]" symbol (.use "[1]#[0]" equivalence)]]]]
+ ["[0]" \\parser]
  [\\library
   ["[0]" / (.use "[1]#[0]" equivalence)]]
  ["[0]" /
@@ -34,6 +41,303 @@
   ["[1][0]" resource]
   ["[1][0]" unit]
   ["[1][0]" variance]])
+
+(def !expect
+  (template (_ <pattern> <value>)
+    [(case <value>
+       <pattern>
+       true
+       
+       _
+       false)]))
+
+(def primitive
+  (Random Type)
+  (|> (random.alpha_numeric 1)
+      (at random.monad each (function (_ name)
+                              {.#Primitive name (list)}))))
+
+(def test|matches
+  Test
+  (<| (_.for [\\parser.types_do_not_match])
+      (do [! random.monad]
+        [expected ..primitive
+         dummy (random.only (|>> (/#= expected) not)
+                            ..primitive)])
+      (all _.and
+           (_.coverage [\\parser.exactly]
+             (and (|> (\\parser.result (\\parser.exactly expected) expected)
+                      (!expect {try.#Success []}))
+                  (|> (\\parser.result (\\parser.exactly expected) dummy)
+                      (!expect (^.multi {try.#Failure error}
+                                        (exception.match? \\parser.types_do_not_match error))))))
+           (_.coverage [\\parser.sub]
+             (and (|> (\\parser.result (\\parser.sub expected) expected)
+                      (!expect {try.#Success []}))
+                  (|> (\\parser.result (\\parser.sub Any) expected)
+                      (!expect {try.#Success []}))
+                  (|> (\\parser.result (\\parser.sub expected) Nothing)
+                      (!expect {try.#Success []}))
+                  (|> (\\parser.result (\\parser.sub expected) dummy)
+                      (!expect (^.multi {try.#Failure error}
+                                        (exception.match? \\parser.types_do_not_match error))))))
+           (_.coverage [\\parser.super]
+             (and (|> (\\parser.result (\\parser.super expected) expected)
+                      (!expect {try.#Success []}))
+                  (|> (\\parser.result (\\parser.super expected) Any)
+                      (!expect {try.#Success []}))
+                  (|> (\\parser.result (\\parser.super Nothing) expected)
+                      (!expect {try.#Success []}))
+                  (|> (\\parser.result (\\parser.super expected) dummy)
+                      (!expect (^.multi {try.#Failure error}
+                                        (exception.match? \\parser.types_do_not_match error))))))
+           )))
+
+(def test|aggregate
+  Test
+  (do [! random.monad]
+    [expected_left ..primitive
+     expected_middle ..primitive
+     expected_right ..primitive]
+    (`` (all _.and
+             (~~ (with_template [<parser> <exception> <good_constructor> <bad_constructor>]
+                   [(_.coverage [<parser> <exception>]
+                      (and (|> (\\parser.result (<parser> (all <>.and \\parser.any \\parser.any \\parser.any))
+                                                (<good_constructor> (list expected_left expected_middle expected_right)))
+                               (!expect (^.multi {try.#Success [actual_left actual_middle actual_right]}
+                                                 (and (/#= expected_left actual_left)
+                                                      (/#= expected_middle actual_middle)
+                                                      (/#= expected_right actual_right)))))
+                           (|> (\\parser.result (<parser> (all <>.and \\parser.any \\parser.any \\parser.any))
+                                                (<bad_constructor> (list expected_left expected_middle expected_right)))
+                               (!expect (^.multi {try.#Failure error}
+                                                 (exception.match? <exception> error))))))]
+
+                   [\\parser.variant \\parser.not_variant /.variant /.tuple]
+                   [\\parser.tuple \\parser.not_tuple /.tuple /.variant]
+                   ))
+
+             (_.coverage [\\parser.function \\parser.not_function]
+               (and (|> (\\parser.result (\\parser.function (all <>.and \\parser.any \\parser.any) \\parser.any)
+                                         (/.function (list expected_left expected_middle) expected_right))
+                        (!expect (^.multi {try.#Success [[actual_left actual_middle] actual_right]}
+                                          (and (/#= expected_left actual_left)
+                                               (/#= expected_middle actual_middle)
+                                               (/#= expected_right actual_right)))))
+                    (|> (\\parser.result (\\parser.function (all <>.and \\parser.any \\parser.any) \\parser.any)
+                                         (/.variant (list expected_left expected_middle expected_right)))
+                        (!expect (^.multi {try.#Failure error}
+                                          (exception.match? \\parser.not_function error))))))
+             (_.coverage [\\parser.applied \\parser.not_application]
+               (and (|> (\\parser.result (\\parser.applied (all <>.and \\parser.any \\parser.any \\parser.any))
+                                         (/.application (list expected_middle expected_right) expected_left))
+                        (!expect (^.multi {try.#Success [actual_left actual_middle actual_right]}
+                                          (and (/#= expected_left actual_left)
+                                               (/#= expected_middle actual_middle)
+                                               (/#= expected_right actual_right)))))
+                    (|> (\\parser.result (\\parser.applied (all <>.and \\parser.any \\parser.any \\parser.any))
+                                         (/.variant (list expected_left expected_middle expected_right)))
+                        (!expect (^.multi {try.#Failure error}
+                                          (exception.match? \\parser.not_application error))))))
+             ))))
+
+(def test|parameter
+  Test
+  (do random.monad
+    [quantification ..primitive
+     argument ..primitive
+     not_parameter ..primitive
+     parameter random.nat]
+    (all _.and
+         (_.coverage [\\parser.not_parameter]
+           (|> (\\parser.result \\parser.parameter not_parameter)
+               (!expect (^.multi {try.#Failure error}
+                                 (exception.match? \\parser.not_parameter error)))))
+         (_.coverage [\\parser.unknown_parameter]
+           (|> (\\parser.result \\parser.parameter {.#Parameter parameter})
+               (!expect (^.multi {try.#Failure error}
+                                 (exception.match? \\parser.unknown_parameter error)))))
+         (_.coverage [\\parser.with_extension]
+           (|> (\\parser.result (<| (\\parser.with_extension quantification)
+                                    (\\parser.with_extension argument)
+                                    \\parser.any)
+                                not_parameter)
+               (!expect (^.multi {try.#Success [quantification::binding argument::binding actual]}
+                                 (same? not_parameter actual)))))
+         (_.coverage [\\parser.parameter]
+           (|> (\\parser.result (<| (\\parser.with_extension quantification)
+                                    (\\parser.with_extension argument)
+                                    \\parser.parameter)
+                                {.#Parameter 0})
+               (!expect {try.#Success [quantification::binding argument::binding _]})))
+         (_.coverage [\\parser.argument]
+           (let [argument? (is (-> Nat Nat Bit)
+                               (function (_ @ expected)
+                                 (|> (\\parser.result (<| (\\parser.with_extension quantification)
+                                                          (\\parser.with_extension argument)
+                                                          (\\parser.with_extension quantification)
+                                                          (\\parser.with_extension argument)
+                                                          (do <>.monad
+                                                            [env \\parser.env
+                                                             _ \\parser.any]
+                                                            (in (\\parser.argument env @))))
+                                                      not_parameter)
+                                     (!expect (^.multi {try.#Success [_ _ _ _ actual]}
+                                                       (n.= expected actual))))))]
+             (and (argument? 0 2)
+                  (argument? 1 3)
+                  (argument? 2 0))))
+         (_.coverage [\\parser.wrong_parameter]
+           (|> (\\parser.result (<| (\\parser.with_extension quantification)
+                                    (\\parser.with_extension argument)
+                                    (\\parser.this_parameter 1))
+                                {.#Parameter 0})
+               (!expect (^.multi {try.#Failure error}
+                                 (exception.match? \\parser.wrong_parameter error)))))
+         (_.coverage [\\parser.this_parameter]
+           (|> (\\parser.result (<| (\\parser.with_extension quantification)
+                                    (\\parser.with_extension argument)
+                                    (\\parser.this_parameter 0))
+                                {.#Parameter 0})
+               (!expect {try.#Success [quantification::binding argument::binding _]})))
+         )))
+
+(def test|polymorphic
+  Test
+  (do [! random.monad]
+    [not_polymorphic ..primitive
+     expected_inputs (at ! each (|>> (n.% 10) ++) random.nat)]
+    (all _.and
+         (_.coverage [\\parser.not_polymorphic]
+           (and (|> (\\parser.result (\\parser.polymorphic \\parser.any)
+                                     not_polymorphic)
+                    (!expect (^.multi {try.#Failure error}
+                                      (exception.match? \\parser.not_polymorphic error))))
+                (|> (\\parser.result (\\parser.polymorphic \\parser.any)
+                                     (/.univ_q 0 not_polymorphic))
+                    (!expect (^.multi {try.#Failure error}
+                                      (exception.match? \\parser.not_polymorphic error))))))
+         (_.coverage [\\parser.polymorphic]
+           (|> (\\parser.result (\\parser.polymorphic \\parser.any)
+                                (/.univ_q expected_inputs not_polymorphic))
+               (!expect (^.multi {try.#Success [g!poly actual_inputs bodyT]}
+                                 (and (n.= expected_inputs (list.size actual_inputs))
+                                      (same? not_polymorphic bodyT))))))
+         )))
+
+(def test|recursive
+  Test
+  (do random.monad
+    [expected ..primitive]
+    (all _.and
+         (_.coverage [\\parser.recursive]
+           (|> (.type_literal (Rec @ expected))
+               (\\parser.result (\\parser.recursive \\parser.any))
+               (!expect (^.multi {try.#Success [@self actual]}
+                                 (/#= expected actual)))))
+         (_.coverage [\\parser.recursive_self]
+           (|> (.type_literal (Rec @ @))
+               (\\parser.result (\\parser.recursive \\parser.recursive_self))
+               (!expect (^.multi {try.#Success [@expected @actual]}
+                                 (same? @expected @actual)))))
+         (_.coverage [\\parser.recursive_call]
+           (|> (.type_literal (All (self input) (self input)))
+               (\\parser.result (\\parser.polymorphic \\parser.recursive_call))
+               (!expect {try.#Success [@self inputs ???]})))
+         (_.coverage [\\parser.not_recursive]
+           (and (|> expected
+                    (\\parser.result (\\parser.recursive \\parser.any))
+                    (!expect (^.multi {try.#Failure error}
+                                      (exception.match? \\parser.not_recursive error))))
+                (|> expected
+                    (\\parser.result \\parser.recursive_self)
+                    (!expect (^.multi {try.#Failure error}
+                                      (exception.match? \\parser.not_recursive error))))))
+         )))
+
+(def \\parser
+  Test
+  (<| (_.covering \\parser._)
+      (_.for [\\parser.Parser])
+      (all _.and
+           (do [! random.monad]
+             [expected ..primitive]
+             (_.coverage [\\parser.result \\parser.any]
+               (|> (\\parser.result \\parser.any expected)
+                   (!expect (^.multi {try.#Success actual}
+                                     (/#= expected actual))))))
+           (do [! random.monad]
+             [expected ..primitive]
+             (_.coverage [\\parser.next \\parser.unconsumed_input]
+               (and (|> (\\parser.result (do <>.monad
+                                           [actual \\parser.next
+                                            _ \\parser.any]
+                                           (in actual))
+                                         expected)
+                        (!expect (^.multi {try.#Success actual}
+                                          (/#= expected actual))))
+                    (|> (\\parser.result \\parser.next expected)
+                        (!expect (^.multi {try.#Failure error}
+                                          (exception.match? \\parser.unconsumed_input error)))))))
+           (do [! random.monad]
+             [expected ..primitive]
+             (_.coverage [\\parser.empty_input]
+               (`` (and (~~ (with_template [<parser>]
+                              [(|> (\\parser.result (do <>.monad
+                                                      [_ \\parser.any]
+                                                      <parser>)
+                                                    expected)
+                                   (!expect (^.multi {try.#Failure error}
+                                                     (exception.match? \\parser.empty_input error))))]
+
+                              [\\parser.any]
+                              [\\parser.next]
+                              ))))))
+           (do [! random.monad]
+             [expected ..primitive]
+             (_.coverage [\\parser.Env \\parser.env \\parser.fresh]
+               (|> (\\parser.result (do <>.monad
+                                      [env \\parser.env
+                                       _ \\parser.any]
+                                      (in env))
+                                    expected)
+                   (!expect (^.multi {try.#Success environment}
+                                     (same? \\parser.fresh environment))))))
+           (do [! random.monad]
+             [expected ..primitive
+              dummy (random.only (|>> (/#= expected) not)
+                                 ..primitive)]
+             (_.coverage [\\parser.local]
+               (|> (\\parser.result (do <>.monad
+                                      [_ \\parser.any]
+                                      (\\parser.local (list expected)
+                                                      \\parser.any))
+                                    dummy)
+                   (!expect (^.multi {try.#Success actual}
+                                     (/#= expected actual))))))
+           (do [! random.monad]
+             [expected random.nat]
+             (_.coverage [\\parser.existential \\parser.not_existential]
+               (|> (\\parser.result \\parser.existential
+                                    {.#Ex expected})
+                   (!expect (^.multi {try.#Success actual}
+                                     (n.= expected actual))))))
+           (do [! random.monad]
+             [expected_name (random.and (random.alpha_numeric 1)
+                                        (random.alpha_numeric 1))
+              expected_type ..primitive]
+             (_.coverage [\\parser.named \\parser.not_named]
+               (|> (\\parser.result \\parser.named
+                                    {.#Named expected_name expected_type})
+                   (!expect (^.multi {try.#Success [actual_name actual_type]}
+                                     (and (symbol#= expected_name actual_name)
+                                          (/#= expected_type actual_type)))))))
+           ..test|aggregate
+           ..test|matches
+           ..test|parameter
+           ..test|polymorphic
+           ..test|recursive
+           )))
 
 (def short
   (Random Text)
@@ -248,6 +552,8 @@
                     (bit#= (/#= left right)
                            (text#= (/.format left) (/.format right))))
                   ))
+
+           ..\\parser
 
            /primitive.test
            /check.test

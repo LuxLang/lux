@@ -1,31 +1,173 @@
 (.require
  [library
-  [lux (.except)
+  [lux (.except local global)
    ["_" test (.only Test)]
    [abstract
     [monad (.only do)]
     [\\specification
      ["$[0]" equivalence]]]
    [control
+    ["<>" parser]
+    ["[0]" function]
     ["[0]" try (.only Try)]]
    [data
+    ["[0]" bit]
     ["[0]" product]
     ["[0]" text]
     [collection
      ["[0]" list (.use "[1]#[0]" functor)]]]
+   [macro
+    ["^" pattern]]
    [math
     ["[0]" random (.only Random) (.use "[1]#[0]" monad)]
     [number
-     ["n" nat]]]
+     ["[0]" nat]
+     ["[0]" int]
+     ["[0]" rev]
+     ["[0]" frac]]]
    [meta
+    ["[0]" symbol]
     ["[0]" location]]
    [tool
     [compiler
      [language
       [lux
        ["[0]" syntax]]]]]]]
+ ["[0]" \\parser]
  [\\library
   ["[0]" /]])
+
+(def !expect
+  (template (_ <pattern> <value>)
+    [(case <value>
+       <pattern>
+       true
+       
+       _
+       false)]))
+
+(def local
+  (Random Text)
+  (random.lower_case 1))
+
+(def global
+  (Random Symbol)
+  (all random.and
+       (random.lower_case 1)
+       (random.lower_case 1)
+       ))
+
+(def any_symbol
+  (Random Symbol)
+  (all random.either
+       (random#each (|>> [""])
+                    ..local)
+       ..global
+       ))
+
+(def \\parser
+  Test
+  (<| (_.covering \\parser._)
+      (_.for [\\parser.Parser])
+      (`` (all _.and
+               (do [! random.monad]
+                 [expected (at ! each /.bit random.bit)]
+                 (_.coverage [\\parser.result]
+                   (and (|> (\\parser.result \\parser.any (list expected))
+                            (!expect {try.#Success _}))
+                        (|> (\\parser.result \\parser.any (list))
+                            (!expect {try.#Failure _})))))
+               (~~ (with_template [<query> <check> <random> <code> <equivalence>]
+                     [(do [! random.monad]
+                        [expected <random>
+                         dummy (|> <random> (random.only (|>> (at <equivalence> = expected) not)))]
+                        (all _.and
+                             (_.coverage [<query>]
+                               (|> (\\parser.result <query> (list (<code> expected)))
+                                   (!expect (^.multi {try.#Success actual}
+                                                     (at <equivalence> = expected actual)))))
+                             (_.coverage [<check>]
+                               (and (|> (\\parser.result (<check> expected) (list (<code> expected)))
+                                        (!expect {try.#Success []}))
+                                    (|> (\\parser.result (<check> expected) (list (<code> dummy)))
+                                        (!expect {try.#Failure _}))))
+                             ))]
+
+                     [\\parser.any \\parser.this (at ! each /.bit random.bit) function.identity /.equivalence]
+                     [\\parser.bit \\parser.this_bit random.bit /.bit bit.equivalence]
+                     [\\parser.nat \\parser.this_nat random.nat /.nat nat.equivalence]
+                     [\\parser.int \\parser.this_int random.int /.int int.equivalence]
+                     [\\parser.rev \\parser.this_rev random.rev /.rev rev.equivalence]
+                     [\\parser.frac \\parser.this_frac random.safe_frac /.frac frac.equivalence]
+                     [\\parser.text \\parser.this_text (random.unicode 1) /.text text.equivalence]
+                     [\\parser.local \\parser.this_local ..local /.local text.equivalence]
+                     [\\parser.global \\parser.this_global ..global /.symbol symbol.equivalence]
+                     [\\parser.symbol \\parser.this_symbol ..any_symbol /.symbol symbol.equivalence]
+                     ))
+               (~~ (with_template [<query> <code>]
+                     [(do [! random.monad]
+                        [expected_left random.nat
+                         expected_right random.int]
+                        (_.coverage [<query>]
+                          (|> (\\parser.result (<query> (<>.and \\parser.nat \\parser.int))
+                                               (list (<code> (list (/.nat expected_left)
+                                                                   (/.int expected_right)))))
+                              (!expect (^.multi {try.#Success [actual_left actual_right]}
+                                                (and (at nat.equivalence = expected_left actual_left)
+                                                     (at int.equivalence = expected_right actual_right)))))))]
+
+                     [\\parser.form /.form]
+                     [\\parser.variant /.variant]
+                     [\\parser.tuple /.tuple]
+                     ))
+               (do [! random.monad]
+                 [expected_local random.nat
+                  expected_global random.int]
+                 (_.coverage [\\parser.locally]
+                   (|> (\\parser.result (<>.and (\\parser.locally (list (/.nat expected_local)) \\parser.nat)
+                                                \\parser.int)
+                                        (list (/.int expected_global)))
+                       (!expect (^.multi {try.#Success [actual_local actual_global]}
+                                         (and (at nat.equivalence = expected_local actual_local)
+                                              (at int.equivalence = expected_global actual_global)))))))
+               (do [! random.monad]
+                 [dummy (at ! each /.bit random.bit)]
+                 (_.coverage [\\parser.end?]
+                   (|> (\\parser.result (do <>.monad
+                                          [pre \\parser.end?
+                                           _ \\parser.any
+                                           post \\parser.end?]
+                                          (in (and (not pre)
+                                                   post)))
+                                        (list dummy))
+                       (!expect (^.multi {try.#Success verdict}
+                                         verdict)))))
+               (do [! random.monad]
+                 [dummy (at ! each /.bit random.bit)]
+                 (_.coverage [\\parser.end]
+                   (and (|> (\\parser.result \\parser.end (list))
+                            (!expect {try.#Success []}))
+                        (|> (\\parser.result \\parser.end (list dummy))
+                            (!expect {try.#Failure _})))))
+               (do [! random.monad]
+                 [expected (at ! each /.bit random.bit)]
+                 (_.coverage [\\parser.next]
+                   (|> (\\parser.result (do <>.monad
+                                          [pre \\parser.next
+                                           post \\parser.any]
+                                          (in (and (same? expected pre)
+                                                   (same? pre post))))
+                                        (list expected))
+                       (!expect {try.#Success _}))))
+               (do [! random.monad]
+                 [expected (at ! each /.bit random.bit)]
+                 (_.coverage [\\parser.not]
+                   (and (|> (\\parser.result (\\parser.not \\parser.nat) (list expected))
+                            (!expect (^.multi {try.#Success actual}
+                                              (same? expected actual))))
+                        (|> (\\parser.result (\\parser.not \\parser.bit) (list expected))
+                            (!expect {try.#Failure _})))))
+               ))))
 
 (def random_text
   (Random Text)
@@ -38,7 +180,7 @@
 (def (random_sequence random)
   (All (_ a) (-> (Random a) (Random (List a))))
   (do [! random.monad]
-    [size (|> random.nat (at ! each (n.% 3)))]
+    [size (|> random.nat (at ! each (nat.% 3)))]
     (random.list size random)))
 
 (def .public random
@@ -171,4 +313,6 @@
                (at /.equivalence =
                    expected
                    (/.replaced original substitute sample))))
+
+           ..\\parser
            )))
