@@ -398,7 +398,7 @@ Called by `imenu--generic-function'."
 							(definition (altRE "\\.require"
 											   "def" "inlined" "type" "program:"
 											   "macro" "syntax"
-											   "exception:")))
+											   "exception")))
 						(let ((control (altRE control//flow
 											  control//pattern-matching
 											  control//logic
@@ -585,6 +585,7 @@ This function also returns nil meaning don't specify the indentation."
 
   ("def" 'defun)
   ("type" 'defun)
+  ("exception" 'defun)
   ("inlined" 'defun)
   ("context" 'defun)
   ("primitive" 'defun)
