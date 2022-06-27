@@ -682,12 +682,7 @@
 ... Base functions & macros
 ("lux def" meta#in
  ("lux type check"
-  {#UnivQ {#End}
-          {#Function {#Parameter 1}
-                     {#Function Lux
-                                {#Apply {#Product Lux
-                                                  {#Parameter 1}}
-                                        {#Apply Text Either}}}}}
+  {#UnivQ {#End} {#Function {#Parameter 1} {#Apply {#Parameter 1} Meta}}}
   ([_ val]
    ([_ state]
     {#Right [state val]})))
@@ -695,12 +690,7 @@
 
 ("lux def" failure
  ("lux type check"
-  {#UnivQ {#End}
-          {#Function Text
-                     {#Function Lux
-                                {#Apply {#Product Lux
-                                                  {#Parameter 1}}
-                                        {#Apply Text Either}}}}}
+  {#UnivQ {#End} {#Function Text {#Apply {#Parameter 1} Meta}}}
   ([_ msg]
    ([_ state]
     {#Left msg})))
@@ -1664,6 +1654,251 @@
         (-> Text Code)
         (with_location (variant$ (list (symbol$ [..prelude "#Text"]) (text$ value)))))
 
+(def'' .public UnQuote
+       Type
+       {#Primitive "#Macro/UnQuote" {#End}})
+
+(def'' .public (unquote it)
+       (-> Macro UnQuote)
+       ("lux type as" UnQuote it))
+
+(def'' .public (unquote_macro it)
+       (-> UnQuote Macro')
+       ("lux type as" Macro' it))
+
+(def'' .private (list#one f xs)
+       (All (_ a b)
+         (-> (-> a ($' Maybe b)) ($' List a) ($' Maybe b)))
+       ({{#End}
+         {#None}
+
+         {#Item x xs'}
+         ({{#None}
+           (list#one f xs')
+
+           {#Some y}
+           {#Some y}}
+          (f x))}
+        xs))
+
+(def'' .private (in_env name state)
+       (-> Text Lux ($' Maybe Type))
+       (let' [[..#info info ..#source    source  ..#current_module _ ..#modules modules
+               ..#scopes scopes ..#type_context types    ..#host    host
+               ..#seed seed ..#expected  expected ..#location  location ..#extensions extensions
+               ..#scope_type_vars scope_type_vars ..#eval _eval] state]
+             (list#one ("lux type check"
+                        (-> Scope ($' Maybe Type))
+                        (function' [env]
+                                   (let' [[..#name _
+                                           ..#inner _
+                                           ..#locals [..#counter _ ..#mappings locals]
+                                           ..#captured _] env]
+                                         (list#one ("lux type check"
+                                                    (-> (Tuple Text (Tuple Type Any)) ($' Maybe Type))
+                                                    (function' [it]
+                                                               (let' [[bname [type _]] it]
+                                                                     (if (text#= name bname)
+                                                                       {#Some type}
+                                                                       {#None}))))
+                                                   locals))))
+                       scopes)))
+
+(def'' .private (definition_value name state)
+       (-> Symbol ($' Meta (Tuple Type Any)))
+       (let' [[v_module v_name] name
+              [..#info info ..#source    source ..#current_module _  ..#modules modules
+               ..#scopes scopes ..#type_context types    ..#host    host
+               ..#seed seed ..#expected  expected ..#location  location ..#extensions extensions
+               ..#scope_type_vars scope_type_vars ..#eval _eval] state]
+             ({{#None}
+               {#Left (text#composite "Unknown definition: " (symbol#encoded name))}
+
+               {#Some [..#definitions definitions
+                       ..#module_hash _
+                       ..#module_aliases _
+                       ..#imports _
+                       ..#module_state _]}
+               ({{#None}
+                 {#Left (text#composite "Unknown definition: " (symbol#encoded name))}
+
+                 {#Some definition}
+                 ({{#Alias real_name}
+                   (definition_value real_name state)
+                   
+                   {#Definition [exported? def_type def_value]}
+                   {#Right [state [def_type def_value]]}
+
+                   {#Type [exported? type labels]}
+                   {#Right [state [..Type type]]}
+
+                   {#Tag _}
+                   {#Left (text#composite "Unknown definition: " (symbol#encoded name))}
+
+                   {#Slot _}
+                   {#Left (text#composite "Unknown definition: " (symbol#encoded name))}}
+                  definition)}
+                (plist#value v_name definitions))}
+              (plist#value v_module modules))))
+
+(def'' .private (global_value global lux)
+       (-> Symbol ($' Meta ($' Maybe (Tuple Type Any))))
+       (let' [[module short] global]
+             ({{#Right [lux' type,value]}
+               {#Right [lux' {#Some type,value}]}
+               
+               {#Left error}
+               {#Right [lux {#None}]}}
+              ({"" ({{#None}
+                     (definition_value global lux)
+                     
+                     {#Some _}
+                     {#Left (text#composite "Not a global value: " (symbol#encoded global))}}
+                    (in_env short lux))
+
+                _
+                (definition_value global lux)}
+               module))))
+
+(def'' .private (bit#and left right)
+       (-> Bit Bit Bit)
+       (if left
+         right
+         #0))
+
+(def'' .private (symbol#= left right)
+       (-> Symbol Symbol Bit)
+       (let' [[moduleL shortL] left
+              [moduleR shortR] right]
+             (all bit#and
+                  (text#= moduleL moduleR)
+                  (text#= shortL shortR))))
+
+(def'' .private (every? ?)
+       (All (_ a)
+         (-> (-> a Bit) ($' List a) Bit))
+       (list#mix (function' [_2 _1] (if _1 (? _2) #0)) #1))
+
+(def'' .private (zipped_2 xs ys)
+       (All (_ a b)
+         (-> ($' List a) ($' List b) ($' List (Tuple a b))))
+       ({{#Item x xs'}
+         ({{#Item y ys'}
+           (partial_list [x y] (zipped_2 xs' ys'))
+
+           _
+           (list)}
+          ys)
+         
+         _
+         (list)}
+        xs))
+
+(def'' .private (type#= left right)
+       (-> Type Type Bit)
+       ({[{#Primitive nameL parametersL} {#Primitive nameR parametersR}]
+         (all bit#and
+              (text#= nameL nameR)
+              ("lux i64 =" (list#size parametersL) (list#size parametersR))
+              (every? (function' [l,r] (let' [[itL itR] l,r] (type#= itL itR)))
+                      (zipped_2 parametersL parametersR)))
+
+         [{#Sum leftL rightL} {#Sum leftR rightR}]
+         (all bit#and
+              (type#= leftL leftR)
+              (type#= rightL rightR))
+
+         [{#Product leftL rightL} {#Product leftR rightR}]
+         (all bit#and
+              (type#= leftL leftR)
+              (type#= rightL rightR))
+
+         [{#Function leftL rightL} {#Function leftR rightR}]
+         (all bit#and
+              (type#= leftL leftR)
+              (type#= rightL rightR))
+
+         [{#Apply leftL rightL} {#Apply leftR rightR}]
+         (all bit#and
+              (type#= leftL leftR)
+              (type#= rightL rightR))
+
+         [{#Parameter idL} {#Parameter idR}]
+         ("lux i64 =" idL idR)
+
+         [{#Var idL} {#Var idR}]
+         ("lux i64 =" idL idR)
+
+         [{#Ex idL} {#Ex idR}]
+         ("lux i64 =" idL idR)
+
+         [{#UnivQ envL bodyL} {#UnivQ envR bodyR}]
+         (all bit#and
+              ("lux i64 =" (list#size envL) (list#size envR))
+              (every? (function' [l,r] (let' [[itL itR] l,r] (type#= itL itR)))
+                      (zipped_2 envL envR))
+              (type#= bodyL bodyR))
+
+         [{#ExQ envL bodyL} {#ExQ envR bodyR}]
+         (all bit#and
+              ("lux i64 =" (list#size envL) (list#size envR))
+              (every? (function' [l,r] (let' [[itL itR] l,r] (type#= itL itR)))
+                      (zipped_2 envL envR))
+              (type#= bodyL bodyR))
+
+         [{#Named nameL anonL} {#Named nameR anonR}]
+         (all bit#and
+              (symbol#= nameL nameR)
+              (type#= anonL anonR))
+
+         _
+         #0}
+        [left right]))
+
+(def''' .private (one_expansion it)
+        (-> ($' Meta ($' List Code)) ($' Meta Code))
+        (do meta#monad
+          [it it]
+          ({{#Item it {#End}}
+            (in it)
+
+            _
+            (failure "Must expand to a single element.")}
+           it)))
+
+(def''' .private (untemplated_form @form untemplated replace? subst elements)
+        (-> Location (-> Bit Text Code ($' Meta Code)) Bit Text ($' List Code)
+            ($' Meta Code))
+        (do meta#monad
+          [output (spliced replace? (untemplated replace? subst) elements)
+           .let' [[_ output'] (with_location (variant$ (list (symbol$ [..prelude "#Form"]) output)))]]
+          (in [@form output'])))
+
+(def'' .private (current_module_name state)
+       ($' Meta Text)
+       ({[..#info info ..#source    source  ..#current_module current_module ..#modules modules
+          ..#scopes scopes ..#type_context types    ..#host    host
+          ..#seed seed ..#expected  expected ..#location  location ..#extensions extensions
+          ..#scope_type_vars scope_type_vars ..#eval _eval]
+         ({{#Some module_name}
+           {#Right [state module_name]}
+
+           _
+           {#Left "Cannot get the module name without a module!"}}
+          current_module)}
+        state))
+
+(def''' .private (normal name)
+        (-> Symbol ($' Meta Symbol))
+        ({["" name]
+          (do meta#monad
+            [module_name ..current_module_name]
+            (in [module_name name]))
+
+          _
+          (meta#in name)}
+         name))
+
 (def''' .private (untemplated replace? subst token)
         (-> Bit Text Code ($' Meta Code))
         ({[_ [_ {#Bit value}]]
@@ -1700,27 +1935,25 @@
           [#0 [_ {#Symbol [module name]}]]
           (meta#in (with_location (variant$ (list (symbol$ [..prelude "#Symbol"]) (tuple$ (list (text$ module) (text$ name)))))))
 
-          [#1 [_ {#Form {#Item [[_ {#Symbol ["" "~"]}] {#Item [unquoted {#End}]}]}}]]
-          (meta#in (form$ (list (text$ "lux type check")
-                                (symbol$ [..prelude "Code"])
-                                unquoted)))
-
-          [#1 [_ {#Form {#Item [[_ {#Symbol ["" "~!"]}] {#Item [dependent {#End}]}]}}]]
+          [#1 [@form {#Form {#Item [@symbol {#Symbol global}] parameters}}]]
           (do meta#monad
-            [independent (untemplated replace? subst dependent)]
-            (in (with_location (variant$ (list (symbol$ [..prelude "#Form"])
-                                               (untemplated_list (list (untemplated_text "lux in-module")
-                                                                       (untemplated_text subst)
-                                                                       independent)))))))
+            [|global| (..normal global)
+             ?type,value (global_value |global|)]
+            ({{#Some [type value]}
+              (if (type#= UnQuote type)
+                (do meta#monad
+                  [.let' [it (unquote_macro ("lux type as" UnQuote value))]
+                   output (one_expansion (it parameters))
+                   .let' [[_ output] output]]
+                  (in [@form output]))
+                (untemplated_form @form untemplated replace? subst {#Item [@symbol {#Symbol global}] parameters}))
+              
+              {#None}
+              (untemplated_form @form untemplated replace? subst {#Item [@symbol {#Symbol global}] parameters})}
+             ?type,value))
 
-          [#1 [_ {#Form {#Item [[_ {#Symbol ["" "~'"]}] {#Item [keep_quoted {#End}]}]}}]]
-          (untemplated #0 subst keep_quoted)
-
-          [_ [meta {#Form elems}]]
-          (do meta#monad
-            [output (spliced replace? (untemplated replace? subst) elems)
-             .let' [[_ output'] (with_location (variant$ (list (symbol$ [..prelude "#Form"]) output)))]]
-            (in [meta output']))
+          [_ [@form {#Form elements}]]
+          (untemplated_form @form untemplated replace? subst elements)
 
           [_ [meta {#Variant elems}]]
           (do meta#monad
@@ -1748,20 +1981,6 @@
            (failure "Wrong syntax for Primitive")}
           tokens)))
 
-(def'' .private (current_module_name state)
-       ($' Meta Text)
-       ({[..#info info ..#source    source  ..#current_module current_module ..#modules modules
-          ..#scopes scopes ..#type_context types    ..#host    host
-          ..#seed seed ..#expected  expected ..#location  location ..#extensions extensions
-          ..#scope_type_vars scope_type_vars ..#eval _eval]
-         ({{#Some module_name}
-           {#Right [state module_name]}
-
-           _
-           {#Left "Cannot get the module name without a module!"}}
-          current_module)}
-        state))
-
 (def'' .public `
        Macro
        (macro (_ tokens)
@@ -1786,7 +2005,7 @@
              (in (list (form$ (list (text$ "lux type check") (symbol$ [..prelude "Code"]) =template)))))
 
            _
-           (failure "Wrong syntax for `")}
+           (failure "Wrong syntax for `'")}
           tokens)))
 
 (def'' .public '
@@ -1800,6 +2019,50 @@
            _
            (failure "Wrong syntax for '")}
           tokens)))
+
+(def'' .public ~
+       UnQuote
+       (..unquote
+        (macro (_ tokens)
+          ({{#Item it {#End}}
+            (meta#in (list (form$ (list (text$ "lux type check")
+                                        (symbol$ [..prelude "Code"])
+                                        it))))
+
+            _
+            (failure (wrong_syntax_error [..prelude "~"]))}
+           tokens))))
+
+(def'' .public ~!
+       UnQuote
+       (..unquote
+        (macro (_ tokens)
+          ({{#Item dependent {#End}}
+            (do meta#monad
+              [current_module ..current_module_name
+               independent (untemplated #1 current_module dependent)]
+              (in (list (with_location (variant$ (list (symbol$ [..prelude "#Form"])
+                                                       (untemplated_list (list (untemplated_text "lux in-module")
+                                                                               (untemplated_text current_module)
+                                                                               independent))))))))
+
+            _
+            (failure (wrong_syntax_error [..prelude "~!"]))}
+           tokens))))
+
+(def'' .public ~'
+       UnQuote
+       (..unquote
+        (macro (_ tokens)
+          ({{#Item it {#End}}
+            (do meta#monad
+              [current_module ..current_module_name
+               it (untemplated #0 current_module it)]
+              (in (list it)))
+
+            _
+            (failure (wrong_syntax_error [..prelude "~'"]))}
+           tokens))))
 
 (def'' .public |>
        Macro
@@ -1905,11 +2168,6 @@
           _
           template}
          template))
-
-(def''' .private (every? p xs)
-        (All (_ a)
-          (-> (-> a Bit) ($' List a) Bit))
-        (list#mix (function' [_2 _1] (if _1 (p _2) #0)) #1 xs))
 
 (def''' .private (high_bits value)
         (-> ($' I64 Any) I64)
@@ -2091,17 +2349,6 @@
             {#Slot _}
             {#None}}
            ("lux type check" Global gdef))))
-
-(def''' .private (normal name)
-        (-> Symbol ($' Meta Symbol))
-        ({["" name]
-          (do meta#monad
-            [module_name ..current_module_name]
-            (in [module_name name]))
-
-          _
-          (meta#in name)}
-         name))
 
 (def''' .private (named_macro full_name)
         (-> Symbol ($' Meta ($' Maybe Macro)))
@@ -2940,21 +3187,6 @@
            
            {#None}
            (failure (..wrong_syntax_error (symbol ..def))))))
-
-(def (list#one f xs)
-  (All (_ a b)
-    (-> (-> a (Maybe b)) (List a) (Maybe b)))
-  (case xs
-    {#End}
-    {#None}
-
-    {#Item x xs'}
-    (case (f x)
-      {#None}
-      (list#one f xs')
-
-      {#Some y}
-      {#Some y})))
 
 (with_template [<name> <form> <message>]
   [(def .public <name>
@@ -3838,28 +4070,6 @@
       {.#None}
       (failure (..wrong_syntax_error (symbol ..except))))))
 
-(def (in_env name state)
-  (-> Text Lux (Maybe Type))
-  (case state
-    [..#info info ..#source    source  ..#current_module _ ..#modules modules
-     ..#scopes scopes ..#type_context types    ..#host    host
-     ..#seed seed ..#expected  expected ..#location  location ..#extensions extensions
-     ..#scope_type_vars scope_type_vars ..#eval _eval]
-    (list#one (is (-> Scope (Maybe Type))
-                  (function (_ env)
-                    (case env
-                      [..#name _
-                       ..#inner _
-                       ..#locals [..#counter _ ..#mappings locals]
-                       ..#captured _]
-                      (list#one (is (-> [Text [Type Any]] (Maybe Type))
-                                    (function (_ [bname [type _]])
-                                      (if (text#= name bname)
-                                        {#Some type}
-                                        {#None})))
-                                locals))))
-              scopes)))
-
 (def (definition_type name state)
   (-> Symbol Lux (Maybe Type))
   (let [[v_module v_name] name
@@ -3896,43 +4106,6 @@
 
           {#Slot _}
           {#None})))))
-
-(def (definition_value name state)
-  (-> Symbol (Meta [Type Any]))
-  (let [[v_module v_name] name
-        [..#info info ..#source    source ..#current_module _  ..#modules modules
-         ..#scopes scopes ..#type_context types    ..#host    host
-         ..#seed seed ..#expected  expected ..#location  location ..#extensions extensions
-         ..#scope_type_vars scope_type_vars ..#eval _eval] state]
-    (case (plist#value v_module modules)
-      {#None}
-      {#Left (text#composite "Unknown definition: " (symbol#encoded name))}
-
-      {#Some [..#definitions definitions
-              ..#module_hash _
-              ..#module_aliases _
-              ..#imports _
-              ..#module_state _]}
-      (case (plist#value v_name definitions)
-        {#None}
-        {#Left (text#composite "Unknown definition: " (symbol#encoded name))}
-
-        {#Some definition}
-        (case definition
-          {#Alias real_name}
-          (definition_value real_name state)
-          
-          {#Definition [exported? def_type def_value]}
-          {#Right [state [def_type def_value]]}
-
-          {#Type [exported? type labels]}
-          {#Right [state [..Type type]]}
-
-          {#Tag _}
-          {#Left (text#composite "Unknown definition: " (symbol#encoded name))}
-
-          {#Slot _}
-          {#Left (text#composite "Unknown definition: " (symbol#encoded name))})))))
 
 (def (type_variable idx bindings)
   (-> Nat (List [Nat (Maybe Type)]) (Maybe Type))
@@ -3987,21 +4160,6 @@
           _
           temp))
       )))
-
-(def (zipped_2 xs ys)
-  (All (_ a b)
-    (-> (List a) (List b) (List [a b])))
-  (case xs
-    {#Item x xs'}
-    (case ys
-      {#Item y ys'}
-      (partial_list [x y] (zipped_2 xs' ys'))
-
-      _
-      (list))
-    
-    _
-    (list)))
 
 (def .public open
   (macro (_ tokens)
@@ -5047,54 +5205,6 @@
                       (partial_list (` ("lux def" (~ g!_) [] #0))
                                     =refers)
                       =refers)}))))
-
-(def (symbol#= [moduleL shortL] [moduleR shortR])
-  (-> Symbol Symbol Bit)
-  (and (text#= moduleL moduleR)
-       (text#= shortL shortR)))
-
-(def (type#= left right)
-  (-> Type Type Bit)
-  (case [left right]
-    [{#Primitive nameL parametersL} {#Primitive nameR parametersR}]
-    (and (text#= nameL nameR)
-         ("lux i64 =" (list#size parametersL) (list#size parametersR))
-         (every? (function (_ [itL itR])
-                   (type#= itL itR))
-                 (zipped_2 parametersL parametersR)))
-
-    (with_template#pattern [<tag>]
-      [[{<tag> leftL rightL} {<tag> leftR rightR}]
-       (and (type#= leftL leftR)
-            (type#= rightL rightR))])
-    ([#Sum]
-     [#Product]
-     [#Function]
-     [#Apply])
-
-    (with_template#pattern [<tag>]
-      [[{<tag> idL} {<tag> idR}]
-       ("lux i64 =" idL idR)])
-    ([#Parameter]
-     [#Var]
-     [#Ex])
-
-    (with_template#pattern [<tag>]
-      [[{<tag> envL bodyL} {<tag> envR bodyR}]
-       (and ("lux i64 =" (list#size envL) (list#size envR))
-            (every? (function (_ [itL itR])
-                      (type#= itL itR))
-                    (zipped_2 envL envR))
-            (type#= bodyL bodyR))])
-    ([#UnivQ]
-     [#ExQ])
-
-    [{#Named nameL anonL} {#Named nameR anonR}]
-    (and (symbol#= nameL nameR)
-         (type#= anonL anonR))
-
-    _
-    #0))
 
 (type .public Immediate_UnQuote
   (Primitive "#Macro/Immediate_UnQuote"))
