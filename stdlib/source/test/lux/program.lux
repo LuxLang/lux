@@ -5,22 +5,90 @@
    [abstract
     [monad (.only do)]]
    [control
+    ["<>" parser]
     ["[0]" io]
-    ["[0]" try]
-    ["<>" parser (.only)
-     ["<[0]>" cli]]]
+    ["[0]" try]]
    [data
-    ["[0]" text]
+    ["[0]" text (.use "[1]#[0]" equivalence)]
     [collection
      ["[0]" list]]]
    [macro
     [syntax (.only syntax)]
+    ["^" pattern]
     ["[0]" code
      ["<[1]>" \\parser]]]
    [math
-    ["[0]" random]]]]
+    ["[0]" random]
+    [number
+     ["n" nat (.use "[1]#[0]" decimal)]]]]]
+ ["[0]" \\parser]
  [\\library
   ["[0]" /]])
+
+(def !expect
+  (template (_ <pattern> <value>)
+    [(case <value>
+       <pattern>
+       true
+       
+       _
+       false)]))
+
+(def \\parser
+  Test
+  (<| (_.covering \\parser._)
+      (_.for [\\parser.Parser])
+      (do [! random.monad]
+        [expected (at ! each n#encoded random.nat)
+         .let [random_dummy (random.only (|>> (text#= expected) not)
+                                         (random.unicode 5))]
+         dummy random_dummy
+         short (random.unicode 1)
+         long (random.unicode 2)
+         pre_ignore (random.list 5 random_dummy)
+         post_ignore (random.list 5 random_dummy)]
+        (all _.and
+             (_.coverage [\\parser.result \\parser.any]
+               (|> (\\parser.result \\parser.any (list expected))
+                   (!expect (^.multi {try.#Success actual}
+                                     (text#= expected actual)))))
+             (_.coverage [\\parser.parse]
+               (|> (\\parser.result (\\parser.parse n#decoded) (list expected))
+                   (!expect (^.multi {try.#Success actual}
+                                     (text#= expected
+                                             (n#encoded actual))))))
+             (_.coverage [\\parser.this]
+               (and (|> (\\parser.result (\\parser.this expected) (list expected))
+                        (!expect {try.#Success _}))
+                    (|> (\\parser.result (\\parser.this expected) (list dummy))
+                        (!expect {try.#Failure _}))))
+             (_.coverage [\\parser.somewhere]
+               (|> (\\parser.result (|> (\\parser.somewhere (\\parser.this expected))
+                                        (<>.before (<>.some \\parser.any)))
+                                    (list.together (list pre_ignore (list expected) post_ignore)))
+                   (!expect {try.#Success _})))
+             (_.coverage [\\parser.end]
+               (and (|> (\\parser.result \\parser.end (list))
+                        (!expect {try.#Success _}))
+                    (|> (\\parser.result (<>.not \\parser.end) (list expected))
+                        (!expect {try.#Failure _}))))
+             (_.coverage [\\parser.named]
+               (|> (\\parser.result (\\parser.named dummy \\parser.any) (list dummy expected))
+                   (!expect (^.multi {try.#Success actual}
+                                     (text#= expected actual)))))
+             (_.coverage [\\parser.parameter]
+               (and (|> (\\parser.result (\\parser.parameter [short long] \\parser.any)
+                                         (list short expected))
+                        (!expect (^.multi {try.#Success actual}
+                                          (text#= expected actual))))
+                    (|> (\\parser.result (\\parser.parameter [short long] \\parser.any)
+                                         (list long expected))
+                        (!expect (^.multi {try.#Success actual}
+                                          (text#= expected actual))))
+                    (|> (\\parser.result (\\parser.parameter [short long] \\parser.any)
+                                         (list dummy expected))
+                        (!expect {try.#Failure _}))))
+             ))))
 
 (def actual_program
   (syntax (_ [actual_program (<| <code>.form
@@ -33,43 +101,47 @@
   (<| (_.covering /._)
       (do random.monad
         [inputs (random.list 5 (random.upper_case 5))]
-        (_.coverage [/.program:]
-          (let [(open "list#[0]") (list.equivalence text.equivalence)]
-            (and (with_expansions [<program> (/.program: all_arguments
-                                               (io.io all_arguments))]
-                   (let [outcome ((is (-> (List Text) (io.IO Any))
-                                      (..actual_program <program>))
-                                  inputs)]
-                     (same? (is Any inputs)
-                            (io.run! outcome))))
-                 (with_expansions [<program> (/.program: [arg/0 <cli>.any
-                                                          arg/1 <cli>.any
-                                                          arg/2 <cli>.any
-                                                          arg/3 <cli>.any
-                                                          arg/4 <cli>.any]
-                                               (io.io (list arg/4 arg/3 arg/2 arg/1 arg/0)))]
-                   (let [outcome ((is (-> (List Text) (io.IO Any))
-                                      (..actual_program <program>))
-                                  inputs)]
-                     (list#= (list.reversed inputs)
-                             (as (List Text) (io.run! outcome)))))
-                 (with_expansions [<program> (/.program: [all_arguments (<>.many <cli>.any)]
-                                               (io.io all_arguments))]
-                   (let [outcome ((is (-> (List Text) (io.IO Any))
-                                      (..actual_program <program>))
-                                  inputs)]
-                     (list#= inputs
-                             (as (List Text) (io.run! outcome)))))
-                 (with_expansions [<program> (/.program: [arg/0 <cli>.any
-                                                          arg/1 <cli>.any
-                                                          arg/2 <cli>.any
-                                                          arg/3 <cli>.any]
-                                               (io.io []))]
-                   (case (try ((is (-> (List Text) (io.IO Any))
-                                   (..actual_program <program>))
-                               inputs))
-                     {try.#Success _}
-                     false
-                     
-                     {try.#Failure _}
-                     true))))))))
+        (all _.and
+             (_.coverage [/.program:]
+               (let [(open "list#[0]") (list.equivalence text.equivalence)]
+                 (and (with_expansions [<program> (/.program: all_arguments
+                                                    (io.io all_arguments))]
+                        (let [outcome ((is (-> (List Text) (io.IO Any))
+                                           (..actual_program <program>))
+                                       inputs)]
+                          (same? (is Any inputs)
+                                 (io.run! outcome))))
+                      (with_expansions [<program> (/.program: [arg/0 \\parser.any
+                                                               arg/1 \\parser.any
+                                                               arg/2 \\parser.any
+                                                               arg/3 \\parser.any
+                                                               arg/4 \\parser.any]
+                                                    (io.io (list arg/4 arg/3 arg/2 arg/1 arg/0)))]
+                        (let [outcome ((is (-> (List Text) (io.IO Any))
+                                           (..actual_program <program>))
+                                       inputs)]
+                          (list#= (list.reversed inputs)
+                                  (as (List Text) (io.run! outcome)))))
+                      (with_expansions [<program> (/.program: [all_arguments (<>.many \\parser.any)]
+                                                    (io.io all_arguments))]
+                        (let [outcome ((is (-> (List Text) (io.IO Any))
+                                           (..actual_program <program>))
+                                       inputs)]
+                          (list#= inputs
+                                  (as (List Text) (io.run! outcome)))))
+                      (with_expansions [<program> (/.program: [arg/0 \\parser.any
+                                                               arg/1 \\parser.any
+                                                               arg/2 \\parser.any
+                                                               arg/3 \\parser.any]
+                                                    (io.io []))]
+                        (case (try ((is (-> (List Text) (io.IO Any))
+                                        (..actual_program <program>))
+                                    inputs))
+                          {try.#Success _}
+                          false
+                          
+                          {try.#Failure _}
+                          true)))))
+
+             ..\\parser
+             ))))

@@ -8,16 +8,180 @@
      ["$[0]" equivalence]
      ["$[0]" mix]
      ["$[0]" functor]]]
+   [control
+    ["//" parser]
+    ["[0]" try]
+    ["[0]" exception]]
    [data
     ["[0]" product]
     [collection
      ["[0]" list (.use "[1]#[0]" functor mix)]]]
+   [macro
+    ["^" pattern]]
    [math
     ["[0]" random (.only Random)]
     [number
      ["n" nat]]]]]
+ ["[0]" \\parser]
  [\\library
-  ["[0]" / (.only Tree)]])
+  ["[0]" / (.only Tree)
+   ["[0]" zipper]]])
+
+(def !expect
+  (template (_ <pattern> <value>)
+    [(case <value>
+       <pattern>
+       true
+       
+       _
+       false)]))
+
+(def !cover
+  (template (_ <coverage> <parser> <sample>)
+    [(do [! random.monad]
+       [dummy random.nat
+        expected (|> random.nat (random.only (|>> (n.= dummy) not)))]
+       (_.coverage <coverage>
+         (|> (\\parser.result <parser>
+                              <sample>)
+             (!expect (^.multi {try.#Success actual}
+                               (n.= expected actual))))))]))
+
+(def !cover/2
+  (template (_ <coverage> <parser> <sample0> <sample1>)
+    [(do [! random.monad]
+       [dummy random.nat
+        expected (|> random.nat (random.only (|>> (n.= dummy) not)))]
+       (_.coverage <coverage>
+         (and (|> (\\parser.result <parser> <sample0>)
+                  (!expect (^.multi {try.#Success actual}
+                                    (n.= expected actual))))
+              (|> (\\parser.result <parser> <sample1>)
+                  (!expect (^.multi {try.#Success actual}
+                                    (n.= expected actual)))))))]))
+
+(def \\parser
+  Test
+  (<| (_.covering \\parser._)
+      (_.for [\\parser.Parser])
+      (all _.and
+           (!cover [\\parser.result \\parser.value]
+                   \\parser.value
+                   (/.leaf expected))
+           (do [! random.monad]
+             [expected random.nat]
+             (_.coverage [\\parser.result']
+               (|> (\\parser.result' \\parser.value
+                                     (zipper.zipper (/.leaf expected)))
+                   (!expect (^.multi {try.#Success actual}
+                                     (n.= expected actual))))))
+           (!cover [\\parser.down]
+                   (do //.monad
+                     [_ \\parser.down]
+                     \\parser.value)
+                   (/.branch dummy
+                             (list (/.leaf expected))))
+           (!cover [\\parser.up]
+                   (do //.monad
+                     [_ \\parser.down
+                      _ \\parser.up]
+                     \\parser.value)
+                   (/.branch expected
+                             (list (/.leaf dummy))))
+           (!cover [\\parser.right]
+                   (do //.monad
+                     [_ \\parser.down
+                      _ \\parser.right]
+                     \\parser.value)
+                   (/.branch dummy
+                             (list (/.leaf dummy)
+                                   (/.leaf expected))))
+           (!cover [\\parser.left]
+                   (do //.monad
+                     [_ \\parser.down
+                      _ \\parser.right
+                      _ \\parser.left]
+                     \\parser.value)
+                   (/.branch dummy
+                             (list (/.leaf expected)
+                                   (/.leaf dummy))))
+           (!cover [\\parser.rightmost]
+                   (do //.monad
+                     [_ \\parser.down
+                      _ \\parser.rightmost]
+                     \\parser.value)
+                   (/.branch dummy
+                             (list (/.leaf dummy)
+                                   (/.leaf dummy)
+                                   (/.leaf expected))))
+           (!cover [\\parser.leftmost]
+                   (do //.monad
+                     [_ \\parser.down
+                      _ \\parser.rightmost
+                      _ \\parser.leftmost]
+                     \\parser.value)
+                   (/.branch dummy
+                             (list (/.leaf expected)
+                                   (/.leaf dummy)
+                                   (/.leaf dummy))))
+           (!cover/2 [\\parser.next]
+                     (do //.monad
+                       [_ \\parser.next
+                        _ \\parser.next]
+                       \\parser.value)
+                     (/.branch dummy
+                               (list (/.branch dummy
+                                               (list (/.leaf expected)))))
+                     (/.branch dummy
+                               (list (/.leaf dummy)
+                                     (/.leaf expected))))
+           (!cover/2 [\\parser.previous]
+                     (do //.monad
+                       [_ \\parser.next
+                        _ \\parser.next
+                        _ \\parser.previous]
+                       \\parser.value)
+                     (/.branch dummy
+                               (list (/.branch expected
+                                               (list (/.leaf dummy)))))
+                     (/.branch dummy
+                               (list (/.leaf expected)
+                                     (/.leaf dummy))))
+           (!cover/2 [\\parser.end]
+                     (do //.monad
+                       [_ \\parser.end]
+                       \\parser.value)
+                     (/.branch dummy
+                               (list (/.branch dummy
+                                               (list (/.leaf expected)))))
+                     (/.branch dummy
+                               (list (/.leaf dummy)
+                                     (/.leaf expected))))
+           (!cover/2 [\\parser.start]
+                     (do //.monad
+                       [_ \\parser.end
+                        _ \\parser.start]
+                       \\parser.value)
+                     (/.branch expected
+                               (list (/.branch dummy
+                                               (list (/.leaf dummy)))))
+                     (/.branch expected
+                               (list (/.leaf dummy)
+                                     (/.leaf dummy))))
+           (do [! random.monad]
+             [dummy random.nat]
+             (_.coverage [\\parser.cannot_move_further]
+               (`` (and (~~ (with_template [<parser>]
+                              [(|> (\\parser.result <parser>
+                                                    (/.leaf dummy))
+                                   (!expect (^.multi {try.#Failure error}
+                                                     (exception.match? \\parser.cannot_move_further error))))]
+
+                              [\\parser.down] [\\parser.up]
+                              [\\parser.right] [\\parser.left]
+                              [\\parser.next] [\\parser.previous]
+                              ))))))
+           )))
 
 (def .public (tree gen_value)
   (All (_ a) (-> (Random a) (Random [Nat (Tree a)])))
@@ -88,4 +252,6 @@
                                                     expected/2 {expected/3 {}
                                                                            expected/4 {expected/5 {}}}})))
                     )))
+
+           ..\\parser
            )))
