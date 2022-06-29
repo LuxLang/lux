@@ -412,96 +412,9 @@
   (-> (Type Declaration) Code)
   (|>> ..signature code.text))
 
-(def (replaced f input)
-  (-> (-> Code Code) Code Code)
-  (case (f input)
-    (^.with_template [<tag>]
-      [[meta {<tag> parts}]
-       [meta {<tag> (list#each (replaced f) parts)}]])
-    ([.#Form]
-     [.#Variant]
-     [.#Tuple])
-    
-    ast'
-    ast'))
-
-(def (parser->replacer p ast)
-  (-> (Parser Code) (-> Code Code))
-  (case (<>.result p (list ast))
-    {.#Right [{.#End} ast']}
-    ast'
-
-    _
-    ast
-    ))
-
 (def (decorate_input [class value])
   (-> [(Type Value) Code] Code)
   (` [(~ (code.text (..signature class))) (~ value)]))
-
-(def (constructor_parser class_name arguments)
-  (-> Text (List Argument) (Parser Code))
-  (do <>.monad
-    [args (.is (Parser (List Code))
-               (<code>.form (<>.after (<code>.this (' ::new!))
-                                      (<code>.tuple (<>.exactly (list.size arguments) <code>.any)))))]
-    (in (` ("jvm member invoke constructor" (~ (code.text class_name))
-            (~+ (|> args
-                    (list.zipped_2 (list#each product.right arguments))
-                    (list#each ..decorate_input))))))))
-
-(def (static_method_parser class_name method_name arguments)
-  (-> Text Text (List Argument) (Parser Code))
-  (do <>.monad
-    [.let [dotted_name (format "::" method_name "!")]
-     args (.is (Parser (List Code))
-               (<code>.form (<>.after (<code>.this (code.symbol ["" dotted_name]))
-                                      (<code>.tuple (<>.exactly (list.size arguments) <code>.any)))))]
-    (in (` ("jvm member invoke static" (~ (code.text class_name)) (~ (code.text method_name))
-            (~+ (|> args
-                    (list.zipped_2 (list#each product.right arguments))
-                    (list#each ..decorate_input))))))))
-
-(with_template [<name> <jvm_op>]
-  [(def (<name> class_vars class_name type_vars method_name arguments self_name)
-     (-> (List (Type Var)) Text (List (Type Var)) Text (List Argument) Text (Parser Code))
-     (do <>.monad
-       [.let [dotted_name (format "::" method_name "!")]
-        args (.is (Parser (List Code))
-                  (<code>.form (<>.after (<code>.this (code.symbol ["" dotted_name]))
-                                         (<code>.tuple (<>.exactly (list.size arguments) <code>.any)))))]
-       (in (` (<jvm_op> [(~+ (list#each (|>> ..signature code.text) class_vars))]
-                        (~ (code.text class_name)) (~ (code.text method_name))
-                        [(~+ (list#each (|>> ..signature code.text) type_vars))]
-                        (~ (code.local self_name))
-                        (~+ (|> args
-                                (list.zipped_2 (list#each product.right arguments))
-                                (list#each ..decorate_input))))))))]
-
-  [special_method_parser "jvm member invoke special"]
-  [virtual_method_parser "jvm member invoke virtual"]
-  )
-
-(def (method->parser class_vars class_name [[method_name _ _] meth_def])
-  (-> (List (Type Var)) Text [Member_Declaration Method_Definition] (Parser Code))
-  (case meth_def
-    {#ConstructorMethod strict? type_vars self_name args constructor_args return_expr exs}
-    (constructor_parser class_name args)
-    
-    {#StaticMethod strict? type_vars args return_type return_expr exs}
-    (static_method_parser class_name method_name args)
-
-    {#VirtualMethod final? strict? type_vars self_name args return_type return_expr exs}
-    (virtual_method_parser class_vars class_name type_vars method_name args self_name)
-    
-    {#OverridenMethod strict? owner_class type_vars self_name args return_type return_expr exs}
-    (special_method_parser class_vars class_name type_vars method_name args self_name)
-
-    {#AbstractMethod type_vars args return_type exs}
-    (virtual_method_parser class_vars class_name type_vars method_name args "")
-
-    {#NativeMethod type_vars args return_type exs}
-    (virtual_method_parser class_vars class_name type_vars method_name args "")))
 
 (def privacy_modifier^
   (Parser Privacy)
@@ -1059,8 +972,7 @@
 
 (.type Super
   [[External (List (Type Var))]
-   [Member_Declaration MethodDecl]
-   Text])
+   [Member_Declaration MethodDecl]])
 
 (context.def [super_context super_expression super_declaration]
   Super)
@@ -1107,14 +1019,13 @@
         [(~+ (list#each class$ #method_exs))]))))
 
 (def with_super
-  (syntax (_ [declaration,method,self (<code>.tuple
-                                       (all <>.and
-                                            (<text>.then parser.declaration' <code>.text)
-                                            method_decl^^
-                                            <code>.text))
+  (syntax (_ [declaration,method (<code>.tuple
+                                  (all <>.and
+                                       (<text>.then parser.declaration' <code>.text)
+                                       method_decl^^))
               body <code>.any])
     (do meta.monad
-      [body (super_expression declaration,method,self body)]
+      [body (super_expression declaration,method body)]
       (in (list body)))))
 
 (exception .public (insufficient_parameters [expected Nat
@@ -1124,9 +1035,10 @@
    "Actual" (%.nat actual)))
 
 (def .public super
-  (syntax (_ [inputs (<>.some <code>.any)])
+  (syntax (_ [inputs (<code>.tuple (<>.some <code>.any))
+              self <code>.any])
     (do meta.monad
-      [[[super_name super_vars] [member method] self] (context.peek ..super_context)
+      [[[super_name super_vars] [member method]] (context.peek ..super_context)
        .let [expected_arguments (list.size (the #method_inputs method))
              actual_arguments (list.size inputs)]]
       (if (n.= expected_arguments actual_arguments)
@@ -1135,7 +1047,7 @@
                       (~ (code.text super_name))
                       (~ (code.text (the #member_name member)))
                       [(~+ (list#each (|>> ..signature code.text) (the #method_tvars method)))]
-                      ("jvm object cast" (~ (code.local self)))
+                      ("jvm object cast" (~ self))
                       (~+ (|> inputs
                               (list#each (|>> ~ "jvm object cast" `))
                               (list.zipped_2 (the #method_inputs method))
@@ -1144,8 +1056,7 @@
 
 (.type Get|Set
   [External
-   (List [Member_Declaration FieldDecl])
-   Text])
+   (List [Member_Declaration FieldDecl])])
 
 (context.def [get|set_context get|set_expression get|set_declaration]
   Get|Set)
@@ -1185,54 +1096,62 @@
                             (in [[name pm anns] {#VariableField [sm static? type]}])))))
 
 (def with_get|set
-  (syntax (_ [declaration,fields,self (<code>.tuple
-                                       (all <>.and
-                                            <code>.text
-                                            (<code>.tuple (<>.some field_decl^^))
-                                            <code>.text))
+  (syntax (_ [declaration,fields (<code>.tuple
+                                  (all <>.and
+                                       <code>.text
+                                       (<code>.tuple (<>.some field_decl^^))))
               body <code>.any])
     (do meta.monad
-      [body (get|set_expression declaration,fields,self body)]
+      [body (get|set_expression declaration,fields body)]
       (in (list body)))))
 
-(with_template [<name>]
+(with_template [<member> <name>]
   [(exception .public (<name> [class Text
-                               field Text])
+                               member Text])
      (exception.report
       "Class" (%.text class)
-      "Field" (%.text field)))]
+      <member> (%.text member)))]
 
-  [cannot_get_field]
-  [cannot_set_field]
+  ["Field" cannot_get_field]
+  ["Field" cannot_set_field]
+  ["Member" cannot_call_method]
   )
 
 (def .public get
-  (syntax (_ [field <code>.local])
+  (syntax (_ [field <code>.local
+              this (<>.maybe <code>.any)])
     (do meta.monad
-      [[class_name member,field/* self] (context.peek ..get|set_context)
+      [[class_name member,field/*] (context.peek ..get|set_context)
        .let [fields (|> member,field/*
                         (list#each (function (_ [member field])
                                      [(the #member_name member) [member field]]))
                         (dictionary.of_list text.hash))]]
       (case (dictionary.value field fields)
         {.#Some [member {#VariableField _ static? :field:}]}
-        (in (list (if static?
-                    (` ("jvm member get static"
+        (case [static? this]
+          [#1 {.#None}]
+          (in (list (` ("jvm member get static"
                         (~ (code.text class_name))
-                        (~ (code.text (the #member_name member)))))
-                    (` ("jvm member get virtual"
+                        (~ (code.text (the #member_name member)))))))
+          
+          [#0 {.#Some this}]
+          (in (list (` ("jvm member get virtual"
                         (~ (code.text class_name))
                         (~ (code.text (the #member_name member)))
-                        (~ (code.local self)))))))
+                        (~ this)))))
+
+          _
+          (meta.failure (exception.error ..cannot_get_field [class_name field])))
 
         _
         (meta.failure (exception.error ..cannot_get_field [class_name field]))))))
 
 (def .public set
   (syntax (_ [field <code>.local
-              value <code>.any])
+              value <code>.any
+              this (<>.maybe <code>.any)])
     (do meta.monad
-      [[class_name member,field/* self] (context.peek ..get|set_context)
+      [[class_name member,field/*] (context.peek ..get|set_context)
        .let [fields (|> member,field/*
                         (list#each (function (_ [member field])
                                      [(the #member_name member) [member field]]))
@@ -1244,105 +1163,168 @@
           (meta.failure (exception.error ..cannot_set_field [class_name field]))
 
           _
-          (in (list (if static?
-                      (` ("jvm member put static"
+          (case [static? this]
+            [#1 {.#None}]
+            (in (list (` ("jvm member put static"
                           (~ (code.text class_name))
                           (~ (code.text (the #member_name member)))
-                          (~ value)))
-                      (` ("jvm member put virtual"
+                          (~ value)))))
+            
+            [#0 {.#Some this}]
+            (in (list (` ("jvm member put virtual"
                           (~ (code.text class_name))
                           (~ (code.text (the #member_name member)))
                           (~ value)
-                          (~ (code.local self))))))))
+                          (~ this)))))
+
+            _
+            (meta.failure (exception.error ..cannot_set_field [class_name field]))))
 
         _
         (meta.failure (exception.error ..cannot_set_field [class_name field]))))))
 
-(def (method_def$ fully_qualified_class_name method_parser super_class fields [method_declaration method_def])
-  (-> External (Parser Code) (Type Class) (List [Member_Declaration FieldDecl]) [Member_Declaration Method_Definition] (Meta Code))
-  (let [[name pm anns] method_declaration]
+(.type Call
+  [[External (List (Type Var))]
+   (List [Member_Declaration MethodDecl])])
+
+(context.def [call_context call_expression call_declaration]
+  Call)
+
+(def with_call
+  (syntax (_ [declaration,methods (<code>.tuple
+                                   (all <>.and
+                                        (<text>.then parser.declaration' <code>.text)
+                                        (<code>.tuple (<>.some method_decl^^))))
+              body <code>.any])
+    (do meta.monad
+      [body (call_expression declaration,methods body)]
+      (in (list body)))))
+
+(def .public call
+  (syntax (_ [method <code>.local
+              inputs (<code>.tuple (<>.some <code>.any))
+              self <code>.any])
+    (do meta.monad
+      [[[class_name class_vars] member,virtual/*] (context.peek ..call_context)
+       .let [virtuals (|> member,virtual/*
+                          (list#each (function (_ [member virtual])
+                                       [(the #member_name member) [member virtual]]))
+                          (dictionary.of_list text.hash))]]
+      (case (dictionary.value method virtuals)
+        {.#Some [member method]}
+        (let [expected_arguments (list.size (the #method_inputs method))
+              actual_arguments (list.size inputs)]
+          (if (n.= expected_arguments actual_arguments)
+            (in (list (` ("jvm member invoke virtual"
+                          [(~+ (list#each (|>> ..signature code.text) class_vars))]
+                          (~ (code.text class_name))
+                          (~ (code.text (the #member_name member)))
+                          [(~+ (list#each (|>> ..signature code.text) (the #method_tvars method)))]
+                          ("jvm object cast" (~ self))
+                          (~+ (|> inputs
+                                  (list#each (|>> ~ "jvm object cast" `))
+                                  (list.zipped_2 (the #method_inputs method))
+                                  (list#each ..decorate_input)))))))
+            (meta.failure (exception.error ..insufficient_parameters [expected_arguments actual_arguments]))))
+
+        _
+        (meta.failure (exception.error ..cannot_call_method [class_name method]))))))
+
+(def (method_declaration [member definition])
+  (-> [Member_Declaration Method_Definition]
+      (Maybe [Member_Declaration MethodDecl]))
+  (case definition
+    {#VirtualMethod final? strict_fp? type_vars self_name arguments return_type body exs}
+    {.#Some [member
+             [#method_tvars  type_vars
+              #method_inputs (list#each product.right arguments)
+              #method_output return_type
+              #method_exs    exs]]}
+
+    _
+    {.#None}))
+
+(def (method_def$ fully_qualified_class_name class_vars super_class fields methods [method_declaration method_def])
+  (-> External (List (Type Var)) (Type Class) (List [Member_Declaration FieldDecl]) (List [Member_Declaration Method_Definition]) [Member_Declaration Method_Definition] (Meta Code))
+  (let [[name pm anns] method_declaration
+        virtual_methods (case (list.all ..method_declaration methods)
+                          {.#End}
+                          (list)
+
+                          virtual_methods
+                          (list (` ((~! ..with_call) [(~ (declaration$ (jvm.declaration fully_qualified_class_name class_vars)))
+                                                      [(~+ (list#each method_decl$$ virtual_methods))]]))))]
     (case method_def
       {#ConstructorMethod strict_fp? type_vars self_name arguments constructor_args body exs}
-      (let [replacer (|> (list)
-                         (list#mix <>.either method_parser)
-                         parser->replacer)]
-        (meta#in (` ("init"
-                     (~ (privacy_modifier$ pm))
-                     (~ (code.bit strict_fp?))
-                     [(~+ (list#each annotation$ anns))]
-                     [(~+ (list#each var$ type_vars))]
-                     [(~+ (list#each class$ exs))]
-                     (~ (code.text self_name))
-                     [(~+ (list#each argument$ arguments))]
-                     [(~+ (list#each constructor_arg$ constructor_args))]
-                     (<| ((~! ..with_get|set) [(~ (code.text fully_qualified_class_name))
-                                               [(~+ (list#each field_decl$ fields))]
-                                               (~ (code.text self_name))])
-                         (~ (replaced replacer body)))
-                     ))))
+      (meta#in (` ("init"
+                   (~ (privacy_modifier$ pm))
+                   (~ (code.bit strict_fp?))
+                   [(~+ (list#each annotation$ anns))]
+                   [(~+ (list#each var$ type_vars))]
+                   [(~+ (list#each class$ exs))]
+                   (~ (code.text self_name))
+                   [(~+ (list#each argument$ arguments))]
+                   [(~+ (list#each constructor_arg$ constructor_args))]
+                   (<| ((~! ..with_get|set) [(~ (code.text fully_qualified_class_name))
+                                             [(~+ (list#each field_decl$ fields))]])
+                       (~+ virtual_methods)
+                       (~ body))
+                   )))
       
       {#VirtualMethod final? strict_fp? type_vars self_name arguments return_type body exs}
-      (let [replacer (|> (list)
-                         (list#mix <>.either method_parser)
-                         parser->replacer)]
-        (meta#in (` ("virtual"
-                     (~ (code.text name))
-                     (~ (privacy_modifier$ pm))
-                     (~ (code.bit final?))
-                     (~ (code.bit strict_fp?))
-                     [(~+ (list#each annotation$ anns))]
-                     [(~+ (list#each var$ type_vars))]
-                     (~ (code.text self_name))
-                     [(~+ (list#each argument$ arguments))]
-                     (~ (return$ return_type))
-                     [(~+ (list#each class$ exs))]
-                     (<| ((~! ..with_get|set) [(~ (code.text fully_qualified_class_name))
-                                               [(~+ (list#each field_decl$ fields))]
-                                               (~ (code.text self_name))])
-                         (~ (replaced replacer body)))
-                     ))))
+      (meta#in (` ("virtual"
+                   (~ (code.text name))
+                   (~ (privacy_modifier$ pm))
+                   (~ (code.bit final?))
+                   (~ (code.bit strict_fp?))
+                   [(~+ (list#each annotation$ anns))]
+                   [(~+ (list#each var$ type_vars))]
+                   (~ (code.text self_name))
+                   [(~+ (list#each argument$ arguments))]
+                   (~ (return$ return_type))
+                   [(~+ (list#each class$ exs))]
+                   (<| ((~! ..with_get|set) [(~ (code.text fully_qualified_class_name))
+                                             [(~+ (list#each field_decl$ fields))]])
+                       (~+ virtual_methods)
+                       (~ body))
+                   )))
       
       {#OverridenMethod strict_fp? declaration type_vars self_name expected_arguments return_type body exs}
-      (let [replacer (|> (list)
-                         (list#mix <>.either method_parser)
-                         parser->replacer)]
-        (do meta.monad
-          [@ meta.current_module_name]
-          (in (` ("override"
-                  (~ (declaration$ declaration))
-                  (~ (code.text name))
-                  (~ (code.bit strict_fp?))
-                  [(~+ (list#each annotation$ anns))]
-                  [(~+ (list#each var$ type_vars))]
-                  (~ (code.text self_name))
-                  [(~+ (list#each argument$ expected_arguments))]
-                  (~ (return$ return_type))
-                  [(~+ (list#each class$ exs))]
-                  (<| ((~! ..with_super) [(~ (declaration$ declaration))
-                                          (~ (method_decl$$ [method_declaration
-                                                             [#method_tvars  type_vars
-                                                              #method_inputs (list#each product.right expected_arguments)
-                                                              #method_output return_type
-                                                              #method_exs    exs]]))
-                                          (~ (code.text self_name))])
-                      ((~! ..with_get|set) [(~ (code.text fully_qualified_class_name))
-                                            [(~+ (list#each field_decl$ fields))]
-                                            (~ (code.text self_name))])
-                      (~ (replaced replacer body)))
-                  )))))
+      (do meta.monad
+        [@ meta.current_module_name]
+        (in (` ("override"
+                (~ (declaration$ declaration))
+                (~ (code.text name))
+                (~ (code.bit strict_fp?))
+                [(~+ (list#each annotation$ anns))]
+                [(~+ (list#each var$ type_vars))]
+                (~ (code.text self_name))
+                [(~+ (list#each argument$ expected_arguments))]
+                (~ (return$ return_type))
+                [(~+ (list#each class$ exs))]
+                (<| ((~! ..with_super) [(~ (declaration$ declaration))
+                                        (~ (method_decl$$ [method_declaration
+                                                           [#method_tvars  type_vars
+                                                            #method_inputs (list#each product.right expected_arguments)
+                                                            #method_output return_type
+                                                            #method_exs    exs]]))])
+                    ((~! ..with_get|set) [(~ (code.text fully_qualified_class_name))
+                                          [(~+ (list#each field_decl$ fields))]])
+                    (~+ virtual_methods)
+                    (~ body))
+                ))))
 
       {#StaticMethod strict_fp? type_vars arguments return_type body exs}
-      (let [replacer (parser->replacer (<>.failure ""))]
-        (meta#in (` ("static"
-                     (~ (code.text name))
-                     (~ (privacy_modifier$ pm))
-                     (~ (code.bit strict_fp?))
-                     [(~+ (list#each annotation$ anns))]
-                     [(~+ (list#each var$ type_vars))]
-                     [(~+ (list#each argument$ arguments))]
-                     (~ (return$ return_type))
-                     [(~+ (list#each class$ exs))]
-                     (~ (replaced replacer body))))))
+      (meta#in (` ("static"
+                   (~ (code.text name))
+                   (~ (privacy_modifier$ pm))
+                   (~ (code.bit strict_fp?))
+                   [(~+ (list#each annotation$ anns))]
+                   [(~+ (list#each var$ type_vars))]
+                   [(~+ (list#each argument$ arguments))]
+                   (~ (return$ return_type))
+                   [(~+ (list#each class$ exs))]
+                   (~ body))))
 
       {#AbstractMethod type_vars arguments return_type exs}
       (meta#in (` ("abstract"
@@ -1385,12 +1367,7 @@
               fields (<>.some (..field_decl^ class_vars))
               methods (<>.some (..method_def^ class_vars))])
     (do meta.monad
-      [.let [fully_qualified_class_name full_class_name
-             method_parser (.is (Parser Code)
-                                (|> methods
-                                    (list#each (method->parser class_vars fully_qualified_class_name))
-                                    (list#mix <>.either (<>.failure ""))))]
-       methods (monad.each ! (method_def$ fully_qualified_class_name method_parser super fields) methods)]
+      [methods (monad.each ! (method_def$ full_class_name class_vars super fields methods) methods)]
       (in (list (` ("jvm class"
                     (~ (declaration$ (jvm.declaration full_class_name class_vars)))
                     (~ (class$ super))
@@ -1422,7 +1399,7 @@
               constructor_args (..constructor_args^ class_vars)
               methods (<>.some ..overriden_method_def^)])
     (do [! meta.monad]
-      [methods (monad.each ! (method_def$ "" (<>.failure "") super (list)) methods)]
+      [methods (monad.each ! (method_def$ "" (list) super (list) methods) methods)]
       (in (list (` ("jvm class anonymous"
                     [(~+ (list#each var$ class_vars))]
                     (~ (class$ super))
