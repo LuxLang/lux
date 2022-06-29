@@ -1902,6 +1902,106 @@
            (<code>.tuple (<>.some ..input))
            <code>.any)))
 
+(def (with_fake_parameter#pattern it)
+  (-> pattern.Pattern pattern.Pattern)
+  (case it
+    {pattern.#Simple _}
+    it
+    
+    {pattern.#Complex it}
+    {pattern.#Complex
+     (case it
+       {complex.#Variant it}
+       {complex.#Variant (revised complex.#value with_fake_parameter#pattern it)}
+
+       {complex.#Tuple it}
+       {complex.#Tuple (list#each with_fake_parameter#pattern it)})}
+    
+    {pattern.#Bind it}
+    {pattern.#Bind (++ it)}))
+
+(def (with_fake_parameter it)
+  (-> Analysis Analysis)
+  (case it
+    {/////analysis.#Simple _}
+    it
+
+    {/////analysis.#Structure it}
+    {/////analysis.#Structure
+     (case it
+       {complex.#Variant it}
+       {complex.#Variant (revised complex.#value with_fake_parameter it)}
+
+       {complex.#Tuple it}
+       {complex.#Tuple (list#each with_fake_parameter it)})}
+
+    {/////analysis.#Reference it}
+    {/////analysis.#Reference
+     (case it
+       {reference.#Variable it}
+       {reference.#Variable
+        (case it
+          {variable.#Local it}
+          {variable.#Local (++ it)}
+          
+          {variable.#Foreign _}
+          it)}
+       
+       {reference.#Constant _}
+       it)}
+    
+    {/////analysis.#Case value [head tail]}
+    {/////analysis.#Case (with_fake_parameter value)
+                         (let [with_fake_parameter (is (-> /////analysis.Branch /////analysis.Branch)
+                                                       (|>> (revised /////analysis.#when with_fake_parameter#pattern)
+                                                            (revised /////analysis.#then with_fake_parameter)))]
+                           [(with_fake_parameter head)
+                            (list#each with_fake_parameter tail)])}
+    
+    {/////analysis.#Function environment body}
+    {/////analysis.#Function (list#each with_fake_parameter environment)
+                             body}
+    
+    {/////analysis.#Apply parameter abstraction}
+    {/////analysis.#Apply (with_fake_parameter parameter)
+                          (with_fake_parameter abstraction)}
+    
+    {/////analysis.#Extension name parameters}
+    {/////analysis.#Extension name
+                              (list#each with_fake_parameter parameters)}))
+
+(def .public (hidden_method_body arity bodyA)
+  (-> Nat Analysis Analysis)
+  (<| /////analysis.tuple
+      (list (/////analysis.unit))
+      (case arity
+        (^.or 0 1)
+        bodyA
+        
+        2
+        (let [forced_refencing (/////analysis.tuple (list#each (|>> /////analysis.local) (list.indices (++ arity))))]
+          {/////analysis.#Case (/////analysis.unit)
+                               [[/////analysis.#when
+                                 {pattern.#Bind 2}
+                                 
+                                 /////analysis.#then
+                                 (/////analysis.tuple (list forced_refencing bodyA))]
+                                (list)]})
+
+        _
+        (let [forced_refencing (/////analysis.tuple (list#each (|>> /////analysis.local) (list.indices (++ arity))))]
+          {/////analysis.#Case (/////analysis.unit)
+                               [[/////analysis.#when
+                                 {pattern.#Complex
+                                  {complex.#Tuple
+                                   (|> (-- arity)
+                                       list.indices
+                                       (list#each (|>> (n.+ 2) {pattern.#Bind})))}}
+                                 
+                                 /////analysis.#then
+                                 (/////analysis.tuple (list forced_refencing bodyA))]
+                                (list)]}))))
+
 (def .public (analyse_constructor_method analyse archive selfT mapping method)
   (-> Phase Archive .Type Mapping (Constructor Code) (Operation Analysis))
   (let [[visibility strict_fp?
@@ -1936,7 +2036,8 @@
                          list.reversed
                          (list#mix scope.with_local (analyse archive body))
                          (typeA.expecting .Any)
-                         scope.with)]
+                         scope.with)
+       .let [arity (list.size arguments)]]
       (in (/////analysis.tuple (list (/////analysis.text ..constructor_tag)
                                      (visibility_analysis visibility)
                                      (/////analysis.bit strict_fp?)
@@ -1949,7 +2050,10 @@
                                      {/////analysis.#Function
                                       (list#each (|>> /////analysis.variable)
                                                  (scope.environment scope))
-                                      (/////analysis.tuple (list bodyA))}
+                                      (<| (..hidden_method_body arity)
+                                          (case arity
+                                            0 (with_fake_parameter bodyA)
+                                            _ bodyA))}
                                      ))))))
 
 (.type .public (Virtual_Method a)
@@ -2034,7 +2138,8 @@
                          list.reversed
                          (list#mix scope.with_local (analyse archive body))
                          (typeA.expecting :return:)
-                         scope.with)]
+                         scope.with)
+       .let [arity (list.size arguments)]]
       (in (/////analysis.tuple (list (/////analysis.text ..virtual_tag)
                                      (/////analysis.text method_name)
                                      (visibility_analysis visibility)
@@ -2049,7 +2154,10 @@
                                      {/////analysis.#Function
                                       (list#each (|>> /////analysis.variable)
                                                  (scope.environment scope))
-                                      (/////analysis.tuple (list bodyA))}
+                                      (<| (..hidden_method_body arity)
+                                          (case arity
+                                            0 (with_fake_parameter bodyA)
+                                            _ bodyA))}
                                      ))))))
 
 (.type .public (Static_Method a)
@@ -2204,106 +2312,6 @@
                     (dictionary.has super_var bound_type mapping))
                   mapping
                   override_mapping))))
-
-(def .public (hidden_method_body arity bodyA)
-  (-> Nat Analysis Analysis)
-  (<| /////analysis.tuple
-      (list (/////analysis.unit))
-      (case arity
-        (^.or 0 1)
-        bodyA
-        
-        2
-        (let [forced_refencing (/////analysis.tuple (list#each (|>> /////analysis.local) (list.indices (++ arity))))]
-          {/////analysis.#Case (/////analysis.unit)
-                               [[/////analysis.#when
-                                 {pattern.#Bind 2}
-                                 
-                                 /////analysis.#then
-                                 (/////analysis.tuple (list forced_refencing bodyA))]
-                                (list)]})
-
-        _
-        (let [forced_refencing (/////analysis.tuple (list#each (|>> /////analysis.local) (list.indices (++ arity))))]
-          {/////analysis.#Case (/////analysis.unit)
-                               [[/////analysis.#when
-                                 {pattern.#Complex
-                                  {complex.#Tuple
-                                   (|> (-- arity)
-                                       list.indices
-                                       (list#each (|>> (n.+ 2) {pattern.#Bind})))}}
-                                 
-                                 /////analysis.#then
-                                 (/////analysis.tuple (list forced_refencing bodyA))]
-                                (list)]}))))
-
-(def (with_fake_parameter#pattern it)
-  (-> pattern.Pattern pattern.Pattern)
-  (case it
-    {pattern.#Simple _}
-    it
-    
-    {pattern.#Complex it}
-    {pattern.#Complex
-     (case it
-       {complex.#Variant it}
-       {complex.#Variant (revised complex.#value with_fake_parameter#pattern it)}
-
-       {complex.#Tuple it}
-       {complex.#Tuple (list#each with_fake_parameter#pattern it)})}
-    
-    {pattern.#Bind it}
-    {pattern.#Bind (++ it)}))
-
-(def (with_fake_parameter it)
-  (-> Analysis Analysis)
-  (case it
-    {/////analysis.#Simple _}
-    it
-
-    {/////analysis.#Structure it}
-    {/////analysis.#Structure
-     (case it
-       {complex.#Variant it}
-       {complex.#Variant (revised complex.#value with_fake_parameter it)}
-
-       {complex.#Tuple it}
-       {complex.#Tuple (list#each with_fake_parameter it)})}
-
-    {/////analysis.#Reference it}
-    {/////analysis.#Reference
-     (case it
-       {reference.#Variable it}
-       {reference.#Variable
-        (case it
-          {variable.#Local it}
-          {variable.#Local (++ it)}
-          
-          {variable.#Foreign _}
-          it)}
-       
-       {reference.#Constant _}
-       it)}
-    
-    {/////analysis.#Case value [head tail]}
-    {/////analysis.#Case (with_fake_parameter value)
-                         (let [with_fake_parameter (is (-> /////analysis.Branch /////analysis.Branch)
-                                                       (|>> (revised /////analysis.#when with_fake_parameter#pattern)
-                                                            (revised /////analysis.#then with_fake_parameter)))]
-                           [(with_fake_parameter head)
-                            (list#each with_fake_parameter tail)])}
-    
-    {/////analysis.#Function environment body}
-    {/////analysis.#Function (list#each with_fake_parameter environment)
-                             body}
-    
-    {/////analysis.#Apply parameter abstraction}
-    {/////analysis.#Apply (with_fake_parameter parameter)
-                          (with_fake_parameter abstraction)}
-    
-    {/////analysis.#Extension name parameters}
-    {/////analysis.#Extension name
-                              (list#each with_fake_parameter parameters)}))
 
 (def .public (analyse_overriden_method analyse archive selfT mapping supers method)
   (-> Phase Archive .Type Mapping (List (Type Class)) (Overriden_Method Code) (Operation Analysis))

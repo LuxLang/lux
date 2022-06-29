@@ -1,5 +1,7 @@
 # Reference
 
+0. []()
+0. [Legal Sources for Not-a-Lawyers: learn some law without totally warping your brain](https://writing.kemitchell.com/2022/06/26/Legal-Sources-Not-a-Lawyers)
 0. [Text Prudent](https://textprudent.com/)
 0. [Reviewers Edition](https://reviewersedition.org/)
 0. [Legal Versioning: refined scheme for functional prose projects](https://writing.kemitchell.com/2022/05/28/Legal-Versioning)

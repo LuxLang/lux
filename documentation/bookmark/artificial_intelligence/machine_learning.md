@@ -49,14 +49,6 @@
 0. https://deeplearning4j.org/
 0. [Deep(er) learning](http://www.jneurosci.org/content/early/2018/07/13/JNEUROSCI.0153-18.2018?versioned=true)
 
-# Neural network
-
-0. https://github.com/BrainJS/brain.js
-0. https://blog.jle.im/entry/practical-dependent-types-in-haskell-1.html
-0. https://matloff.wordpress.com/2018/06/20/neural-networks-are-essentially-polynomial-regression/
-0. https://www.quantamagazine.org/foundations-built-for-a-general-theory-of-neural-networks-20190131#AI
-0. https://rkevingibson.github.io/blog/neural-networks-as-ordinary-differential-equations/
-
 # Tensor
 
 0. http://nlp.seas.harvard.edu/NamedTensor.html
