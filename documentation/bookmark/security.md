@@ -1,84 +1,103 @@
 # ID
 
+0. []()
 0. [Code Smell 120 - Sequential IDs](https://maximilianocontieri.com/code-smell-120-sequential-ids)
 
 # Anti-Debugging
 
+0. []()
 0. [JavaScript AntiDebugging Tricks](https://x-c3ll.github.io/posts/javascript-antidebugging/)
 
 # Supply chain
 
+0. []()
 0. [chainguard](https://chainguard.dev/)
 
 # Restraint | Sand-boxing
 
+0. []()
 0. [JavaScript Restrictor](https://polcak.github.io/jsrestrictor/)
 
 # Memory
 
+0. []()
 0. [Provably Safe Pointers for a Parallel World](https://www.youtube.com/watch?v=ugf58HNd7Rg)
 
 # User/human-level
 
+0. []()
 0. [Securing your development environment](https://stsewd.dev/posts/securing-your-dev-environment/)
 0. [Security Checklist: Tools and resources designed to improve your online privacy, safety, and security.](https://brianlovin.com/security)
 
 # Secrets | Confidentiality
 
+0. []()
 0. [ConfLLVM: A Compiler for Enforcing Data Confidentiality in Low-level Code](https://www.microsoft.com/en-us/research/publication/an-instrumenting-compiler-for-enforcing-confidentiality-in-low-level-code/)
 0. [How to Handle Secrets on the Command Line](https://smallstep.com/blog/command-line-secrets/)
 
 # Capability
 
+0. []()
 0. [A Comparison of the Capability Systems of Encore, Pony and Rust](https://uu.diva-portal.org/smash/get/diva2:1363822/FULLTEXT01.pdf)
 
 # Homomorphic encryption
 
+0. []()
 0. https://github.com/Microsoft/SEAL
 
 # Privacy
 
+0. []()
 0. [Programming Differential Privacy](https://uvm-plaid.github.io/programming-dp/intro.html)
 0. https://privacypatterns.org/
 
 # Inspiration
 
+0. []()
 0. [Kasm: Desktop and Browser Isolation Platform](https://www.kasmweb.com/)
 0. https://www.mailvelope.com
 
 # Finger-printing
 
+0. []()
 0. [How Browser Fingerprinting Works](https://kevq.uk/how-browser-fingerprinting-works/)
 0. https://github.com/Valve/fingerprintjs2
 
 # Access Control List
 
+0. []()
 0. [Capirca: Multi-platform ACL generation system](https://github.com/google/capirca)
 
 # Return-oriented programming
 
+0. []()
 0. https://github.com/immunant/selfrando
 
 # Static analysis
 
+0. []()
 0. [Cam Tenny - Beyond the Paper - End-to-End Program Analysis](https://www.youtube.com/watch?v=hmDz0Rv6hKI)
 0. https://www.curry-on.org/2019/sessions/beyond-the-paper-end-to-end-program-analysis.html
 
 # Programming language
 
+0. []()
 0. [Secure Compilation](https://blog.sigplan.org/2019/07/01/secure-compilation/)
 
 # Cautionary tale
 
+0. []()
 0. [Thou Shalt Not Depend on Me: A look at JavaScript libraries in the wild](https://queue.acm.org/detail.cfm?id=3205288)
 0. https://medium.com/@nodepractices/were-under-attack-23-node-js-security-best-practices-e33c146cb87d
 
 # Surface area
 
+0. []()
 0. [Towards Automated Application-Specific Software Stacks](https://arxiv.org/pdf/1907.01933.pdf)
 
 # Vulnerability
 
+0. []()
 0. [Big List of Naughty Strings](https://github.com/minimaxir/big-list-of-naughty-strings)
 0. [SAML is insecure by design](https://joonas.fi/2021/08/saml-is-insecure-by-design/)
 0. [Against Cipher Agility in Cryptography Protocols](https://paragonie.com/blog/2019/10/against-agility-in-cryptography-protocols)
@@ -96,6 +115,8 @@
 
 # Reference
 
+0. []()
+0. [Suricata: the leading independent open source threat detection engine](https://suricata.io/)
 0. [CS 253 Web Security](https://web.stanford.edu/class/cs253/)
 0. [Secure By Design](https://www.amazon.com/Secure-Design-Daniel-Deogun/dp/1617294357)
 0. [Intro to Just-In-Time Access](https://compliance.dev/2021/04/29/introduction-to-just-in-time-access/)
@@ -133,5 +154,7 @@
 0. [Information Technology — Programming languages — Guidance	to avoiding vulnerabilities in programming languages](http://www.open-std.org/jtc1/sc22/wg23/docs/ISO-IECJTC1-SC22-WG23_N0751-tr24772-1-after-pre-meeting-51-webex-20171016.pdf)
 
 # Control-flow integrity
+
+0. []()
 0. [On the Effectiveness of Type-based Control Flow Integrity](https://sajjadium.github.io/files/acsac2018typecfi_paper.pdf)
 

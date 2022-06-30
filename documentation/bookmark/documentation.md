@@ -1,14 +1,17 @@
 # Architecture
 
+0. []()
 0. [ARCHITECTURE.md](https://matklad.github.io/2021/02/06/ARCHITECTURE.md.html)
 
 # Programming
 
+0. []()
 0. [Nota](https://nota-lang.org/)
 0. [Skribilo: The Ultimate Document Programming Framework](https://www.nongnu.org/skribilo/)
 
 # Diagram | Chart
 
+0. []()
 0. https://c4model.com/
 0. https://github.com/lukaslueg/macro_railroad
 0. https://bramp.github.io/js-sequence-diagrams/
@@ -32,6 +35,7 @@
 
 # Philosophy
 
+0. []()
 0. [Documentation as practical empathy](https://developerrelations.com/developer-experience/documentation-as-practical-empathy)
 0. [What Makes Documentation Bad?](https://arunkprasad.com/log/what-makes-documentation-bad/)
 0. [Forget reusability, aim for perfection](https://www.openbsd.org/papers/bsdcan18-mandoc.pdf)
@@ -40,6 +44,7 @@
 
 # Explorability
 
+0. []()
 0. [Code Hike](https://codehike.org/)
 0. https://explorabl.es/jam/
 0. https://flowium.com/help.html
@@ -47,16 +52,20 @@
 
 # README
 
+0. []()
 0. https://github.com/LappleApple/feedmereadmes
 
 # Doclet
 
+0. []()
 0. https://docs.oracle.com/javase/8/docs/technotes/guides/javadoc/doclet/overview.html
 0. http://www.doclet.com/
 0. https://en.wikipedia.org/wiki/Doclet
 
 # Reference
 
+0. []()
+0. [Introduction to the Zettelkasten Method](https://zettelkasten.de/introduction/)
 0. [Building a community of open-source documentation contributors](https://news.ycombinator.com/newest?next=31705868&n=1171)
 0. [Documentation in the Era of Concepts and Ranges - Christopher Di Bella & Sy Brand - CppCon 2021](https://www.youtube.com/watch?v=nm45t2fnUms)
 0. [conventional: comments](https://conventionalcomments.org/)
