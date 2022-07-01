@@ -1,5 +1,7 @@
 # Reference
 
+0. []()
+0. [Handling Concurrency Without Locks: How to not let concurrency cripple your system](https://hakibenita.com/django-concurrency)
 0. [Nonblocking Algorithms and Scalable Multicore Programming: Exploring some alternatives to lock-based synchronization](https://queue.acm.org/detail.cfm?id=2492433)
 0. [Design and Implementation of Highly Scalable Quantifiable Data Structures in C++ - CppCon 2021](https://www.youtube.com/watch?v=ECWsLj0pgbI)
 0. [Building a Lock-free Multi-producer, Multi-consumer Queue for Tcmalloc - Matt Kulukundis - CppCon 21](https://www.youtube.com/watch?v=_qaKkHuHYE0)

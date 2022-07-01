@@ -1,66 +1,82 @@
 # Logarithm
 
+0. []()
 0. [Logarithm: The Complete Guide (Theory & Applications)](https://mathvault.ca/logarithm-theory/)
 
 # Ball arithmetic
 
+0. []()
 0. [Ball arithmetic](http://www.texmacs.org/joris/ball/ball.html)
 
 # Arithmetic
 
+0. []()
 0. [The Definitive Higher Math Guide on Integer Long Division (and Its Variants)](https://mathvault.ca/long-division/)
 
 # Tensor calculus
 
+0. []()
 0. [Introduction to Tensor Calculus](http://www.ita.uni-heidelberg.de/~dullemond/lectures/tensor/tensor.pdf)
 
 # Geometry
 
+0. []()
 0. [Perspectives on Projective Geometry: A Guided Tour through Real and Complex Geometry](https://www-m10.ma.tum.de/foswiki/pub/Lehre/WS0910/ProjektiveGeometrieWS0910/GeomBook.pdf)
 0. [Symplectic Geometry for Engineers - Fundamentals](https://www.researchgate.net/publication/338124384_Symplectic_Geometry_for_Engineers_-_Fundamentals)
 
 # Prime number
 
+0. []()
 0. [The History of the Primality of One: A Selection of Sources](https://cs.uwaterloo.ca/journals/JIS/VOL15/Caldwell2/cald6.pdf)
 
 # Trigonometry
 
+0. []()
 0. [Approximating the Sine Function](http://datagenetics.com/blog/july12019/index.html)
 
 # Period
 
+0. []()
 0. https://en.wikipedia.org/wiki/Ring_of_periods
 0. [PERIODS](http://www.ihes.fr/~maxim/TEXTS/Periods.pdf)
 
 # Proof theory
 
+0. []()
 0. [Mathematical Components](https://math-comp.github.io/mcb/)
 
 # Statistics
 
+0. []()
 0. https://www.statisticsdonewrong.com/
 
 # Topology
 
+0. []()
 0. [What is Topology?](https://medium.com/cantors-paradise/what-is-topology-963ef4cc6365)
 0. [Pointless topology](https://en.wikipedia.org/wiki/Pointless_topology)
 0. [ELEMENTARY APPLIED TOPOLOGY](https://www.math.upenn.edu/~ghrist/notes.html)
 
 # Library
 
+0. []()
 0. https://github.com/ZacharyPatten/Towel
 
 # Polynomials
 
+0. []()
 0. https://brainbomb.org/0-1-efficient-metholds-for-evaluting-polynomials/
 0. https://en.wikipedia.org/wiki/Horner%27s_method
 
 # Chaos Theory
 
+0. []()
 0. http://ncase.me/attractors/
 
 # Number Theory
 
+0. []()
+0. [Introduction to number theory (Berkeley Math 115)](https://www.youtube.com/playlist?list=PL8yHsr3EFj53L8sMbzIhhXSAOpuZ1Fov8)
 0. https://twitter.com/johncarlosbaez/status/1184492139897507840
 0. https://en.wikipedia.org/wiki/Division_algebra
 0. [Division algebras](https://www.youtube.com/watch?v=3BZyds_KFWM&list=PLNxhIPHaOTRZMO1VjJcs7_3dgyJ2qU1yZ)
@@ -70,8 +86,10 @@
 
 ## Hyperreal number
 
+0. []()
 0. [Yes, You Can Manipulate Infinity—in Math](https://mindmatters.ai/2019/10/yes-you-can-manipulate-infinity-in-math/)
 
+0. []()
 # Quaternions
 
 0. [Quaternions: Part 1](https://liorsinai.github.io/mathematics/2021/11/05/quaternion-1-intro.html)
@@ -85,6 +103,7 @@
 
 # _Compendium of resources_
 
+0. []()
 0. [How to Learn Advanced Mathematics Without Heading to University - Part 1](https://www.quantstart.com/articles/How-to-Learn-Advanced-Mathematics-Without-Heading-to-University-Part-1/)
 	0. [How to Learn Advanced Mathematics Without Heading to University - Part 2](https://www.quantstart.com/articles/How-to-Learn-Advanced-Mathematics-Without-Heading-to-University-Part-2/)
 	0. [How to Learn Advanced Mathematics Without Heading to University - Part 3](https://www.quantstart.com/articles/How-to-Learn-Advanced-Mathematics-Without-Heading-to-University-Part-3/)
@@ -101,10 +120,12 @@
 
 # Number systems
 
+0. []()
 0. https://en.wikipedia.org/wiki/Negative_base
 
 # Discrete mathematics
 
+0. []()
 0. [Applied Discrete Structures](http://discretemath.org/ads-latex/ads.pdf)
 0. [Notes on Discrete Mathematics](http://www.cs.yale.edu/homes/aspnes/classes/202/notes.pdf)
 0. [The system of integer functions, an efficient version of discrete mathematical analysis](https://arxiv.org/abs/1710.00676)
@@ -113,14 +134,17 @@
 
 # Probability
 
+0. []()
 0. [Introduction to Probability at anadvanced leve](https://www.stat.berkeley.edu/~aditya/resources/AllLectures2018Fall201A.pdf)
 
 # Domain Theory
 
+0. []()
 0. [A Brief Intro to Domain Theory](https://www.alignmentforum.org/posts/4C4jha5SdReWgg7dF/a-brief-intro-to-domain-theory)
 
 # Category Theory
 
+0. []()
 0. [Programming with Categories](https://www.youtube.com/watch?v=Y5YCE_mVjvg&list=PLhgq-BqyZ7i7MTGhUROZy3BOICnVixETS&index=1)
 0. [Awesome Applied Category Theory](https://github.com/statebox/awesome-applied-ct)
 0. [Categorical Query Language](https://www.categoricaldata.net/)
@@ -138,10 +162,12 @@
 
 # Direct Logic
 
+0. []()
 0. [Strong Types for Direct Logic](https://drive.google.com/file/d/1relKFB4aOMD2VZHM9qj3wWMXOq-q2AJr/view)
 
 # Geometric Algebra | Clifford Algebra
 
+0. []()
 0. [Symplectic Geometry meets Geometric Algebra in 2D](https://www.researchgate.net/publication/356781838_Symplectic_Geometry_meets_Geometric_Algebra_in_2D)
 0. [Siggraph2019 Geometric Algebra](https://www.youtube.com/watch?v=tX4H_ctggYo)
 0. [Dr Leo Dorst' Keynote talk at CGI2020](https://www.youtube.com/watch?v=T7xVTBpHMjA)
@@ -178,6 +204,7 @@
 
 # Abstract Algebra
 
+0. []()
 0. [A Brief Guide to A Few Algebraic Structures](https://argumatronic.com//posts/2019-06-21-algebra-cheatsheet.html)
 0. [DUALITY FOR GROUPS](https://projecteuclid.org/download/pdf_1/euclid.bams/1183515045)
 0. https://gowers.wordpress.com/2011/11/20/normal-subgroups-and-quotient-groups/
@@ -191,10 +218,12 @@
 
 # Logic
 
+0. []()
 0. http://openlogicproject.org/
 
 # Calculus
 
+0. []()
 0. [What is Jacobian? | The right way of thinking derivatives and integrals](https://www.youtube.com/watch?v=wCZ1VEmVjVo)
 0. [The Fractional Derivative, what is it? | Introduction to Fractional Calculus](https://www.youtube.com/watch?v=A4sTAKN6yFA)
 0. [Calculus on Manifolds](http://strangebeautiful.com/other-texts/spivak-calc-manifolds.pdf)
@@ -209,61 +238,74 @@
 
 # Continuous Calculus
 
+0. []()
 0. [Continuous Calculus](http://www-users.math.umn.edu/~olver/ln_/cc.pdf)
 
 # Octonion
 
+0. []()
 0. http://math.ucr.edu/home/baez/octonions/
 
 # Differential Geometry
 
+0. []()
 0. [differential geometry reconstructed: a unified systematic framework](http://www.geometry.org/tex/conc/dgstats.php)
 0. [Differential geometry reconstructed: a unified systematic framework](http://www.topology.org/tex/conc/dg.html)
 
 # Information Theory
 
+0. []()
 0. [Functional Bits: Lambda Calculus based Algorithmic Information Theory](https://tromp.github.io/cl/LC.pdf)
 
 # Graph Theory
 
+0. []()
 0. [Graphs and Geometry](http://web.cs.elte.hu/~lovasz/bookxx/geomgraphbook/geombook2019.01.11.pdf)
 0. [Graph-Based Algorithms for Boolean Function Manipulation](http://mtv.ece.ucsb.edu/courses/ece156B_14/randy_obdd86.pdf)
 0. [better geometry through graph theory](http://ideolalia.com/2018/08/28/artifex.html)
 
 # Division by Zero
 
+0. []()
 0. [29. Dividing by zero to invert matrices](https://graphicallinearalgebra.net/2016/06/22/29-inverting-matrices-and-dividing-by-zero/)
 0. https://www.hillelwayne.com/post/divide-by-zero/
 0. https://www.1dividedby0.com/
 
 # Partial Fractions
 
+0. []()
 0. https://jaydaigle.net/blog/calculus/easier-partial-fractions/
 
 # Non-commutative Algebra
 
+0. []()
 0. [An Invitation to Noncommutative Algebra](https://arxiv.org/abs/1808.03172)
 
 # Lambda Calculus
 
+0. []()
 0. https://medium.com/@maiavictor/the-abstract-calculus-fe8c46bcf39c
 
 # _Software Library_
 
+0. []()
 0. https://github.com/arguiot/TheoremJS
 0. https://github.com/arguiot/Descartes
 
 # Set Theory
 
+0. []()
 0. [Set Theory and Algebra in Computer Science: A Gentle Introduction to Mathematical Modeling](https://pdfs.semanticscholar.org/d106/6b6de601c1d7d5af25af3f7091bc7ad3ad51.pdf)
 
 # Uncertainty Theory
 
+0. []()
 0. http://faculty.math.tsinghua.edu.cn/~bliu/ut.pdf
 0. [An Introduction to the Mathematics of Uncertainty: including Set Theory, Logic, Probability, Fuzzy Sets, Rough Sets, and Evidence Theory](https://www.creighton.edu/fileadmin/user/CCAS/programs/fuzzy_math/docs/MOU.pdf)
 
 # Computational Geometry
 
+0. []()
 0. [CMPT 813: Computational Geometry (Fall 2011)](http://www.cs.sfu.ca/~binay/813.2011/)
 0. https://www.johndcook.com/blog/2018/09/26/polygon-area/
 0. http://s2geometry.io/devguide/s2cell_hierarchy.html
@@ -272,45 +314,54 @@
 
 # Finitism
 
+0. []()
 0. ["REAL" ANALYSIS Is A DEGENERATE CASE of DISCRETE ANALYSIS](http://sites.math.rutgers.edu/~zeilberg/mamarim/mamarimPDF/real.pdf)
 
 # Linear programming
 
+0. []()
 0. https://en.wikibooks.org/wiki/GLPK
 0. https://white.ucc.asn.au/2018/05/28/Optimizing-your-diet-with-JuMP.html
 
 # Measure theory
 
+0. []()
 0. [Resources for Learning Measure Theory](https://bcmullins.github.io/measure_theory_resources/)
 
 # Combinatorics
 
+0. []()
 0. [Advances in Combinatorics](https://www.advancesincombinatorics.com/)
 0. http://andy.kitchen/combinations.html
 0. [Combinatorial Algorithms](http://www2.denizyuret.com/bib/kreher/donald1999combinatorial/combinatorialA.pdf)
 
 # Vector
 
+0. []()
 0. [A Student's Guide to Vectors and Tensors (Student's Guides)](https://www.amazon.com/Students-Guide-Vectors-Tensors-Guides/dp/0521171903)
 0. https://www.researchgate.net/publication/327989714_Coordinate_Free_Vector_Algebra_in_R2
 
 # Knot theory
 
+0. []()
 0. [KNOT THEORY and ITS APPLICATIONS](https://www.maths.ed.ac.uk/~v1ranick/papers/murasug3.pdf)
 0. [Primes and Knots - Akshay Venkatesh](https://www.youtube.com/watch?v=jvoYgNYKyk0)
 0. [The Knot Book](http://math.harvard.edu/~ctm/home/text/books/adams/knot_book/knot_book.pdf)
 
 # Axiom
 
+0. []()
 0. [INTRODUCTION TO AXIOMATIC REASONING](http://www.math.harvard.edu/~mazur/papers/Axiomatic.pdf)
 
 # Differential equations
 
+0. []()
 0. [ELEMENTARY DIFFERENTIAL EQUATIONS](http://ramanujan.math.trinity.edu/wtrench/texts/TRENCH_FREE_DIFFEQ_I.PDF)
 0. [Lecture Notes on Difference Equations](http://people.math.aau.dk/~matarne/11-imat/notes2011a.pdf)
 
 # Algebraic geometry
 
+0. []()
 0. [The Stacks project](https://stacks.math.columbia.edu/)
 0. http://nautil.us/issue/69/patterns/the-math-that-takes-newton-into-the-quantum-world
 0. [Algebraic Geometry](http://www.mathematik.uni-kl.de/~gathmann/class/alggeom-2014/main.pdf)
@@ -318,20 +369,24 @@
 
 # Physics
 
+0. []()
 0. https://www.researchgate.net/publication/309533409_Beyond_Einstein_non-local_physics
 0. https://www.theoretical-physics.com/dev/index.html
 
 # Spherical trigonometry
 
+0. []()
 0. https://en.wikipedia.org/wiki/Haversine_formula
 
 # Hyperbolic geometry
 
+0. []()
 0. [Intuitive Guide to Hyperbolic Functions](https://betterexplained.com/articles/hyperbolic-functions/)
 0. [Hyperbolic Functions and Non-Hyperbolic Claims](https://elliptigon.com/hyperbolic-functions-explained/)
 
 # **Temp Cache**
 
+0. []()
 0. https://mathlets.org/mathlets/
 0. [Quadratic splines are useful too](https://wordsandbuttons.online/quadric_splines_are_useful_too.html)
 0. [Derivations of Applied Mathematics](http://www.derivations.org/)

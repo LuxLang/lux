@@ -1,0 +1,7 @@
+# Reference
+
+0. []()
+0. [the gizmo's role in markup](https://t-ravis.com/post/doc/the_gizmos_role_in_markup/)
+0. [the hard problem: naming functions and other gizmos](https://t-ravis.com/post/doc/naming_functions_methods_and_other_gizmos/)
+0. [WHAT functions and WHY functions](https://t-ravis.com/post/doc/what_functions_and_why_functions/)
+
