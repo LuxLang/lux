@@ -384,8 +384,8 @@ Called by `imenu--generic-function'."
 							(data//implicit (altRE "implicitly" "a/an" "a" "an"))
 							(data//collection (altRE "list" "sequence" "tree"))
 							;; Code
-							(code//quotation (altRE "`" "`'" "'" "~" "~\\+" "~!" "~'"))
-							(code//super-quotation (altRE "``" "~~"))
+							(code//quotation (altRE "`" "`'" "'" "," ",\\*" ",!" ",'"))
+							(code//super-quotation (altRE "``" ",,"))
 							(code//template (altRE "with_template" "template"))
 							;; Miscellaneous
 							(jvm-host (altRE "import" "export" "class" "interface" "object" "do_to" "synchronized" "class_for"))
