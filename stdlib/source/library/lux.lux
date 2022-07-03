@@ -1205,14 +1205,14 @@
         (meta#in {#Item (list#mix |#Item| |#End| (list#reversed xs))
                         {#End}})))
 
-(def' .private partial_list
+(def' .private list#partial
       Macro
       (macro (_ xs)
         ({{#Item last init}
           (meta#in (list (list#mix |#Item| last init)))
 
           _
-          (failure "Wrong syntax for partial_list")}
+          (failure "Wrong syntax for list#partial")}
          (list#reversed xs))))
 
 (def' .public Union
@@ -1547,8 +1547,8 @@
         (-> Text a ($' Property_List a) ($' Property_List a)))
       ({{#Item [k' v'] property_list'}
         (if (text#= k k')
-          (partial_list [k v] property_list')
-          (partial_list [k' v'] (property#with k v property_list')))
+          (list#partial [k v] property_list')
+          (list#partial [k' v'] (property#with k v property_list')))
 
         {#End}
         (list [k v])}
@@ -1757,7 +1757,7 @@
         (-> ($' List a) ($' List b) ($' List (Tuple a b))))
       ({{#Item x xs'}
         ({{#Item y ys'}
-          (partial_list [x y] (zipped_2 xs' ys'))
+          (list#partial [x y] (zipped_2 xs' ys'))
 
           _
           (list)}
@@ -2426,7 +2426,7 @@
         xs
 
         {#Item [x xs']}
-        (partial_list x sep (list#interposed sep xs'))}
+        (list#partial x sep (list#interposed sep xs'))}
        xs))
 
 (def' .private (single_expansion token)
@@ -2716,7 +2716,7 @@
                     ..#source source/pre
                     ..#current_module current_module/pre
                     ..#modules modules/pre
-                    ..#scopes (partial_list [#name (list)
+                    ..#scopes (list#partial [#name (list)
                                              #inner 0
                                              #locals [#counter 0
                                                       #mappings (list [..quantification_level [.Nat ("lux type as" Nat -1)]])]
@@ -2830,30 +2830,52 @@
           (failure "Wrong syntax for exec")}
          (list#reversed tokens))))
 
+(def' .public Pattern
+      Type
+      {#Primitive "#Macro/Pattern" {#End}})
+
+(def' .public (pattern it)
+      (-> Macro Pattern)
+      ("lux type as" Pattern it))
+
+(def' .public (pattern_macro it)
+      (-> Pattern Macro')
+      ("lux type as" Macro' it))
+
+(def' .private (case_expansion#macro case_expansion pattern body branches)
+      (type_literal (-> (-> (List Code) (Meta (List Code)))
+                        Code Code (List Code)
+                        (Meta (List Code))))
+      (do meta#monad
+        [pattern (one_expansion (full_expansion #1 pattern))
+         branches (case_expansion branches)]
+        (in (list#partial pattern body branches))))
+
 (def' .private (case_expansion branches)
       (type_literal (-> (List Code) (Meta (List Code))))
-      ({{#Item [_ {#Form {#Item [_ {#Symbol name}] args}}]
+      ({{#Item [@composite {#Form {#Item [@symbol {#Symbol global}] parameters}}]
                {#Item body
                       branches'}}
         (do meta#monad
-          [??? (macro? name)]
-          (if ???
-            (do meta#monad
-              [init_expansion (single_expansion (form$ (partial_list (symbol$ name) (form$ args) body branches')))]
-              (case_expansion init_expansion))
-            (do meta#monad
-              [sub_expansion (case_expansion branches')]
-              (in (partial_list (form$ (partial_list (symbol$ name) args))
-                                body
-                                sub_expansion)))))
+          [|global| (..normal global)
+           ?type,value (global_value |global|)]
+          ({{#Some [type value]}
+            (if (type#= Pattern type)
+              (do meta#monad
+                [branches'' ((pattern_macro ("lux type as" Pattern value))
+                             (list#partial (form$ parameters) body branches'))]
+                (case_expansion branches''))
+              (case_expansion#macro case_expansion [@composite {#Form {#Item [@symbol {#Symbol global}] parameters}}] body branches'))
+            
+            {#None}
+            (case_expansion#macro case_expansion [@composite {#Form {#Item [@symbol {#Symbol global}] parameters}}] body branches')}
+           ?type,value))
 
         {#Item pattern {#Item body branches'}}
-        (do meta#monad
-          [sub_expansion (case_expansion branches')]
-          (in (partial_list pattern body sub_expansion)))
+        (case_expansion#macro case_expansion pattern body branches')
 
         {#End}
-        (do meta#monad [] (in (list)))
+        (meta#in (list))
 
         _
         (failure (all text#composite "'lux.case' expects an even number of tokens: " (|> branches
@@ -2875,45 +2897,29 @@
           (failure "Wrong syntax for case")}
          tokens)))
 
-(def' .public pattern
-      Macro
-      (macro (_ tokens)
-        (case tokens
-          {#Item [_ {#Form {#Item pattern {#End}}}] {#Item body branches}}
-          (do meta#monad
-            [pattern+ (full_expansion #1 pattern)]
-            (case pattern+
-              {#Item pattern' {#End}}
-              (in (partial_list pattern' body branches))
-              
-              _
-              (failure "`pattern` can only expand to 1 pattern.")))
-          
-          _
-          (failure "Wrong syntax for `pattern` macro"))))
-
 (def' .private pattern#or
-      Macro
-      (macro (_ tokens)
-        (case tokens
-          (pattern (partial_list [_ {#Form patterns}] body branches))
-          (case patterns
-            {#End}
-            (failure "pattern#or cannot have 0 patterns")
+      Pattern
+      (pattern
+       (macro (_ tokens)
+         (case tokens
+           (list#partial [_ {#Form patterns}] body branches)
+           (case patterns
+             {#End}
+             (failure "pattern#or cannot have 0 patterns")
 
-            _
-            (let' [pairs (|> patterns
-                             (list#each (function' [pattern] (list pattern body)))
-                             (list#conjoint))]
-                  (meta#in (list#composite pairs branches))))
-          _
-          (failure "Wrong syntax for pattern#or"))))
+             _
+             (let' [pairs (|> patterns
+                              (list#each (function' [pattern] (list pattern body)))
+                              (list#conjoint))]
+                   (meta#in (list#composite pairs branches))))
+           _
+           (failure "Wrong syntax for pattern#or")))))
 
 (def' .public symbol
       Macro
       (macro (_ tokens)
         (case tokens
-          (pattern (list [_ {#Symbol [module name]}]))
+          (list [_ {#Symbol [module name]}])
           (meta#in (list (` [(, (text$ module)) (, (text$ name))])))
           
           _
@@ -2932,7 +2938,7 @@
       Macro
       (macro (_ tokens)
         (case tokens
-          (pattern (list [_ {#Tuple bindings}] body))
+          (list [_ {#Tuple bindings}] body)
           (case (..pairs bindings)
             {#Some bindings}
             (|>  bindings
@@ -2958,7 +2964,7 @@
       (macro (_ tokens)
         (case (is (Maybe [Text Code (List Code) Code])
                   (case tokens
-                    (pattern (list [_ {#Form (partial_list [_ {#Symbol ["" name]}] head tail)}] body))
+                    (list [_ {#Form (list#partial [_ {#Symbol ["" name]}] head tail)}] body)
                     {#Some name head tail body}
                     
                     _
@@ -2987,7 +2993,7 @@
 (def' .private (parsed parser tokens)
       (type_literal (All (_ a) (-> (Parser a) (List Code) (Maybe a))))
       (case (parser tokens)
-        (pattern {#Some [(list) it]})
+        {#Some [(list) it]}
         {#Some it}
 
         _
@@ -3064,7 +3070,7 @@
         (do maybe#monad
           [it (someP itP tokens)
            .let [[tokens tail] it]]
-          (in [tokens (partial_list head tail)]))
+          (in [tokens (list#partial head tail)]))
 
         {#None}
         {#Some [tokens (list)]}))
@@ -3079,7 +3085,7 @@
          .let [[tokens head] it]
          it (someP itP tokens)
          .let [[tokens tail] it]]
-        (in [tokens (partial_list head tail)])))
+        (in [tokens (list#partial head tail)])))
 
 (def' .private (maybeP itP tokens)
       (type_literal
@@ -3098,7 +3104,7 @@
        (All (_ a)
          (-> (Parser a) (Parser a))))
       (case tokens
-        (pattern (partial_list [_ {#Tuple input}] tokens'))
+        (list#partial [_ {#Tuple input}] tokens')
         (do maybe#monad
           [it (parsed itP input)]
           (in [tokens' it]))
@@ -3111,7 +3117,7 @@
        (All (_ a)
          (-> (Parser a) (Parser a))))
       (case tokens
-        (pattern (partial_list [_ {#Form input}] tokens'))
+        (list#partial [_ {#Form input}] tokens')
         (do maybe#monad
           [it (parsed itP input)]
           (in [tokens' it]))
@@ -3122,7 +3128,7 @@
 (def' .private (bindingP tokens)
       (type_literal (Parser [Text Code]))
       (case tokens
-        (pattern (partial_list [_ {#Symbol ["" name]}] value &rest))
+        (list#partial [_ {#Symbol ["" name]}] value &rest)
         {#Some [&rest [name value]]}
 
         _
@@ -3131,7 +3137,7 @@
 (def' .private (endP tokens)
       (type_literal (Parser Any))
       (case tokens
-        (pattern (list))
+        (list)
         {#Some [tokens []]}
 
         _
@@ -3140,7 +3146,7 @@
 (def' .private (anyP tokens)
       (type_literal (Parser Code))
       (case tokens
-        (pattern (partial_list code tokens'))
+        (list#partial code tokens')
         {#Some [tokens' code]}
 
         _
@@ -3149,7 +3155,7 @@
 (def' .private (localP tokens)
       (type_literal (-> (List Code) (Maybe [(List Code) Text])))
       (case tokens
-        (pattern (partial_list [_ {#Symbol ["" local]}] tokens'))
+        (list#partial [_ {#Symbol ["" local]}] tokens')
         {#Some [tokens' local]}
 
         _
@@ -3158,7 +3164,7 @@
 (def' .private (symbolP tokens)
       (type_literal (-> (List Code) (Maybe [(List Code) Symbol])))
       (case tokens
-        (pattern (partial_list [_ {#Symbol it}] tokens'))
+        (list#partial [_ {#Symbol it}] tokens')
         {#Some [tokens' it]}
 
         _
@@ -3186,7 +3192,7 @@
   [(def' .private (<parser> tokens)
          (type_literal (Parser [Text (List <parameter_type>)]))
          (case tokens
-           (pattern (partial_list [_ {#Form local_declaration}] tokens'))
+           (list#partial [_ {#Form local_declaration}] tokens')
            (do maybe#monad
              [% (localP local_declaration)
               .let' [[local_declaration name] %]
@@ -3206,7 +3212,7 @@
 (def' .private (export_policyP tokens)
       (type_literal (-> (List Code) [(List Code) Code]))
       (case tokens
-        (pattern (partial_list candidate tokens'))
+        (list#partial candidate tokens')
         (case candidate
           [_ {#Bit it}]
           [tokens' candidate]
@@ -3240,11 +3246,11 @@
       (type_literal (-> (List Code) (Maybe [(List Code) [(Maybe Code) Code]])))
       (case tokens
         ... TB
-        (pattern (partial_list type body tokens'))
+        (list#partial type body tokens')
         {#Some [tokens' [{#Some type} body]]}
 
         ... B
-        (pattern (partial_list body tokens'))
+        (list#partial body tokens')
         {#Some [tokens' [{#None} body]]}
 
         _
@@ -3290,7 +3296,7 @@
   [(def .public <name>
      (macro (_ tokens)
        (case (list#reversed tokens)
-         (pattern (partial_list last init))
+         (list#partial last init)
          (meta#in (list (list#mix (is (-> Code Code Code)
                                       (function (_ pre post) (` <form>)))
                                   last
@@ -3313,7 +3319,7 @@
 (def maybe#else
   (macro (_ tokens state)
     (case tokens
-      (pattern (list else maybe))
+      (list else maybe)
       (let [g!temp (is Code [dummy_location {#Symbol ["" ""]}])
             code (` (case (, maybe)
                       {.#Some (, g!temp)}
@@ -3333,7 +3339,7 @@
     (list input)
 
     {#Some idx}
-    (partial_list ("lux text clip" 0 idx input)
+    (list#partial ("lux text clip" 0 idx input)
                   (text#all_split_by splitter
                                      (let [after_offset ("lux i64 +" 1 idx)
                                            after_length ("lux i64 -"
@@ -3404,10 +3410,10 @@
   (-> Type Type (Maybe Type))
   (case type_fn
     {#UnivQ env body}
-    {#Some (reduced (partial_list type_fn param env) body)}
+    {#Some (reduced (list#partial type_fn param env) body)}
 
     {#ExQ env body}
-    {#Some (reduced (partial_list type_fn param env) body)}
+    {#Some (reduced (list#partial type_fn param env) body)}
 
     {#Apply A F}
     (do maybe#monad
@@ -3425,7 +3431,7 @@
      (-> Type (List Type))
      (case type
        {<tag> left right}
-       (partial_list left (<name> right))
+       (list#partial left (<name> right))
 
        _
        (list type)))]
@@ -3607,8 +3613,8 @@
   (macro (_ tokens)
     (do meta#monad
       [tokens' (monad#each meta#monad expansion tokens)
-       struct_type ..expected_type
-       tags+type (record_slots struct_type)
+       implementation_type ..expected_type
+       tags+type (record_slots implementation_type)
        tags (is (Meta (List Symbol))
                 (case tags+type
                   {#Some [tags _]}
@@ -3617,7 +3623,7 @@
                   _
                   (failure (all text#composite
                                 "No tags available for type: "
-                                (type#encoded struct_type)))))
+                                (type#encoded implementation_type)))))
        .let [tag_mappings (is (List [Text Code])
                               (list#each (function (_ tag)
                                            [(product#right tag)
@@ -3627,7 +3633,7 @@
                            (is (-> Code (Meta (List Code)))
                                (function (_ token)
                                  (case token
-                                   (pattern [_ {#Form (list [_ {#Text "lux def"}] [_ {#Symbol ["" slot_name]}] value export_policy)}])
+                                   [_ {#Form (list [_ {#Text "lux def"}] [_ {#Symbol ["" slot_name]}] value export_policy)}]
                                    (case (property#value slot_name tag_mappings)
                                      {#Some tag}
                                      (in (list tag value))
@@ -3672,7 +3678,7 @@
 
               {#End}
               (in (list)))]
-      (in (partial_list head tail)))
+      (in (list#partial head tail)))
 
     {#End}
     {#Some (list)}))
@@ -3680,10 +3686,10 @@
 (def (caseP tokens)
   (-> (List Code) (Maybe [(List Code) [Text Code]]))
   (case tokens
-    (pattern (partial_list [_ {#Variant (list [_ {#Symbol ["" niladic]}])}] tokens'))
+    (list#partial [_ {#Variant (list [_ {#Symbol ["" niladic]}])}] tokens')
     {#Some [tokens' [niladic (` .Any)]]}
 
-    (pattern (partial_list [_ {#Variant (partial_list [_ {#Symbol ["" polyadic]}] caseT)}] tokens'))
+    (list#partial [_ {#Variant (list#partial [_ {#Symbol ["" polyadic]}] caseT)}] tokens')
     {#Some [tokens' [polyadic (` (..Tuple (,* caseT)))]]}
 
     _
@@ -3704,7 +3710,7 @@
 (def (slotP tokens)
   (-> (List Code) (Maybe [(List Code) [Text Code]]))
   (case tokens
-    (pattern (partial_list [_ {#Symbol ["" slot]}] type tokens'))
+    (list#partial [_ {#Symbol ["" slot]}] type tokens')
     {#Some [tokens' [slot type]]}
 
     _
@@ -3713,7 +3719,7 @@
 (def .public Record
   (macro (_ tokens)
     (case tokens
-      (pattern (list [_ {#Tuple record}]))
+      (list [_ {#Tuple record}])
       (case (everyP slotP record)
         {#Some slots}
         (meta#in (list (` (..Tuple (,* (list#each product#right slots))))
@@ -3740,7 +3746,7 @@
 (def (textP tokens)
   (-> (List Code) (Maybe [(List Code) Text]))
   (case tokens
-    (pattern (partial_list [_ {#Text it}] tokens'))
+    (list#partial [_ {#Text it}] tokens')
     {#Some [tokens' it]}
 
     _
@@ -3750,9 +3756,9 @@
   (-> Code (Meta (Tuple Code (Maybe (Either (List Text) (List Text))))))
   ({[_ {#Form {#Item [_ {#Symbol declarer}] parameters}}]
     (do meta#monad
-      [declaration (single_expansion (form$ (partial_list (symbol$ declarer) parameters)))]
+      [declaration (single_expansion (form$ (list#partial (symbol$ declarer) parameters)))]
       (case declaration
-        (pattern (list type [_ {#Variant tags}]))
+        (list type [_ {#Variant tags}])
         (case (everyP textP tags)
           {#Some tags}
           (meta#in [type {#Some {#Left tags}}])
@@ -3760,7 +3766,7 @@
           {#None}
           (failure "Improper type-definition syntax"))
 
-        (pattern (list type [_ {#Tuple slots}]))
+        (list type [_ {#Tuple slots}])
         (case (everyP textP slots)
           {#Some slots}
           (meta#in [type {#Some {#Right slots}}])
@@ -3768,7 +3774,7 @@
           {#None}
           (failure "Improper type-definition syntax"))
 
-        (pattern (list type))
+        (list type)
         (meta#in [it {#None}])
 
         _
@@ -3927,7 +3933,8 @@
 (def (list#after amount list)
   (All (_ a) (-> Nat (List a) (List a)))
   (case [amount list]
-    (pattern#or [0 _] [_ {#End}])
+    (pattern#or [0 _]
+                [_ {#End}])
     list
 
     [_ {#Item _ tail}]
@@ -3968,7 +3975,7 @@
                               (function (_ token)
                                 (case token
                                   ... Nested
-                                  (pattern [_ {#Tuple (partial_list [_ {#Symbol ["" module_name]}] extra)}])
+                                  [_ {#Tuple (list#partial [_ {#Symbol ["" module_name]}] extra)}]
                                   (do meta#monad
                                     [absolute_module_name (case (normal_parallel_path relative_root module_name)
                                                             {#Some parallel_path}
@@ -3989,12 +3996,12 @@
                                           sub_imports
                                           
                                           _
-                                          (partial_list [#import_name absolute_module_name
+                                          (list#partial [#import_name absolute_module_name
                                                          #import_alias {#None}
                                                          #import_referrals referral]
                                                         sub_imports))))
 
-                                  (pattern [_ {#Tuple (partial_list [_ {#Text alias}] [_ {#Symbol ["" module_name]}] extra)}])
+                                  [_ {#Tuple (list#partial [_ {#Text alias}] [_ {#Symbol ["" module_name]}] extra)}]
                                   (do meta#monad
                                     [absolute_module_name (case (normal_parallel_path relative_root module_name)
                                                             {#Some parallel_path}
@@ -4016,7 +4023,7 @@
                                           sub_imports
                                           
                                           _
-                                          (partial_list [#import_name absolute_module_name
+                                          (list#partial [#import_name absolute_module_name
                                                          #import_alias {#Some module_alias}
                                                          #import_referrals referral]
                                                         sub_imports))))
@@ -4225,19 +4232,19 @@
       (let [temp (is (Either Text [Lux Type])
                      (if (text#= "" module)
                        (case (in_env name compiler)
-                         {#Some struct_type}
-                         {#Right [compiler struct_type]}
+                         {#Some implementation_type}
+                         {#Right [compiler implementation_type]}
 
                          _
                          (case (definition_type [current_module name] compiler)
-                           {#Some struct_type}
-                           {#Right [compiler struct_type]}
+                           {#Some implementation_type}
+                           {#Right [compiler implementation_type]}
 
                            _
                            {#Left (all text#composite "Unknown var: " (symbol#encoded full_name))}))
                        (case (definition_type full_name compiler)
-                         {#Some struct_type}
-                         {#Right [compiler struct_type]}
+                         {#Some implementation_type}
+                         {#Right [compiler implementation_type]}
 
                          _
                          {#Left (all text#composite "Unknown var: " (symbol#encoded full_name))})))]
@@ -4259,67 +4266,103 @@
           temp))
       )))
 
-(def .public open
-  (macro (_ tokens)
-    (case tokens
-      (pattern (partial_list [_ {#Form (list [_ {#Text alias}])}] body branches))
-      (do meta#monad
-        [g!temp (..generated_symbol "temp")]
-        (in (partial_list g!temp (` (..open (, g!temp) (, (text$ alias)) (, body))) branches)))
+(def (list#all choice items)
+  (All (_ a b) (-> (-> a (Maybe b)) (List a) (List b)))
+  (case items
+    {#Item head tail}
+    (case (choice head)
+      {#Some head}
+      {#Item head (list#all choice tail)}
+      
+      {#None}
+      (list#all choice tail))
+    
+    {#End}
+    {#End}))
 
-      (pattern (list [_ {#Symbol name}] [_ {#Text alias}] body))
-      (do meta#monad
-        [init_type (type_definition name)
-         struct_evidence (record_slots init_type)]
-        (case struct_evidence
-          {#None}
-          (failure (text#composite "Can only 'open' structs: " (type#encoded init_type)))
+(type Implementation_Interface
+  [(List Symbol) (List Type)])
 
-          {#Some tags&members}
-          (do meta#monad
-            [full_body ((is (-> Symbol [(List Symbol) (List Type)] Code (Meta Code))
-                            (function (again source [tags members] target)
-                              (let [locals (list#each (function (_ [t_module t_name])
-                                                        [[t_module t_name]
-                                                         ["" (..module_alias (list t_name) alias)]])
-                                                      tags)
-                                    pattern (case locals
-                                              (pattern (list [slot binding]))
-                                              (symbol$ binding)
+(def (open_layer alias [tags members])
+  (-> Text Implementation_Interface (Meta [Code (List [Symbol Implementation_Interface])]))
+  (do meta#monad
+    [pattern (monad#each meta#monad
+                         (function (_ [slot slot_type])
+                           (do meta#monad
+                             [.let [[_ slot_name] slot
+                                    local ["" (..module_alias (list slot_name) alias)]]
+                              implementation (record_slots slot_type)]
+                             (in [(list (symbol$ slot)
+                                        (symbol$ local))
+                                  [local implementation]])))
+                         (zipped_2 tags members))]
+    (in [(|> pattern
+             (list#each product#left)
+             list#conjoint
+             tuple$)
+         (list#all (function (_ [_ [sub_binding sub_implementation]])
+                     (do maybe#monad
+                       [sub_implementation sub_implementation]
+                       (in [sub_binding sub_implementation])))
+                   pattern)])))
 
-                                              _
-                                              (|> locals
-                                                  (list#each (function (_ [slot binding])
-                                                               (list (symbol$ slot)
-                                                                     (symbol$ binding))))
-                                                  list#conjoint
-                                                  tuple$))]
-                                (do meta#monad
-                                  [enhanced_target (monad#mix meta#monad
-                                                              (function (_ [[_ m_local] m_type] enhanced_target)
-                                                                (do meta#monad
-                                                                  [m_implementation (record_slots m_type)]
-                                                                  (case m_implementation
-                                                                    {#Some m_tags&members}
-                                                                    (again m_local
-                                                                           m_tags&members
-                                                                           enhanced_target)
-
-                                                                    {#None}
-                                                                    (in enhanced_target))))
-                                                              target
-                                                              (zipped_2 locals members))]
-                                  (in (` ({(, pattern) (, enhanced_target)} (, (symbol$ source)))))))))
-                        name tags&members body)]
-            (in (list full_body)))))
+(def (open_layers alias interfaces body)
+  (-> Text (List Implementation_Interface) Code (Meta [Code Code]))
+  (do meta#monad
+    [layer (monad#each meta#monad (open_layer alias) interfaces)
+     .let [pattern (tuple$ (list#each product#left layer))
+           next (|> layer
+                    (list#each product#right)
+                    list#conjoint)]]
+    (case next
+      {#End}
+      (in [pattern body])
 
       _
-      (failure (..wrong_syntax_error (symbol ..open))))))
+      (do meta#monad
+        [.let [sub_value (tuple$ (list#each (|>> product#left symbol$) next))]
+         sub_pattern,sub_body (open_layers alias (list#each product#right next) body)
+         .let [[sub_pattern sub_body] sub_pattern,sub_body]]
+        (in [pattern (` (case (, sub_value)
+                          (, sub_pattern)
+                          (, sub_body)))])))))
+
+(def .public open
+  (pattern
+   (macro (_ tokens)
+     (case tokens
+       (list#partial [_ {#Form (list [_ {#Text alias}])}] body branches)
+       (do meta#monad
+         [g!temp (..generated_symbol "temp")]
+         (in (list#partial g!temp
+                           (` (..case (, g!temp)
+                                (..open (, g!temp) (, (text$ alias)))
+                                (, body)))
+                           branches)))
+
+       (list#partial [_ {#Form (list [@temp_var {#Symbol name}] [_ {#Text alias}])}]
+                     body
+                     branches)
+       (do meta#monad
+         [init_type (type_definition name)
+          implementation_evidence (record_slots init_type)]
+         (case implementation_evidence
+           {#None}
+           (failure (text#composite "Can only 'open' implementations: " (type#encoded init_type)))
+
+           {#Some tags,members}
+           (do meta#monad
+             [pattern,body (open_layers alias (list tags,members) body)
+              .let [[pattern body] pattern,body]]
+             (in (list#partial pattern body branches)))))
+
+       _
+       (failure (..wrong_syntax_error (symbol ..open)))))))
 
 (def .public cond
   (macro (_ tokens)
     (case (list#reversed tokens)
-      (pattern (partial_list else branches'))
+      (list#partial else branches')
       (case (pairs branches')
         {#Some branches'}
         (meta#in (list (list#mix (is (-> [Code Code] Code Code)
@@ -4353,7 +4396,7 @@
 (def .public the
   (macro (_ tokens)
     (case tokens
-      (pattern (list [_ {#Symbol slot'}] record))
+      (list [_ {#Symbol slot'}] record)
       (do meta#monad
         [slot (normal slot')
          output (..type_slot slot)
@@ -4376,14 +4419,14 @@
           _
           (failure "the can only use records.")))
 
-      (pattern (list [_ {#Tuple slots}] record))
+      (list [_ {#Tuple slots}] record)
       (meta#in (list (list#mix (is (-> Code Code Code)
                                    (function (_ slot inner)
                                      (` (..the (, slot) (, inner)))))
                                record
                                slots)))
 
-      (pattern (list selector))
+      (list selector)
       (do meta#monad
         [g!_ (..generated_symbol "_")
          g!record (..generated_symbol "record")]
@@ -4438,7 +4481,7 @@
 
       _
       (failure (all text#composite
-                    "Can only 'use' structs: " (symbol#encoded implementation)
+                    "Can only 'use' implementations: " (symbol#encoded implementation)
                     " : " (type#encoded interface))))))
 
 (def (localized module global)
@@ -4540,7 +4583,7 @@
 (def refer
   (macro (_ tokens)
     (case tokens
-      (pattern (partial_list [_ {#Text imported_module}] [_ {#Text alias}] options))
+      (list#partial [_ {#Text imported_module}] [_ {#Text alias}] options)
       (do meta#monad
         [referrals (..referrals imported_module options)
          current_module ..current_module_name]
@@ -4569,11 +4612,11 @@
 (def .public at
   (macro (_ tokens)
     (case tokens
-      (pattern (list implementation [_ {#Symbol member}]))
+      (list implementation [_ {#Symbol member}])
       (meta#in (list (` (..with (, implementation) (, (symbol$ member))))))
 
-      (pattern (partial_list struct member args))
-      (meta#in (list (` ((..at (, struct) (, member)) (,* args)))))
+      (list#partial implementation member args)
+      (meta#in (list (` ((..at (, implementation) (, member)) (,* args)))))
       
       _
       (failure (..wrong_syntax_error (symbol ..at))))))
@@ -4581,7 +4624,7 @@
 (def .public has
   (macro (_ tokens)
     (case tokens
-      (pattern (list [_ {#Symbol slot'}] value record))
+      (list [_ {#Symbol slot'}] value record)
       (do meta#monad
         [slot (normal slot')
          output (..type_slot slot)
@@ -4617,7 +4660,7 @@
           _
           (failure "has can only use records.")))
 
-      (pattern (list [_ {#Tuple slots}] value record))
+      (list [_ {#Tuple slots}] value record)
       (case slots
         {#End}
         (failure (..wrong_syntax_error (symbol ..has)))
@@ -4644,14 +4687,14 @@
           (in (list (` (let [(,* accesses)]
                          (, update_expr)))))))
       
-      (pattern (list selector value))
+      (list selector value)
       (do meta#monad
         [g!_ (..generated_symbol "_")
          g!record (..generated_symbol "record")]
         (in (list (` (function ((, g!_) (, g!record))
                        (..has (, selector) (, value) (, g!record)))))))
 
-      (pattern (list selector))
+      (list selector)
       (do meta#monad
         [g!_ (..generated_symbol "_")
          g!value (..generated_symbol "value")
@@ -4665,7 +4708,7 @@
 (def .public revised
   (macro (_ tokens)
     (case tokens
-      (pattern (list [_ {#Symbol slot'}] fun record))
+      (list [_ {#Symbol slot'}] fun record)
       (do meta#monad
         [slot (normal slot')
          output (..type_slot slot)
@@ -4701,7 +4744,7 @@
           _
           (failure "revised can only use records.")))
 
-      (pattern (list [_ {#Tuple slots}] fun record))
+      (list [_ {#Tuple slots}] fun record)
       (case slots
         {#End}
         (failure (..wrong_syntax_error (symbol ..revised)))
@@ -4714,14 +4757,14 @@
                              (, g!temp) (the [(,* slots)] (, g!record))]
                          (has [(,* slots)] ((, fun) (, g!temp)) (, g!record))))))))
 
-      (pattern (list selector fun))
+      (list selector fun)
       (do meta#monad
         [g!_ (..generated_symbol "_")
          g!record (..generated_symbol "record")]
         (in (list (` (function ((, g!_) (, g!record))
                        (..revised (, selector) (, fun) (, g!record)))))))
 
-      (pattern (list selector))
+      (list selector)
       (do meta#monad
         [g!_ (..generated_symbol "_")
          g!fun (..generated_symbol "fun")
@@ -4733,34 +4776,35 @@
       (failure (..wrong_syntax_error (symbol ..revised))))))
 
 (def .private with_template#pattern
-  (macro (_ tokens)
-    (case tokens
-      (pattern (partial_list [_ {#Form (list [_ {#Tuple bindings}]
-                                             [_ {#Tuple templates}])}]
-                             [_ {#Form data}]
-                             branches))
-      (case (is (Maybe (List Code))
-                (do maybe#monad
-                  [bindings' (monad#each maybe#monad symbol_short bindings)
-                   data' (monad#each maybe#monad tuple_list data)]
-                  (let [num_bindings (list#size bindings')]
-                    (if (every? (|>> ("lux i64 =" num_bindings))
-                                (list#each list#size data'))
-                      (let [apply (is (-> Replacement_Environment (List Code))
-                                      (function (_ env) (list#each (realized_template env) templates)))]
-                        (|> data'
-                            (list#each (function#composite apply (replacement_environment bindings')))
-                            list#conjoint
-                            in))
-                      {#None}))))
-        {#Some output}
-        (meta#in (list#composite output branches))
-        
-        {#None}
-        (failure (..wrong_syntax_error (symbol ..with_template#pattern))))
-      
-      _
-      (failure (..wrong_syntax_error (symbol ..with_template#pattern))))))
+  (pattern
+   (macro (_ tokens)
+     (case tokens
+       (list#partial [_ {#Form (list [_ {#Tuple bindings}]
+                                     [_ {#Tuple templates}])}]
+                     [_ {#Form data}]
+                     branches)
+       (case (is (Maybe (List Code))
+                 (do maybe#monad
+                   [bindings' (monad#each maybe#monad symbol_short bindings)
+                    data' (monad#each maybe#monad tuple_list data)]
+                   (let [num_bindings (list#size bindings')]
+                     (if (every? (|>> ("lux i64 =" num_bindings))
+                                 (list#each list#size data'))
+                       (let [apply (is (-> Replacement_Environment (List Code))
+                                       (function (_ env) (list#each (realized_template env) templates)))]
+                         (|> data'
+                             (list#each (function#composite apply (replacement_environment bindings')))
+                             list#conjoint
+                             in))
+                       {#None}))))
+         {#Some output}
+         (meta#in (list#composite output branches))
+         
+         {#None}
+         (failure (..wrong_syntax_error (symbol ..with_template#pattern))))
+       
+       _
+       (failure (..wrong_syntax_error (symbol ..with_template#pattern)))))))
 
 (with_template [<name> <extension>]
   [(def .public <name>
@@ -4785,7 +4829,7 @@
       {#End}
       
       {#Item y ys'}
-      (partial_list x y (interleaved xs' ys')))))
+      (list#partial x y (interleaved xs' ys')))))
 
 (def (type_code type)
   (-> Type Code)
@@ -4821,7 +4865,7 @@
 (def .public loop
   (macro (_ tokens)
     (let [?params (case tokens
-                    (pattern (list [_ {#Form (list name [_ {#Tuple bindings}])}] body))
+                    (list [_ {#Form (list name [_ {#Tuple bindings}])}] body)
                     {#Some [name bindings body]}
 
                     _
@@ -4864,7 +4908,12 @@
 (def (with_expansions' label tokens target)
   (-> Text (List Code) Code (List Code))
   (case target
-    (pattern#or [_ {#Bit _}] [_ {#Nat _}] [_ {#Int _}] [_ {#Rev _}] [_ {#Frac _}] [_ {#Text _}])
+    (pattern#or [_ {#Bit _}]
+                [_ {#Nat _}]
+                [_ {#Int _}]
+                [_ {#Rev _}]
+                [_ {#Frac _}]
+                [_ {#Text _}])
     (list target)
 
     [_ {#Symbol [module name]}]
@@ -4897,7 +4946,7 @@
             {#Item [var_name expr] &rest}
             (do meta#monad
               [expansion (case (normal expr)
-                           (pattern (list expr))
+                           (list expr)
                            (single_expansion expr)
 
                            _
@@ -4979,7 +5028,7 @@
 (def .public static
   (macro (_ tokens)
     (case tokens
-      (pattern (list pattern))
+      (list pattern)
       (do meta#monad
         [pattern' (static_literal pattern)]
         (in (list pattern')))
@@ -4992,13 +5041,12 @@
 
 (def (case_level^ level)
   (-> Code (Meta [Code Code]))
-  (case level
-    (pattern [_ {#Tuple (list expr binding)}])
-    (meta#in [expr binding])
+  (meta#in (case level
+             [_ {#Tuple (list expr binding)}]
+             [expr binding]
 
-    _
-    (meta#in [level (` #1)])
-    ))
+             _
+             [level (` #1)])))
 
 (def (multi_level_case^ levels)
   (-> (List Code) (Meta Multi_Level_Case))
@@ -5032,36 +5080,37 @@
     (list init_pattern inner_pattern_body)))
 
 (def pattern#multi
-  (macro (_ tokens)
-    (case tokens
-      (pattern (partial_list [_meta {#Form levels}] body next_branches))
-      (do meta#monad
-        [mlc (multi_level_case^ levels)
-         .let [initial_bind? (case mlc
-                               [[_ {#Symbol _}] _]
-                               #1
+  (pattern
+   (macro (_ tokens)
+     (case tokens
+       (list#partial [_meta {#Form levels}] body next_branches)
+       (do meta#monad
+         [mlc (multi_level_case^ levels)
+          .let [initial_bind? (case mlc
+                                [[_ {#Symbol _}] _]
+                                #1
 
-                               _
-                               #0)]
-         expected ..expected_type
-         g!temp (..generated_symbol "temp")]
-        (in (list g!temp
-                  (` ({{.#Some (, g!temp)}
-                       (, g!temp)
+                                _
+                                #0)]
+          expected ..expected_type
+          g!temp (..generated_symbol "temp")]
+         (in (list g!temp
+                   (` ({{.#Some (, g!temp)}
+                        (, g!temp)
 
-                       {.#None}
-                       (case (, g!temp)
-                         (,* next_branches))}
-                      ("lux type check" {.#Apply (, (type_code expected)) Maybe}
-                       (case (, g!temp)
-                         (,* (multi_level_case$ g!temp [mlc body]))
+                        {.#None}
+                        (case (, g!temp)
+                          (,* next_branches))}
+                       ("lux type check" {.#Apply (, (type_code expected)) Maybe}
+                        (case (, g!temp)
+                          (,* (multi_level_case$ g!temp [mlc body]))
 
-                         (,* (if initial_bind?
-                               (list)
-                               (list g!temp (` {.#None})))))))))))
-      
-      _
-      (failure (..wrong_syntax_error (symbol ..pattern#multi))))))
+                          (,* (if initial_bind?
+                                (list)
+                                (list g!temp (` {.#None})))))))))))
+       
+       _
+       (failure (..wrong_syntax_error (symbol ..pattern#multi)))))))
 
 (def .public (same? reference sample)
   (All (_ a)
@@ -5071,7 +5120,7 @@
 (def .public as_expected
   (macro (_ tokens)
     (case tokens
-      (pattern (list expr))
+      (list expr)
       (do meta#monad
         [type ..expected_type]
         (in (list (` ("lux type as" (, (type_code type)) (, expr))))))
@@ -5101,12 +5150,12 @@
 (def .public type_of
   (macro (_ tokens)
     (case tokens
-      (pattern (list [_ {#Symbol var_name}]))
+      (list [_ {#Symbol var_name}])
       (do meta#monad
         [var_type (type_definition var_name)]
         (in (list (type_code var_type))))
 
-      (pattern (list expression))
+      (list expression)
       (do meta#monad
         [g!temp (..generated_symbol "g!temp")]
         (in (list (` (let [(, g!temp) (, expression)]
@@ -5139,7 +5188,7 @@
          this_module current_module_name]
         (in (list (` (..macro ((, (local$ name)) (, g!tokens) (, g!compiler))
                        (case (, g!tokens)
-                         (pattern (list (,* (list#each local$ args))))
+                         (list (,* (list#each local$ args)))
                          {.#Right [(, g!compiler)
                                    (list (,* (list#each (function (_ template)
                                                           (` (`' (, (with_replacements rep_env
@@ -5170,7 +5219,7 @@
 (def .public char
   (macro (_ tokens compiler)
     (case tokens
-      (pattern#multi (pattern (list [_ {#Text input}]))
+      (pattern#multi (list [_ {#Text input}])
                      (|> input "lux text size" ("lux i64 =" 1)))
       (|> input ("lux text char" 0)
           nat$ list
@@ -5254,7 +5303,7 @@
                     (def .public parameter
                       (macro (_ tokens)
                         (case tokens
-                          (pattern (list [_ {#Nat idx}]))
+                          (list [_ {#Nat idx}])
                           (do meta#monad
                             [stvs ..scope_type_vars]
                             (case (..item idx (list#reversed stvs))
@@ -5300,7 +5349,7 @@
                       ... {library/lux/tool/compiler/language/lux/generation.no_buffer_for_saving_code}
                       ... Artifact ID: 0
                       ... Which only ever happens for the Python compiler.
-                      (partial_list (` ("lux def" (, g!_) [] #0))
+                      (list#partial (` ("lux def" (, g!_) [] #0))
                                     =refers)
                       =refers)}))))
 
@@ -5319,7 +5368,7 @@
   (..immediate_unquote
    (macro (_ it)
      (case it
-       (pattern (list it))
+       (list it)
        (meta#in (list it))
 
        _
@@ -5348,8 +5397,8 @@
 (def (embedded_expansions code)
   (-> Code (Meta [(List Code) Code]))
   (case code
-    (pattern [@ {#Form (partial_list [@symbol {#Symbol original_symbol}] parameters)}])
-    (with_expansions [<failure> (aggregate_embedded_expansions embedded_expansions @ #Form (partial_list [@symbol {#Symbol original_symbol}] parameters))]
+    [@ {#Form (list#partial [@symbol {#Symbol original_symbol}] parameters)}]
+    (with_expansions [<failure> (aggregate_embedded_expansions embedded_expansions @ #Form (list#partial [@symbol {#Symbol original_symbol}] parameters))]
       (do meta#monad
         [resolved_symbol (..normal original_symbol)
          ?resolved_symbol (meta#try (..global_symbol resolved_symbol))]
@@ -5386,7 +5435,7 @@
 (def .public ``
   (macro (_ tokens)
     (case tokens
-      (pattern (list raw))
+      (list raw)
       (do meta#monad
         [=raw (..embedded_expansions raw)
          .let [[labels labelled] =raw]]
@@ -5406,7 +5455,7 @@
 (def .public try
   (macro (_ tokens)
     (case tokens
-      (pattern (list expression))
+      (list expression)
       (do meta#monad
         [g!_ (..generated_symbol "g!_")]
         (in (list (` ("lux try"
@@ -5419,10 +5468,10 @@
 (def (methodP tokens)
   (-> (List Code) (Maybe [(List Code) [Text Code]]))
   (case tokens
-    (pattern (partial_list [_ {#Form (list [_ {#Text "lux type check"}]
-                                           type
-                                           [_ {#Symbol ["" name]}])}]
-                           tokens'))
+    (list#partial [_ {#Form (list [_ {#Text "lux type check"}]
+                                  type
+                                  [_ {#Symbol ["" name]}])}]
+                  tokens')
     {#Some [tokens' [name type]]}
 
     _
@@ -5450,16 +5499,16 @@
 (def .public Rec
   (macro (_ tokens)
     (case tokens
-      (pattern (list [_ {#Symbol "" name}] body))
+      (list [_ {#Symbol "" name}] body)
       (do meta#monad
         [body' (expansion body)
          g!self (generated_symbol "g!self")
          g!dummy (generated_symbol "g!dummy")]
         (case body'
-          (pattern (list body' labels))
+          (list body' labels)
           (in (list (..recursive_type g!self g!dummy name body') labels))
 
-          (pattern (list body'))
+          (list body')
           (in (list (..recursive_type g!self g!dummy name body')))
 
           _

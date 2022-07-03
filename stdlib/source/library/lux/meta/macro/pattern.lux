@@ -2,14 +2,14 @@
  [library
   [lux (.except or let with_template |> `)]])
 
-(def partial_list
-  (`` ("lux in-module" (,, (static .prelude)) .partial_list)))
+(def list#partial
+  (`` ("lux in-module" (,, (static .prelude)) .list#partial)))
 
 (def locally
   (macro (_ tokens lux)
     (.let [[prelude _] (symbol ._)]
       (case tokens
-        (pattern (list [@ {.#Symbol ["" name]}]))
+        (list [@ {.#Symbol ["" name]}])
         {.#Right [lux (list (.` ("lux in-module" (, [@ {.#Text prelude}])
                                  (, [@ {.#Symbol [prelude name]}]))))]}
 
@@ -73,107 +73,112 @@
   )
 
 (def .public or
-  (macro (_ tokens)
-    (case tokens
-      (pattern (partial_list [_ {.#Form patterns}] body branches))
-      (case patterns
-        {.#End}
-        (failure (..wrong_syntax_error (symbol ..or)))
+  (pattern
+   (macro (_ tokens)
+     (case tokens
+       (list#partial [_ {.#Form patterns}] body branches)
+       (case patterns
+         {.#End}
+         (failure (..wrong_syntax_error (symbol ..or)))
 
-        _
-        (.let [pairs (.|> patterns
-                          (list#each (function (_ pattern) (list pattern body)))
-                          list#conjoint)]
-          (meta#in (list#composite pairs branches))))
-      _
-      (failure (..wrong_syntax_error (symbol ..or))))))
+         _
+         (.let [pairs (.|> patterns
+                           (list#each (function (_ pattern) (list pattern body)))
+                           list#conjoint)]
+           (meta#in (list#composite pairs branches))))
+       _
+       (failure (..wrong_syntax_error (symbol ..or)))))))
 
 (def .public with_template
-  (macro (_ tokens)
-    (case tokens
-      (pattern (partial_list [_ {.#Form (list [_ {.#Tuple bindings}]
-                                              [_ {.#Tuple templates}])}]
-                             [_ {.#Form data}]
-                             branches))
-      (case (is (Maybe (List Code))
-                (do maybe#monad
-                  [bindings' (monad#each maybe#monad symbol_short bindings)
-                   data' (monad#each maybe#monad tuple_list data)]
-                  (.let [num_bindings (list#size bindings')]
-                    (if (every? (|>> ("lux i64 =" num_bindings))
-                                (list#each list#size data'))
-                      (.let [apply (is (-> Replacement_Environment (List Code))
-                                       (function (_ env) (list#each (realized_template env) templates)))]
-                        (.|> data'
-                             (list#each (function#composite apply (replacement_environment bindings')))
-                             list#conjoint
-                             in))
-                      {.#None}))))
-        {.#Some output}
-        (meta#in (list#composite output branches))
-        
-        {.#None}
-        (failure (..wrong_syntax_error (symbol ..with_template))))
-      
-      _
-      (failure (..wrong_syntax_error (symbol ..with_template))))))
+  (pattern
+   (macro (_ tokens)
+     (case tokens
+       (list#partial [_ {.#Form (list [_ {.#Tuple bindings}]
+                                      [_ {.#Tuple templates}])}]
+                     [_ {.#Form data}]
+                     branches)
+       (case (is (Maybe (List Code))
+                 (do maybe#monad
+                   [bindings' (monad#each maybe#monad symbol_short bindings)
+                    data' (monad#each maybe#monad tuple_list data)]
+                   (.let [num_bindings (list#size bindings')]
+                     (if (every? (|>> ("lux i64 =" num_bindings))
+                                 (list#each list#size data'))
+                       (.let [apply (is (-> Replacement_Environment (List Code))
+                                        (function (_ env) (list#each (realized_template env) templates)))]
+                         (.|> data'
+                              (list#each (function#composite apply (replacement_environment bindings')))
+                              list#conjoint
+                              in))
+                       {.#None}))))
+         {.#Some output}
+         (meta#in (list#composite output branches))
+         
+         {.#None}
+         (failure (..wrong_syntax_error (symbol ..with_template))))
+       
+       _
+       (failure (..wrong_syntax_error (symbol ..with_template)))))))
 
 (def .public multi
-  (macro (_ tokens)
-    (case tokens
-      (pattern (partial_list [_meta {.#Form levels}] body next_branches))
-      (do meta#monad
-        [mlc (multi_level_case^ levels)
-         .let [initial_bind? (case mlc
-                               [[_ {.#Symbol _}] _]
-                               #1
+  (pattern
+   (macro (_ tokens)
+     (case tokens
+       (list#partial [_meta {.#Form levels}] body next_branches)
+       (do meta#monad
+         [mlc (multi_level_case^ levels)
+          .let [initial_bind? (case mlc
+                                [[_ {.#Symbol _}] _]
+                                #1
 
-                               _
-                               #0)]
-         expected ..expected_type
-         g!temp (..generated_symbol "temp")]
-        (in (list g!temp
-                  (.` ({{.#Some (, g!temp)}
-                        (, g!temp)
+                                _
+                                #0)]
+          expected ..expected_type
+          g!temp (..generated_symbol "temp")]
+         (in (list g!temp
+                   (.` ({{.#Some (, g!temp)}
+                         (, g!temp)
 
-                        {.#None}
-                        (.case (, g!temp)
-                          (,* next_branches))}
-                       ("lux type check" {.#Apply (, (type_code expected)) Maybe}
-                        (.case (, g!temp)
-                          (,* (multi_level_case$ g!temp [mlc body]))
+                         {.#None}
+                         (.case (, g!temp)
+                           (,* next_branches))}
+                        ("lux type check" {.#Apply (, (type_code expected)) Maybe}
+                         (.case (, g!temp)
+                           (,* (multi_level_case$ g!temp [mlc body]))
 
-                          (,* (if initial_bind?
-                                (list)
-                                (list g!temp (.` {.#None})))))))))))
-      
-      _
-      (failure (..wrong_syntax_error (symbol ..multi))))))
+                           (,* (if initial_bind?
+                                 (list)
+                                 (list g!temp (.` {.#None})))))))))))
+       
+       _
+       (failure (..wrong_syntax_error (symbol ..multi)))))))
 
 (def .public let
-  (macro (_ tokens)
-    (case tokens
-      (pattern (partial_list [_meta {.#Form (list [_ {.#Symbol ["" name]}] pattern)}] body branches))
-      (.let [g!whole (local$ name)]
-        (meta#in (partial_list g!whole
-                               (.` (case (, g!whole) (, pattern) (, body)))
-                               branches)))
-      
-      _
-      (failure (..wrong_syntax_error (symbol ..let))))))
+  (pattern
+   (macro (_ tokens)
+     (case tokens
+       (list#partial [_meta {.#Form (list [_ {.#Symbol ["" name]}] pattern)}] body branches)
+       (.let [g!whole (local$ name)]
+         (meta#in (list#partial g!whole
+                                (.` (case (, g!whole) (, pattern) (, body)))
+                                branches)))
+       
+       _
+       (failure (..wrong_syntax_error (symbol ..let)))))))
 
 (def .public |>
-  (macro (_ tokens)
-    (case tokens
-      (pattern (partial_list [_meta {.#Form (list [_ {.#Symbol ["" name]}] [_ {.#Tuple steps}])}] body branches))
-      (.let [g!name (local$ name)]
-        (meta#in (partial_list g!name
-                               (.` (.let [(, g!name) (.|> (, g!name) (,* steps))]
-                                     (, body)))
-                               branches)))
-      
-      _
-      (failure (..wrong_syntax_error (symbol ..|>))))))
+  (pattern
+   (macro (_ tokens)
+     (case tokens
+       (list#partial [_meta {.#Form (list [_ {.#Symbol ["" name]}] [_ {.#Tuple steps}])}] body branches)
+       (.let [g!name (local$ name)]
+         (meta#in (list#partial g!name
+                                (.` (.let [(, g!name) (.|> (, g!name) (,* steps))]
+                                      (, body)))
+                                branches)))
+       
+       _
+       (failure (..wrong_syntax_error (symbol ..|>)))))))
 
 (def (name$ [module name])
   (-> Symbol Code)
@@ -240,17 +245,18 @@
       )))
 
 (def .public `
-  (macro (_ tokens)
-    (case tokens
-      (pattern (partial_list [_meta {.#Form (list template)}] body branches))
-      (do meta#monad
-        [pattern (untemplated_pattern template)]
-        (in (partial_list pattern body branches)))
+  (pattern
+   (macro (_ tokens)
+     (case tokens
+       (list#partial [_meta {.#Form (list template)}] body branches)
+       (do meta#monad
+         [pattern (untemplated_pattern template)]
+         (in (list#partial pattern body branches)))
 
-      (pattern (list template))
-      (do meta#monad
-        [pattern (untemplated_pattern template)]
-        (in (list pattern)))
+       (list template)
+       (do meta#monad
+         [pattern (untemplated_pattern template)]
+         (in (list pattern)))
 
-      _
-      (failure (..wrong_syntax_error (symbol ..`))))))
+       _
+       (failure (..wrong_syntax_error (symbol ..`)))))))
