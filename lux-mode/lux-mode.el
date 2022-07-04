@@ -388,7 +388,7 @@ Called by `imenu--generic-function'."
 							(code//super-quotation (altRE "``" ",,"))
 							(code//template (altRE "with_template" "template"))
 							;; Miscellaneous
-							(jvm-host (altRE "import" "export" "class" "interface" "object" "do_to" "synchronized" "class_for"))
+							(jvm-host (altRE "import" "export" "class" "interface" "object" "synchronized" "class_for"))
 							(alternative-format (altRE "char" "bin" "oct" "hex"))
 							(documentation (altRE "comment" "documentation"))
 							(function-application (altRE "|>" "<|" "left" "right" "all"))
@@ -618,9 +618,10 @@ This function also returns nil meaning don't specify the indentation."
   (All 'defun)
   (Ex 'defun)
   (Rec 'defun)
+
   (synchronized 'defun)
   (object 'defun)
-  (do_to 'defun)
+  
   (remember 'defun)
   (to_do 'defun)
   (fix_me 'defun)

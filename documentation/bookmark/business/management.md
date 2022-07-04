@@ -1,6 +1,7 @@
 # Reference
 
 0. []()
+0. [What Engineering Managers Should Do (and Why We Don’t) • Lena Reinhard • GOTO 2019](https://www.youtube.com/watch?v=Q_bJVokYLRI)
 0. [Effective project management in 10 simple steps](https://www.cenizal.com/ten-rules-of-project-management/)
 0. [When Everything is Important But Nothing is Getting Done](https://sharedphysics.com/everything-is-important/)
 0. [The Power of Introspection: The Fuel That Keeps Teams Resilient](https://www.youtube.com/watch?v=gl1AKeEHTG8)
