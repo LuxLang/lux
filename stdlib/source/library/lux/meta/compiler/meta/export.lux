@@ -1,0 +1,75 @@
+(.require
+ [library
+  [lux (.except Source)
+   [abstract
+    ["[0]" monad (.only do)]]
+   [control
+    ["[0]" try (.only Try) (.use "[1]#[0]" monad)]
+    [concurrency
+     ["[0]" async (.only Async) (.use "[1]#[0]" functor)]]]
+   [data
+    ["[0]" text (.only)
+     ["%" \\format (.only format)]]
+    ["[0]" binary
+     ["[1]" \\format]]
+    [collection
+     ["[0]" dictionary]
+     ["[0]" sequence]]
+    [format
+     ["[0]" tar]]]
+   [meta
+    [compiler
+     [meta
+      [cli (.only Source Export)]
+      ["[0]" io
+       ["[1]" context]]]]]
+   [time
+    ["[0]" instant]]
+   [world
+    ["[0]" file]]]])
+
+(def .public file
+  "library.tar")
+
+(def .public mode
+  (all tar.and
+       tar.read_by_owner tar.write_by_owner
+       tar.read_by_group tar.write_by_group
+       tar.read_by_other))
+
+(def .public ownership
+  tar.Ownership
+  (let [commons (is tar.Owner
+                    [tar.#name tar.anonymous
+                     tar.#id tar.no_id])]
+    [tar.#user commons
+     tar.#group commons]))
+
+(def .public (library fs sources)
+  (-> (file.System Async) (List Source) (Async (Try tar.Tar)))
+  (|> sources
+      (io.listing fs)
+      (async#each (|>> (try#each (|>> dictionary.entries
+                                      (monad.each try.monad
+                                                  (function (_ [path source_code])
+                                                    (do try.monad
+                                                      [path (|> path
+                                                                (text.replaced (at fs separator) .module_separator)
+                                                                tar.path)]
+                                                      (try#each (|>> [path
+                                                                      (instant.of_millis +0)
+                                                                      ..mode
+                                                                      ..ownership]
+                                                                     {tar.#Normal})
+                                                                (tar.content source_code)))))
+                                      (try#each sequence.of_list)))
+                       try#conjoint))))
+
+(def .public (export fs [sources target])
+  (-> (file.System Async) Export (Async (Try Any)))
+  (do [! (try.with async.monad)]
+    [tar (|> sources
+             (..library fs)
+             (at ! each (binary.result tar.format)))
+     .let [/ (at fs separator)]]
+    (at fs write (format target / ..file) tar)))

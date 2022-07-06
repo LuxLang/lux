@@ -1,0 +1,115 @@
+(.require
+ [library
+  [lux (.except Module Source)
+   [abstract
+    [monad (.only do)]
+    [equivalence (.only Equivalence)]]
+   [control
+    ["<>" parser]
+    ["[0]" pipe]]
+   [data
+    ["[0]" product]
+    ["[0]" text (.only)
+     ["%" \\format]
+     ["<[1]>" \\parser]]
+    [collection
+     ["[0]" list (.use "[1]#[0]" functor)]]]
+   [math
+    [number (.only hex)]]
+   [meta
+    ["[0]" symbol]
+    ["[0]" configuration (.only Configuration)]
+    [macro
+     ["^" pattern]]
+    [compiler
+     [meta
+      [archive
+       [module
+        ["[0]" descriptor]]]]]]
+   ["[0]" program
+    ["<[1]>" \\parser (.only Parser)]]
+   [world
+    [file (.only Path)]]]]
+ ["[0]" /
+  ["[1][0]" compiler (.only Compiler)]])
+
+(type .public Host_Dependency
+  Path)
+
+(type .public Library
+  Path)
+
+(type .public Source
+  Path)
+
+(type .public Target
+  Path)
+
+(type .public Module
+  descriptor.Module)
+
+(type .public Compilation
+  (Record
+   [#host_dependencies (List Host_Dependency)
+    #libraries (List Library)
+    #compilers (List Compiler)
+    #sources (List Source)
+    #target Target
+    #module Module
+    #configuration Configuration]))
+
+(type .public Interpretation
+  ..Compilation)
+
+(type .public Export
+  [(List Source) Target])
+
+(type .public Service
+  (Variant
+   {#Compilation Compilation}
+   {#Interpretation Interpretation}
+   {#Export Export}))
+
+(with_template [<name> <long> <type> <parser>]
+  [(def <name>
+     (Parser <type>)
+     (<program>.named <long> <parser>))]
+
+  [host_dependency_parser "--host_dependency" Host_Dependency <program>.any]
+  [library_parser "--library" Library <program>.any]
+  [compiler_parser "--compiler" Compiler (<text>.then /compiler.parser <program>.any)]
+  [source_parser "--source" Source <program>.any]
+  [target_parser "--target" Target <program>.any]
+  [module_parser "--module" Module <program>.any]
+  [configuration_parser "--configuration" Configuration (<text>.then configuration.parser <program>.any)]
+  )
+
+(def .public service
+  (Parser Service)
+  (let [compilation (is (Parser Compilation)
+                        (all <>.and
+                             (<>.some ..host_dependency_parser)
+                             (<>.some ..library_parser)
+                             (<>.some ..compiler_parser)
+                             (<>.some ..source_parser)
+                             ..target_parser
+                             ..module_parser
+                             (<>.else configuration.empty ..configuration_parser)))]
+    (all <>.or
+         (<>.after (<program>.this "build")
+                   compilation)
+         (<>.after (<program>.this "repl")
+                   compilation)
+         (<>.after (<program>.this "export")
+                   (all <>.and
+                        (<>.some ..source_parser)
+                        ..target_parser))
+         )))
+
+(def .public target
+  (-> Service Target)
+  (|>> (pipe.case
+         (^.or {#Compilation [host_dependencies libraries compilers sources target module]}
+               {#Interpretation [host_dependencies libraries compilers sources target module]}
+               {#Export [sources target]})
+         target)))
