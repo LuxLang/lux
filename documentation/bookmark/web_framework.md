@@ -1,19 +1,27 @@
 # State
 
+0. []()
 0. [Jotai: Primitive and flexible state management for React](https://jotai.org/)
 
 # Virtual DOM
 
+0. []()
 0. [Virtual DOM is pure overhead](https://svelte.dev/blog/virtual-dom-is-pure-overhead)
 0. [million: <1kb virtual DOM - it's fast!](https://million.js.org/)
 0. [Optimal Virtual DOM](https://blog.kabir.sh/posts/optimal-virtual-dom.html)
 
 # Input
 
+0. []()
 0. [High-performance input handling on the web](https://nolanlawson.com/2019/08/11/high-performance-input-handling-on-the-web/)
 
 # Reference
 
+0. []()
+0. [UIs Are Not Pure Functions of the Model - React.js and Cocoa Side by Side](https://blog.metaobject.com/2018/12/uis-are-not-pure-functions-of-model.html)
+0. [UIs are streaming DAGs](https://hyperfiddle.notion.site/UIs-are-streaming-DAGs-e181461681a8452bb9c7a9f10f507991)
+0. [You Might Not Need an Effect](https://beta-reactjs-org-git-you-might-not-fbopensource.vercel.app/learn/you-might-not-need-an-effect)
+0. [Concepts of React Rendering](https://blog.boringdev.io/concepts-of-react-rendering)
 0. [You can't capture the nuance of my form fields](https://drewdevault.com/2021/06/27/You-cant-capture-the-nuance.html)
 0. [Line-tracking using plain CSS](https://bubblin.io/blog/line-tracking)
 0. [Redux is half of a pattern (1/2)](https://dev.to/davidkpiano/redux-is-half-of-a-pattern-1-2-1hd7)
@@ -32,6 +40,7 @@
 
 # Exemplar
 
+0. []()
 0. [Voby](https://github.com/vobyjs/voby)
 0. ["Janus: Easy Complex UI with Declarative FRP" by Issa Tseng](https://www.youtube.com/watch?v=7S57O3VwIyQ)
 0. https://github.com/alpinejs/alpine
@@ -110,21 +119,25 @@
 
 # Architecture
 
+0. []()
 0. https://jew.ski/raj/
 0. https://github.com/redux-saga/redux-saga
 
 # Platforms
 
+0. []()
 0. https://www.producthunt.com/posts/mason
 
 # State-management
 
+0. []()
 0. [Some re-frame patterns for composability](https://vvvvalvalval.github.io/posts/some-re-frame-patterns-for-composability.html)
 0. https://github.com/keajs/kea
 0. https://github.com/isocroft/Radixx
 
 # Styling
 
+0. []()
 0. [CSS Protips](https://github.com/AllThingsSmitty/css-protips)
 0. [Layout-isolated components](https://visly.app/blog/layout-isolated-components)
 0. [Centering in CSS: A Complete Guide](https://css-tricks.com/centering-css-complete-guide/)
@@ -155,10 +168,12 @@
 
 # Design system
 
+0. []()
 0. https://ant.design/
 
 # Rendering
 
+0. []()
 0. [The Virtual DOM is slow. Meet the Memoized DOM](https://www.freecodecamp.org/news/the-virtual-dom-is-slow-meet-the-memoized-dom-bb19f546cc52/)
 0. [Incrementally Improving The DOM](https://blog.functorial.com/posts/2018-04-08-Incrementally-Improving-The-DOM.html)
 0. https://medium.com/@ryansolid/the-fastest-way-to-render-the-dom-e3b226b15ca3
@@ -168,6 +183,7 @@
 
 # Database query
 
+0. []()
 0. http://slick.lightbend.com/docs/
 0. https://books.underscore.io/essential-slick/essential-slick-3.html
 

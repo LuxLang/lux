@@ -1,6 +1,8 @@
 # Reference
 
 0. []()
+0. [Monitoring Employees Makes Them More Likely to Break Rules](https://hbr.org/2022/06/monitoring-employees-makes-them-more-likely-to-break-rules)
+0. [Why criticism lasts longer than praise](https://www.bbc.com/future/article/20220624-why-criticism-lasts-longer-than-praise)
 0. [What Engineering Managers Should Do (and Why We Don’t) • Lena Reinhard • GOTO 2019](https://www.youtube.com/watch?v=Q_bJVokYLRI)
 0. [Effective project management in 10 simple steps](https://www.cenizal.com/ten-rules-of-project-management/)
 0. [When Everything is Important But Nothing is Getting Done](https://sharedphysics.com/everything-is-important/)

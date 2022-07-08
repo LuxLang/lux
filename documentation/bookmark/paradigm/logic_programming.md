@@ -1,17 +1,22 @@
 # Concurrent Logic Programming
 
+0. []()
 0. [The Joy of Concurrent Logic Programming](http://www.call-with-current-continuation.org/articles/the-joy-of-concurrent-logic-programming.txt)
 
 # Unification
 
+0. []()
 0. [Functors of the World, Unite!](https://www.youtube.com/watch?v=8k7YH9st_8U)
 
 # Inspiration
 
+0. []()
 0. [Next-Paradigm Programming Languages: What Will They Look Like and What Changes Will They Bring?](https://arxiv.org/abs/1905.00402)
 
 # Reference
 
+0. []()
+0. [Symbolic artificial intelligence at Pipedrive](https://medium.com/pipedrive-engineering/symbolic-artificial-intelligence-at-pipedrive-a9bd36d06b9e)
 0. [PrologHub](https://prologhub.com/)
 0. https://book.simply-logical.space/
 0. [Higher-Order Logic Programming](https://www.lix.polytechnique.fr/~dale/papers/Handbook_Logic_AI_LP.pdf)
@@ -42,6 +47,7 @@
 
 # Language
 
+0. []()
 0. [A Gentle Introduction to MicroKanren](https://erik-j.de/microkanren/)
 0. [Curry: A Truly Integrated Functional Logic Language](https://www-ps.informatik.uni-kiel.de/currywiki/)
 0. https://flix.github.io/
@@ -54,18 +60,22 @@
 
 # Beyond logic programming
 
+0. []()
 0. https://github.com/Web-Prolog/swi-web-prolog
 
 # Constraint Logic Programming
 
+0. []()
 0. http://www.pathwayslms.com/swipltuts/clpfd/clpfd.html
 0. https://stackabuse.com/constraint-programming-with-python-constraint/
 
 # Constraint Handling Rules
 
+0. []()
 0. http://chrjs.net/
 
 # Answer Set Programming
 
+0. []()
 0. [What Is Answer Set Programming?](https://www.cs.utexas.edu/users/vl/papers/wiasp.pdf)
 

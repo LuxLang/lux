@@ -24,8 +24,7 @@
     ["[0]" code (.only)
      ["<[1]>" \\parser (.only Parser)]]
     ["[0]" macro (.only)
-     [syntax (.only syntax)]
-     ["^" pattern]]]]])
+     [syntax (.only syntax)]]]]])
 
 (with_template [<name> <tag>]
   [(def .public (<name> type)
@@ -77,202 +76,226 @@
   [flat_tuple   .#Product]
   )
 
-(def .public (format type)
-  (-> Type Text)
-  (case type
-    {.#Primitive name params}
-    (all text#composite
-         "(Primitive "
-         (text.enclosed' text.double_quote name)
-         (|> params
-             (list#each (|>> format (text#composite " ")))
-             (list#mix (function.flipped text#composite) ""))
-         ")")
+(`` (def .public (format type)
+      (-> Type Text)
+      (case type
+        {.#Primitive name params}
+        (all text#composite
+             "(Primitive "
+             (text.enclosed' text.double_quote name)
+             (|> params
+                 (list#each (|>> format (text#composite " ")))
+                 (list#mix (function.flipped text#composite) ""))
+             ")")
 
-    (^.with_template [<tag> <open> <close> <flat>]
-      [{<tag> _}
-       (all text#composite <open>
-            (|> (<flat> type)
-                (list#each format)
-                list.reversed
-                (list.interposed " ")
-                (list#mix text#composite ""))
-            <close>)])
-    ([.#Sum  "(Or " ")" flat_variant]
-     [.#Product "["   "]" flat_tuple])
+        (,, (with_template [<tag> <open> <close> <flat>]
+              [{<tag> _}
+               (all text#composite <open>
+                    (|> (<flat> type)
+                        (list#each format)
+                        list.reversed
+                        (list.interposed " ")
+                        (list#mix text#composite ""))
+                    <close>)]
 
-    {.#Function input output}
-    (.let [[ins out] (flat_function type)]
-      (all text#composite  "(-> "
-           (|> ins
-               (list#each format)
-               list.reversed
-               (list.interposed " ")
-               (list#mix text#composite ""))
-           " " (format out) ")"))
+              [.#Sum  "(Or " ")" flat_variant]
+              [.#Product "["   "]" flat_tuple]))
 
-    {.#Parameter idx}
-    (n#encoded idx)
+        {.#Function input output}
+        (.let [[ins out] (flat_function type)]
+          (all text#composite  "(-> "
+               (|> ins
+                   (list#each format)
+                   list.reversed
+                   (list.interposed " ")
+                   (list#mix text#composite ""))
+               " " (format out) ")"))
 
-    {.#Var id}
-    (all text#composite "-" (n#encoded id))
+        {.#Parameter idx}
+        (n#encoded idx)
 
-    {.#Ex id}
-    (all text#composite "+" (n#encoded id))
+        {.#Var id}
+        (all text#composite "-" (n#encoded id))
 
-    {.#Apply param fun}
-    (.let [[type_func type_args] (flat_application type)]
-      (all text#composite  "(" (format type_func) " " (|> type_args (list#each format) list.reversed (list.interposed " ") (list#mix text#composite "")) ")"))
+        {.#Ex id}
+        (all text#composite "+" (n#encoded id))
 
-    (^.with_template [<tag> <desc>]
-      [{<tag> env body}
-       (all text#composite "(" <desc> " {" (|> env (list#each format) (text.interposed " ")) "} " (format body) ")")])
-    ([.#UnivQ "All"]
-     [.#ExQ "Ex"])
+        {.#Apply param fun}
+        (.let [[type_func type_args] (flat_application type)]
+          (all text#composite  "(" (format type_func) " " (|> type_args (list#each format) list.reversed (list.interposed " ") (list#mix text#composite "")) ")"))
 
-    {.#Named [module name] type}
-    (all text#composite module "." name)
-    ))
+        (,, (with_template [<tag> <desc>]
+              [{<tag> env body}
+               (all text#composite "(" <desc> " {" (|> env (list#each format) (text.interposed " ")) "} " (format body) ")")]
+
+              [.#UnivQ "All"]
+              [.#ExQ "Ex"]))
+
+        {.#Named [module name] type}
+        (all text#composite module "." name)
+        )))
 
 ... https://en.wikipedia.org/wiki/Lambda_calculus#%CE%B2-reduction
-(def (reduced env type)
-  (-> (List Type) Type Type)
-  (case type
-    {.#Primitive name params}
-    {.#Primitive name (list#each (reduced env) params)}
-    
-    (^.with_template [<tag>]
-      [{<tag> left right}
-       {<tag> (reduced env left) (reduced env right)}])
-    ([.#Sum]      [.#Product]
-     [.#Function] [.#Apply])
-    
-    (^.with_template [<tag>]
-      [{<tag> old_env def}
-       (case old_env
-         {.#End}
-         {<tag> env def}
+(`` (def (reduced env type)
+      (-> (List Type) Type Type)
+      (case type
+        {.#Primitive name params}
+        {.#Primitive name (list#each (reduced env) params)}
+        
+        (,, (with_template [<tag>]
+              [{<tag> left right}
+               {<tag> (reduced env left) (reduced env right)}]
 
-         _
-         {<tag> (list#each (reduced env) old_env) def})])
-    ([.#UnivQ]
-     [.#ExQ])
-    
-    {.#Parameter idx}
-    (maybe.else (panic! (all text#composite
-                             "Unknown type parameter" text.new_line
-                             "      Index: " (n#encoded idx) text.new_line
-                             "Environment: " (|> env
-                                                 list.enumeration
-                                                 (list#each (.function (_ [index type])
-                                                              (all text#composite
-                                                                   (n#encoded index)
-                                                                   " " (..format type))))
-                                                 (text.interposed (text#composite text.new_line "             ")))))
-                (list.item idx env))
-    
-    _
-    type
-    ))
+              [.#Sum]      [.#Product]
+              [.#Function] [.#Apply]))
+        
+        (,, (with_template [<tag>]
+              [{<tag> old_env def}
+               (case old_env
+                 {.#End}
+                 {<tag> env def}
 
-(def .public equivalence
-  (Equivalence Type)
-  (implementation
-   (def (= x y)
-     (or (for @.php
-              ... TODO: Remove this once JPHP is gone.
-              false
-              (same? x y))
-         (case [x y]
-           [{.#Primitive xname xparams} {.#Primitive yname yparams}]
-           (and (text#= xname yname)
-                (n.= (list.size yparams) (list.size xparams))
-                (list#mix (.function (_ [x y] prev) (and prev (= x y)))
-                          #1
-                          (list.zipped_2 xparams yparams)))
+                 _
+                 {<tag> (list#each (reduced env) old_env) def})]
 
-           (^.with_template [<tag>]
-             [[{<tag> xid} {<tag> yid}]
-              (n.= yid xid)])
-           ([.#Var] [.#Ex] [.#Parameter])
+              [.#UnivQ]
+              [.#ExQ]))
+        
+        {.#Parameter idx}
+        (maybe.else (panic! (all text#composite
+                                 "Unknown type parameter" text.new_line
+                                 "      Index: " (n#encoded idx) text.new_line
+                                 "Environment: " (|> env
+                                                     list.enumeration
+                                                     (list#each (.function (_ [index type])
+                                                                  (all text#composite
+                                                                       (n#encoded index)
+                                                                       " " (..format type))))
+                                                     (text.interposed (text#composite text.new_line "             ")))))
+                    (list.item idx env))
+        
+        _
+        type
+        )))
 
-           (^.or [{.#Function xleft xright} {.#Function yleft yright}]
-                 [{.#Apply xleft xright} {.#Apply yleft yright}])
-           (and (= xleft yleft)
-                (= xright yright))
+(`` (def .public equivalence
+      (Equivalence Type)
+      (implementation
+       (def (= x y)
+         (or (for @.php
+                  ... TODO: Remove this once JPHP is gone.
+                  false
+                  (same? x y))
+             (case [x y]
+               [{.#Primitive xname xparams} {.#Primitive yname yparams}]
+               (and (text#= xname yname)
+                    (n.= (list.size yparams) (list.size xparams))
+                    (list#mix (.function (_ [x y] prev) (and prev (= x y)))
+                              #1
+                              (list.zipped_2 xparams yparams)))
 
-           [{.#Named xname xtype} {.#Named yname ytype}]
-           (and (symbol#= xname yname)
-                (= xtype ytype))
+               (,, (with_template [<tag>]
+                     [[{<tag> xid} {<tag> yid}]
+                      (n.= yid xid)]
 
-           (^.with_template [<tag>]
-             [[{<tag> xL xR} {<tag> yL yR}]
-              (and (= xL yL) (= xR yR))])
-           ([.#Sum] [.#Product])
-           
-           (^.or [{.#UnivQ xenv xbody} {.#UnivQ yenv ybody}]
-                 [{.#ExQ xenv xbody} {.#ExQ yenv ybody}])
-           (and (n.= (list.size yenv) (list.size xenv))
-                (= xbody ybody)
-                (list#mix (.function (_ [x y] prev) (and prev (= x y)))
-                          #1
-                          (list.zipped_2 xenv yenv)))
+                     [.#Var]
+                     [.#Ex]
+                     [.#Parameter]
+                     ))
 
-           _
-           #0
-           )))))
+               (,, (with_template [<tag>]
+                     [[{<tag> ll lr} {<tag> rl rr}]
+                      (and (= ll rl)
+                           (= lr rr))]
 
-(def .public (applied params func)
-  (-> (List Type) Type (Maybe Type))
-  (case params
-    {.#End}
-    {.#Some func}
+                     [.#Function]
+                     [.#Apply]
+                     [.#Sum]
+                     [.#Product]
+                     ))
 
-    {.#Item param params'}
-    (case func
-      (^.with_template [<tag>]
-        [{<tag> env body}
-         (|> body
-             (reduced (list.partial func param env))
-             (applied params'))])
-      ([.#UnivQ] [.#ExQ])
+               [{.#Named xname xtype} {.#Named yname ytype}]
+               (and (symbol#= xname yname)
+                    (= xtype ytype))
 
-      {.#Apply A F}
-      (applied (list.partial A params) F)
+               (,, (with_template [<tag>]
+                     [[{<tag> xenv xbody} {<tag> yenv ybody}]
+                      (and (n.= (list.size yenv) (list.size xenv))
+                           (= xbody ybody)
+                           (list#mix (.function (_ [x y] prev) (and prev (= x y)))
+                                     #1
+                                     (list.zipped_2 xenv yenv)))]
 
-      {.#Named name unnamed}
-      (applied params unnamed)
-      
-      _
-      {.#None})))
+                     [.#UnivQ]
+                     [.#ExQ]
+                     ))
 
-(def .public (code type)
-  (-> Type Code)
-  (case type
-    {.#Primitive name params}
-    (` {.#Primitive (, (code.text name))
-                    (.list (,* (list#each code params)))})
+               _
+               #0
+               ))))))
 
-    (^.with_template [<tag>]
-      [{<tag> idx}
-       (` {<tag> (, (code.nat idx))})])
-    ([.#Var] [.#Ex] [.#Parameter])
+(`` (def .public (applied params func)
+      (-> (List Type) Type (Maybe Type))
+      (case params
+        {.#End}
+        {.#Some func}
 
-    (^.with_template [<tag>]
-      [{<tag> left right}
-       (` {<tag> (, (code left))
-                 (, (code right))})])
-    ([.#Sum] [.#Product] [.#Function] [.#Apply])
+        {.#Item param params'}
+        (case func
+          (,, (with_template [<tag>]
+                [{<tag> env body}
+                 (|> body
+                     (reduced (list.partial func param env))
+                     (applied params'))]
 
-    {.#Named name sub_type}
-    (code.symbol name)
+                [.#UnivQ]
+                [.#ExQ]))
 
-    (^.with_template [<tag>]
-      [{<tag> env body}
-       (` {<tag> (.list (,* (list#each code env)))
-                 (, (code body))})])
-    ([.#UnivQ] [.#ExQ])
-    ))
+          {.#Apply A F}
+          (applied (list.partial A params) F)
+
+          {.#Named name unnamed}
+          (applied params unnamed)
+          
+          _
+          {.#None}))))
+
+(`` (def .public (code type)
+      (-> Type Code)
+      (case type
+        {.#Primitive name params}
+        (` {.#Primitive (, (code.text name))
+                        (.list (,* (list#each code params)))})
+
+        (,, (with_template [<tag>]
+              [{<tag> idx}
+               (` {<tag> (, (code.nat idx))})]
+
+              [.#Var]
+              [.#Ex]
+              [.#Parameter]))
+
+        (,, (with_template [<tag>]
+              [{<tag> left right}
+               (` {<tag> (, (code left))
+                         (, (code right))})]
+
+              [.#Sum]
+              [.#Product]
+              [.#Function]
+              [.#Apply]))
+
+        {.#Named name sub_type}
+        (code.symbol name)
+
+        (,, (with_template [<tag>]
+              [{<tag> env body}
+               (` {<tag> (.list (,* (list#each code env)))
+                         (, (code body))})]
+
+              [.#UnivQ]
+              [.#ExQ]))
+        )))
 
 (def .public (de_aliased type)
   (-> Type Type)
@@ -338,22 +361,26 @@
   [ex_q   .#ExQ]
   )
 
-(def .public (quantified? type)
-  (-> Type Bit)
-  (case type
-    {.#Named [module name] _type}
-    (quantified? _type)
+(`` (def .public (quantified? type)
+      (-> Type Bit)
+      (case type
+        {.#Named [module name] _type}
+        (quantified? _type)
 
-    {.#Apply A F}
-    (|> (..applied (list A) F)
-        (at maybe.monad each quantified?)
-        (maybe.else #0))
-    
-    (^.or {.#UnivQ _} {.#ExQ _})
-    #1
+        {.#Apply A F}
+        (|> (..applied (list A) F)
+            (at maybe.monad each quantified?)
+            (maybe.else #0))
 
-    _
-    #0))
+        (,, (with_template [<pattern>]
+              [<pattern>
+               #1]
+
+              [{.#UnivQ _}]
+              [{.#ExQ _}]))
+
+        _
+        #0)))
 
 (def .public (array depth element_type)
   (-> Nat Type Type)
@@ -366,14 +393,16 @@
 
 (def .public (flat_array type)
   (-> Type [Nat Type])
-  (case type
-    (^.multi {.#Primitive name (list element_type)}
-             (text#= array.type_name name))
-    (.let [[depth element_type] (flat_array element_type)]
-      [(++ depth) element_type])
+  (with_expansions [<default> [0 type]]
+    (case type
+      {.#Primitive name (list element_type)}
+      (if (text#= array.type_name name)
+        (.let [[depth element_type] (flat_array element_type)]
+          [(++ depth) element_type])
+        <default>)
 
-    _
-    [0 type]))
+      _
+      <default>)))
 
 (def .public array?
   (-> Type Bit)
@@ -476,34 +505,40 @@
                                 ... The value of this expression will never be relevant, so it doesn't matter what it is.
                                 (.as .Nothing [])))))))))
 
-(def .public (replaced before after)
-  (-> Type Type Type Type)
-  (.function (again it)
-    (if (at ..equivalence = before it)
-      after
-      (case it
-        {.#Primitive name co_variant}
-        {.#Primitive name (list#each again co_variant)}
+(`` (def .public (replaced before after)
+      (-> Type Type Type Type)
+      (.function (again it)
+        (if (at ..equivalence = before it)
+          after
+          (case it
+            {.#Primitive name co_variant}
+            {.#Primitive name (list#each again co_variant)}
 
-        (^.with_template [<tag>]
-          [{<tag> left right}
-           {<tag> (again left) (again right)}])
-        ([.#Sum]
-         [.#Product]
-         [.#Function]
-         [.#Apply])
+            (,, (with_template [<tag>]
+                  [{<tag> left right}
+                   {<tag> (again left) (again right)}]
 
-        (^.with_template [<tag>]
-          [{<tag> env body}
-           {<tag> (list#each again env) (again body)}])
-        ([.#UnivQ]
-         [.#ExQ])
-        
-        (^.or {.#Parameter _}
-              {.#Var _}
-              {.#Ex _}
-              {.#Named _})
-        it))))
+                  [.#Sum]
+                  [.#Product]
+                  [.#Function]
+                  [.#Apply]))
+
+            (,, (with_template [<tag>]
+                  [{<tag> env body}
+                   {<tag> (list#each again env) (again body)}]
+
+                  [.#UnivQ]
+                  [.#ExQ]))
+
+            (,, (with_template [<pattern>]
+                  [<pattern>
+                   it]
+
+                  [{.#Parameter _}]
+                  [{.#Var _}]
+                  [{.#Ex _}]
+                  [{.#Named _}]))
+            )))))
 
 (def .public let
   (syntax (_ [bindings (<code>.tuple (<>.some (<>.and <code>.any <code>.any)))

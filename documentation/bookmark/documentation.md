@@ -53,6 +53,7 @@
 # README
 
 0. []()
+0. [writing one sentence per line](https://sive.rs/1s)
 0. https://github.com/LappleApple/feedmereadmes
 
 # Doclet
