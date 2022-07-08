@@ -1,0 +1,140 @@
+(.require
+ [library
+  [lux (.except local symbol function macro)
+   [abstract
+    ["[0]" monad (.only do)]]
+   [data
+    ["[0]" text (.use "[1]#[0]" monoid)]
+    [collection
+     ["[0]" list (.use "[1]#[0]" monoid monad)]]]]]
+ ["[0]" /// (.only)
+  ["[0]" code]
+  ["[0]" location]
+  ["[0]" symbol (.use "[1]#[0]" codec)]])
+
+(def wrong_syntax_error
+  (-> Symbol Text)
+  (|>> symbol#encoded
+       (text.prefix (text#composite "Wrong syntax for " text.\''))
+       (text.suffix (text#composite text.\'' "."))))
+
+(def .public (single syntax)
+  (-> Code (Meta (List Code)))
+  (case syntax
+    [_ {.#Form {.#Item [[_ {.#Symbol name}] args]}}]
+    (do ///.monad
+      [?macro (///.macro name)]
+      (case ?macro
+        {.#Some macro}
+        ((as Macro' macro) args)
+        
+        {.#None}
+        (at ///.monad in (list syntax))))
+
+    _
+    (at ///.monad in (list syntax))))
+
+(def .public (complete syntax)
+  (-> Code (Meta (List Code)))
+  (case syntax
+    [_ {.#Form {.#Item [[_ {.#Symbol name}] args]}}]
+    (do ///.monad
+      [?macro (///.macro name)]
+      (case ?macro
+        {.#Some macro}
+        (do [! ///.monad]
+          [top_level_complete ((as Macro' macro) args)]
+          (|> top_level_complete
+              (monad.each ///.monad complete)
+              (at ! each list#conjoint)))
+        
+        {.#None}
+        (at ///.monad in (list syntax))))
+
+    _
+    (at ///.monad in (list syntax))))
+
+(def .public (total syntax)
+  (-> Code (Meta (List Code)))
+  (case syntax
+    [_ {.#Form {.#Item [[_ {.#Symbol name}] args]}}]
+    (do ///.monad
+      [?macro (///.macro name)]
+      (case ?macro
+        {.#Some macro}
+        (do ///.monad
+          [complete ((as Macro' macro) args)
+           complete' (monad.each ///.monad total complete)]
+          (in (list#conjoint complete')))
+        
+        {.#None}
+        (do ///.monad
+          [parts' (monad.each ///.monad total (list.partial (code.symbol name) args))]
+          (in (list (code.form (list#conjoint parts')))))))
+
+    [_ {.#Form {.#Item [harg targs]}}]
+    (do ///.monad
+      [harg+ (total harg)
+       targs+ (monad.each ///.monad total targs)]
+      (in (list (code.form (list#composite harg+ (list#conjoint (is (List (List Code)) targs+)))))))
+
+    [_ {.#Variant members}]
+    (do ///.monad
+      [members' (monad.each ///.monad total members)]
+      (in (list (code.variant (list#conjoint members')))))
+
+    [_ {.#Tuple members}]
+    (do ///.monad
+      [members' (monad.each ///.monad total members)]
+      (in (list (code.tuple (list#conjoint members')))))
+
+    _
+    (at ///.monad in (list syntax))))
+
+(def .public (one token)
+  (-> Code (Meta Code))
+  (do ///.monad
+    [token+ (..complete token)]
+    (case token+
+      (list token')
+      (in token')
+
+      _
+      (///.failure "Macro expanded to more than 1 element."))))
+
+(with_template [<macro> <func>]
+  [(def .public <macro>
+     (.macro (_ tokens)
+       (let [[module _] (.symbol .._)
+             [_ short] (.symbol <macro>)
+             macro_name [module short]]
+         (case (is (Maybe [Bit Code])
+                   (case tokens
+                     (list [_ {.#Text "omit"}]
+                           token)
+                     {.#Some [#1 token]}
+
+                     (list token)
+                     {.#Some [#0 token]}
+
+                     _
+                     {.#None}))
+           {.#Some [omit? token]}
+           (do ///.monad
+             [location ///.location
+              output (<func> token)
+              .let [_ ("lux io log" (all text#composite (symbol#encoded macro_name) " " (location.format location)))
+                    _ (list#each (|>> code.format "lux io log")
+                                 output)
+                    _ ("lux io log" "")]]
+             (in (if omit?
+                   (list)
+                   output)))
+
+           {.#None}
+           (///.failure (..wrong_syntax_error macro_name))))))]
+
+  [log_single!   ..single]
+  [log_complete! ..complete]
+  [log_total!    ..total]
+  )
