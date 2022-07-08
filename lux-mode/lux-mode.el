@@ -390,7 +390,7 @@ Called by `imenu--generic-function'."
 							;; Miscellaneous
 							(jvm-host (altRE "import" "export" "class" "interface" "object" "synchronized" "class_for"))
 							(alternative-format (altRE "char" "bin" "oct" "hex"))
-							(documentation (altRE "comment" "documentation"))
+							(documentation (altRE "comment"))
 							(function-application (altRE "|>" "<|" "left" "right" "all"))
 							(function-definition (altRE "function" "|>>" "<<|"))
 							(remember (altRE "remember" "to_do" "fix_me"))
@@ -601,7 +601,7 @@ This function also returns nil meaning don't specify the indentation."
   ("export" 'defun)
 
   ("comment" 'defun)
-  ("documentation" 'defun)
+  ("definition" 'defun)
 
   ("sharing" 'defun)
   ("by_example" 'defun)
