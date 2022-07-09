@@ -1,4 +1,4 @@
-(def version "0.6.5")
+(def version "0.6.6-SNAPSHOT")
 (def repo "https://github.com/LuxLang/lux")
 (def sonatype-releases "https://oss.sonatype.org/service/local/staging/deploy/maven2/")
 (def sonatype-snapshots "https://oss.sonatype.org/content/repositories/snapshots/")
@@ -24,6 +24,6 @@
   :dependencies [[com.github.luxlang/lux-bootstrapper ~version]]
   :profiles {:bibliotheca {:lux {:test "test/lux"}}
              :aedifex {:description "A build system/tool made exclusively for Lux."
-                       :lux {:program "program/aedifex"
-                             :test "test/aedifex"}}}
+                       :lux {:program ["program/aedifex" "_"]
+                             :test ["test/aedifex" "_"]}}}
   )

@@ -1,4 +1,6 @@
-(defproject com.github.luxlang/lein-luxc "0.6.5"
+(def version "0.6.6-SNAPSHOT")
+
+(defproject com.github.luxlang/lein-luxc #=(identity version)
   :description "The Leiningen plugin for the Lux programming language."
   :url "https://github.com/LuxLang/lux"
   :license {:name "Lux License v0.1.2"

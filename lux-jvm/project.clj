@@ -26,6 +26,6 @@
   
   :manifest {"lux" ~version}
   :source-paths ["source"]
-  :lux {:program "program"
-        :test "test/program"}
+  :lux {:program ["program" "_"]
+        :test ["test/program" "_"]}
   )

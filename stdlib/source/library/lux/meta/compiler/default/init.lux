@@ -27,7 +27,7 @@
    ["[1][0]" phase]
    [language
     [lux
-     [program (.only Program)]
+     ["[1][0]" program (.only Program)]
      ["[1][0]" syntax (.only Aliases)]
      ["[1][0]" synthesis]
      ["[1][0]" declaration (.only Requirements)]
@@ -47,6 +47,7 @@
         ["[0]D" lux]]]]]]
    [meta
     ["[0]" archive (.only Archive)
+     ["[0]" unit]
      ["[0]" registry (.only Registry)]
      ["[0]" module (.only)
       ["[0]" descriptor]
@@ -230,62 +231,93 @@
   (-> .Module Aliases)
   (|>> (the .#module_aliases) (dictionary.of_list text.hash)))
 
-(def .public (compiler wrapper expander prelude write_declaration)
-  (All (_ anchor expression declaration)
-    (-> ///phase.Wrapper Expander descriptor.Module (-> declaration Binary)
-        (Instancer (///declaration.State+ anchor expression declaration) .Module)))
-  (let [execute! (declarationP.phase wrapper expander)]
-    (function (_ key parameters input)
-      (let [dependencies (default_dependencies prelude input)]
-        [///.#dependencies dependencies
-         ///.#process (function (_ state archive)
-                        (do [! try.monad]
-                          [.let [hash (text#hash (the ///.#code input))]
-                           [state [source buffer]] (<| (///phase.result' state)
-                                                       (..begin dependencies hash input))
-                           .let [module (the ///.#module input)]]
-                          (loop (again [iteration (<| (///phase.result' state)
-                                                      (..iteration wrapper archive expander module source buffer ///syntax.no_aliases))])
-                            (do !
-                              [[state ?source&requirements&temporary_payload] iteration]
-                              (case ?source&requirements&temporary_payload
-                                {.#None}
-                                (do !
-                                  [[state [analysis_module [final_buffer final_registry]]] (///phase.result' state (..end module))
-                                   .let [descriptor [descriptor.#hash hash
-                                                     descriptor.#name module
-                                                     descriptor.#file (the ///.#file input)
-                                                     descriptor.#references (set.of_list text.hash dependencies)
-                                                     descriptor.#state {.#Compiled}]]]
-                                  (in [state
-                                       {.#Right [[module.#id (try.else module.runtime (archive.id module archive))
-                                                  module.#descriptor descriptor
-                                                  module.#document (document.document key analysis_module)]
-                                                 (sequence#each (function (_ [artifact_id custom declaration])
-                                                                  [artifact_id custom (write_declaration declaration)])
-                                                                final_buffer)
-                                                 final_registry]}]))
+(with_expansions [<parameters> (these anchor expression declaration)]
+  (def (define_program! archive program global program_module program_definition)
+    (All (_ <parameters>)
+      (-> Archive
+          (Program expression declaration) (-> Archive Symbol (///generation.Operation <parameters> expression))
+          descriptor.Module Text
+          (///generation.Operation <parameters> Any)))
+    (do ///phase.monad
+      [ [@program _] (///generation.definition archive [program_module program_definition])
+        @self (///generation.learn [///program.name {.#None}] true (set.has @program (set.empty unit.hash)))
 
-                                {.#Some [source requirements temporary_payload]}
-                                (let [[temporary_buffer temporary_registry] temporary_payload]
-                                  (in [state
-                                       {.#Left [///.#dependencies (|> requirements
-                                                                      (the ///declaration.#imports)
-                                                                      (list#each product.left))
-                                                ///.#process (function (_ state archive)
-                                                               (again (<| (///phase.result' state)
-                                                                          (do [! ///phase.monad]
-                                                                            [analysis_module (<| (is (Operation .Module))
-                                                                                                 ///declaration.lifted_analysis
-                                                                                                 extension.lifted
-                                                                                                 meta.current_module)
-                                                                             _ (///declaration.lifted_generation
-                                                                                (///generation.set_buffer temporary_buffer))
-                                                                             _ (///declaration.lifted_generation
-                                                                                (///generation.set_registry temporary_registry))
-                                                                             _ (|> requirements
-                                                                                   (the ///declaration.#referrals)
-                                                                                   (monad.each ! (execute! archive)))
-                                                                             temporary_payload (..get_current_payload temporary_payload)]
-                                                                            (..iteration wrapper archive expander module source temporary_payload (..module_aliases analysis_module))))))]}]))
-                                )))))]))))
+        |program| (global archive [program_module program_definition])
+        @module (///phase.lifted (archive.id program_module archive))]
+      (///generation.save! @self {.#None} (program [@module @self] |program|))))
+
+  (def .public (compiler program global wrapper expander prelude write_declaration program_module program_definition)
+    (All (_ anchor expression declaration)
+      (-> (Program expression declaration) (-> Archive Symbol (///generation.Operation <parameters> expression))
+          ///phase.Wrapper Expander descriptor.Module (-> declaration Binary)
+          descriptor.Module (Maybe Text)
+          (Instancer (///declaration.State+ <parameters>) .Module)))
+    (let [execute! (declarationP.phase wrapper expander)]
+      (function (_ key parameters input)
+        (let [dependencies (default_dependencies prelude input)]
+          [///.#dependencies dependencies
+           ///.#process (function (_ state archive)
+                          (do [! try.monad]
+                            [.let [hash (text#hash (the ///.#code input))]
+                             [state [source buffer]] (<| (///phase.result' state)
+                                                         (..begin dependencies hash input))
+                             .let [module (the ///.#module input)]]
+                            (loop (again [iteration (<| (///phase.result' state)
+                                                        (..iteration wrapper archive expander module source buffer ///syntax.no_aliases))])
+                              (do !
+                                [[state ?source&requirements&temporary_payload] iteration]
+                                (case ?source&requirements&temporary_payload
+                                  {.#None}
+                                  (do !
+                                    [[state [analysis_module [final_buffer final_registry]]]
+                                     (<| (///phase.result' state)
+                                         (do [! ///phase.monad]
+                                           [_ (if (text#= program_module module)
+                                                (case program_definition
+                                                  {.#Some program_definition}
+                                                  (///declaration.lifted_generation
+                                                   (define_program! archive program global program_module program_definition))
+                                                  
+                                                  {.#None}
+                                                  (in []))
+                                                (in []))]
+                                           (..end module)))
+                                     
+                                     .let [descriptor [descriptor.#hash hash
+                                                       descriptor.#name module
+                                                       descriptor.#file (the ///.#file input)
+                                                       descriptor.#references (set.of_list text.hash dependencies)
+                                                       descriptor.#state {.#Compiled}]]]
+                                    (in [state
+                                         {.#Right [[module.#id (try.else module.runtime (archive.id module archive))
+                                                    module.#descriptor descriptor
+                                                    module.#document (document.document key analysis_module)]
+                                                   (sequence#each (function (_ [artifact_id custom declaration])
+                                                                    [artifact_id custom (write_declaration declaration)])
+                                                                  final_buffer)
+                                                   final_registry]}]))
+
+                                  {.#Some [source requirements temporary_payload]}
+                                  (let [[temporary_buffer temporary_registry] temporary_payload]
+                                    (in [state
+                                         {.#Left [///.#dependencies (|> requirements
+                                                                        (the ///declaration.#imports)
+                                                                        (list#each product.left))
+                                                  ///.#process (function (_ state archive)
+                                                                 (again (<| (///phase.result' state)
+                                                                            (do [! ///phase.monad]
+                                                                              [analysis_module (<| (is (Operation .Module))
+                                                                                                   ///declaration.lifted_analysis
+                                                                                                   extension.lifted
+                                                                                                   meta.current_module)
+                                                                               _ (///declaration.lifted_generation
+                                                                                  (///generation.set_buffer temporary_buffer))
+                                                                               _ (///declaration.lifted_generation
+                                                                                  (///generation.set_registry temporary_registry))
+                                                                               _ (|> requirements
+                                                                                     (the ///declaration.#referrals)
+                                                                                     (monad.each ! (execute! archive)))
+                                                                               temporary_payload (..get_current_payload temporary_payload)]
+                                                                              (..iteration wrapper archive expander module source temporary_payload (..module_aliases analysis_module))))))]}]))
+                                  )))))]))))
+  )

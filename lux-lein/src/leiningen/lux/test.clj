@@ -7,8 +7,8 @@
 (def missing-module-error "Please provide a test module in [:lux :test]")
 
 (defn test [project]
-  (if-let [test-module (get-in project [:lux :test])]
-    (when (time (&utils/run-process (&utils/compile-path project test-module (concat (:test-paths project) (:source-paths project)))
+  (if-let [[test-module test-definition] (get-in project [:lux :test])]
+    (when (time (&utils/run-process (&utils/compile-path project test-module test-definition (concat (:test-paths project) (:source-paths project)))
                                     nil
                                     "[COMPILATION BEGAN]"
                                     "[COMPILATION ENDED]"))

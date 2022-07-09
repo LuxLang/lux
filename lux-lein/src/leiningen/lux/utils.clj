@@ -87,7 +87,7 @@
        " " (get project :target-path default-target-dir)))
 
 (do-template [<name> <mode>]
-  (defn <name> [project module source-paths]
+  (defn <name> [project module definition source-paths]
     (let [is-stdlib? (= stdlib-id
                         (project-id project))
           raw-paths (project-jars project)
@@ -128,7 +128,7 @@
            " -cp " (str compiler-class-path java.io.File/pathSeparator program-class-path)
            " " (lux-command project <mode> program-dependencies source-paths))))
 
-  compile-path (str "release " module)
+  compile-path (str "release " module " " definition)
   repl-path    "repl"
   )
 

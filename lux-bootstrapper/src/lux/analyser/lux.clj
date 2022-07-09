@@ -737,11 +737,3 @@
         _ (&type/check exo-type ==type)
         =value (&&/analyse-1+ analyse ?value)]
     (return (&/|list (coerce ==type =value)))))
-
-(let [program-type (&/$Function (&/$Apply &type/Text &type/List)
-                                (&/$Apply &type/Any &type/IO))]
-  (defn analyse-program [analyse optimize compile-program ?program]
-    (|do [_ &/ensure-declaration
-          =program (&&/analyse-1 analyse program-type ?program)
-          _ (compile-program (optimize =program))]
-      (return &/$End))))

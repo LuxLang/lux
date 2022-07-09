@@ -21,8 +21,10 @@
 
 (defn -main [& args]
   (|case (&/->list args)
-    (&/$Item "release" (&/$Item program-module (&/$Item dependencies (&/$Item source-dirs (&/$Item target-dir (&/$End))))))
-    (&compiler/compile-program &/$Build program-module
+    (&/$Item "release" (&/$Item program-module (&/$Item program-definition (&/$Item dependencies (&/$Item source-dirs (&/$Item target-dir (&/$End)))))))
+    (&compiler/compile-program &/$Build
+                               program-module
+                               program-definition
                                (separate-paths dependencies)
                                (separate-paths source-dirs)
                                target-dir)

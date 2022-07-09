@@ -1,7 +1,7 @@
 (.require
  [library
   [lux (.except local)
-   [program (.only program:)]
+   ["[0]" program]
    ["[0]" debug]
    [abstract
     [monad (.only do)]]
@@ -10,8 +10,6 @@
     ["[0]" maybe]
     ["[0]" try (.only Try) (.use "[1]#[0]" functor)]
     ["[0]" exception (.only exception)]
-    [parser
-     [environment (.only Environment)]]
     [concurrency
      ["[0]" async (.only Async) (.use "[1]#[0]" monad)]]]
    [data
@@ -34,7 +32,7 @@
    [world
     ["[0]" shell (.only Exit Shell)]
     ["[0]" console (.only Console)]
-    ["[0]" program (.only Program)]
+    ["[0]" environment]
     ["[0]" file (.only Path)
      ["[0]" watch]]
     [net
@@ -69,30 +67,30 @@
        set.list
        (list#each (|>> (/repository/remote.repository http.default {.#None}) /repository.async))))
 
-(def program (program.async program.default))
+(def environment (environment.async environment.default))
 (def fs (file.async file.default))
-(def local (/repository/local.repository ..program ..fs))
+(def local (/repository/local.repository ..environment ..fs))
 
-(def (with_dependencies program console command profile)
+(def (with_dependencies environment console command profile)
   (All (_ a)
-    (-> (Program Async) (Console Async)
-        (-> (Console Async) (Program Async) (file.System Async) (Shell Async) Resolution (Command [Exit a]))
+    (-> (environment.Environment Async) (Console Async)
+        (-> (Console Async) (environment.Environment Async) (file.System Async) (Shell Async) Resolution (Command [Exit a]))
         (Command a)))
   (do /action.monad
     [resolution (/command/deps.do! console
-                                   (/repository/local.repository program (file.async file.default))
+                                   (/repository/local.repository environment (file.async file.default))
                                    (..repositories profile)
                                    (|>> (/repository/remote.repository http.default {.#None})
                                         /repository.async)
                                    profile)
-     [exit_code output] ((command console program (file.async file.default) (shell.async shell.default) resolution) profile)
+     [exit_code output] ((command console environment (file.async file.default) (shell.async shell.default) resolution) profile)
      _ (case exit_code
          (static shell.normal)
          (in [])
 
          _
          (do async.monad
-           [_ (at program exit exit_code)]
+           [_ (at environment exit exit_code)]
            (in {try.#Failure ""})))]
     (in output)))
 
@@ -106,13 +104,13 @@
 
 (def succeed!
   (IO Any)
-  (at program.default exit shell.normal))
+  (at environment.default exit shell.normal))
 
 (def (fail! error)
   (-> Text (IO Any))
   (exec
     (debug.log! error)
-    (at program.default exit shell.error)))
+    (at environment.default exit shell.error)))
 
 (def (command action)
   (All (_ a) (-> (Async (Try a)) (IO Any)))
@@ -150,86 +148,87 @@
                (maybe.trusted (text.clip 0 (-- (text.size it)) it))
                it))))))
 
-(program: [[profiles operation] /cli.command]
-  (do [! io.monad]
-    [console (at ! each (|>> (try.else ..write_only) console.async)
-                 console.default)]
-    (case operation
-      {/cli.#Version}
-      (..command
-       (/command/version.do! console (at /.monoid identity)))
+(def _
+  (program.program [[profiles operation] /cli.command]
+    (do [! io.monad]
+      [console (at ! each (|>> (try.else ..write_only) console.async)
+                   console.default)]
+      (case operation
+        {/cli.#Version}
+        (..command
+         (/command/version.do! console (at /.monoid identity)))
 
-      _
-      (do !
-        [?profile (/input.read io.monad file.default profiles)]
-        (case ?profile
-          {try.#Failure error}
-          (..fail! error)
+        _
+        (do !
+          [?profile (/input.read io.monad file.default profiles)]
+          (case ?profile
+            {try.#Failure error}
+            (..fail! error)
 
-          {try.#Success profile}
-          (case operation
-            {/cli.#Version}
-            (in [])
-            
-            {/cli.#Clean}
-            (..command
-             (/command/clean.do! console (file.async file.default) profile))
+            {try.#Success profile}
+            (case operation
+              {/cli.#Version}
+              (in [])
+              
+              {/cli.#Clean}
+              (..command
+               (/command/clean.do! console (file.async file.default) profile))
 
-            {/cli.#POM}
-            (..command
-             (/command/pom.do! console (file.async file.default) profile))
-            
-            {/cli.#Install}
-            (..command
-             (/command/install.do! console ..fs ..local profile))
+              {/cli.#POM}
+              (..command
+               (/command/pom.do! console (file.async file.default) profile))
+              
+              {/cli.#Install}
+              (..command
+               (/command/install.do! console ..fs ..local profile))
 
-            {/cli.#Deploy repository identity}
-            (..command
-             (case (the /.#identity profile)
-               {.#Some artifact}
-               (case (dictionary.value repository (the /.#deploy_repositories profile))
-                 {.#Some remote}
-                 (/command/deploy.do! ..program
-                                      (shell.async shell.default)
-                                      console
-                                      ..local
-                                      (/repository.async (/repository/remote.repository http.default {.#Some identity} remote))
-                                      (file.async file.default)
-                                      artifact
-                                      profile)
+              {/cli.#Deploy repository identity}
+              (..command
+               (case (the /.#identity profile)
+                 {.#Some artifact}
+                 (case (dictionary.value repository (the /.#deploy_repositories profile))
+                   {.#Some remote}
+                   (/command/deploy.do! ..environment
+                                        (shell.async shell.default)
+                                        console
+                                        ..local
+                                        (/repository.async (/repository/remote.repository http.default {.#Some identity} remote))
+                                        (file.async file.default)
+                                        artifact
+                                        profile)
+                   
+                   {.#None}
+                   (async#in (exception.except ..cannot_find_repository [repository (the /.#deploy_repositories profile)])))
                  
                  {.#None}
-                 (async#in (exception.except ..cannot_find_repository [repository (the /.#deploy_repositories profile)])))
-               
-               {.#None}
-               (async#in (exception.except /.no_identity []))))
-            
-            {/cli.#Dependencies}
-            (..command
-             (/command/deps.do! console
-                                (/repository/local.repository ..program (file.async file.default))
-                                (..repositories profile)
-                                (|>> (/repository/remote.repository http.default {.#None})
-                                     /repository.async)
-                                profile))
+                 (async#in (exception.except /.no_identity []))))
+              
+              {/cli.#Dependencies}
+              (..command
+               (/command/deps.do! console
+                                  (/repository/local.repository ..environment (file.async file.default))
+                                  (..repositories profile)
+                                  (|>> (/repository/remote.repository http.default {.#None})
+                                       /repository.async)
+                                  profile))
 
-            {/cli.#Compilation compilation}
-            (case compilation
-              {/cli.#Build} (..command
-                             (..with_dependencies ..program console /command/build.do! profile))
-              {/cli.#Test} (..command
-                            (..with_dependencies ..program console /command/test.do! profile)))
+              {/cli.#Compilation compilation}
+              (case compilation
+                {/cli.#Build} (..command
+                               (..with_dependencies ..environment console /command/build.do! profile))
+                {/cli.#Test} (..command
+                              (..with_dependencies ..environment console /command/test.do! profile)))
 
-            {/cli.#Auto auto}
-            (do !
-              [?watcher watch.default]
-              (case ?watcher
-                {try.#Failure error}
-                (..fail! error)
-                
-                {try.#Success watcher}
-                (..command
-                 (case auto
-                   {/cli.#Build} (..with_dependencies ..program console (/command/auto.do! /command/auto.delay watcher /command/build.do!) profile)
-                   {/cli.#Test} (..with_dependencies ..program console (/command/auto.do! /command/auto.delay watcher /command/test.do!) profile))))))
-          )))))
+              {/cli.#Auto auto}
+              (do !
+                [?watcher watch.default]
+                (case ?watcher
+                  {try.#Failure error}
+                  (..fail! error)
+                  
+                  {try.#Success watcher}
+                  (..command
+                   (case auto
+                     {/cli.#Build} (..with_dependencies ..environment console (/command/auto.do! /command/auto.delay watcher /command/build.do!) profile)
+                     {/cli.#Test} (..with_dependencies ..environment console (/command/auto.do! /command/auto.delay watcher /command/test.do!) profile))))))
+            ))))))

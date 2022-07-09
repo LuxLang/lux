@@ -932,7 +932,7 @@
         ))))
 
 (defn analyse-host [analyse exo-type compilers proc ?values]
-  (|let [[_ _ _ compile-class compile-interface] compilers]
+  (|let [[_ _ compile-class compile-interface] compilers]
     (try (case proc
            "jvm object synchronized" (analyse-jvm-object-synchronized analyse exo-type ?values)
            "jvm object class"   (analyse-jvm-object-class analyse exo-type ?values)

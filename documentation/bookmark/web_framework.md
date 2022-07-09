@@ -18,6 +18,7 @@
 # Reference
 
 0. []()
+0. [Functional UI](https://take.surf/2022/07/04/functional-ui)
 0. [UIs Are Not Pure Functions of the Model - React.js and Cocoa Side by Side](https://blog.metaobject.com/2018/12/uis-are-not-pure-functions-of-model.html)
 0. [UIs are streaming DAGs](https://hyperfiddle.notion.site/UIs-are-streaming-DAGs-e181461681a8452bb9c7a9f10f507991)
 0. [You Might Not Need an Effect](https://beta-reactjs-org-git-you-might-not-fbopensource.vercel.app/learn/you-might-not-need-an-effect)

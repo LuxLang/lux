@@ -4,15 +4,8 @@
              [packager :as &packager])))
 
 (defn build [project]
-  (if-let [program-module (get-in project [:lux :program])]
-    ;; (if-let [command (&utils/build-jvm project program-module)]
-    ;;   (when (time (&utils/run-process command
-    ;;                                   nil
-    ;;                                   "[COMPILATION BEGAN]"
-    ;;                                   "[COMPILATION ENDED]"))
-    ;;     true)
-    ;;   )
-    (let [command (&utils/compile-path project program-module (get project :source-paths (list)))]
+  (if-let [[program-module program-definition] (get-in project [:lux :program])]
+    (let [command (&utils/compile-path project program-module program-definition (get project :source-paths (list)))]
       (when (time (&utils/run-process command
                                       nil
                                       "[COMPILATION BEGAN]"

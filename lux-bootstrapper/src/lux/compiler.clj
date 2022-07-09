@@ -24,6 +24,6 @@
 (defn compile-module [source-dirs name]
   (&&jvm/compile-module source-dirs name))
 
-(defn compile-program [mode program-module dependencies source-dirs target-dir]
+(defn compile-program [mode program-module program-definition dependencies source-dirs target-dir]
   (init! dependencies target-dir)
-  (&&jvm/compile-program mode program-module source-dirs))
+  (&&jvm/compile-program mode program-module program-definition source-dirs))

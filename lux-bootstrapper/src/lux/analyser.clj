@@ -36,8 +36,7 @@
   (|let [analyse (partial analyse-ast optimize eval! compile-module compilers)
          [location token] ?token
          compile-def (aget compilers 0)
-         compile-program (aget compilers 1)
-         macro-caller (aget compilers 2)]
+         macro-caller (aget compilers 1)]
     (|case token
       ;; Standard special forms
       (&/$Bit ?value)
@@ -140,11 +139,6 @@
                 
                 [_ (&/$Tuple ?slots)]
                 (&&lux/analyse-def-type-tagged analyse optimize eval! compile-def ?name ?value true ?slots exported?))))
-
-          "lux def program"
-          (|let [(&/$Item ?program (&/$End)) parameters]
-            (&/with-location location
-              (&&lux/analyse-program analyse optimize compile-program ?program)))
 
           "lux def module"
           (|let [(&/$Item ?imports (&/$End)) parameters]

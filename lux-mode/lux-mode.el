@@ -392,12 +392,12 @@ Called by `imenu--generic-function'."
 							(alternative-format (altRE "char" "bin" "oct" "hex"))
 							(documentation (altRE "comment"))
 							(function-application (altRE "|>" "<|" "left" "right" "all"))
-							(function-definition (altRE "function" "|>>" "<<|"))
+							(function-definition (altRE "function" "|>>" "<<|"
+														"program"))
 							(remember (altRE "remember" "to_do" "fix_me"))
 							(extension (altRE "analysis" "synthesis" "generation" "declaration"))
 							(definition (altRE "\\.require"
-											   "def" "inlined" "type" "program:"
-											   "macro" "syntax"
+											   "def" "inlined" "type"
 											   "exception")))
 						(let ((control (altRE control//flow
 											  control//pattern-matching
@@ -495,7 +495,6 @@ highlighted region)."
           (font-lock-syntactic-face-function . lux-font-lock-syntactic-face-function))))
 
 (defvar withRE (concat "\\`" "with" (altRE "_" "\\'")))
-(defvar definitionRE ":\\'")
 
 (defun lux-indent-function (indent-point state)
   "When indenting a line within a function call, indent properly.
@@ -553,8 +552,7 @@ This function also returns nil meaning don't specify the indentation."
               ((or (eq method 'defun)
 				   (and (null method)
                         (> (length function) 2)
-						(or (string-match withRE function-tail)
-                            (string-match definitionRE function-tail))))
+						(string-match withRE function-tail)))
                (lisp-indent-defform state indent-point))
               ((integerp method)
                (lisp-indent-specform method state
@@ -582,6 +580,7 @@ This function also returns nil meaning don't specify the indentation."
   ("syntax" 'defun)
   ("template" 'defun)
   ("polytypic" 'defun)
+  ("program" 'defun)
 
   ("def" 'defun)
   ("type" 'defun)

@@ -154,12 +154,10 @@
           return))))
 
 (def all-compilers
-  (let [compile-expression* (partial compile-expression nil)]
-    (&/T [(partial &&lux/compile-def compile-expression)
-          (partial &&lux/compile-program compile-expression*)
-          (fn [macro args state] (.apply macro args state))
-          (partial &&proc-host/compile-jvm-class compile-expression*)
-          &&proc-host/compile-jvm-interface])))
+  (&/T [(partial &&lux/compile-def compile-expression)
+        (fn [macro args state] (.apply macro args state))
+        (partial &&proc-host/compile-jvm-class (partial compile-expression nil))
+        &&proc-host/compile-jvm-interface]))
 
 (defn ^:private activate-module! [name file-hash]
   (|do [_ (&&cache/delete name)
@@ -174,10 +172,10 @@
 
 (let [+field-flags+ (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC)
       +datum-sig+ "Ljava/lang/Object;"]
-  (defn compile-module [source-dirs name]
+  (defn compile-module [source-dirs name next]
     (|do [[file-name file-content] (&&io/read-file source-dirs name)
           :let [file-hash (hash file-content)
-                compile-module!! (&&parallel/parallel-compilation (partial compile-module source-dirs))]]
+                compile-module!! (&&parallel/parallel-compilation (fn [sub_module] (compile-module source-dirs sub_module nil)))]]
       (&/|eitherL (&&cache/load name)
                   (|do [module-exists? (&a-module/exists? name)]
                     (if module-exists?
@@ -199,7 +197,11 @@
                                     (&/exhaust% compiler-step))
                                   (&/set$ &/$source (&reader/from name file-content) state))
                             (&/$Right ?state _)
-                            (&/run-state (|do [:let [_ (.visitEnd =class)]
+                            (&/run-state (|do [_ (if next
+                                                   (&/with-writer =class
+                                                     next)
+                                                   (return nil))
+                                               :let [_ (.visitEnd =class)]
                                                _ (save-module! name file-hash (.toByteArray =class))
                                                :let [_ (println 'MODULE name)]]
                                            (return file-hash))
@@ -237,14 +239,24 @@
                   (&/|table)
                   ]))))
 
+(def program-type
+  (&/$Function (&/$Apply &type/Text &type/List)
+               (&/$Apply &type/Any &type/IO)))
+
 (let [!err! *err*]
-  (defn compile-program [mode program-module source-dirs]
+  (defn compile-program [mode program-module program-definition source-dirs]
     (let [m-action (|do [_ (&&cache/pre-load-cache! source-dirs
                                                     &&jvm-cache/load-def-value
                                                     &&jvm-cache/install-all-defs-in-module
                                                     &&jvm-cache/uninstall-all-defs-in-module)
-                         _ (compile-module source-dirs &/prelude)]
-                     (compile-module source-dirs program-module))]
+                         _ (compile-module source-dirs &/prelude nil)]
+                     (compile-module source-dirs program-module
+                                     (|do [[de_aliased_symbol [exported? actual-type ?value]] (&a-module/find-def program-module program-definition)
+                                           _ (&type/check program-type actual-type)
+                                           here &/location]
+                                       (&&lux/compile-program (partial compile-expression nil)
+                                                              (&a/|meta program-type here
+                                                                        (&o/$def de_aliased_symbol))))))]
       (|case (m-action (&/init-state "{old}" mode (jvm-host)))
         (&/$Right ?state _)
         (do (println "Compilation complete!")
