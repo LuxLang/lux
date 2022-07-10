@@ -201,7 +201,7 @@
                                " at module: " current-module))
          state)))))
 
-(defn find-def [module name]
+(defn find-def [quoted_module module name]
   (|do [current-module &/get-module-name]
     (fn [state]
       (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
@@ -218,7 +218,8 @@
             (&/$DefinitionG [exported? ?type ?value])
             (if (or (.equals ^Object current-module module)
                     (and exported?
-                         (or (.equals ^Object module &/prelude)
+                         (or (.equals ^Object &/prelude module)
+                             (.equals ^Object quoted_module module)
                              (imports? state module current-module))))
               (return* state (&/T [(&/T [module name])
                                    (&/T [exported? ?type ?value])]))
@@ -229,7 +230,8 @@
             (&/$TypeG [exported? ?value labels])
             (if (or (.equals ^Object current-module module)
                     (and exported?
-                         (or (.equals ^Object module &/prelude)
+                         (or (.equals ^Object &/prelude module)
+                             (.equals ^Object quoted_module module)
                              (imports? state module current-module))))
               (return* state (&/T [(&/T [module name])
                                    (&/T [exported? &type/Type ?value])]))

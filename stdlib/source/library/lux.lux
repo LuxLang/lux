@@ -1326,9 +1326,9 @@
          (p x))}
        xs))
 
-(def' .private (with_location content)
-      (-> Code Code)
-      (let' [[module line column] ..dummy_location]
+(def' .private (with_location @ content)
+      (-> Location Code Code)
+      (let' [[module line column] @]
             (tuple$ (list (tuple$ (list (text$ module) (nat$ line) (nat$ column)))
                           content))))
 
@@ -1589,7 +1589,8 @@
 
 (def' .private (untemplated_text value)
       (-> Text Code)
-      (with_location (variant$ (list (symbol$ [..prelude "#Text"]) (text$ value)))))
+      (with_location ..dummy_location
+        (variant$ (list (symbol$ [..prelude "#Text"]) (text$ value)))))
 
 (def' .public UnQuote
       Type
@@ -1902,7 +1903,8 @@
                   (do meta#monad
                     [=elements (monad#each meta#monad (untemplated replace? subst) elements)]
                     (in (untemplated_list =elements))))
-         .let' [[_ output'] (with_location (variant$ (list (symbol$ [..prelude tag]) output)))]]
+         .let' [[_ output'] (with_location ..dummy_location
+                              (variant$ (list (symbol$ [..prelude tag]) output)))]]
         (in [@composite output'])))
 
 (def' .private untemplated_form
@@ -1923,19 +1925,24 @@
 (def' .private (untemplated replace? subst token)
       (-> Bit Text Code ($' Meta Code))
       ({[_ [@token {#Bit value}]]
-        (meta#in (with_location (variant$ (list (symbol$ [..prelude "#Bit"]) (bit$ value)))))
+        (meta#in (with_location ..dummy_location
+                   (variant$ (list (symbol$ [..prelude "#Bit"]) (bit$ value)))))
 
         [_ [@token {#Nat value}]]
-        (meta#in (with_location (variant$ (list (symbol$ [..prelude "#Nat"]) (nat$ value)))))
+        (meta#in (with_location ..dummy_location
+                   (variant$ (list (symbol$ [..prelude "#Nat"]) (nat$ value)))))
 
         [_ [@token {#Int value}]]
-        (meta#in (with_location (variant$ (list (symbol$ [..prelude "#Int"]) (int$ value)))))
+        (meta#in (with_location ..dummy_location
+                   (variant$ (list (symbol$ [..prelude "#Int"]) (int$ value)))))
 
         [_ [@token {#Rev value}]]
-        (meta#in (with_location (variant$ (list (symbol$ [..prelude "#Rev"]) (rev$ value)))))
+        (meta#in (with_location ..dummy_location
+                   (variant$ (list (symbol$ [..prelude "#Rev"]) (rev$ value)))))
         
         [_ [@token {#Frac value}]]
-        (meta#in (with_location (variant$ (list (symbol$ [..prelude "#Frac"]) (frac$ value)))))
+        (meta#in (with_location ..dummy_location
+                   (variant$ (list (symbol$ [..prelude "#Frac"]) (frac$ value)))))
 
         [_ [@token {#Text value}]]
         (meta#in (untemplated_text value))
@@ -1951,10 +1958,12 @@
                        (in [module name])}
                       module)
            .let' [[module name] real_name]]
-          (meta#in (with_location (variant$ (list (symbol$ [..prelude "#Symbol"]) (tuple$ (list (text$ module) (text$ name))))))))
+          (meta#in (with_location [module 0 0]
+                     (variant$ (list (symbol$ [..prelude "#Symbol"]) (tuple$ (list (text$ module) (text$ name))))))))
 
         [#0 [@token {#Symbol [module name]}]]
-        (meta#in (with_location (variant$ (list (symbol$ [..prelude "#Symbol"]) (tuple$ (list (text$ module) (text$ name)))))))
+        (meta#in (with_location @token
+                   (variant$ (list (symbol$ [..prelude "#Symbol"]) (tuple$ (list (text$ module) (text$ name)))))))
 
         [#1 [@composite {#Form {#Item [@symbol {#Symbol global}] parameters}}]]
         (do meta#monad
@@ -2055,25 +2064,6 @@
           tokens))))
 
 (def' .public but UnQuote ,)
-
-(def' .public ,!
-      UnQuote
-      (..unquote
-       (macro (_ tokens)
-         ({{#Item [@token dependent] {#End}}
-           (do meta#monad
-             [current_module ..current_module_name
-              independent (untemplated #1 current_module [@token dependent])]
-             (in (list (with_location (variant$ (list (symbol$ [..prelude "#Form"])
-                                                      (untemplated_list (list (untemplated_text "lux in-module")
-                                                                              (untemplated_text current_module)
-                                                                              independent))))))))
-
-           _
-           (failure (wrong_syntax_error [..prelude ",!"]))}
-          tokens))))
-
-(def' .public specifically UnQuote ,!)
 
 (def' .public ,'
       UnQuote
@@ -2466,8 +2456,8 @@
         (meta#in (list token))}
        token))
 
-(def' .private (full_expansion' full_expansion name args)
-      (-> (-> Code ($' Meta ($' List Code))) Symbol ($' List Code) ($' Meta ($' List Code)))
+(def' .private (full_expansion' full_expansion @name name args)
+      (-> (-> Code ($' Meta ($' List Code))) Location Symbol ($' List Code) ($' Meta ($' List Code)))
       (do meta#monad
         [name' (normal name)
          ?macro (named_macro name')]
@@ -2480,7 +2470,7 @@
           {#None}
           (do meta#monad
             [args' (monad#each meta#monad full_expansion args)]
-            (in (list (form$ {#Item (symbol$ name) (list#conjoint args')}))))}
+            (in (list (form$ {#Item [@name {#Symbol name}] (list#conjoint args')}))))}
          ?macro)))
 
 (def' .private (in_module module meta)
@@ -2522,42 +2512,31 @@
                            ..#eval eval]))}
                   lux)))
 
-(def' .private (full_expansion expand_in_module?)
-      (-> Bit Code ($' Meta ($' List Code)))
-      (function' again [syntax]
-                 ({[_ {#Form {#Item head tail}}]
-                   ({[_ {#Form {#Item [_ {#Text "lux in-module"}]
-                                      {#Item [_ {#Text module}]
-                                             {#Item [_ {#Symbol name}]
-                                                    {#End}}}}}]
-                     (if expand_in_module?
-                       (..in_module module (..full_expansion' again name tail))
-                       (do meta#monad
-                         [members' (monad#each meta#monad again {#Item head tail})]
-                         (in (list (form$ (list#conjoint members'))))))
+(def' .private (full_expansion syntax)
+      (-> Code ($' Meta ($' List Code)))
+      ({[_ {#Form {#Item head tail}}]
+        ({[@name {#Symbol name}]
+          (..full_expansion' full_expansion @name name tail)
 
-                     [_ {#Symbol name}]
-                     (..full_expansion' again name tail)
+          _
+          (do meta#monad
+            [members' (monad#each meta#monad full_expansion {#Item head tail})]
+            (in (list (form$ (list#conjoint members')))))}
+         head)
 
-                     _
-                     (do meta#monad
-                       [members' (monad#each meta#monad again {#Item head tail})]
-                       (in (list (form$ (list#conjoint members')))))}
-                    head)
+        [_ {#Variant members}]
+        (do meta#monad
+          [members' (monad#each meta#monad full_expansion members)]
+          (in (list (variant$ (list#conjoint members')))))
 
-                   [_ {#Variant members}]
-                   (do meta#monad
-                     [members' (monad#each meta#monad again members)]
-                     (in (list (variant$ (list#conjoint members')))))
+        [_ {#Tuple members}]
+        (do meta#monad
+          [members' (monad#each meta#monad full_expansion members)]
+          (in (list (tuple$ (list#conjoint members')))))
 
-                   [_ {#Tuple members}]
-                   (do meta#monad
-                     [members' (monad#each meta#monad again members)]
-                     (in (list (tuple$ (list#conjoint members')))))
-
-                   _
-                   (meta#in (list syntax))}
-                  syntax)))
+        _
+        (meta#in (list syntax))}
+       syntax))
 
 (def' .private (text#encoded original)
       (-> Text Text)
@@ -2740,7 +2719,7 @@
             [initialized_quantification? (function' [lux] {#Right [lux (initialized_quantification? lux)]})]
             (if initialized_quantification?
               (do meta#monad
-                [type+ (full_expansion #0 type)]
+                [type+ (full_expansion type)]
                 ({{#Item type' {#End}}
                   (do meta#monad
                     [type'' (normal_type type')]
@@ -2847,7 +2826,7 @@
                         Code Code (List Code)
                         (Meta (List Code))))
       (do meta#monad
-        [pattern (one_expansion (full_expansion #1 pattern))
+        [pattern (one_expansion (full_expansion pattern))
          branches (case_expansion branches)]
         (in (list#partial pattern body branches))))
 
@@ -4580,7 +4559,7 @@
                            (list#interposed " ")
                            (list#mix text#composite "")))))))
 
-(def refer
+(def .public refer
   (macro (_ tokens)
     (case tokens
       (list#partial [_ {#Text imported_module}] [_ {#Text alias}] options)
@@ -5319,12 +5298,11 @@
 
 (def (refer_code imported_module alias referrals)
   (-> Text Text (List Referral) Code)
-  (` ((,! ..refer)
-      (, (text$ imported_module))
-      (, (text$ alias))
-      (,* (list#each (function (_ [macro parameters])
-                       (` ((, (symbol$ macro)) (,* parameters))))
-                     referrals)))))
+  (` (..refer (, (text$ imported_module))
+              (, (text$ alias))
+              (,* (list#each (function (_ [macro parameters])
+                               (` ((, (symbol$ macro)) (,* parameters))))
+                             referrals)))))
 
 (def .public require
   (macro (_ _imports)

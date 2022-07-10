@@ -284,8 +284,8 @@
       (&/$None)
       (analyse-tuple analyse (&/$Right exo-type) ?elems))))
 
-(defn ^:private analyse-global [analyse exo-type module name]
-  (|do [[[r-module r-name] [exported? endo-type ?value]] (&&module/find-def module name)
+(defn ^:private analyse-global [analyse exo-type quoted_module module name]
+  (|do [[[r-module r-name] [exported? endo-type ?value]] (&&module/find-def quoted_module module name)
         ;; This is a small shortcut to optimize analysis of typing code.
         _ (if (and (&type/type= &type/Type endo-type)
                    (&type/type= &type/Type exo-type))
@@ -295,12 +295,12 @@
     (return (&/|list (&&/|meta endo-type _location
                                (&&/$def (&/T [r-module r-name])))))))
 
-(defn ^:private analyse-local [analyse exo-type name]
+(defn ^:private analyse-local [analyse exo-type quoted_module name]
   (|do [local? (&&module/find_local name)]
     (|case local?
       (&/$None)
       (|do [module-name &/get-module-name]
-        (analyse-global analyse exo-type module-name name))
+        (analyse-global analyse exo-type quoted_module module-name name))
       
       (&/$Some [local inner outer])
       (|let [scopes (&/|map #(&/get$ &/$name %) inner)
@@ -315,11 +315,11 @@
              (return (&/|list =local)))
            (&/set$ &/$scopes (&/|++ inner* outer) state)))))))
 
-(defn analyse-identifier [analyse exo-type ident]
+(defn analyse-identifier [analyse exo-type quoted_module ident]
   (|do [:let [[?module ?name] ident]]
     (if (= "" ?module)
-      (analyse-local analyse exo-type ?name)
-      (analyse-global analyse exo-type ?module ?name))))
+      (analyse-local analyse exo-type quoted_module ?name)
+      (analyse-global analyse exo-type quoted_module ?module ?name))))
 
 (defn ^:private analyse-apply* [analyse exo-type fun-type ?args]
   (|case ?args
@@ -562,7 +562,7 @@
 (defn ^:private ensure-undefined! [module-name local-name]
   (|do [verdict (&&module/defined? module-name local-name)]
     (if verdict
-      (|do [[[real-module real-name] _] (&&module/find-def module-name local-name)
+      (|do [[[real-module real-name] _] (&&module/find-def "" module-name local-name)
             :let [wanted-name (str module-name &/+name-separator+ local-name)
                   source-name (str real-module &/+name-separator+ real-name)]]
         (&/assert! false
@@ -615,7 +615,7 @@
   (|let [[r-module r-name] ?original]
     (|do [module-name &/get-module-name
           _ (ensure-undefined! module-name ?alias)
-          _ (&&module/find-def r-module r-name)
+          _ (&&module/find-def "" r-module r-name)
           _ (&/without-repl-closure
              (&&module/define-alias module-name ?alias ?original))]
       (return &/$End))))

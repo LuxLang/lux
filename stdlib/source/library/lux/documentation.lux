@@ -1,6 +1,6 @@
 (.require
  [library
-  [lux (.except Definition Module type)
+  [lux (.except Definition Module)
    [abstract
     [monad (.only do)]
     ["[0]" enum]]
@@ -28,7 +28,8 @@
     ["[0]" macro (.only)
      [syntax (.only syntax)]
      ["^" pattern]
-     ["[0]" template]]
+     ["[0]" template]
+     ["[0]" expansion]]
     [compiler
      [language
       [lux
@@ -133,15 +134,12 @@
   Text
   (format \n \n))
 
-(def single_line_comment
-  (-> Text Text)
-  (text.prefix "... "))
 
 (def (fragment_documentation module fragment)
   (-> Text Fragment Text)
   (case fragment
     {#Comment comment}
-    (..single_line_comment comment)
+    (format "... " comment)
 
     {#Code example}
     (let [reference_column (..reference_column example)
@@ -251,11 +249,11 @@
     {.#Parameter idx}
     (parameter_name [type_function_name (list)] level idx)
 
-    (^.with_template [<tag> <pre> <post>]
+    (^.with_template [<tag>]
       [{<tag> id}
-       (format <pre> (%.nat id) <post>)])
-    ([.#Var "⌈" "⌋"]
-     [.#Ex  "⟨" "⟩"])
+       (%.type type)])
+    ([.#Var]
+     [.#Ex])
 
     (^.with_template [<tag> <name> <flat>]
       [{<tag> _}
@@ -297,7 +295,7 @@
           (%.symbol [_module _name]))
     ))
 
-(def type
+(def .public type_documentation
   (-> Text Type Text)
   (%type' (-- 0) "?" true))
 
@@ -435,7 +433,7 @@
             (%.symbol [_module _name]))
       )))
 
-(def (type_definition module [name parameters] tags type)
+(def .public (type_definition module [name parameters] tags type)
   (-> Text [Text (List Text)] (List Text) Type Text)
   (let [arity (list.size parameters)]
     (case (parameterized_type arity type)
@@ -443,7 +441,7 @@
       (type_definition' true (-- arity) arity [name parameters] tags module type)
 
       {.#None}
-      (..type module type))))
+      (type_documentation module type))))
 
 (def description
   (Parser (Maybe Code))
@@ -504,53 +502,51 @@
       [.let [g!module (code.text (product.left name))]
        [[_ def_type def_value]] (meta.export name)
        tags (meta.tags_of name)]
-      (with_expansions [<\n> (,! text.\n)]
-        (macro.with_symbols [g!type]
-          (in (list (` (all ((,! md.then))
-                            ... Name
-                            (<| ((,! md.heading/3))
-                                (, (code.text (%.code (let [g!name (|> name product.right code.local)]
-                                                        (case parameters
-                                                          {.#End}
-                                                          g!name
+      (macro.with_symbols [g!type]
+        (in (list (` (all md.then
+                          ... Name
+                          (<| (md.heading/3)
+                              (, (code.text (%.code (let [g!name (|> name product.right code.local)]
+                                                      (case parameters
+                                                        {.#End}
+                                                        g!name
 
-                                                          _
-                                                          (` ((, g!name) (,* (list#each code.local parameters))))))))))
-                            ... Type
-                            (let [(, g!type) ("lux in-module"
-                                              (, g!module)
-                                              (.type_of (, (code.symbol name))))]
-                              ((,! md.code) "clojure"
-                               (, (if (type#= .Type def_type)
-                                    (` (|> (, (code.symbol name))
-                                           (as .Type)
-                                           ((,! type.anonymous))
-                                           ((,! ..type_definition)
+                                                        _
+                                                        (` ((, g!name) (,* (list#each code.local parameters))))))))))
+                          ... Type
+                          (let [(, g!type) ("lux in-module"
                                             (, g!module)
-                                            [(, (code.text (product.right name))) (list (,* (list#each code.text parameters)))]
-                                            (.list (,* (|> tags
-                                                           (maybe.else (list))
-                                                           (list#each (|>> product.right code.text))))))
-                                           ((,! %.format)
-                                            ((,! ..single_line_comment) ((,! ..type) (, g!module) (, g!type)))
-                                            <\n>)))
-                                    (` ((,! ..type) (, g!module) (, g!type))))))))
-                       ))))))))
+                                            (.type_of (, (code.symbol name))))]
+                            (md.code "clojure"
+                                     (, (if (type#= .Type def_type)
+                                          (` (|> (, (code.symbol name))
+                                                 (as .Type)
+                                                 type.anonymous
+                                                 (..type_definition
+                                                  (, g!module)
+                                                  [(, (code.text (product.right name))) (list (,* (list#each code.text parameters)))]
+                                                  (.list (,* (|> tags
+                                                                 (maybe.else (list))
+                                                                 (list#each (|>> product.right code.text))))))
+                                                 (%.format "... " (type_documentation (, g!module) (, g!type)) text.\n)))
+                                          (` (type_documentation (, g!module) (, g!type))))))))
+                     )))))))
 
 (def definition_documentation
   (syntax (_ [[name parameters] ..declaration
               description ..description
               examples (<>.some ..example)])
-    (with_expansions [<\n> (,! text.\n)]
-      (in (list (` (all ((,! md.then))
-                        ((,! ..minimal_definition_documentation)
-                         ((, (code.symbol name))
-                          (,* (list#each code.local parameters))))
+    (do meta.monad
+      [minimal (expansion.single (` (..minimal_definition_documentation
+                                     ((, (code.symbol name))
+                                      (,* (list#each code.local parameters))))))]
+      (in (list (` (all md.then
+                        (,* minimal)
                         ... Description
                         (,* (case description
                               {.#Some description}
-                              (list (` (<| ((,! md.paragraph))
-                                           ((,! md.text))
+                              (list (` (<| md.paragraph
+                                           md.text
                                            (, description))))
                               
                               {.#None}
@@ -561,11 +557,10 @@
                               (list)
                               
                               _
-                              (list (` (<| ((,! md.code) "clojure")
-                                           ((,! %.format)
-                                            (,* (|> examples
-                                                    (list#each (..example_documentation (product.left name)))
-                                                    (list.interposed ..example_separator))))))))))
+                              (list (` (<| (md.code "clojure")
+                                           (%.format (,* (|> examples
+                                                             (list#each (..example_documentation (product.left name)))
+                                                             (list.interposed ..example_separator))))))))))
                    ))))))
 
 (.type .public Definition
@@ -583,21 +578,23 @@
 (def .public definition
   (syntax (_ [[name parameters] ..declaration
               extra (<>.some <code>.any)])
-    (macro.with_symbols [g!_]
-      (let [[_ short] name]
-        (in (list (` (.let [(, g!_) (.is (.-> .Any (.List ..Definition))
-                                         (.function ((, g!_) (, g!_))
-                                           (.list [..#definition (, (code.text short))
-                                                   ..#documentation ((, (case extra
-                                                                          (list)
-                                                                          (` (,! ..minimal_definition_documentation))
+    (do meta.monad
+      [documentation (expansion.single (` ((, (case extra
+                                                (list)
+                                                (` ..minimal_definition_documentation)
 
-                                                                          _
-                                                                          (` (,! ..definition_documentation))))
-                                                                     ((, (code.symbol name))
-                                                                      (,* (list#each code.local parameters)))
-                                                                     (,* extra))])))]
-                       ((, g!_) [])))))))))
+                                                _
+                                                (` ..definition_documentation)))
+                                           ((, (code.symbol name))
+                                            (,* (list#each code.local parameters)))
+                                           (,* extra))))]
+      (macro.with_symbols [g!_]
+        (let [[_ short] name]
+          (in (list (` (.let [(, g!_) (.is (.-> .Any (.List ..Definition))
+                                           (.function ((, g!_) (, g!_))
+                                             (.list [..#definition (, (code.text short))
+                                                     ..#documentation (,* documentation)])))]
+                         ((, g!_) []))))))))))
 
 (def definitions_documentation
   (-> (List Definition) (Markdown Block))
@@ -619,30 +616,26 @@
                 _ (format aggregate ..expected_separator short)))
             ""))
 
-(def expected
-  (-> Text (Set Text))
-  (|>> (text.all_split_by ..expected_separator)
-       (set.of_list text.hash)))
-
-(def .public module
-  (syntax (_ [[name _] ..qualified_symbol
-              description <code>.any
-              definitions (<code>.tuple (<>.some <code>.any))
-              subs (<code>.tuple (<>.some <code>.any))])
-    (do meta.monad
-      [expected (meta.exports name)]
-      (in (list (` (is (List Module)
-                       ((,! list.partial) [..#module (, (code.text name))
-                                           ..#description (, description)
-                                           ..#expected ((,! ..expected)
-                                                        (, (code.text (|> expected
-                                                                          (list#each product.left)
-                                                                          ..expected_format))))
-                                           ..#definitions ((,! list.together) (list (,* definitions)))]
-                        (all (at (,! list.monoid) (,' composite))
-                             (is (List Module)
-                                 (at (,! list.monoid) (,' identity)))
-                             (,* subs))))))))))
+(`` (def .public module
+      (syntax (_ [[name _] ..qualified_symbol
+                  description <code>.any
+                  definitions (<code>.tuple (<>.some <code>.any))
+                  subs (<code>.tuple (<>.some <code>.any))])
+        (do meta.monad
+          [expected (meta.exports name)]
+          (in (list (` (is (List Module)
+                           (list.partial [..#module (, (code.text name))
+                                          ..#description (, description)
+                                          ..#expected (|> (, (code.text (|> expected
+                                                                            (list#each product.left)
+                                                                            ..expected_format)))
+                                                          (text.all_split_by (,, (static ..expected_separator)))
+                                                          (set.of_list text.hash))
+                                          ..#definitions (list.together (list (,* definitions)))]
+                                         (all (at list.monoid (,' composite))
+                                              (is (List Module)
+                                                  (at list.monoid (,' identity)))
+                                              (,* subs)))))))))))
 
 (def listing
   (-> (List Text) (Markdown Block))

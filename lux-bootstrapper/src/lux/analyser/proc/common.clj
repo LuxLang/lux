@@ -211,13 +211,6 @@
   analyse-io-error  &type/Text &type/Nothing ["io" "error"]
   )
 
-(defn- analyse-io-current-time [analyse exo-type ?values]
-  (|do [:let [(&/$End) ?values]
-        _ (&type/check exo-type &type/Int)
-        _location &/location]
-    (return (&/|list (&&/|meta exo-type _location
-                               (&&/$proc (&/T ["io" "current-time"]) (&/|list) (&/|list)))))))
-
 (defn- analyse-syntax-char-case! [analyse exo-type ?values]
   (|do [:let [(&/$Item ?input (&/$Item [_ (&/$Tuple ?pairs)] (&/$Item ?else (&/$End)))) ?values]
         _location &/location
@@ -246,7 +239,6 @@
 
          "lux io log"                  (analyse-io-log analyse exo-type ?values)
          "lux io error"                (analyse-io-error analyse exo-type ?values)
-         "lux io current-time"         (analyse-io-current-time analyse exo-type ?values)
          
          "lux text ="      (analyse-text-eq analyse exo-type ?values)
          "lux text <"      (analyse-text-lt analyse exo-type ?values)

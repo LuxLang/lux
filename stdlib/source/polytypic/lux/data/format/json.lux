@@ -23,11 +23,12 @@
      ["[0]" i64]
      ["[0]" int]
      ["[0]" frac]]]
-   [meta
+   ["[0]" meta (.only)
     ["[0]" code (.only)
      ["<[1]>" \\parser]]
     [macro
-     [syntax (.only syntax)]]
+     [syntax (.only syntax)]
+     ["[0]" expansion]]
     ["[0]" type (.only)
      ["<[1]>" \\parser]
      ["[0]" unit]
@@ -46,7 +47,7 @@
   (-> Nat Frac)
   (|>> .int int.frac))
 
-(def (rec_encoded non_rec)
+(def .public (rec_encoded non_rec)
   (All (_ a) (-> (-> (-> a JSON)
                      (-> a JSON))
                  (-> a JSON)))
@@ -56,7 +57,7 @@
 (def low_mask Nat (|> 1 (i64.left_shifted 32) --))
 (def high_mask Nat (|> low_mask (i64.left_shifted 32)))
 
-(def nat_codec
+(def .public nat_codec
   (codec.Codec JSON Nat)
   (implementation
    (def (encoded input)
@@ -72,7 +73,7 @@
                     (in (n.+ (|> high frac.int .nat (i64.left_shifted 32))
                              (|> low frac.int .nat)))))))))
 
-(def int_codec
+(def .public int_codec
   (codec.Codec JSON Int)
   (implementation
    (def encoded
@@ -81,14 +82,14 @@
      (|>> (at nat_codec decoded) (at try.functor each (|>> .int))))))
 
 ... Builds a JSON generator for potentially inexistent values.
-(def (nullable format)
+(def .public (nullable format)
   (All (_ a) (-> (-> a JSON) (-> (Maybe a) JSON)))
   (function (_ elem)
     (case elem
       {.#None}       {/.#Null}
       {.#Some value} (format value))))
 
-(def measure_codec
+(def .public measure_codec
   (All (_ unit)
     (codec.Codec JSON (unit.Measure unit)))
   (implementation
@@ -111,15 +112,15 @@
 
                  [(<type>.exactly Any) (function ((, g!_) (, (code.symbol ["" "0"]))) {/.#Null})]
                  [(<type>.sub Bit)     (|>> {/.#Boolean})]
-                 [(<type>.sub Nat)     (at (,! ..nat_codec) (,' encoded))]
-                 [(<type>.sub Int)     (at (,! ..int_codec) (,' encoded))]
+                 [(<type>.sub Nat)     (at ..nat_codec (,' encoded))]
+                 [(<type>.sub Int)     (at ..int_codec (,' encoded))]
                  [(<type>.sub Frac)    (|>> {/.#Number})]
                  [(<type>.sub Text)    (|>> {/.#String})])
        <time> (with_template [<type> <codec>]
                 [(do !
                    [_ (<type>.exactly <type>)]
                    (in (` (is (, (@JSON#encoded inputT))
-                              (|>> (at (,! <codec>) (,' encoded)) {/.#String})))))]
+                              (|>> (at <codec> (,' encoded)) {/.#String})))))]
 
                 ... [duration.Duration duration.codec]
                 ... [instant.Instant instant.codec]
@@ -140,7 +141,7 @@
                [unitT (<type>.applied (<>.after (<type>.exactly unit.Measure)
                                                 <type>.any))]
                (in (` (is (, (@JSON#encoded inputT))
-                          (at (,! measure_codec) (,' encoded))))))
+                          (at measure_codec (,' encoded))))))
              (do !
                [.let [g!_ (code.local "_______")
                       g!key (code.local "_______key")
@@ -150,23 +151,23 @@
                                                  (<type>.exactly .Text)
                                                  encoded))]
                (in (` (is (, (@JSON#encoded inputT))
-                          (|>> ((,! dictionary.entries))
-                               ((,! list#each) (function ((, g!_) [(, g!key) (, g!val)])
-                                                 [(, g!key) ((, =val=) (, g!val))]))
-                               ((,! dictionary.of_list) (,! text.hash))
+                          (|>> (dictionary.entries)
+                               (at list.functor (,' each) (function ((, g!_) [(, g!key) (, g!val)])
+                                                            [(, g!key) ((, =val=) (, g!val))]))
+                               (dictionary.of_list text.hash)
                                {/.#Object})))))
              (do !
                [[_ =sub=] (<type>.applied (all <>.and
                                                (<type>.exactly .Maybe)
                                                encoded))]
                (in (` (is (, (@JSON#encoded inputT))
-                          ((,! ..nullable) (, =sub=))))))
+                          (..nullable (, =sub=))))))
              (do !
                [[_ =sub=] (<type>.applied (all <>.and
                                                (<type>.exactly .List)
                                                encoded))]
                (in (` (is (, (@JSON#encoded inputT))
-                          (|>> ((,! list#each) (, =sub=)) ((,! sequence.of_list)) {/.#Array})))))
+                          (|>> (at list.functor (,' each) (, =sub=)) sequence.of_list {/.#Array})))))
              (do !
                [.let [g!_ (code.local "_______")
                       g!input (code.local "_______input")]
@@ -178,13 +179,13 @@
                               (,* (list#conjoint (list#each (function (_ [tag g!encoded])
                                                               (if (n.= last tag)
                                                                 (.list (` {(, (code.nat (-- tag))) #1 (, g!input)})
-                                                                       (` ((,! /.json) [(, (code.frac (..tag (-- tag))))
-                                                                                        #1
-                                                                                        ((, g!encoded) (, g!input))])))
+                                                                       (` (/.json [(, (code.frac (..tag (-- tag))))
+                                                                                   #1
+                                                                                   ((, g!encoded) (, g!input))])))
                                                                 (.list (` {(, (code.nat tag)) #0 (, g!input)})
-                                                                       (` ((,! /.json) [(, (code.frac (..tag tag)))
-                                                                                        #0
-                                                                                        ((, g!encoded) (, g!input))])))))
+                                                                       (` (/.json [(, (code.frac (..tag tag)))
+                                                                                   #0
+                                                                                   ((, g!encoded) (, g!input))])))))
                                                             (list.enumeration members))))))))))
              (do !
                [g!encoders (<type>.tuple (<>.many encoded))
@@ -194,16 +195,16 @@
                                     (list#each (|>> n#encoded code.local)))]]
                (in (` (is (, (@JSON#encoded inputT))
                           (function ((, g!_) [(,* g!members)])
-                            ((,! /.json) [(,* (list#each (function (_ [g!member g!encoded])
-                                                           (` ((, g!encoded) (, g!member))))
-                                                         (list.zipped_2 g!members g!encoders)))]))))))
+                            (/.json [(,* (list#each (function (_ [g!member g!encoded])
+                                                      (` ((, g!encoded) (, g!member))))
+                                                    (list.zipped_2 g!members g!encoders)))]))))))
              ... Type recursion
              (do !
                [[selfC non_recC] (<type>.recursive encoded)
                 .let [g! (code.local "____________")]]
                (in (` (is (, (@JSON#encoded inputT))
-                          ((,! ..rec_encoded) (.function ((, g!) (, selfC))
-                                                (, non_recC)))))))
+                          (..rec_encoded (.function ((, g!) (, selfC))
+                                           (, non_recC)))))))
              <type>.recursive_self
              ... Type applications
              (do !
@@ -232,7 +233,7 @@
                  [(do !
                     [_ <matcher>]
                     (in (` (is (, (@JSON#decoded inputT))
-                               (,! <decoder>)))))]
+                               <decoder>))))]
 
                  [(<type>.exactly Any)  </>.null]
                  [(<type>.sub Bit)      </>.boolean]
@@ -244,7 +245,7 @@
                 [(do !
                    [_ (<type>.exactly <type>)]
                    (in (` (is (, (@JSON#decoded inputT))
-                              ((,! <>.codec) (,! <codec>) (,! </>.string))))))]
+                              (<>.codec <codec> </>.string)))))]
 
                 ... [duration.Duration duration.codec]
                 ... [instant.Instant instant.codec]
@@ -265,51 +266,51 @@
                [unitT (<type>.applied (<>.after (<type>.exactly unit.Measure)
                                                 <type>.any))]
                (in (` (is (, (@JSON#decoded inputT))
-                          ((,! <>.codec) (,! measure_codec) (,! </>.any))))))
+                          (<>.codec measure_codec </>.any)))))
              (do !
                [[_ _ valC] (<type>.applied (all <>.and
                                                 (<type>.exactly dictionary.Dictionary)
                                                 (<type>.exactly .Text)
                                                 decoded))]
                (in (` (is (, (@JSON#decoded inputT))
-                          ((,! </>.dictionary) (, valC))))))
+                          (</>.dictionary (, valC))))))
              (do !
                [[_ subC] (<type>.applied (<>.and (<type>.exactly .Maybe)
                                                  decoded))]
                (in (` (is (, (@JSON#decoded inputT))
-                          ((,! </>.nullable) (, subC))))))
+                          (</>.nullable (, subC))))))
              (do !
                [[_ subC] (<type>.applied (<>.and (<type>.exactly .List)
                                                  decoded))]
                (in (` (is (, (@JSON#decoded inputT))
-                          ((,! </>.array) ((,! <>.some) (, subC)))))))
+                          (</>.array (<>.some (, subC)))))))
              (do !
                [members (<type>.variant (<>.many decoded))
                 .let [last (-- (list.size members))]]
                (in (` (is (, (@JSON#decoded inputT))
-                          (all ((,! <>.or))
+                          (all <>.or
                                (,* (list#each (function (_ [tag memberC])
                                                 (if (n.= last tag)
                                                   (` (|> (, memberC)
-                                                         ((,! <>.after) ((,! </>.this_boolean) (, (code.bit #1))))
-                                                         ((,! <>.after) ((,! </>.this_number) (, (code.frac (..tag (-- tag))))))
-                                                         ((,! </>.array))))
+                                                         (<>.after (</>.this_boolean (, (code.bit #1))))
+                                                         (<>.after (</>.this_number (, (code.frac (..tag (-- tag))))))
+                                                         </>.array))
                                                   (` (|> (, memberC)
-                                                         ((,! <>.after) ((,! </>.this_boolean) (, (code.bit #0))))
-                                                         ((,! <>.after) ((,! </>.this_number) (, (code.frac (..tag tag)))))
-                                                         ((,! </>.array))))))
+                                                         (<>.after (</>.this_boolean (, (code.bit #0))))
+                                                         (<>.after (</>.this_number (, (code.frac (..tag tag)))))
+                                                         </>.array))))
                                               (list.enumeration members))))))))
              (do !
                [g!decoders (<type>.tuple (<>.many decoded))]
                (in (` (is (, (@JSON#decoded inputT))
-                          ((,! </>.array) (all ((,! <>.and)) (,* g!decoders)))))))
+                          (</>.array (all <>.and (,* g!decoders)))))))
              ... Type recursion
              (do !
                [[selfC bodyC] (<type>.recursive decoded)
                 .let [g! (code.local "____________")]]
                (in (` (is (, (@JSON#decoded inputT))
-                          ((,! <>.rec) (.function ((, g!) (, selfC))
-                                         (, bodyC)))))))
+                          (<>.rec (.function ((, g!) (, selfC))
+                                    (, bodyC)))))))
              <type>.recursive_self
              ... Type applications
              (do !
@@ -331,10 +332,11 @@
 
 (def .public codec
   (syntax (_ [inputT <code>.any])
-    (in (.list (` (is (codec.Codec /.JSON (, inputT))
-                      (implementation
-                       (def (,' encoded)
-                         ((,! ..encoded) (, inputT)))
-                       (def (,' decoded)
-                         ((,! </>.result) ((,! ..decoded) (, inputT))))
-                       )))))))
+    (do meta.monad
+      [encoded (expansion.single (` (..encoded (, inputT))))
+       decoded (expansion.single (` (..decoded (, inputT))))]
+      (in (.list (` (is (codec.Codec /.JSON (, inputT))
+                        (implementation
+                         (def (,' encoded) (,* encoded))
+                         (def (,' decoded) (</>.result (,* decoded)))
+                         ))))))))

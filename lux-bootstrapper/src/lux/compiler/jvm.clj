@@ -251,7 +251,7 @@
                                                     &&jvm-cache/uninstall-all-defs-in-module)
                          _ (compile-module source-dirs &/prelude nil)]
                      (compile-module source-dirs program-module
-                                     (|do [[de_aliased_symbol [exported? actual-type ?value]] (&a-module/find-def program-module program-definition)
+                                     (|do [[de_aliased_symbol [exported? actual-type ?value]] (&a-module/find-def "" program-module program-definition)
                                            _ (&type/check program-type actual-type)
                                            here &/location]
                                        (&&lux/compile-program (partial compile-expression nil)

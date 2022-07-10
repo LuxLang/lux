@@ -384,9 +384,10 @@ Called by `imenu--generic-function'."
 							(data//implicit (altRE "implicitly" "a/an" "a" "an"))
 							(data//collection (altRE "list" "sequence" "tree"))
 							;; Code
-							(code//quotation (altRE "`" "`'" "'" "," ",\\*" ",!" ",'"))
+							(code//quotation (altRE "`" "`'" "'" "," ",\\*" ",'"))
 							(code//super-quotation (altRE "``" ",,"))
 							(code//template (altRE "with_template" "template"))
+							(code//macro (altRE "macro" "syntax"))
 							;; Miscellaneous
 							(jvm-host (altRE "import" "export" "class" "interface" "object" "synchronized" "class_for"))
 							(alternative-format (altRE "char" "bin" "oct" "hex"))
@@ -415,7 +416,8 @@ Called by `imenu--generic-function'."
 										   data//collection))
 							  (code (altRE code//quotation
 										   code//super-quotation
-										   code//template)))
+										   code//template
+										   code//macro)))
 						  (concat
 						   "("
 						   (altRE

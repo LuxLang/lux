@@ -84,7 +84,8 @@
 
       (&/$Identifier ?ident)
       (&/with-analysis-meta location exo-type
-        (&&lux/analyse-identifier analyse exo-type ?ident))
+        (|let [[quoted_module quoted_line quoted_column] location]
+          (&&lux/analyse-identifier analyse exo-type quoted_module ?ident)))
 
       (&/$Form (&/$Item [command-meta command] parameters))
       (|case command
