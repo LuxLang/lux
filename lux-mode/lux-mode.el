@@ -386,8 +386,8 @@ Called by `imenu--generic-function'."
 							;; Code
 							(code//quotation (altRE "`" "`'" "'" "," ",\\*" ",'"))
 							(code//super-quotation (altRE "``" ",,"))
-							(code//template (altRE "with_template" "template"))
-							(code//macro (altRE "macro" "syntax"))
+							(code//template (altRE "with_template"))
+							(code//macro (altRE "macro" "template" "syntax"))
 							;; Miscellaneous
 							(jvm-host (altRE "import" "export" "class" "interface" "object" "synchronized" "class_for"))
 							(alternative-format (altRE "char" "bin" "oct" "hex"))
@@ -399,7 +399,8 @@ Called by `imenu--generic-function'."
 							(extension (altRE "analysis" "synthesis" "generation" "declaration"))
 							(definition (altRE "\\.require"
 											   "def" "inlined" "type"
-											   "exception")))
+											   "exception"
+											   "vocabulary")))
 						(let ((control (altRE control//flow
 											  control//pattern-matching
 											  control//logic

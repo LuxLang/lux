@@ -1,5 +1,7 @@
 # Reference
 
+0. []()
+0. [Profunctor Optics: The Categorical View](https://golem.ph.utexas.edu/category/2020/01/profunctor_optics_the_categori.html)
 0. [Existential optics](https://www.tweag.io/blog/2022-05-05-existential-optics/)
 0. [Optics vs Lenses, Operationally](https://www.brunogavranovic.com/posts/2022-02-10-optics-vs-lenses-operationally.html)
 0. [Optics By Example](https://leanpub.com/optics-by-example)
@@ -7,7 +9,8 @@
 0. [On Lawful Lenses](https://blog.statebox.org/on-lawful-lenses-6e18a1e17bdf)
 0. https://medium.com/urbint-engineering/haskell-lens-operator-onboarding-a235481e8fac
 0. https://fstarlang.github.io/general/2018/01/12/lens-indexed-lenses.html
-0. [Jeremy Gibbons - Profunctor Optics Modular Data Accessors](https://www.youtube.com/watch?v=sfWzUMViP0M &&& http://www.cs.ox.ac.uk/people/jeremy.gibbons/publications/poptics.pdf)
+0. [Jeremy Gibbons - Profunctor Optics Modular Data Accessors](https://www.youtube.com/watch?v=sfWzUMViP0M)
+	0. [Profunctor Optics: Modular Data Accessors](http://www.cs.ox.ac.uk/people/jeremy.gibbons/publications/poptics.pdf)
 0. http://hackage.haskell.org/package/profunctors-3.3.0.1/docs/Data-Profunctor.html
 0. https://github.com/purescript-contrib/purescript-profunctor-lenses
 0. https://hackage.haskell.org/package/lens-4.16/docs/Control-Lens-Indexed.html

@@ -66,6 +66,7 @@
 # Reference
 
 0. []()
+0. [Mintlify Writer](https://www.mintlify.com/writer)
 0. [TimelineJS: Easy-to-make, beautiful timelines.](http://timeline.knightlab.com/)
 0. [Introduction to the Zettelkasten Method](https://zettelkasten.de/introduction/)
 0. [Building a community of open-source documentation contributors](https://news.ycombinator.com/newest?next=31705868&n=1171)

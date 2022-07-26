@@ -11,8 +11,8 @@
     ["[0]" try]]
    [data
     [collection
-     ["[0]" list (.use "[1]#[0]" monoid monad)]]]]]
- ["[0]" // (.only)
+     ["[0]" list (.use "[1]#[0]" monoid monad mix)]]]]]
+ ["[0]" // (.only with_symbols)
   [vocabulary (.only vocabulary)]
   ["/[1]" // (.use "[1]#[0]" monad)]])
 
@@ -40,7 +40,6 @@
   [tuple_list]
 
   [text$]
-  [generated_symbol]
   [type_definition]
   [record_slots]
   [text#composite]
@@ -50,8 +49,6 @@
   [tuple$]
   [zipped_2]
 
-  [multi_level_case^]
-  [multi_level_case$]
   [type_code]
   [expected_type]
 
@@ -116,35 +113,81 @@
        _
        (///.failure (..wrong_syntax_error (symbol ..with_template)))))))
 
+(type Level
+  [Code Code])
+
+(def (level it)
+  (-> Code (Meta Level))
+  (///#in (case it
+            [_ {.#Tuple (list expr binding)}]
+            [expr binding]
+
+            _
+            [it (.` #1)])))
+
+(type Multi
+  [Code (List Level)])
+
+(def (multiP levels)
+  (-> (List Code) (Meta Multi))
+  (case levels
+    {.#End}
+    (///.failure "Multi-level patterns cannot be empty.")
+
+    {.#Item init extras}
+    (do ///.monad
+      [extras' (monad.each ///.monad ..level extras)]
+      (in [init extras']))))
+
+(def (multiG g!_ [[init_pattern levels] body])
+  (-> Code [Multi Code] (List Code))
+  (.let [inner_pattern_body (list#mix (function (_ [calculation pattern] success)
+                                        (.let [bind? (case pattern
+                                                       [_ {.#Symbol _}]
+                                                       #1
+
+                                                       _
+                                                       #0)]
+                                          (.` (case (., calculation)
+                                                (., pattern)
+                                                (., success)
+
+                                                (.,* (if bind?
+                                                       (list)
+                                                       (list g!_ (.` {.#None}))))))))
+                                      (.` {.#Some (., body)})
+                                      (list.reversed levels))]
+    (list init_pattern inner_pattern_body)))
+
 (def .public multi
   (pattern
    (macro (_ tokens)
      (case tokens
        (list.partial [_meta {.#Form levels}] body next_branches)
-       (do ///.monad
-         [mlc (multi_level_case^ levels)
-          .let [initial_bind? (case mlc
-                                [[_ {.#Symbol _}] _]
-                                #1
+       (with_symbols [g!temp]
+         (do ///.monad
+           [mlc (multiP levels)
+            .let [initial_bind? (case mlc
+                                  [[_ {.#Symbol _}] _]
+                                  #1
 
-                                _
-                                #0)]
-          expected ..expected_type
-          g!temp (..generated_symbol "temp")]
-         (in (list g!temp
-                   (.` ({{.#Some (., g!temp)}
-                         (., g!temp)
+                                  _
+                                  #0)]
+            expected ..expected_type]
+           (in (list g!temp
+                     (.` ({{.#Some (., g!temp)}
+                           (., g!temp)
 
-                         {.#None}
-                         (.case (., g!temp)
-                           (.,* next_branches))}
-                        ("lux type check" {.#Apply (., (type_code expected)) Maybe}
-                         (.case (., g!temp)
-                           (.,* (multi_level_case$ g!temp [mlc body]))
+                           {.#None}
+                           (.case (., g!temp)
+                             (.,* next_branches))}
+                          ("lux type check" {.#Apply (., (type_code expected)) Maybe}
+                           (.case (., g!temp)
+                             (.,* (multiG g!temp [mlc body]))
 
-                           (.,* (if initial_bind?
-                                  (list)
-                                  (list g!temp (.` {.#None})))))))))))
+                             (.,* (if initial_bind?
+                                    (list)
+                                    (list g!temp (.` {.#None}))))))))))))
        
        _
        (///.failure (..wrong_syntax_error (symbol ..multi)))))))
@@ -237,12 +280,11 @@
 
 (def (untemplated_pattern pattern)
   (-> Code (Meta Code))
-  (do ///.monad
-    [g!meta (..generated_symbol "g!meta")]
+  (with_symbols [g!meta]
     (case pattern
       (..with_template [<tag> <gen>]
         [[_ {<tag> value}]
-         (in (.` [(., g!meta) {<tag> (., (<gen> value))}]))])
+         (///#in (.` [(., g!meta) {<tag> (., (<gen> value))}]))])
       ([.#Bit    bit$]
        [.#Nat    nat$]
        [.#Int    int$]
@@ -252,11 +294,11 @@
        [.#Symbol name$])
 
       [@composite {.#Form {.#Item [@global {.#Symbol global}] parameters}}]
-      (do ///.monad
+      (do [! ///.monad]
         [micro (///.try (..named_unquote global))]
         (case micro
           {try.#Success micro}
-          (do ///.monad
+          (do !
             [[_ output] (..one_expansion ((//.function micro) parameters))]
             (in [@composite output]))
           

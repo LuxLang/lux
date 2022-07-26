@@ -1,31 +1,39 @@
 # Inlining
 
+0. []()
 0. [Defunctionalization](https://en.wikipedia.org/wiki/Defunctionalization)
 
 # Hashing
 
+0. []()
 0. [Fibonacci Hashing: The Optimization that the World Forgot (or: a Better Alternative to Integer Modulo)](https://probablydance.com/2018/06/16/fibonacci-hashing-the-optimization-that-the-world-forgot-or-a-better-alternative-to-integer-modulo/)
 
 # Compilation
 
+0. []()
 0. ["Outperforming Imperative with Pure Functional Languages" by Richard Feldman](https://www.youtube.com/watch?v=vzfy4EKwG_Y)
 0. [CompilerGym: Making compiler optimizations accessible to all](https://ai.facebook.com/blog/compilergym-making-compiler-optimizations-accessible-to-all)
 0. [Future Directions for Optimizing Compilers](https://arxiv.org/abs/1809.02161)
 
 # Pre-fetching
 
+0. []()
 0. [Prefetching in Functional Languages](https://www.cl.cam.ac.uk/~tmj32/papers/docs/ainsworth20-ismm.pdf)
 
 # Partial evaluation
 
+0. []()
 0. [AnyDSL - A Partial Evaluation Framework for Programming High-Performance Libraries](https://anydsl.github.io/)
 
 # For the compiler
 
+0. []()
 0. [Self Hosting a Million-Lines-Per-Second Parser](https://bjou-lang.org/blog/7-10-2019-self-hosting-a-million-lines-per-second-parser/7-10-2019-self-hosting-a-million-lines-per-second-parser.html)
 
 # Reference
 
+0. []()
+0. [Software optimization resources](https://www.agner.org/optimize/)
 0. [Finding Missed Optimizations through the Lens of Dead Code Elimination](https://ethz.ch/content/dam/ethz/special-interest/infk/ast-dam/documents/Theodoridis-ASPLOS22-DCE-Paper.pdf)
 0. [Algorithms for Modern Hardware](https://en.algorithmica.org/hpc/)
 0. [Refterm Lecture Part 1 - Philosophies of Optimization](https://www.youtube.com/watch?v=pgoetgxecw8)
@@ -63,5 +71,6 @@
 
 # JavaScript
 
+0. []()
 0. [Javascript Array.push is 945x faster than Array.concat](https://dev.to/uilicious/javascript-array-push-is-945x-faster-than-array-concat-1oki)
 

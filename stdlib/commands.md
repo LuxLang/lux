@@ -92,7 +92,7 @@ cd ~/lux/stdlib/ \
 cd ~/lux/stdlib/ \
 && lux clean \
 && lux with ruby with scriptum build \
-&& RUBY_THREAD_VM_STACK_SIZE=15700000 ruby ~/lux/stdlib/target/program.rb | tee ~/lux/documentation/library/standard/ruby.md
+&& RUBY_THREAD_VM_STACK_SIZE=15700000 ruby ~/lux/stdlib/target/program/main.rb | tee ~/lux/documentation/library/standard/ruby.md
 ```
 
 ---

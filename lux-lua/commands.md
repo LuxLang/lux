@@ -20,7 +20,7 @@ cd ~/lux/lux-lua/ \
 ## Compile Lux's Standard Library's tests using a JVM-based compiler.
 cd ~/lux/stdlib/ \
 && lein clean \
-&& java -jar ~/lux/lux-lua/target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux \
+&& java -jar ~/lux/lux-lua/target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux --program _ \
 && ~/lua-5.4.2/install/bin/lua ~/lux/stdlib/target/program.lua
 ```
 

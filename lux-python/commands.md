@@ -20,7 +20,7 @@ cd ~/lux/lux-python/ \
 ## Compile Lux's Standard Library's tests using a JVM-based compiler.
 cd ~/lux/stdlib/ \
 && lux clean \
-&& java -jar ~/lux/lux-python/target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux \
+&& java -jar ~/lux/lux-python/target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux --program _ \
 && python3 ~/lux/stdlib/target/program.py
 ```
 

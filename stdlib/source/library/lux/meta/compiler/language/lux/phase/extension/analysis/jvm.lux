@@ -57,7 +57,7 @@
        ["[0]" parser]
        ["[0]" alias (.only Aliasing)]
        ["[0]T" lux (.only Mapping)]]]]
-    ["[0]" type (.only)
+    ["[0]" type (.use "[1]#[0]" equivalence)
      ["[0]" check (.only Check) (.use "[1]#[0]" monad)]]]]]
  ["[0]" //
   ["[1][0]" lux (.only custom)]
@@ -92,7 +92,8 @@
 
 (import java/lang/Object
   "[1]::[0]"
-  (equals [java/lang/Object] boolean))
+  (equals [java/lang/Object] boolean)
+  (toString [] java/lang/String))
 
 (import java/lang/reflect/Type
   "[1]::[0]")
@@ -282,12 +283,12 @@
   [too_many_candidates]
   )
 
-(exception .public (cannot_cast [from .Type
-                                 to .Type
+(exception .public (cannot_cast [from (Type Value)
+                                 to (Type Value)
                                  value Code])
   (exception.report
-   (list ["From" (%.type from)]
-         ["To" (%.type to)]
+   (list ["From" (..signature from)]
+         ["To" (..signature to)]
          ["Value" (%.code value)])))
 
 (with_template [<name>]
@@ -935,11 +936,11 @@
           (in {/////analysis.#Extension extension_name (list (/////analysis.text sub_class) objectA)})
           (/////analysis.except cannot_possibly_be_an_instance (format sub_class " !<= "  object_class)))))]))
 
-(def (class_candidate_parents class_loader source_name fromT target_name target_class)
+(def (class_candidate_parents class_loader from_name fromT to_name to_class)
   (-> java/lang/ClassLoader External .Type External (java/lang/Class java/lang/Object) (Operation (List [[Text .Type] Bit])))
   (do [! phase.monad]
-    [source_class (phase.lifted (reflection!.load class_loader source_name))
-     mapping (phase.lifted (reflection!.correspond source_class fromT))]
+    [from_class (phase.lifted (reflection!.load class_loader from_name))
+     mapping (phase.lifted (reflection!.correspond from_class fromT))]
     (monad.each !
                 (function (_ superJT)
                   (do !
@@ -947,32 +948,16 @@
                      .let [super_name (..reflection superJT)]
                      super_class (phase.lifted (reflection!.load class_loader super_name))
                      superT (reflection_type mapping superJT)]
-                    (in [[super_name superT] (java/lang/Class::isAssignableFrom super_class target_class)])))
-                (case (java/lang/Class::getGenericSuperclass source_class)
+                    (in [[super_name superT] (java/lang/Class::isAssignableFrom super_class to_class)])))
+                (case (java/lang/Class::getGenericSuperclass from_class)
                   {.#Some super}
-                  (list.partial super (array.list {.#None} (java/lang/Class::getGenericInterfaces source_class)))
+                  (list.partial super (array.list {.#None} (java/lang/Class::getGenericInterfaces from_class)))
 
                   {.#None}
-                  (if (java/lang/reflect/Modifier::isInterface (java/lang/Class::getModifiers source_class))
+                  (if (java/lang/reflect/Modifier::isInterface (java/lang/Class::getModifiers from_class))
                     {.#Item (as java/lang/reflect/Type (ffi.class_for java/lang/Object))
-                            (array.list {.#None} (java/lang/Class::getGenericInterfaces source_class))}
-                    (array.list {.#None} (java/lang/Class::getGenericInterfaces source_class)))))))
-
-(def (inheritance_candidate_parents class_loader fromT target_class toT fromC)
-  (-> java/lang/ClassLoader .Type (java/lang/Class java/lang/Object) .Type Code (Operation (List [[Text .Type] Bit])))
-  (case fromT
-    {.#Primitive _ (list.partial self_classT super_classT super_interfacesT+)}
-    (monad.each phase.monad
-                (function (_ superT)
-                  (do [! phase.monad]
-                    [super_name (at ! each ..reflection (check_jvm superT))
-                     super_class (phase.lifted (reflection!.load class_loader super_name))]
-                    (in [[super_name superT]
-                         (java/lang/Class::isAssignableFrom super_class target_class)])))
-                (list.partial super_classT super_interfacesT+))
-
-    _
-    (/////analysis.except ..cannot_cast [fromT toT fromC])))
+                            (array.list {.#None} (java/lang/Class::getGenericInterfaces from_class))}
+                    (array.list {.#None} (java/lang/Class::getGenericInterfaces from_class)))))))
 
 (def (object::cast class_loader)
   (-> java/lang/ClassLoader Handler)
@@ -981,18 +966,20 @@
       (list fromC)
       (do [! phase.monad]
         [toT (///.lifted meta.expected_type)
-         target_name (at ! each ..reflection (check_jvm toT))
+         toJT (check_jvm toT)
          [fromT fromA] (typeA.inferring
                         (analyse archive fromC))
-         source_name (at ! each ..reflection (check_jvm fromT))
+         fromJT (check_jvm fromT)
+         .let [from_name (..reflection fromJT)
+               to_name (..reflection toJT)]
          can_cast? (is (Operation Bit)
                        (`` (cond (,, (with_template [<primitive> <object>]
                                        [(let [=primitive (reflection.reflection <primitive>)]
-                                          (or (and (text#= =primitive source_name)
-                                                   (or (text#= <object> target_name)
-                                                       (text#= =primitive target_name)))
-                                              (and (text#= <object> source_name)
-                                                   (text#= =primitive target_name))))
+                                          (or (and (text#= =primitive from_name)
+                                                   (or (text#= <object> to_name)
+                                                       (text#= =primitive to_name)))
+                                              (and (text#= <object> from_name)
+                                                   (text#= =primitive to_name))))
                                         (in true)]
 
                                        [reflection.boolean box.boolean]
@@ -1006,34 +993,39 @@
 
                                  ... else
                                  (do !
-                                   [_ (phase.assertion ..primitives_are_not_objects [source_name]
-                                                       (not (dictionary.key? ..boxes source_name)))
-                                    _ (phase.assertion ..primitives_are_not_objects [target_name]
-                                                       (not (dictionary.key? ..boxes target_name)))
-                                    target_class (phase.lifted (reflection!.load class_loader target_name))
-                                    _ (do !
-                                        [source_class (phase.lifted (reflection!.load class_loader source_name))]
-                                        (phase.assertion ..cannot_cast [fromT toT fromC]
-                                                         (java/lang/Class::isAssignableFrom source_class target_class)))]
-                                   (loop (again [[current_name currentT] [source_name fromT]])
-                                     (if (text#= target_name current_name)
-                                       (in true)
-                                       (do !
-                                         [candidate_parents (is (Operation (List [[Text .Type] Bit]))
-                                                                (class_candidate_parents class_loader current_name currentT target_name target_class))]
-                                         (case (|> candidate_parents
-                                                   (list.only product.right)
-                                                   (list#each product.left))
-                                           {.#Item [next_name nextT] _}
-                                           (again [next_name nextT])
+                                   [_ (phase.assertion ..primitives_are_not_objects [from_name]
+                                                       (not (dictionary.key? ..boxes from_name)))
+                                    _ (phase.assertion ..primitives_are_not_objects [to_name]
+                                                       (not (dictionary.key? ..boxes to_name)))
+                                    to_class (phase.lifted (reflection!.load class_loader to_name))
+                                    from_class (phase.lifted (reflection!.load class_loader from_name))]
+                                   (if (java/lang/Class::isAssignableFrom from_class to_class)
+                                     (loop (again [[current_name currentT] [from_name fromT]])
+                                       (if (text#= to_name current_name)
+                                         (in true)
+                                         (do !
+                                           [candidate_parents (is (Operation (List [[Text .Type] Bit]))
+                                                                  (class_candidate_parents class_loader current_name currentT to_name to_class))]
+                                           (case (|> candidate_parents
+                                                     (list.only product.right)
+                                                     (list#each product.left))
+                                             {.#Item [next_name nextT] _}
+                                             (again [next_name nextT])
 
-                                           {.#End}
-                                           (in false)))))))))]
+                                             {.#End}
+                                             (in false)))))
+                                     (in (case [(type#= java/lang/Object fromT)
+                                                (parser.array? toJT)]
+                                           [#1 {.#Some _}]
+                                           true
+                                           
+                                           _
+                                           false)))))))]
         (if can_cast?
-          (in {/////analysis.#Extension extension_name (list (/////analysis.text source_name)
-                                                             (/////analysis.text target_name)
+          (in {/////analysis.#Extension extension_name (list (/////analysis.text from_name)
+                                                             (/////analysis.text to_name)
                                                              fromA)})
-          (/////analysis.except ..cannot_cast [fromT toT fromC])))
+          (/////analysis.except ..cannot_cast [fromJT toJT fromC])))
 
       _
       (/////analysis.except ///.invalid_syntax [extension_name %.code args]))))

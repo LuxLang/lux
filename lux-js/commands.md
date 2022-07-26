@@ -20,16 +20,15 @@ cd ~/lux/lux-js/ \
 && mv target/program.jar jvm_based_compiler.jar
 
 ## Use JVM-based compiler to produce a JS/Node-based compiler.
-## @ library/lux/data/text TODO: Comment/turn-off when generating a JS compiler using a JVM-based compiler because Nashorn's implementation of "replaceAll" is incorrect. 
 cd ~/lux/lux-js/ \
 && lux clean \
-&& time java -jar jvm_based_compiler.jar build --source ~/lux/lux-js/source --target ~/lux/lux-js/target --module program \
+&& time java -jar jvm_based_compiler.jar build --source ~/lux/lux-js/source --target ~/lux/lux-js/target --module program --program _ \
 && mv target/program.js node_based_compiler.js
 
 ## Use JS/Node-based compiler to produce another JS/Node-based compiler.
 cd ~/lux/lux-js/ \
 && lux clean \
-&& node --stack_size=8192 node_based_compiler.js build --source ~/lux/lux-js/source --target ~/lux/lux-js/target --module program
+&& node --stack_size=8192 node_based_compiler.js build --source ~/lux/lux-js/source --target ~/lux/lux-js/target --module program --program _
 ```
 
 # Try
@@ -38,7 +37,7 @@ cd ~/lux/lux-js/ \
 ## Compile Lux's Standard Library's tests using a JS/Node-based compiler.
 cd ~/lux/stdlib/ \
 && lux clean \
-&& node --stack_size=8192 ~/lux/lux-js/target/program.js build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux \
+&& node --stack_size=8192 ~/lux/lux-js/target/program.js build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux --program _ \
 && node ~/lux/stdlib/target/program.js
 ```
 

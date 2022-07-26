@@ -1,10 +1,13 @@
 # Hash function
 
+0. []()
 0. http://fastcompression.blogspot.com/2019/03/presenting-xxh3.html
 0. http://cyan4973.github.io/xxHash/
 
 # Reference
 
+0. []()
+0. [HyperLogLog in Presto: A significantly faster way to handle cardinality estimation](https://engineering.fb.com/2018/12/13/data-infrastructure/hyperloglog/)
 0. [Ribbon Filter](http://rocksdb.org/blog/2021/12/29/ribbon-filter.html)
 0. [Binary Fuse Filters: Fast and Smaller Than Xor Filters](https://arxiv.org/abs/2201.01174)
 0. [Ribbon filter: practically smaller than Bloom and Xor](https://arxiv.org/abs/2103.02515)
@@ -32,6 +35,7 @@
 
 ## Bloom filter
 
+0. []()
 0. [Sliding Bloom Filter](https://programming.guide/sliding-bloom-filter.html)
 0. [Word-aligned Bloom filters](https://lemire.me/blog/2021/10/03/word-aligned-bloom-filters/)
 0. [Bloom Filters by Example](https://llimllib.github.io/bloomfilter-tutorial/)

@@ -1,19 +1,23 @@
 # Interoperability
 
+0. []()
 0. [How to Extend WebAssembly with Host Functions](https://www.secondstate.io/articles/extend-webassembly/)
 0. [js-wasm: JavaScript and WebAssembly should be a joy to use together.](https://wasm.js.org/)
 
 # Concurrency
 
+0. []()
 0. [Wasm threads are now available in all browsers](https://old.reddit.com/r/WebAssembly/comments/rk83mr/wasm_threads_are_now_available_in_all_browsers/)
 
 # Platform
 
+0. []()
 0. [Wasmer Java](https://github.com/wasmerio/wasmer-java)
 0. [WAVM: WAVM is a WebAssembly virtual machine, designed for use in non-web applications.](https://wavm.github.io/)
 
 # Exemplar
 
+0. []()
 0. [Announcing GraalWasm — a WebAssembly engine in GraalVM](https://medium.com/graalvm/announcing-graalwasm-a-webassembly-engine-in-graalvm-25cd0400a7f2)
 0. [Towards a WebAssembly standalone runtime on GraalVM](https://dl.acm.org/citation.cfm?id=3362780)
 0. https://github.com/vvanders/wasm_lua
@@ -22,6 +26,8 @@
 
 # Reference
 
+0. []()
+0. [TeaVM: Build Fast, Modern Web Apps in Java](https://teavm.org/)
 0. [Recommendations when publishing a Wasm library](https://nickb.dev/blog/recommendations-when-publishing-a-wasm-library)
 0. [Building host implementations for WebAssembly interfaces](https://radu-matei.com/blog/wasm-components-host-implementations/)
 0. [WebAssembly Techniques to Speed Up Matrix Multiplication by 120x](https://jott.live/markdown/mm_wasm)
