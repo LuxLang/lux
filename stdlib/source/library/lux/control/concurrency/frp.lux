@@ -12,22 +12,19 @@
     ["[0]" exception (.only exception)]
     ["[0]" io (.only IO io)]]
    [meta
-    [type (.only sharing)
-     ["[0]" variance (.only Mutable)]]]]]
+    ["[0]" type (.only sharing)]]]]
  [//
   ["[0]" atom (.only Atom)]
   ["[0]" async (.only Async Async') (.use "[1]#[0]" monad)]])
 
-(type .public (Channel'' a)
-  (Async (Maybe [a (Channel'' a)])))
-
 (type .public (Channel' r w)
-  (Channel'' (Mutable r w)))
+  (Async' (Maybe [r (Channel' r w)])
+          (Maybe [w (Channel' r w)])))
 
 (type .public (Channel a)
-  (Channel'' (Mutable a a)))
+  (Channel' a a))
 
-(exception .public channel_is_already_closed)
+(exception .public already_closed)
 
 (type .public (Sink w)
   (Interface
@@ -38,7 +35,7 @@
 
 (def (sink resolution)
   (All (_ a)
-    (-> (async.Resolver (Maybe [(Mutable a a) (Channel a)]))
+    (-> (async.Resolver (Maybe [a (Channel a)]))
         (Sink a)))
   (let [sink (atom.atom resolution)]
     (implementation
@@ -55,7 +52,7 @@
                [latter (atom.read! sink)]
                (if (same? current latter)
                  ... Someone else closed the sink.
-                 (in (exception.except ..channel_is_already_closed []))
+                 (in (exception.except ..already_closed []))
                  ... Someone else fed the sink while I was closing it.
                  (again [])))))))
      
@@ -64,12 +61,12 @@
          (do [! io.monad]
            [current (atom.read! sink)
             .let [[next resolve_next] (sharing [a]
-                                        (is (async.Resolver (Maybe [(Mutable a a) (Channel a)]))
+                                        (is (async.Resolver (Maybe [a (Channel a)]))
                                             current)
                                         (is [(Channel a)
-                                             (async.Resolver (Maybe [(Mutable a a) (Channel a)]))]
+                                             (async.Resolver (Maybe [a (Channel a)]))]
                                             (async.async [])))]
-            fed? (current {.#Some [(variance.write value) next]})]
+            fed? (current {.#Some [value next]})]
            (if fed?
              ... I fed the sink.
              (do !
@@ -80,7 +77,7 @@
                [latter (atom.read! sink)]
                (if (same? current latter)
                  ... Someone else closed the sink while I was feeding it.
-                 (in (exception.except ..channel_is_already_closed []))
+                 (in (exception.except ..already_closed []))
                  ... Someone else fed the sink.
                  (again []))))))))))
 
@@ -96,7 +93,7 @@
      (async#each
       (maybe#each
        (function (_ [head tail])
-         [(variance.write (f (variance.read head)))
+         [(f head)
           (each f tail)]))))))
 
 (def .public apply
@@ -110,7 +107,7 @@
         item_a fa]
        (case [item_f item_a]
          [{.#Some [head_f tail_f]} {.#Some [head_a tail_a]}]
-         (in {.#Some [(variance.write ((variance.read head_f) (variance.read head_a)))
+         (in {.#Some [(head_f head_a)
                       (on tail_a tail_f)]})
 
          _
@@ -126,7 +123,7 @@
    (def functor ..functor)
 
    (def (in a)
-     (async.resolved {.#Some [(variance.write a) ..empty]}))
+     (async.resolved {.#Some [a ..empty]}))
 
    (def (conjoint mma)
      (let [[output sink] (sharing [a]
@@ -144,12 +141,12 @@
                    (do !
                      [_ (loop (again [ma ma])
                           (do !
-                            [?ma (variance.read ma)]
+                            [?ma ma]
                             (case ?ma
                               {.#Some [a ma']}
                               (exec
-                                (io.run! (at sink feed (variance.read a)))
-                                (again (variance.write ma')))
+                                (io.run! (at sink feed a))
+                                (again ma'))
                               
                               {.#None}
                               (in []))))]
@@ -162,16 +159,19 @@
 (type .public (Subscriber a)
   (-> a (IO (Maybe Any))))
 
-(def .public (subscribe! subscriber channel)
+(def .public (subscribe! subscriber it)
   (All (_ r w) (-> (Subscriber r) (Channel' r w) (IO Any)))
   (io (exec
         (is (Async Any)
-            (loop (again [channel channel])
+            (loop (again [it (type.as [r w]
+                                      (Channel' r w)
+                                      (Channel r)
+                                      it)])
               (do async.monad
-                [item channel]
+                [item it]
                 (case item
                   {.#Some [head tail]}
-                  (case (io.run! (subscriber (variance.read head)))
+                  (case (io.run! (subscriber head))
                     {.#Some _}
                     (again tail)
                     
@@ -182,14 +182,14 @@
                   (in [])))))
         [])))
 
-(def .public (only pass? channel)
+(def .public (only pass? it)
   (All (_ a) (-> (-> a Bit) (Channel a) (Channel a)))
   (do async.monad
-    [item channel]
+    [item it]
     (case item
       {.#Some [head tail]}
       (let [tail' (only pass? tail)]
-        (if (pass? (variance.read head))
+        (if (pass? head)
           (in {.#Some [head tail']})
           tail'))
       
@@ -199,40 +199,40 @@
 (def .public (of_async async)
   (All (_ a) (-> (Async a) (Channel a)))
   (async#each (function (_ value)
-                {.#Some [(variance.write value) ..empty]})
+                {.#Some [value ..empty]})
               async))
 
-(def .public (mix f init channel)
+(def .public (mix f init it)
   (All (_ a b)
     (-> (-> b a (Async a)) a (Channel b)
         (Async a)))
   (do [! async.monad]
-    [item channel]
+    [item it]
     (case item
       {.#None}
       (in init)
       
       {.#Some [head tail]}
       (do !
-        [init' (f (variance.read head) init)]
+        [init' (f head init)]
         (mix f init' tail)))))
 
-(def .public (mixes f init channel)
+(def .public (mixes f init it)
   (All (_ a b)
     (-> (-> b a (Async a)) a (Channel b)
         (Channel a)))
   (<| async#in
       {.#Some}
-      [(variance.write init)]
+      [init]
       (do [! async.monad]
-        [item channel]
+        [item it]
         (case item
           {.#None}
           (in {.#None})
           
           {.#Some [head tail]}
           (do !
-            [init' (f (variance.read head) init)]
+            [init' (f head init)]
             (mixes f init' tail))))))
 
 (def .public (poll milli_seconds action)
@@ -257,42 +257,42 @@
     [?next (f init)]
     (in (case ?next
           {.#Some [state output]}
-          {.#Some [(variance.write output) (iterations f state)]}
+          {.#Some [output (iterations f state)]}
           
           {.#None}
           {.#None}))))
 
-(def (distinct' equivalence previous channel)
+(def (distinct' equivalence previous it)
   (All (_ a) (-> (Equivalence a) a (Channel a) (Channel a)))
   (do async.monad
-    [item channel]
+    [item it]
     (case item
       {.#Some [head tail]}
-      (if (at equivalence = previous (variance.read head))
+      (if (at equivalence = previous head)
         (distinct' equivalence previous tail)
-        (in {.#Some [head (distinct' equivalence (variance.read head) tail)]}))
+        (in {.#Some [head (distinct' equivalence head tail)]}))
       
       {.#None}
       (in {.#None}))))
 
-(def .public (distinct equivalence channel)
+(def .public (distinct equivalence it)
   (All (_ a) (-> (Equivalence a) (Channel a) (Channel a)))
   (do async.monad
-    [item channel]
+    [item it]
     (in (case item
           {.#Some [head tail]}
-          {.#Some [head (distinct' equivalence (variance.read head) tail)]}
+          {.#Some [head (distinct' equivalence head tail)]}
           
           {.#None}
           {.#None}))))
 
-(def .public (list channel)
+(def .public (list it)
   (All (_ a) (-> (Channel a) (Async (List a))))
   (do [! async.monad]
-    [item channel]
+    [item it]
     (case item
       {.#Some [head tail]}
-      (at ! each (|>> {.#Item (variance.read head)})
+      (at ! each (|>> {.#Item head})
           (list tail))
 
       {.#None}
@@ -305,7 +305,7 @@
     ..empty
 
     {.#Item head tail}
-    (async.resolved {.#Some [(variance.write head)
+    (async.resolved {.#Some [head
                              (do async.monad
                                [_ (async.delay milli_seconds)]
                                (sequential milli_seconds tail))]})))

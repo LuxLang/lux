@@ -42,28 +42,31 @@
      ["[0]" instant]
      ["[0]" duration (.only Duration)]]]]])
 
+(type .public Coverage
+  (Set Symbol))
+
 (type .public Tally
   (Record
    [#successes Nat
     #failures Nat
-    #expected_coverage (Set Symbol)
-    #actual_coverage (Set Symbol)]))
+    #expected Coverage
+    #actual Coverage]))
 
 (def (total parameter subject)
   (-> Tally Tally Tally)
   [#successes (n.+ (the #successes parameter) (the #successes subject))
    #failures (n.+ (the #failures parameter) (the #failures subject))
-   #expected_coverage (set.union (the #expected_coverage parameter)
-                                 (the #expected_coverage subject))
-   #actual_coverage (set.union (the #actual_coverage parameter)
-                               (the #actual_coverage subject))])
+   #expected (set.union (the #expected parameter)
+                        (the #expected subject))
+   #actual (set.union (the #actual parameter)
+                      (the #actual subject))])
 
 (def start
   Tally
   [#successes 0
    #failures 0
-   #expected_coverage (set.empty symbol.hash)
-   #actual_coverage (set.empty symbol.hash)])
+   #expected (set.empty symbol.hash)
+   #actual (set.empty symbol.hash)])
 
 (with_template [<name> <category>]
   [(def <name>
@@ -189,19 +192,19 @@
   (-> Duration Tally Text)
   (let [successes (the #successes tally)
         failures (the #failures tally)
-        missing (set.difference (the #actual_coverage tally)
-                                (the #expected_coverage tally))
-        unexpected (set.difference (the #expected_coverage tally)
-                                   (the #actual_coverage tally))
-        report (is (-> (Set Symbol) Text)
+        missing (set.difference (the #actual tally)
+                                (the #expected tally))
+        unexpected (set.difference (the #expected tally)
+                                   (the #actual tally))
+        report (is (-> Coverage Text)
                    (|>> set.list
                         (list.sorted (at symbol.order <))
                         (exception.listing %.symbol)))
-        expected_definitions_to_cover (set.size (the #expected_coverage tally))
-        unexpected_definitions_covered (set.size unexpected)
-        actual_definitions_covered (n.- unexpected_definitions_covered
-                                        (set.size (the #actual_coverage tally)))
-        coverage (case expected_definitions_to_cover
+        expected_coverage (set.size (the #expected tally))
+        unexpected_coverage (set.size unexpected)
+        actual_coverage (n.- unexpected_coverage
+                             (set.size (the #actual tally)))
+        coverage (case expected_coverage
                    0 "N/A"
                    expected (let [missing_ratio (f./ (n.frac expected)
                                                      (n.frac (set.size missing)))
@@ -223,17 +226,20 @@
                                       (text.suffix "%"))))))]
     (exception.report
      (list ["Duration" (%.duration duration)]
+
            ["Tests" (%.nat (n.+ successes failures))]
            ["Successes" (%.nat successes)]
            ["Failures" (%.nat failures)]
-           ["Expected definitions to cover" (%.nat expected_definitions_to_cover)]
-           ["Actual definitions covered" (%.nat actual_definitions_covered)]
-           ["Pending definitions to cover" (%.nat (n.- actual_definitions_covered
-                                                       expected_definitions_to_cover))]
-           ["Unexpected definitions covered" (%.nat unexpected_definitions_covered)]
+           
+           ["Expected coverage" (%.nat expected_coverage)]
+           ["Actual coverage" (%.nat actual_coverage)]
+           ["Pending coverage" (%.nat (n.- actual_coverage
+                                           expected_coverage))]
+           ["Unexpected coverage" (%.nat unexpected_coverage)]
+           
            ["Coverage" coverage]
-           ["Pending definitions to cover" (report missing)]
-           ["Unexpected definitions covered" (report unexpected)]))))
+           ["Pending" (report missing)]
+           ["Unexpected" (report unexpected)]))))
 
 (def failure_exit_code +1)
 (def success_exit_code +0)
@@ -280,7 +286,7 @@
         coverage (set.of_list symbol.hash coverage)]
     (|> (..assertion message condition)
         (async#each (function (_ [tally documentation])
-                      [(revised #actual_coverage (set.union coverage) tally)
+                      [(revised #actual (set.union coverage) tally)
                        documentation])))))
 
 (def .public (with_coverage coverage condition)
@@ -295,7 +301,7 @@
                     (text.interposed ..definition_separator))
         coverage (set.of_list symbol.hash coverage)]
     (random#each (async#each (function (_ [tally documentation])
-                               [(revised #actual_coverage (set.union coverage) tally)
+                               [(revised #actual (set.union coverage) tally)
                                 documentation]))
                  (..context' context test))))
 
@@ -323,7 +329,7 @@
             ""))
 
 (def (coverage_definitions module encoding)
-  (-> Text Text (Set Symbol))
+  (-> Text Text Coverage)
   (loop (again [remaining encoding
                 output (set.of_list symbol.hash (list))])
     (case (text.split_by ..coverage_separator remaining)
@@ -363,7 +369,7 @@
   (let [coverage (..coverage_definitions module coverage)]
     (|> (..context' module test)
         (random#each (async#each (function (_ [tally documentation])
-                                   [(revised #expected_coverage (set.union coverage) tally)
+                                   [(revised #expected (set.union coverage) tally)
                                     (|> documentation
                                         (text.replaced (format ..clean_up_marker module symbol.separator) "")
                                         (text.replaced ..clean_up_marker ""))]))))))
