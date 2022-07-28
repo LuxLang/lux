@@ -628,10 +628,9 @@ This function also returns nil meaning don't specify the indentation."
   (to_do 'defun)
   (fix_me 'defun)
 
-  (property 'defun)
-  ("property'" 'defun)
+  (test 'defun)
+  ("test'" 'defun)
   (coverage 'defun)
-  ("coverage'" 'defun)
   )
 
 ;;;###autoload

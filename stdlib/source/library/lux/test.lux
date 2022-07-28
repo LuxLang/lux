@@ -33,116 +33,51 @@
     ["[0]" symbol]
     ["[0]" code (.only)
      ["<[1]>" \\parser]]
-    [macro
+    [macro (.only with_symbols)
      [syntax (.only syntax)]]]
    [world
     ["[0]" environment]
     ["[0]" console]
     [time
      ["[0]" instant]
-     ["[0]" duration (.only Duration)]]]]])
-
-(type .public Coverage
-  (Set Symbol))
-
-(type .public Tally
-  (Record
-   [#successes Nat
-    #failures Nat
-    #expected Coverage
-    #actual Coverage]))
-
-(def (total parameter subject)
-  (-> Tally Tally Tally)
-  [#successes (n.+ (the #successes parameter) (the #successes subject))
-   #failures (n.+ (the #failures parameter) (the #failures subject))
-   #expected (set.union (the #expected parameter)
-                        (the #expected subject))
-   #actual (set.union (the #actual parameter)
-                      (the #actual subject))])
-
-(def start
-  Tally
-  [#successes 0
-   #failures 0
-   #expected (set.empty symbol.hash)
-   #actual (set.empty symbol.hash)])
-
-(with_template [<name> <category>]
-  [(def <name>
-     Tally
-     (revised <category> .++ ..start))]
-
-  [success_tally #successes]
-  [failure_tally #failures]
-  )
-
-(type .public Assertion
-  (Async [Tally Text]))
+     ["[0]" duration (.only Duration)]]]]]
+ [/
+  ["//" unit]])
 
 (type .public Test
-  (Random Assertion))
-
-(def separator
-  text.new_line)
-
-(def .public (and' left right)
-  (-> Assertion Assertion Assertion)
-  (let [[read! write!] (is [(Async [Tally Text])
-                            (async.Resolver [Tally Text])]
-                           (async.async []))
-        _ (|> left
-              (async.upon! (function (_ [l_tally l_documentation])
-                             (async.upon! (function (_ [r_tally r_documentation])
-                                            (write! [(..total l_tally r_tally)
-                                                     (format l_documentation ..separator r_documentation)]))
-                                          right)))
-              io.run!)]
-    read!))
+  (Random //.Test))
 
 (def .public (and left right)
   (-> Test Test Test)
   (do [! random.monad]
     [left left]
-    (at ! each (..and' left) right)))
-
-(def (context' description)
-  (-> Text Test Test)
-  (random#each (async#each (function (_ [tally documentation])
-                             [tally (|> documentation
-                                        (text.all_split_by ..separator)
-                                        (list#each (|>> (format text.tab)))
-                                        (text.interposed ..separator)
-                                        (format description ..separator))]))))
+    (at ! each (//.and left) right)))
 
 (def .public context
   (-> Text Test Test)
-  (|>> %.text context'))
-
-(def failure_prefix "[Failure] ")
-(def success_prefix "[Success] ")
+  (|>> %.text
+       //.context
+       random#each))
 
 (def .public failure
   (-> Text Test)
-  (|>> (format ..failure_prefix)
-       [..failure_tally]
-       async#in
+  (|>> //.failure
        random#in))
 
-(def .public (assertion message condition)
-  (-> Text Bit Assertion)
-  (<| async#in
-      (if condition
-        [..success_tally (format ..success_prefix message)]
-        [..failure_tally (format ..failure_prefix message)])))
+(def .public success
+  (-> Text Test)
+  (|>> //.success
+       random#in))
 
-(def .public (property message condition)
+(def .public (test message condition)
   (-> Text Bit Test)
-  (random#in (..assertion (%.text message) condition)))
+  (random#in (//.test message condition)))
 
 (def .public (lifted message random)
   (-> Text (Random Bit) Test)
-  (random#each (..assertion (%.text message)) random))
+  (do random.monad
+    [it random]
+    (test message it)))
 
 (def pcg_32_magic_inc
   Nat
@@ -159,8 +94,11 @@
       [prng result])))
 
 (def failed?
-  (-> Tally Bit)
-  (|>> (the #failures) (n.> 0)))
+  (-> //.Tally Bit)
+  (|>> (the //.#failures) (n.> 0)))
+
+(def separator
+  text.new_line)
 
 (def (times_failure seed documentation)
   (-> Seed Text Text)
@@ -189,21 +127,21 @@
                                product.right))))])))))
 
 (def (description duration tally)
-  (-> Duration Tally Text)
-  (let [successes (the #successes tally)
-        failures (the #failures tally)
-        missing (set.difference (the #actual tally)
-                                (the #expected tally))
-        unexpected (set.difference (the #expected tally)
-                                   (the #actual tally))
-        report (is (-> Coverage Text)
+  (-> Duration //.Tally Text)
+  (let [successes (the //.#successes tally)
+        failures (the //.#failures tally)
+        missing (set.difference (the //.#actual tally)
+                                (the //.#expected tally))
+        unexpected (set.difference (the //.#expected tally)
+                                   (the //.#actual tally))
+        report (is (-> //.Coverage Text)
                    (|>> set.list
                         (list.sorted (at symbol.order <))
                         (exception.listing %.symbol)))
-        expected_coverage (set.size (the #expected tally))
+        expected_coverage (set.size (the //.#expected tally))
         unexpected_coverage (set.size unexpected)
         actual_coverage (n.- unexpected_coverage
-                             (set.size (the #actual tally)))
+                             (set.size (the //.#actual tally)))
         coverage (case expected_coverage
                    0 "N/A"
                    expected (let [missing_ratio (f./ (n.frac expected)
@@ -266,128 +204,30 @@
                       (console.write_line report console))
                <else>))]
     (async.future (at environment.default exit
-                      (case (the #failures tally)
+                      (case (the //.#failures tally)
                         0 ..success_exit_code
                         _ ..failure_exit_code)))))
 
-(def definition_separator " & ")
-
-(def clean_up_marker (text.of_char (hex "05")))
-
-(def coverage_format
-  (%.Format Symbol)
-  (|>> %.symbol (format ..clean_up_marker)))
-
-(def .public (with_coverage' coverage condition)
-  (-> (List Symbol) Bit Assertion)
-  (let [message (|> coverage
-                    (list#each ..coverage_format)
-                    (text.interposed ..definition_separator))
-        coverage (set.of_list symbol.hash coverage)]
-    (|> (..assertion message condition)
-        (async#each (function (_ [tally documentation])
-                      [(revised #actual (set.union coverage) tally)
-                       documentation])))))
-
-(def .public (with_coverage coverage condition)
-  (-> (List Symbol) Bit Test)
-  (|> (..with_coverage' coverage condition)
-      random#in))
-
-(def .public (for' coverage test)
-  (-> (List Symbol) Test Test)
-  (let [context (|> coverage
-                    (list#each ..coverage_format)
-                    (text.interposed ..definition_separator))
-        coverage (set.of_list symbol.hash coverage)]
-    (random#each (async#each (function (_ [tally documentation])
-                               [(revised #actual (set.union coverage) tally)
-                                documentation]))
-                 (..context' context test))))
-
-(def (symbol_code symbol)
-  (-> Symbol Code)
-  (code.tuple (list (code.text (symbol.module symbol))
-                    (code.text (symbol.short symbol)))))
-
-(def .public reference
-  (syntax (_ [name <code>.symbol])
-    (do meta.monad
-      [_ (meta.export name)]
-      (in (list (symbol_code name))))))
-
-(def coverage_separator
-  Text
-  (text.of_char 31))
-
-(def encoded_coverage
-  (-> (List Text) Text)
-  (list#mix (function (_ short aggregate)
-              (case aggregate
-                "" short
-                _ (format aggregate ..coverage_separator short)))
-            ""))
-
-(def (coverage_definitions module encoding)
-  (-> Text Text Coverage)
-  (loop (again [remaining encoding
-                output (set.of_list symbol.hash (list))])
-    (case (text.split_by ..coverage_separator remaining)
-      {.#Some [head tail]}
-      (again tail (set.has [module head] output))
-      
-      {.#None}
-      (set.has [module remaining] output))))
-
-(with_template [<macro> <function>]
-  [(def .public <macro>
-     (syntax (_ [coverage (<code>.tuple (<>.many <code>.any))
-                 condition <code>.any])
-       (let [coverage (list#each (function (_ definition)
-                                   (` (..reference (, definition))))
-                                 coverage)]
-         (in (list (` (<function> (is (.List .Symbol)
-                                      (.list (,* coverage)))
-                                  (, condition))))))))]
-
-  [coverage' ..with_coverage']
-  [coverage ..with_coverage]
-  )
+(def .public coverage
+  (syntax (_ [coverage <code>.any
+              condition <code>.any])
+    (in (list (` (at random.monad (,' in) (//.coverage (, coverage) (, condition))))))))
 
 (def .public for
-  (syntax (_ [coverage (<code>.tuple (<>.many <code>.any))
+  (syntax (_ [coverage <code>.any
               test <code>.any])
-    (let [coverage (list#each (function (_ definition)
-                                (` (..reference (, definition))))
-                              coverage)]
-      (in (list (` (..for' (is (.List .Symbol)
-                               (.list (,* coverage)))
-                           (, test))))))))
-
-(def .public (covering' module coverage test)
-  (-> Text Text Test Test)
-  (let [coverage (..coverage_definitions module coverage)]
-    (|> (..context' module test)
-        (random#each (async#each (function (_ [tally documentation])
-                                   [(revised #expected (set.union coverage) tally)
-                                    (|> documentation
-                                        (text.replaced (format ..clean_up_marker module symbol.separator) "")
-                                        (text.replaced ..clean_up_marker ""))]))))))
+    (in (list (` (at random.functor
+                     (,' each)
+                     (|>> (//.for (, coverage)))
+                     (, test)))))))
 
 (def .public covering
-  (syntax (_ [module <code>.symbol
+  (syntax (_ [module <code>.any
               test <code>.any])
-    (do meta.monad
-      [.let [module (symbol.module module)]
-       definitions (meta.definitions module)
-       .let [coverage (|> definitions
-                          (list#mix (function (_ [short [exported? _]] aggregate)
-                                      (if exported?
-                                        {.#Item short aggregate}
-                                        aggregate))
-                                    {.#End})
-                          ..encoded_coverage)]]
-      (in (list (` (..covering' (, (code.text module)) (, (code.text coverage)) (, test))))))))
+    (in (list (` (at random.functor
+                     (,' each)
+                     (|>> (//.covering (, module)))
+                     (, test)))))))
 
 (exception .public (error_during_execution [error Text])
   (exception.report
@@ -397,13 +237,13 @@
   (-> (List Test) Test)
   (case (list.size tests)
     0
-    (random#in (async#in [..start ""]))
+    (random#in (async#in [//.start ""]))
     
     expected_tests
     (do random.monad
       [seed random.nat
        .let [prng (random.pcg_32 [..pcg_32_magic_inc seed])
-             run! (is (-> Test Assertion)
+             run! (is (-> Test //.Test)
                       (|>> (random.result prng)
                            product.right
                            (function (_ _))
@@ -413,11 +253,11 @@
                              output
                              
                              {try.#Failure error}
-                             (..assertion (exception.error ..error_during_execution [error]) false))))
-             state (is (Atom (Dictionary Nat [Tally Text]))
+                             (//.test (exception.error ..error_during_execution [error]) false))))
+             state (is (Atom (Dictionary Nat [//.Tally Text]))
                        (atom.atom (dictionary.empty n.order)))
-             [read! write!] (is [Assertion
-                                 (async.Resolver [Tally Text])]
+             [read! write!] (is [//.Test
+                                 (async.Resolver [//.Tally Text])]
                                 (async.async []))
              _ (list#mix (function (_ test index)
                            (exec
@@ -431,7 +271,7 @@
                                                                          (list#each product.right))]
                                                       (write! [(|> assertions
                                                                    (list#each product.left)
-                                                                   (list#mix ..total ..start))
+                                                                   (list#mix //.total //.start))
                                                                (|> assertions
                                                                    (list#each product.right)
                                                                    (text.interposed ..separator))]))
