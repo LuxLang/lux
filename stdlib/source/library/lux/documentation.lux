@@ -15,13 +15,15 @@
     [collection
      ["[0]" list (.use "[1]#[0]" monad mix monoid)]
      ["[0]" set (.only Set)]
-     ["[0]" stream (.only Stream)]]
+     ["[0]" stream (.only Stream)]
+     ["[0]" dictionary (.only Dictionary)]]
     [format
      ["md" markdown (.only Markdown Block)]]]
    [math
     [number
      ["n" nat]]]
    ["[0]" meta (.only)
+    ["[0]" symbol]
     ["[0]" type (.use "[1]#[0]" equivalence)]
     ["[0]" code (.only)
      ["<[1]>" \\parser (.only Parser)]]
@@ -134,7 +136,6 @@
   Text
   (format \n \n))
 
-
 (def (fragment_documentation module fragment)
   (-> Text Fragment Text)
   (case fragment
@@ -148,20 +149,9 @@
           (..code_documentation module (has .#column reference_column location) reference_column)
           product.right))))
 
-(def parameter_name_options "abcdefghijklmnopqrstuvwxyz")
-(def parameter_name_options_count (text.size parameter_name_options))
-
-(def (parameter_type_name id)
+(def parameter_type_name
   (-> Nat Text)
-  (format "_" (%.nat id))
-  ... (case (text.char id ..parameter_name_options)
-  ...   {.#Some char}
-  ...   (text.of_char char)
-
-  ...   {.#None}
-  ...   (format (parameter_type_name (n./ parameter_name_options_count id))
-  ...           (parameter_type_name (n.% parameter_name_options_count id))))
-  )
+  (|>> %.nat (format "_")))
 
 (def type_variable_names
   (Stream Text)
@@ -565,15 +555,19 @@
 
 (.type .public Definition
   (Record
-   [#definition Text
+   [#global Symbol
     #documentation (Markdown Block)]))
 
 (.type .public Module
   (Record
    [#module Text
     #description Text
-    #expected (Set Text)
-    #definitions (List Definition)]))
+    #coverage (Set Text)]))
+
+(.type .public Documentation
+  (Variant
+   {#Definition Definition}
+   {#Module Module}))
 
 (def .public definition
   (syntax (_ [[name parameters] ..declaration
@@ -589,53 +583,46 @@
                                             (,* (list#each code.local parameters)))
                                            (,* extra))))]
       (macro.with_symbols [g!_]
-        (let [[_ short] name]
-          (in (list (` (.let [(, g!_) (.is (.-> .Any (.List ..Definition))
+        (let [[module short] name]
+          (in (list (` (.let [(, g!_) (.is (.-> .Any ..Documentation)
                                            (.function ((, g!_) (, g!_))
-                                             (.list [..#definition (, (code.text short))
-                                                     ..#documentation (,* documentation)])))]
+                                             {#Definition [..#global [(, (code.text module)) (, (code.text short))]
+                                                           ..#documentation (,* documentation)]}))]
                          ((, g!_) []))))))))))
 
 (def definitions_documentation
   (-> (List Definition) (Markdown Block))
   (|>> (list.sorted (function (_ left right)
-                      (text#< (the #definition right)
-                              (the #definition left))))
+                      (text#< (symbol.short (the #global right))
+                              (symbol.short (the #global left)))))
        (list#each (the #documentation))
        (list#mix md.then md.empty)))
 
-(def expected_separator
+(def coverage_separator
   Text
   (text.of_char 31))
 
-(def expected_format
+(def coverage_format
   (-> (List Text) Text)
   (list#mix (function (_ short aggregate)
               (case aggregate
                 "" short
-                _ (format aggregate ..expected_separator short)))
+                _ (format aggregate ..coverage_separator short)))
             ""))
 
 (`` (def .public module
       (syntax (_ [[name _] ..qualified_symbol
-                  description <code>.any
-                  definitions (<code>.tuple (<>.some <code>.any))
-                  subs (<code>.tuple (<>.some <code>.any))])
+                  description <code>.any])
         (do meta.monad
-          [expected (meta.exports name)]
-          (in (list (` (is (List Module)
-                           (list.partial [..#module (, (code.text name))
-                                          ..#description (, description)
-                                          ..#expected (|> (, (code.text (|> expected
-                                                                            (list#each product.left)
-                                                                            ..expected_format)))
-                                                          (text.all_split_by (,, (static ..expected_separator)))
-                                                          (set.of_list text.hash))
-                                          ..#definitions (list.together (list (,* definitions)))]
-                                         (all (at list.monoid (,' composite))
-                                              (is (List Module)
-                                                  (at list.monoid (,' identity)))
-                                              (,* subs)))))))))))
+          [coverage (meta.exports name)]
+          (in (list (` (is Documentation
+                           {#Module [..#module (, (code.text name))
+                                     ..#description (, description)
+                                     ..#coverage (|> (, (code.text (|> coverage
+                                                                       (list#each product.left)
+                                                                       ..coverage_format)))
+                                                     (text.all_split_by (,, (static ..coverage_separator)))
+                                                     (set.of_list text.hash))]}))))))))
 
 (def listing
   (-> (List Text) (Markdown Block))
@@ -645,31 +632,33 @@
                      {.#None}]))
        md.numbered_list))
 
-(def (module_documentation module)
-  (-> Module (Markdown Block))
+(def (module_documentation [module definitions])
+  (-> [Module (List Definition)] (Markdown Block))
   (let [(open "_[0]") module]
     (all md.then
          ... Name
          (md.heading/1 (the #module module))
+         
          ... Description
          (case (the #description module)
            "" md.empty
            description (<| md.paragraph
                            md.text
                            description))
+         
          ... Definitions
          (md.heading/2 "Definitions")
-         (|> module
-             (the #definitions)
-             (list.only (|>> (the #definition)
-                             (set.member? _#expected)))
+         (|> definitions
+             (list.only (|>> (the #global)
+                             symbol.short
+                             (set.member? _#coverage)))
              ..definitions_documentation)
+
          ... Missing documentation
-         (case (|> module
-                   (the #definitions)
+         (case (|> definitions
                    (list#mix (function (_ definition missing)
-                               (set.lacks (the #definition definition) missing))
-                             _#expected)
+                               (set.lacks (symbol.short (the #global definition)) missing))
+                             _#coverage)
                    set.list)
            {.#End}
            md.empty
@@ -678,13 +667,15 @@
            (all md.then
                 (md.heading/2 "Missing documentation")
                 (..listing missing)))
+         
          ... Un-expected documentation
-         (case (|> module
-                   (the #definitions)
-                   (list.only (|>> (the #definition)
-                                   (set.member? _#expected)
+         (case (|> definitions
+                   (list.only (|>> (the #global)
+                                   symbol.short
+                                   (set.member? _#coverage)
                                    not))
-                   (list#each (the #definition)))
+                   (list#each (|>> (the #global)
+                                   symbol.short)))
            {.#End}
            md.empty
            
@@ -695,9 +686,28 @@
          )))
 
 (def .public markdown
-  (-> (List Module) Text)
-  (|>> (list.sorted (function (_ left right)
-                      (text#< (the #module right) (the #module left))))
+  (-> (List Documentation) Text)
+  (|>> (list#mix (function (_ doc it)
+                   (case doc
+                     {#Module doc}
+                     (if (dictionary.key? it (the #module doc))
+                       it
+                       (dictionary.has (the #module doc) [doc (list)] it))
+                     
+                     {#Definition doc}
+                     (let [module (symbol.module (the #global doc))]
+                       (if (dictionary.key? it module)
+                         (dictionary.revised module
+                                             (function (_ [module defs])
+                                               [module (list.partial doc defs)])
+                                             it)
+                         it))))
+                 (is (Dictionary Text [Module (List Definition)])
+                     (dictionary.empty text.hash)))
+       dictionary.values
+       (list.sorted (function (_ left right)
+                      (text#< (the #module (product.left right))
+                              (the #module (product.left left)))))
        (list#each ..module_documentation)
        (list.interposed md.horizontal_rule)
        (list#mix md.then (is (Markdown Block) md.empty))
