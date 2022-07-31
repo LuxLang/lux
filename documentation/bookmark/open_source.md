@@ -1,6 +1,7 @@
 # Reference
 
 0. []()
+0. [Open Source Explained](https://blog.erlend.sh/open-source-explained)
 0. [Trust Signals in Open Source Projects](https://hackernoon.com/the-signs-of-a-great-open-source-project)
 0. [Awesome OSS Monetization](https://paydevs.github.io/awesome-oss-monetization/)
 0. [Open Source Guides](https://opensource.guide/)

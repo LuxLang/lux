@@ -1,15 +1,22 @@
 # Transformer
 
+0. []()
 0. [Transformers from scratch](http://www.peterbloem.nl/blog/transformers)
 
 # Exemplar
 
+0. []()
 0. https://ml5js.org/
 0. https://www.csie.ntu.edu.tw/~cjlin/libsvm/
 0. http://halide-lang.org/
 
 # Reference
 
+0. []()
+0. [Predibase: Declarative ML](https://predibase.com/)
+	0. [ludwig: Data-centric declarative deep learning framework](https://github.com/ludwig-ai/ludwig)
+	0. [horovod: Distributed training framework for TensorFlow, Keras, PyTorch, and Apache MXNet.](https://github.com/horovod/horovod)
+0. [AutoML: Automated Machine Learning](https://www.automl.org/automl/)
 0. [Why are ML Compilers so Hard?](https://petewarden.com/2021/12/24/why-are-ml-compilers-so-hard/)
 0. ["Multi-Level Intermediate Representation" Compiler Infrastructure](https://github.com/tensorflow/mlir)
 0. [Sampling can be faster than optimization](https://www.pnas.org/content/116/42/20881)
@@ -31,10 +38,12 @@
 
 # Inductive logic programming
 
+0. []()
 0. [Inductive logic programming at 30: a new introduction](https://arxiv.org/abs/2008.07912)
 
 # Deep learning
 
+0. []()
 0. [GAME2020 4. Dr. Vincent Nozick Geometric Neurons](https://www.youtube.com/watch?v=KC3c_Mdj1dk)
 0. [Evolution Strategies](https://lilianweng.github.io/lil-log/2019/09/05/evolution-strategies.html)
 0. [Monadic Deep Learning: Performing monadic automatic differentiation in parallel](https://deeplearning.thoughtworks.school/assets/paper.pdf)
@@ -51,20 +60,24 @@
 
 # Tensor
 
+0. []()
 0. http://nlp.seas.harvard.edu/NamedTensor.html
 0. http://nlp.seas.harvard.edu/NamedTensor2
 
 # Meta-learning
 
+0. []()
 0. https://blog.fastforwardlabs.com/2019/05/22/metalearners-learning-how-to-learn.html
 0. https://www.bayeswatch.com/2018/11/30/HTYM/
 0. https://bender.dreem.com/
 
 # Model
 
+0. []()
 0. http://onnx.ai/
 
 # Training
 
+0. []()
 0. https://ai.googleblog.com/2019/03/introducing-gpipe-open-source-library.html
 
