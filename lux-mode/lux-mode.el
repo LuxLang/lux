@@ -629,7 +629,6 @@ This function also returns nil meaning don't specify the indentation."
   (fix_me 'defun)
 
   (test 'defun)
-  ("test'" 'defun)
   (coverage 'defun)
   )
 

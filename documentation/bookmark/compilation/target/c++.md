@@ -23,6 +23,7 @@
 # Reference
 
 0. []()
+0. [Conan, the C/C++ Package Manager](https://conan.io/)
 0. [C++ keywords: noexcept (since C++11)](https://en.cppreference.com/w/cpp/keyword/noexcept)
 0. [alignas specifier (since C++11)](https://en.cppreference.com/w/cpp/language/alignas)
 0. [Perfect Forwarding](https://www.modernescpp.com/index.php/perfect-forwarding)
