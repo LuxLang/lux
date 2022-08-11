@@ -1,6 +1,6 @@
 (.require
  [library
-  [lux (.except case exec let if symbol)
+  [lux (.except when exec let if symbol)
    [abstract
     ["[0]" monad (.only do)]]
    [data
@@ -17,7 +17,7 @@
     [macro
      ["^" pattern]]
     [target
-     ["_" python (.only Expression SVar Statement)]]]]]
+     ["_" ruby (.only Expression LVar Statement)]]]]]
  ["[0]" //
   ["[1][0]" runtime (.only Operation Phase Generator Phase! Generator!)]
   ["[1][0]" reference]
@@ -26,7 +26,7 @@
    ["[1][0]" reference]
    ["/[1]" //
     [synthesis
-     ["[0]" case]]
+     ["[0]" when]]
     ["/[1]" //
      ["[1][0]" generation]
      ["[1][0]" synthesis (.only Synthesis Path)
@@ -37,23 +37,37 @@
        ["[1][0]" variable (.only Register)]]
       ["[1][0]" phase (.use "[1]#[0]" monad)]
       [meta
-       [archive (.only Archive)]
-       ["[0]" cache
-        [dependency
-         ["[1]" artifact]]]]]]]]])
+       [archive (.only Archive)]]]]]]])
 
 (def .public (symbol prefix)
-  (-> Text (Operation SVar))
-  (///////phase#each (|>> %.nat (format prefix) _.var)
-                     /////generation.next))
+  (-> Text (Operation LVar))
+  (///////phase#each (|>> %.nat (format prefix) _.local) /////generation.next))
 
 (def .public register
-  (-> Register SVar)
+  (-> Register LVar)
   (|>> (///reference.local //reference.system) as_expected))
 
 (def .public capture
-  (-> Register SVar)
-  (|>> (///reference.foreign //reference.system) as_expected)) 
+  (-> Register LVar)
+  (|>> (///reference.foreign //reference.system) as_expected))
+
+(def .public (exec expression archive [this that])
+  (Generator [Synthesis Synthesis])
+  (do ///////phase.monad
+    [this (expression archive this)
+     that (expression archive that)]
+    (in (|> (_.array (list this that))
+            (_.item (_.int +1))))))
+
+(def .public (exec! statement expression archive [this that])
+  (Generator! [Synthesis Synthesis])
+  (do ///////phase.monad
+    [this (expression archive this)
+     that (statement expression archive that)]
+    (in (all _.then
+             (_.statement this)
+             that
+             ))))
 
 (def .public (let expression archive [valueS register bodyS])
   (Generator [Synthesis Register Synthesis])
@@ -61,9 +75,10 @@
     [valueO (expression archive valueS)
      bodyO (expression archive bodyS)]
     ... TODO: Find some way to do 'let' without paying the price of the closure.
-    (in (_.apply (list valueO)
-                 (_.lambda (list (..register register))
-                           bodyO)))))
+    (in (|> bodyO
+            _.return
+            [(list (..register register))] (_.lambda {.#None})
+            (_.apply_lambda (list valueO))))))
 
 (def .public (let! statement expression archive [valueS register bodyS])
   (Generator! [Synthesis Register Synthesis])
@@ -73,22 +88,6 @@
     (in (all _.then
              (_.set (list (..register register)) valueO)
              bodyO))))
-
-(def .public (exec expression archive [pre post])
-  (Generator [Synthesis Synthesis])
-  (do ///////phase.monad
-    [pre (expression archive pre)
-     post (expression archive post)]
-    (in (_.item (_.int +1) (_.tuple (list pre post))))))
-
-(def .public (exec! statement expression archive [pre post])
-  (Generator! [Synthesis Synthesis])
-  (do ///////phase.monad
-    [pre (expression archive pre)
-     post (statement expression archive post)]
-    (in (all _.then
-             (_.statement pre)
-             post))))
 
 (def .public (if expression archive [testS thenS elseS])
   (Generator [Synthesis Synthesis Synthesis])
@@ -114,84 +113,92 @@
     [valueO (expression archive valueS)]
     (in (list#mix (function (_ side source)
                     (.let [method (.if (the member.#right? side)
-                                    //runtime.tuple::right
-                                    //runtime.tuple::left)]
-                      (method (_.int (.int (the member.#lefts side)))
-                              source)))
+                                    (//runtime.tuple//right (_.int (.int (the member.#lefts side))))
+                                    (//runtime.tuple//left (_.int (.int (the member.#lefts side)))))]
+                      (method source)))
                   valueO
                   (list.reversed pathP)))))
 
-(def @savepoint (_.var "lux_pm_savepoint"))
-(def @cursor (_.var "lux_pm_cursor"))
-(def @temp (_.var "lux_pm_temp"))
+(def @savepoint (_.local "lux_pm_savepoint"))
+(def @cursor (_.local "lux_pm_cursor"))
+(def @temp (_.local "lux_pm_temp"))
 
 (def (push! value)
-  (-> (Expression Any) (Statement Any))
-  (_.statement (|> @cursor (_.do "append" (list value)))))
+  (-> Expression Statement)
+  (_.statement (|> @cursor (_.do "push" (list value) {.#None}))))
 
 (def peek_and_pop
-  (Expression Any)
-  (|> @cursor (_.do "pop" (list))))
+  Expression
+  (|> @cursor (_.do "pop" (list) {.#None})))
 
 (def pop!
-  (Statement Any)
+  Statement
   (_.statement ..peek_and_pop))
 
 (def peek
-  (Expression Any)
+  Expression
   (_.item (_.int -1) @cursor))
 
 (def save!
-  (Statement Any)
-  (.let [cursor (_.slice_from (_.int +0) @cursor)]
-    (_.statement (|> @savepoint (_.do "append" (list cursor))))))
+  Statement
+  (.let [cursor (_.array_range (_.int +0) (_.int -1) @cursor)]
+    (_.statement (|> @savepoint (_.do "push" (list cursor) {.#None})))))
 
 (def restore!
-  (Statement Any)
-  (_.set (list @cursor) (|> @savepoint (_.do "pop" (list)))))
+  Statement
+  (_.set (list @cursor) (|> @savepoint (_.do "pop" (list) {.#None}))))
 
-(def fail_pm! _.break)
+(def fail! _.break)
 
 (def (multi_pop! pops)
-  (-> Nat (Statement Any))
-  (_.delete (_.slice_from (_.int (i.* -1 (.int pops))) @cursor)))
+  (-> Nat Statement)
+  (_.statement (_.do "slice!"
+                 (list (_.int (i.* -1 (.int pops)))
+                       (_.int (.int pops)))
+                 {.#None}
+                 @cursor)))
 
 (with_template [<name> <flag>]
   [(def (<name> simple? idx)
-     (-> Bit Nat (Statement Any))
+     (-> Bit Nat Statement)
      (all _.then
-          (_.set (list @temp) (//runtime.sum::get ..peek <flag>
+          (_.set (list @temp) (//runtime.sum//get ..peek <flag>
                                                   (|> idx .int _.int)))
           (.if simple?
-            (_.when (_.= _.none @temp)
-                    fail_pm!)
-            (_.if (_.= _.none @temp)
-              fail_pm!
-              (..push! @temp))
-            )))]
+            (_.when (_.= _.nil @temp)
+              fail!)
+            (_.if (_.= _.nil @temp)
+              fail!
+              (..push! @temp)))))]
 
-  [left_choice  _.none]
+  [left_choice  _.nil]
   [right_choice //runtime.unit]
   )
 
-(def (with_looping in_closure? g!once body!)
-  (-> Bit SVar (Statement Any) (Statement Any))
+(def (with_looping in_closure? g!once g!continue? body!)
+  (-> Bit LVar LVar Statement Statement)
   (.if in_closure?
-    (_.while (_.bool true)
-             body!
-             {.#None})
+    (all _.then
+         (_.while (_.bool true)
+                  body!))
     (all _.then
          (_.set (list g!once) (_.bool true))
-         (_.while g!once
-                  (all _.then
-                       (_.set (list g!once) (_.bool false))
-                       body!)
-                  {.#Some _.continue}))))
+         (_.set (list g!continue?) (_.bool false))
+         (<| (_.while (_.bool true))
+             (_.if g!once
+               (all _.then
+                    (_.set (list g!once) (_.bool false))
+                    body!)
+               (all _.then
+                    (_.set (list g!continue?) (_.bool true))
+                    _.break)))
+         (_.when g!continue?
+           _.next))))
 
-(def (alternation in_closure? g!once pre! post!)
-  (-> Bit SVar (Statement Any) (Statement Any) (Statement Any))
+(def (alternation in_closure? g!once g!continue? pre! post!)
+  (-> Bit LVar LVar Statement Statement Statement)
   (all _.then
-       (..with_looping in_closure? g!once
+       (with_looping in_closure? g!once g!continue?
          (all _.then
               ..save!
               pre!))
@@ -199,18 +206,18 @@
        post!))
 
 (def (primitive_pattern_matching again pathP)
-  (-> (-> Path (Operation (Statement Any)))
-      (-> Path (Operation (Maybe (Statement Any)))))
-  (.case pathP
+  (-> (-> Path (Operation Statement))
+      (-> Path (Operation (Maybe Statement))))
+  (.when pathP
     {/////synthesis.#Bit_Fork when thenP elseP}
     (do [! ///////phase.monad]
       [then! (again thenP)
-       else! (.case elseP
+       else! (.when elseP
                {.#Some elseP}
                (again elseP)
 
                {.#None}
-               (in ..fail_pm!))]
+               (in ..fail!))]
       (in {.#Some (.if when
                     (_.if ..peek
                       then!
@@ -230,7 +237,7 @@
                               {.#Item item})]
          (in {.#Some (list#mix (function (_ [when then] else)
                                  (_.if when then else))
-                               ..fail_pm!
+                               ..fail!
                                clauses)}))])
     ([/////synthesis.#I64_Fork (<| //primitive.i64 .int)]
      [/////synthesis.#F64_Fork (<| //primitive.f64)]
@@ -240,16 +247,16 @@
     (at ///////phase.monad in {.#None})))
 
 (def (pattern_matching' in_closure? statement expression archive)
-  (-> Bit Phase! Phase Archive Path (Operation (Statement Any)))
+  (-> Bit (Generator! Path))
   (function (again pathP)
-    (do [! ///////phase.monad]
+    (do ///////phase.monad
       [?output (primitive_pattern_matching again pathP)]
-      (.case ?output
+      (.when ?output
         {.#Some output}
         (in output)
-
+        
         {.#None}
-        (.case pathP
+        (.when pathP
           {/////synthesis.#Then bodyS}
           (statement expression archive bodyS)
 
@@ -258,6 +265,40 @@
 
           {/////synthesis.#Bind register}
           (///////phase#in (_.set (list (..register register)) ..peek))
+
+          {/////synthesis.#Bit_Fork when thenP elseP}
+          (do [! ///////phase.monad]
+            [then! (again thenP)
+             else! (.when elseP
+                     {.#Some elseP}
+                     (again elseP)
+
+                     {.#None}
+                     (in ..fail!))]
+            (in (.if when
+                  (_.if ..peek
+                    then!
+                    else!)
+                  (_.if ..peek
+                    else!
+                    then!))))
+
+          (^.with_template [<tag> <format>]
+            [{<tag> item}
+             (do [! ///////phase.monad]
+               [clauses (monad.each ! (function (_ [match then])
+                                        (at ! each
+                                            (|>> [(_.= (|> match <format>)
+                                                       ..peek)])
+                                            (again then)))
+                                    {.#Item item})]
+               (in (list#mix (function (_ [when then] else)
+                               (_.if when then else))
+                             ..fail!
+                             clauses)))])
+          ([/////synthesis.#I64_Fork (<| //primitive.i64 .int)]
+           [/////synthesis.#F64_Fork (<| //primitive.f64)]
+           [/////synthesis.#Text_Fork (<| //primitive.text)])
 
           (^.with_template [<complex> <simple> <choice>]
             [(<complex> idx)
@@ -276,87 +317,66 @@
           (^.with_template [<pm> <getter>]
             [(<pm> lefts)
              (///////phase#in (|> ..peek (<getter> (_.int (.int lefts))) ..push!))])
-          ([/////synthesis.member/left  //runtime.tuple::left]
-           [/////synthesis.member/right //runtime.tuple::right])
+          ([/////synthesis.member/left  //runtime.tuple//left]
+           [/////synthesis.member/right //runtime.tuple//right])
 
           (/////synthesis.!bind_top register thenP)
-          (do !
+          (do ///////phase.monad
             [then! (again thenP)]
             (///////phase#in (all _.then
                                   (_.set (list (..register register)) ..peek_and_pop)
                                   then!)))
 
           (/////synthesis.!multi_pop nextP)
-          (.let [[extra_pops nextP'] (case.count_pops nextP)]
-            (do !
+          (.let [[extra_pops nextP'] (when.count_pops nextP)]
+            (do ///////phase.monad
               [next! (again nextP')]
               (///////phase#in (all _.then
                                     (..multi_pop! (n.+ 2 extra_pops))
                                     next!))))
 
           (/////synthesis.path/seq preP postP)
-          (do !
+          (do ///////phase.monad
             [pre! (again preP)
              post! (again postP)]
-            (in (_.then pre! post!)))
+            (in (all _.then
+                     pre!
+                     post!)))
 
           (/////synthesis.path/alt preP postP)
-          (do !
+          (do ///////phase.monad
             [pre! (again preP)
              post! (again postP)
-             g!once (..symbol "once")]
-            (in (..alternation in_closure? g!once pre! post!)))
-
-          _
-          (undefined))))))
+             g!once (..symbol "once")
+             g!continue? (..symbol "continue")]
+            (in (..alternation in_closure? g!once g!continue? pre! post!))))))))
 
 (def (pattern_matching in_closure? statement expression archive pathP)
-  (-> Bit Phase! Phase Archive Path (Operation (Statement Any)))
+  (-> Bit (Generator! Path))
   (do ///////phase.monad
     [pattern_matching! (pattern_matching' in_closure? statement expression archive pathP)
-     g!once (..symbol "once")]
+     g!once (..symbol "once")
+     g!continue? (..symbol "continue")]
     (in (all _.then
-             (..with_looping in_closure? g!once
+             (..with_looping in_closure? g!once g!continue?
                pattern_matching!)
-             (_.raise (_.Exception/1 (_.string case.pattern_matching_error)))))))
+             (_.statement (_.raise (_.string when.pattern_matching_error)))))))
 
-(def .public dependencies
-  (-> Path (List SVar))
-  (|>> case.storage
-       (the case.#dependencies)
-       set.list
-       (list#each (function (_ variable)
-                    (.case variable
-                      {///////variable.#Local register}
-                      (..register register)
-                      
-                      {///////variable.#Foreign register}
-                      (..capture register))))))
-
-(def .public (case! in_closure? statement expression archive [valueS pathP])
+(def .public (when! in_closure? statement expression archive [valueS pathP])
   (-> Bit (Generator! [Synthesis Path]))
   (do ///////phase.monad
     [stack_init (expression archive valueS)
      pattern_matching! (pattern_matching in_closure? statement expression archive pathP)]
     (in (all _.then
-             (_.set (list @cursor) (_.list (list stack_init)))
-             (_.set (list @savepoint) (_.list (list)))
+             (_.set (list @cursor) (_.array (list stack_init)))
+             (_.set (list @savepoint) (_.array (list)))
              pattern_matching!
              ))))
 
-(def .public (case statement expression archive [valueS pathP])
+(def .public (when statement expression archive when)
   (-> Phase! (Generator [Synthesis Path]))
-  (do ///////phase.monad
-    [dependencies (cache.path_dependencies archive pathP)
-     [[case_module case_artifact] pattern_matching!] (/////generation.with_new_context
-                                                       archive
-                                                       dependencies
-                                                       (case! true statement expression archive [valueS pathP]))
-     .let [@case (_.var (///reference.artifact [case_module case_artifact]))
-           @dependencies+ (..dependencies (/////synthesis.path/seq (/////synthesis.path/then valueS)
-                                                                   pathP))
-           declaration (_.def @case @dependencies+
-                         pattern_matching!)]
-     _ (/////generation.execute! declaration)
-     _ (/////generation.save! case_artifact {.#None} declaration)]
-    (in (_.apply @dependencies+ @case))))
+  (|> when
+      (when! true statement expression archive)
+      (at ///////phase.monad each
+          (|>> [(list)] (_.lambda {.#None})
+               (_.apply_lambda (list))))))

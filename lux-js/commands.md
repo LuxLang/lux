@@ -10,8 +10,7 @@ cd ~/lux/lux-js/ \
 ```
 cd ~/lux/lux-js/ \
 && lux clean \
-&& lux with js build \
-&& mv target/program.js lux.js
+&& lux with js auto build
 
 ## Build JVM-based compiler
 cd ~/lux/lux-js/ \
