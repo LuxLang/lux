@@ -399,7 +399,6 @@ Called by `imenu--generic-function'."
 							(extension (altRE "analysis" "synthesis" "generation" "declaration"))
 							(definition (altRE "\\.require"
 											   "def" "inlined" "type"
-											   "exception"
 											   "vocabulary")))
 						(let ((control (altRE control//flow
 											  control//pattern-matching
@@ -587,7 +586,6 @@ This function also returns nil meaning don't specify the indentation."
 
   ("def" 'defun)
   ("type" 'defun)
-  ("exception" 'defun)
   ("inlined" 'defun)
   ("context" 'defun)
   ("primitive" 'defun)
