@@ -1,14 +1,17 @@
 # Multiversion Concurrency Control
 
-0. [Multiversion Concurrency Control: Theory and Algorithms](http://sungsoo.github.io/papers/bernstein-1983.pdf)
 0. []()
+0. [Multiversion Concurrency Control: Theory and Algorithms](http://sungsoo.github.io/papers/bernstein-1983.pdf)
 
 # Pagination
 
+0. []()
 0. [Pagination with Relative Cursors](https://shopify.engineering/pagination-relative-cursors)
 
 # Reference
 
+0. []()
+0. [The Slotted Counter Pattern](https://planetscale.com/blog/the-slotted-counter-pattern)
 0. ["Temporal Databases for Streaming Architectures" by Jeremy Taylor and Jon Pither](https://www.youtube.com/watch?v=ykbYNBE-V3k)
 0. ["Makings of a Modern ACID Compliant Distributed Database" by Attila Szegedi](https://www.youtube.com/watch?v=pn8mCeX3LDE)
 0. https://edgedb.com/blog/a-path-to-a-10x-database/
@@ -20,10 +23,12 @@
 
 # Data structure
 
+0. []()
 0. [The Concurrent 2-Trie](https://medium.com/@chrisvest/the-concurrent-2-trie-67deb2b57ba1)
 
 # Query
 
+0. []()
 0. ["Morel, a functional query language" by Julian Hyde](https://www.youtube.com/watch?v=smUm3C5q2IM)
 0. [Comprehending Ringads](http://lambda-the-ultimate.org/node/5525)
 0. [Reasons why SELECT * is bad for SQL performance](https://tanelpoder.com/posts/reasons-why-select-star-is-bad-for-sql-performance/)
@@ -57,6 +62,7 @@
 
 # Optimization
 
+0. []()
 0. [Hera - High Efficiency Reliable Access to data stores](https://github.com/paypal/hera)
 0. [Relaxed Operator Fusion for In-Memory Databases: Making Compilation, Vectorization, and Prefetching Work Together At Last](https://db.cs.cmu.edu/papers/2017/p1-menon.pdf)
 0. https://medium.com/connect-the-dots/optimizing-queries-in-rethinkdb-584d7f660cb
@@ -66,6 +72,7 @@
 
 # Index
 
+0. []()
 0. https://www.pilosa.com/
 0. https://en.wikipedia.org/wiki/Fractal_tree_index
 0. [Beating hash tables with trees? The ART-ful radix trie](https://www.the-paper-trail.org/post/art-paper-notes/)
@@ -76,21 +83,28 @@
 
 # Relational Algebra
 
+0. []()
 0. https://slamdata.com/what-is-multidimensional-relational-algebra/
 0. https://github.com/slamdata/purescript-mra
 
 # Time traveling
 
+0. []()
 0. https://www.arangodb.com/2018/07/time-traveling-with-graph-databases/
 
 # Data processing
+
+0. []()
 0. https://medium.com/@gauthierleonard/apache-beam-a-unified-programming-model-for-data-processing-pipelines-4de9fb6ede6d
 
 # Philosophy
+
+0. []()
 0. http://dhickey.ie/2016/01/03/commercial-suicide-integration-at-the-database-level/
 
 # Storage
 
+0. []()
 0. [Database Internals: A deep-dive into how distributed data systems work](https://www.oreilly.com/library/view/database-internals/9781492040330/)
 0. [B-Trees: More Than I Thought I'd Want to Know](https://benjamincongdon.me/blog/2021/08/17/B-Trees-More-Than-I-Thought-Id-Want-to-Know/)
 0. [Understanding LSM Trees: What Powers Write-Heavy Databases](https://yetanotherdevblog.com/lsm/)
@@ -126,6 +140,7 @@
 
 # Exemplar
 
+0. []()
 0. [Debunking “Purpose-Built Data Systems”: Enter the Universal Database](https://tiledb.com/blog/debunking-purpose-built-data-systems-enter-the-universal-database-2021-08-04)
 0. [Irmin](https://irmin.org/)
 0. [Database of Databases](https://dbdb.io/)
@@ -190,23 +205,28 @@
 
 ## Relational
 
+0. []()
 0. [dqlite: Embeddable, replicated and fault tolerant SQL engine.](https://github.com/canonical/dqlite)
 
 ## Immutable
 
+0. []()
 0. [immudb: OPEN SOURCE IMMUTABLE DATABASE](https://codenotary.com/technologies/immudb/)
 0. http://www.datomic.com/
 
 ## Data-flow
 
+0. []()
 0. [Noria: data-flow for high-performance web applications](https://github.com/mit-pdos/noria)
 
 ## Vector Database
 
+0. []()
 0. [What is a Vector Database?](https://www.pinecone.io/learn/vector-database/)
 
 ## Graph
 
+0. []()
 0. ["Asami: Turn your JSON into a Graph in 2 Lines" by Paula Gearon](https://www.youtube.com/watch?v=-XegX_K6w-o)
 0. https://github.com/hugegraph/hugegraph
 0. https://github.com/Microsoft/GraphEngine
@@ -220,45 +240,56 @@
 
 ## Column
 
+0. []()
 0. https://blog.acolyer.org/2018/09/26/the-design-and-implementation-of-modern-column-oriented-database-systems/
 
 ## Datalog
 
+0. []()
 0. [Open Source Clojure-Datalog Databases](https://clojurelog.github.io/)
 
 ## Log
 
+0. []()
 0. https://code.fb.com/core-data/logdevice-a-distributed-data-store-for-logs/
 
 ## Key-Value
 
+0. []()
 0. https://github.com/yahoo/HaloDB
 0. https://chronicle.software/products/map/
 
 ## Array
+
+0. []()
 0. [Array Databases: Concepts, Standards, Implementations](https://rd-alliance.org/system/files/Array-Databases_final-report.pdf)
 
 ## Blockchain
 
+0. []()
 0. https://flur.ee/
 
 ## Time-series
 
+0. []()
 0. https://github.com/alpacahq/marketstore
 0. https://www.outlyer.com/blog/why-not-to-build-a-time-series-database/
 
 ## GPU
 
+0. []()
 0. https://blazingdb.com/#/
 
 ## Tree
 
+0. []()
 0. A Novel Method for Representing Hierarchies in a Relational Database Using Bignums and SQLite
 
 	https://s3.amazonaws.com/pub.xhuntley.net/Huntley_Tcl2011.pdf
 
 # CQRS | Event-Sourcing
 
+0. []()
 0. [Introducing Derivative Event Sourcing](https://www.confluent.io/blog/event-sourcing-vs-derivative-event-sourcing-explained)
 0. https://blog.wallaroolabs.com/2018/06/implementing-time-windowing-in-an-evented-streaming-system/
 0. https://data-artisans.com/blog/a-practical-guide-to-broadcast-state-in-apache-flink
@@ -269,14 +300,17 @@
 
 # Architecture
 
+0. []()
 0. https://www.sqlite.org/arch.html
 
 # Criticism
 
+0. []()
 0. https://codeburst.io/doing-without-databases-in-the-21st-century-6e25cf495373
 
 # Geo-spatial
 
+0. []()
 0. H3: Uber’s Hexagonal Hierarchical Spatial Index
 
 	https://eng.uber.com/h3/
@@ -284,6 +318,8 @@
 0. https://github.com/mourner/flatbush
 
 # Transaction
+
+0. []()
 0. MixT: An embedded, domain-specific language for Mixed-Consistency Transactions
 
 	https://mpmilano.github.io/MixT/
@@ -293,30 +329,36 @@
 
 # Consistency
 
+0. []()
 0. https://jepsen.io/consistency
 0. http://muratbuffalo.blogspot.com/2018/08/the-many-faces-of-consistency.html
 0. https://fauna.com/blog/consistency-without-clocks-faunadb-transaction-protocol
 
 # P2P Networking
 
+0. []()
 0. https://medium.com/perlin-network/noise-an-opinionated-p2p-networking-stack-for-decentralized-protocols-in-go-bfc6fecf157d
 0. https://xorro-p2p.github.io/
 
 # Data Visualization
 
+0. []()
 0. https://www.tadviewer.com/
 
 # Privacy
 
+0. []()
 0. https://blog.acolyer.org/2019/06/17/towards-multiverse-databases/
 0. [Towards Multiverse Databases](https://people.csail.mit.edu/malte/pub/papers/2019-hotos-multiversedb.pdf)
 
 # Security
 
+0. []()
 0. [The ZombieLoad Pragmatist: Tips for Surviving in a Post-Meltdown World](https://www.scylladb.com/2019/05/17/the-zombieload-pragmatist/)
 
 # _Temporary cache_
 
+0. []()
 0. https://github.com/pubkey/rxdb
 0. https://hackernoon.com/execute-millions-of-sql-statements-in-milliseconds-in-the-browser-with-webassembly-and-web-workers-3e0b25c3f1a6#.w8w8qi8b3
 0. https://github.com/kripken/sql.js

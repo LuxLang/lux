@@ -1,6 +1,7 @@
 # Reference
 
 0. []()
+0. [Team organisation by capabilities](https://blog.georgovassilis.com/2021/09/25/team-organisation-by-capabilities/)
 0. [Scrum Teams are often Coached to Death, while the Problems are With Management](https://medium.com/serious-scrum/scrum-teams-are-often-coached-to-death-while-the-problems-are-with-management-60ac93bb0c1c)
 0. [Monitoring Employees Makes Them More Likely to Break Rules](https://hbr.org/2022/06/monitoring-employees-makes-them-more-likely-to-break-rules)
 0. [Why criticism lasts longer than praise](https://www.bbc.com/future/article/20220624-why-criticism-lasts-longer-than-praise)
