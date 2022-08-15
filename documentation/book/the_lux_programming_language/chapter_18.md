@@ -87,14 +87,8 @@ The first type of extension we'll see is the `Analysis` extension:
 ```clojure
 (.require
  [library
-  [lux "*"
-   [extension {"+" [analysis: synthesis: generation:]}]
-   ["@" target
-    ["[0]" jvm]
-    ["[0]" js]
-    ["[0]" python]
-    ["[0]" lua]
-    ["[0]" ruby]]
+  [lux (.only)
+   [extension (.only analysis synthesis generation)]
    [abstract
     ["[0]" monad {"+" [do]}]]
    [control
@@ -105,19 +99,26 @@ The first type of extension we'll see is the `Analysis` extension:
    [data
     [collection
      ["[0]" sequence]]]
-   [tool
-    [compiler
-     ["[0]" phase]
-     [language
-      [lux
-       ["[0]" analysis]
-       ["[0]" synthesis]
-       ["[0]" directive]
-       [phase
-        [analysis
-         ["[0]" type]]]]]]]]])
+   [meta
+    ["@" target
+     ["[0]" jvm]
+     ["[0]" js]
+     ["[0]" python]
+     ["[0]" lua]
+     ["[0]" ruby]]
+    [tool
+     [compiler
+      ["[0]" phase]
+      [language
+       [lux
+        ["[0]" analysis]
+        ["[0]" synthesis]
+        ["[0]" directive]
+        [phase
+         [analysis
+          ["[0]" type]]]]]]]]]])
 
-(analysis: ("my triple" self phase archive [elementC <code>.any])
+(analysis ("my triple" self phase archive [elementC <code>.any])
   (do phase.monad
     [[type elementA] (type.with_inference
                        (phase archive elementC))
@@ -165,14 +166,14 @@ Also, you might have noticed that, besides the input code we're parsing, our ext
 ---
 
 ```clojure
-(analysis: ("my quadruple" self phase archive [elementC <code>.any])
+(analysis ("my quadruple" self phase archive [elementC <code>.any])
   (do phase.monad
     [[type elementA] (type.with_inference
                        (phase archive elementC))
      _ (type.infer (.Tuple type type type type))]
     (in {analysis.#Extension self (list elementA)})))
 
-(synthesis: ("my quadruple" self phase archive [elementA <analysis>.any])
+(synthesis ("my quadruple" self phase archive [elementA <analysis>.any])
   (do phase.monad
     [elementS (phase archive elementA)]
     (in (synthesis.tuple (list elementS elementS elementS elementS)))))
@@ -187,14 +188,14 @@ Currently, the optimization infrastructure Lux provides is not very sophisticate
 ---
 
 ```clojure
-(analysis: ("my quintuple" self phase archive [elementC <code>.any])
+(analysis ("my quintuple" self phase archive [elementC <code>.any])
   (do phase.monad
     [[type elementA] (type.with_inference
                        (phase archive elementC))
      _ (type.infer (.Tuple type type type type type))]
     (in {analysis.#Extension self (list elementA)})))
 
-(generation: ("my quintuple" self phase archive [elementS <synthesis>.any])
+(generation ("my quintuple" self phase archive [elementS <synthesis>.any])
   (do phase.monad
     [elementG (phase archive elementS)]
     (in (for {@.jvm (row.row (#jvm.Embedded elementG)

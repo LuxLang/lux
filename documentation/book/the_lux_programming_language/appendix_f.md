@@ -1,6 +1,6 @@
 # Appendix F: Implicit polymorphism
 
-If you've used Lux's interfaces and implementations already (with the `#` macro), you've probably noticed that you need to pass around the specific implementations you need every time you want to call some interface's method.
+If you've used Lux's interfaces and implementations already (with the `at` macro), you've probably noticed that you need to pass around the specific implementations you need every time you want to call some interface's method.
 
 That can become tiresome if you need to do it all the time, and specially if you come from languages that do method-selection for you automatically.
 
@@ -24,7 +24,7 @@ At any other point, it's a hindrance.
 
 Well... there is an alternative.
 
-The Lux Standard Library includes a module called `library/lux/type/implicit`, which provides a macro called `##`, that serves as an easier-to-use alternative to the `#` macro.
+The Lux Standard Library includes a module called `library/lux/type/implicit`, which provides a macro called `a/an` (or, alternatively, `a` or `an`), that serves as an easier-to-use alternative to the `at` macro.
 
 What it does is that instead of requiring the implementation you want to use, it only requires the name of the method you want to call and the arguments.
 
@@ -32,7 +32,7 @@ Then, at compile-time, it does some type-checking and some look-ups and selects 
 
 That implementation can come from the local-var environment, from the definitions in your own module, or even from the exported definitions of the modules you're importing.
 
-That way, you can use `#` whenever you need precision and power, and use `##` whenever you're doing more lightweight programming.
+That way, you can use `at` whenever you need precision and power, and use `a/an` whenever you're doing more lightweight programming.
 
 Fantastic!
 
@@ -40,30 +40,30 @@ This is how you'd use it:
 
 ```clojure
 ... Equality for nats
-(# nat.equivalence = x y)
+(at nat.equivalence = x y)
 ... vs
-(## = x y)
+(an = x y)
 ```
 
 ```clojure
 ... Equality for lists of nats
-(# (list.equivalence nat.equivalence) =
-   (list.indices 10)
-   (list.indices 10))
+(at (list.equivalence nat.equivalence) =
+    (list.indices 10)
+    (list.indices 10))
 ... vs
-(## = (list.indices 10) (list.indices 10))
+(an = (list.indices 10) (list.indices 10))
 ```
 
 ```clojure
 ... Functor mapping
-(# list.functor each ++ (list.indices 10))
+(at list.functor each ++ (list.indices 10))
 ... vs
-(## each ++ (list.indices 10))
+(an each ++ (list.indices 10))
 ```
 
 ---
 
 Thanks to implicit polymorphism, you don't have to choose between power and ease of use.
 
-Just do a static-import of the `library/lux/type/implicit` module, and you'll get the `##` available and ready for action.
+Just do a static-import of the `library/lux/type/implicit` module, and you'll get the `a/an` available and ready for action.
 

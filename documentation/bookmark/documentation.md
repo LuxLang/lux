@@ -66,6 +66,7 @@
 # Reference
 
 0. []()
+0. [The Ultimate Guide to Writing Online](https://perell.com/essay/the-ultimate-guide-to-writing-online/)
 0. [Typst: Compose papers faster](https://typst.app/)
 0. [Mintlify Writer](https://www.mintlify.com/writer)
 0. [TimelineJS: Easy-to-make, beautiful timelines.](http://timeline.knightlab.com/)

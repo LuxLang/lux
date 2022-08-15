@@ -63,7 +63,7 @@ Well, by using types; of course!
 If you head to the `library/lux/control/io` module, you will find the following type definition:
 
 ```clojure
-(abstract: .public (IO a)
+(primitive .public (IO a)
   ...
   )
 ```

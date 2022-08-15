@@ -120,7 +120,7 @@ Also, interaction with actors is based on _message-passing_, and an actor may co
 The relevant module is the `library/lux/control/concurrency/actor` module, and the relevant type is:
 
 ```clojure
-(abstract: .public (Actor s)
+(primitive .public (Actor s)
   ...
   )
 ```
@@ -136,47 +136,27 @@ Just from this definition, it's easy to see that actors are stateful (a necessit
 To create an actor, you must first specify its `Behavior`:
 
 ```clojure
-(type: .public (Behavior o s)
-  (Record
-   [#on_init (-> o s)
-    #on_mail (-> (Mail s) s (Actor s) (Async (Try s)))]))
+(type .public (Behavior s)
+  (-> (Mail s) s (Actor s) (Async (Try s))))
 ```
 
-These functions know how to initialize an actor, and how to react to incoming mail.
+This function knows how to react to incoming mail.
 
 You can then call the `spawn!` function with an initial state and a `Behavior`.
 
 But writing complex actors with multiple options for its messages can be messy with these tools, so a macro was made to simplify that.
 
 ```clojure
-... Defines a named actor, with its behavior and internal state.
-... Messages for the actor must be defined after the on_mail handler.
-(actor: .public (stack a)
-  (List a)
+(def counter
+  (/.Behavior Nat)
+  (function (_ message state self)
+    (message state self)))
 
-  ((on_mail mail state self)
-   (do (try.with async.monad)
-     [.let [_ (debug.log! "BEFORE")]
-      output (mail state self)
-      .let [_ (debug.log! "AFTER")]]
-     (in output)))
-
-  (message: .public (push [value a] state self)
-    Nat
-    (let [state' {.#Item value state}]
-      (async.resolved {try.#Success [state' (list.size state')]}))))
-
-(actor: .public counter
-  Nat
-
-  (message: .public (count! [increment Nat] state self)
-    Any
+(def (count! increment)
+  (-> Nat (/.Message Nat Nat))
+  (function (_ state self)
     (let [state' (n.+ increment state)]
-      (async.resolved {try.#Success [state' []]})))
-
-  (message: .public (read! [] state self)
-    Nat
-    (async.resolved {try.#Success [state state]})))
+      (async#in {try.#Success [state' state']}))))
 ```
 
 For every message type you define, a function will be defined in your module with the same name, and taking the same arguments, plus the actor.

@@ -36,6 +36,7 @@
 ## Bloom filter
 
 0. []()
+0. [When Bloom filters don't bloom](https://blog.cloudflare.com/when-bloom-filters-dont-bloom/)
 0. [Sliding Bloom Filter](https://programming.guide/sliding-bloom-filter.html)
 0. [Word-aligned Bloom filters](https://lemire.me/blog/2021/10/03/word-aligned-bloom-filters/)
 0. [Bloom Filters by Example](https://llimllib.github.io/bloomfilter-tutorial/)

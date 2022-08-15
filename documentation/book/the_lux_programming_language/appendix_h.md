@@ -9,7 +9,7 @@ lux version
 
 =>
 
-00.06.05
+0.07.00
 ```
 
 This command tells you the version of Aedifex you're using.
@@ -45,7 +45,7 @@ lux deps
 
 [?] Fetching com.github.luxlang:lux-jvm-0.6.5 from "~/.m2/repository"
 [O] Found com.github.luxlang:lux-jvm-0.6.5 at "~/.m2/repository"
- Local successes: 0: "com.github.luxlang:lux-jvm-0.6.5"
+ Local successes: 0: "com.github.luxlang:lux-jvm-0.7.0"
   Local failures: 
 Remote successes: 
  Remote failures:
@@ -162,8 +162,8 @@ Now that we have seen the available commands, it would be useful to see an annot
 
  ... The following are alternative profiles to use in various situations.
  "jvm"
- [... "compiler" specifies the dependency to fetch and use as the compiler.
-  "compiler" ["com.github.luxlang" "lux-jvm" "0.6.5" "jar"]
+ [... "lux" specifies the dependency to fetch and use as the compiler.
+  "lux" ["com.github.luxlang" "lux-jvm" "0.6.5" "jar"]
   ... "dependencies" is an optional list of dependencies to fetch.
   ... The dependencies have the same shape as when specifying the compiler.
   ... When omitting the packaging format of the dependency, "tar" will be assumed.
@@ -174,37 +174,37 @@ Now that we have seen the available commands, it would be useful to see an annot
   ]
 
  "js"
- ["compiler" ["com.github.luxlang" "lux-js" "0.6.5" "js"]
+ ["lux" ["com.github.luxlang" "lux-js" "0.6.5" "js"]
   ... The OS command to use when running JS tests. The default is described below.
   ... "js" ["node" "--stack_size=8192"]
   ]
 
  "python"
- ["compiler" ["com.github.luxlang" "lux-python" "0.6.5" "jar"]
+ ["lux" ["com.github.luxlang" "lux-python" "0.6.5" "jar"]
   ... The OS command to use when running Python tests. The default is described below.
   ... "python" ["python3"]
   ]
 
  "lua"
- ["compiler" ["com.github.luxlang" "lux-lua" "0.6.5" "jar"]
+ ["lux" ["com.github.luxlang" "lux-lua" "0.6.5" "jar"]
   ... The OS command to use when running Lua tests. The default is described below.
   ... "lua" ["lua"]
   ]
 
  "ruby"
- ["compiler" ["com.github.luxlang" "lux-ruby" "0.6.5" "jar"]
+ ["lux" ["com.github.luxlang" "lux-ruby" "0.6.5" "jar"]
   ... The OS command to use when running Ruby tests. The default is described below.
   ... "ruby" ["ruby"]
   ]
 
  "bibliotheca"
  ["info" ["description" "Standard Library for the Lux programming language."]
-  "test" "test/lux"]
+  "test" test/lux._]
 
  "scriptum"
  ["info" ["description" "Documentation for the Standard Library for the Lux programming language."]
-  "program" "documentation/lux"
-  "test" "documentation/lux"]
+  "program" documentation/lux._
+  "test" documentation/lux._]
 
  "aedifex"
  ["info" ["description" "A build system/tool made exclusively for Lux."]
@@ -212,8 +212,8 @@ Now that we have seen the available commands, it would be useful to see an annot
   ... Specifying them here is like automatically using Aedifex's "with" command.
   "parents" ["jvm"]
   ... The name of the main module of the program.
-  "program" "program/aedifex"
+  "program" program/aedifex._
   ... The name of the main module where the tests are located.
-  "test" "test/aedifex"]]
+  "test" test/aedifex._]]
 ```
 

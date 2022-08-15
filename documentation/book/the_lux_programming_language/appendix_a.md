@@ -7,8 +7,8 @@ If you recall [Chapter 1](chapter_1.md), there was this example code:
 ```clojure
 (.require
  [library
-  [lux "*"
-   [program {"+" program:}]
+  [lux (.except)
+   [program (.only program)]
    ["[0]" debug]
    [control
     ["[0]" io]]]])
@@ -16,7 +16,7 @@ If you recall [Chapter 1](chapter_1.md), there was this example code:
 
 Here, we're importing the `library/lux` module.
 
-The `"*"`/`"all"` option means _locally import every definition exported by the `library/lux` module_.
+The `(.except)` option means _locally import every definition exported by the `library/lux` module_.
 
 This allows usage of those definitions without having to give them the `library/lux.` prefix, or even the `.` shortcut prefix.
 
@@ -24,11 +24,11 @@ This may cause some issues if you import 2 definitions with the same name from d
 
 In those circumstances, the compiler will complain, saying that you can't re-define `X`; where `X` is the name of the definition.
 
-Then, we import `library/lux/program`, but we **only** import locally the `program:` definition.
-That is what the `"+"`/`"only"` option allows.
+Then, we import `library/lux/program`, but we **only** import locally the `program` definition.
+That is what the `.only` option allows.
 
-	There is also a `"-"`/`"exclude"` option which means locally import everything **except** the specified definitions_.
-	You could use it like this: `[your_module {"-" foo bar baz}]`
+	There is also a `.only` option which means locally import everything **except** the specified definitions_.
+	You could use it like this: `[your_module (.except foo bar baz)]`
 
 Finally, we import both the `library/lux/debug` and `library/lux/control/io` modules.
 
@@ -56,8 +56,8 @@ The `.require` declaration could just as easily been written like this:
 
 ```clojure
 (.require
- [library/lux "*"]
- [library/lux/program {"+" program:}]
+ [library/lux (.except)]
+ [library/lux/program (.only program)]
  ["debug" library/lux/debug]
  ["io" library/lux/control/io])
 ```
@@ -75,10 +75,10 @@ For example:
 ```clojure
 (.require
  [library
-  [lux "*"
+  [lux (.except)
    [data
     [collection
-     ["[0]" list ("[1]::[0]" functor monoid)]]]]])
+     ["[0]" list (.use "[1]::[0]" functor monoid)]]]]])
 ```
 
 The import above would locally import:
@@ -107,10 +107,10 @@ For example:
 ```clojure
 (.require
  [library
-  [lux "*"
+  [lux (.except)
    [data
-    ["[0]" collection "_"
-     ["[1]/[0]" list ("[1]::[0]" functor monoid)]]]]])
+    ["[0]" collection (.only)
+     ["[1]/[0]" list (.use "[1]::[0]" functor monoid)]]]]])
 ```
 
 Would locally import:
@@ -127,10 +127,10 @@ This means:
 ```clojure
 (.require
  [library
-  [lux "*"
-   ["[0]" data "_"
+  [lux (.except)
+   ["[0]" data
     [collection
-     ["[1]/[0]" list ("[1]::[0]" functor monoid)]]]]])
+     ["[1]/[0]" list (.use "[1]::[0]" functor monoid)]]]]])
 ```
 
 Would locally import:
@@ -147,10 +147,10 @@ For example:
 ```clojure
 (.require
  [library
-  [lux "*"
+  [lux (.except)
    [data
     [collection
-     ["[0]" list {"+" repeated size} ("[1]::[0]" monad)]]]]])
+     ["[0]" list (.only repeated size) (.use "[1]::[0]" monad)]]]]])
 ```
 
 ---
@@ -180,7 +180,7 @@ You can import other modules in the hierarchy like this:
 ... In program/foo/baz
 (.require
  [library
-  [lux "*"]]
+  [lux (.except)]]
  ["[0]" /quux] ... program/foo/baz/quux, aliased as /quux
  ["[0]" //bar] ... program/foo/bar, aliased as //bar
  ["[0]" ///] ... program, aliased as ///
@@ -205,7 +205,7 @@ Also, this relative path syntax can be nested, like so:
 ... In program/foo/baz
 (.require
  [library
-  [lux "*"]]
+  [lux (.except)]]
  [/
   ["[0]" quux]] ... program/foo/baz/quux, aliased as quux
  [//
@@ -221,7 +221,7 @@ Or even:
 ... In program/foo/baz
 (.require
  [library
-  [lux "*"]]
+  [lux (.except)]]
  [/
   ["[0]" quux] ... program/foo/baz/quux, aliased as quux
   [//
@@ -242,7 +242,7 @@ For the second way to do relative imports, you can see this example:
 ... In program/foo/baz
 (.require
  [library
-  [lux "*"]]
+  [lux (.except)]]
  [\\test
   ["[0]" /] ... test/foo/baz, aliased as /
   ]

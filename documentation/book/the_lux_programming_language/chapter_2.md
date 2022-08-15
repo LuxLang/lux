@@ -84,7 +84,7 @@ Examples of directives are `.require` declarations at the top of modules, and de
 
 ## Programs
 
-Lux doesn't have special "main" functions/procedures/methods that you define, but the `program:` macro accomplishes the same thing and works similarly.
+Lux doesn't have special "main" functions/procedures/methods that you define, but the `program` macro accomplishes the same thing and works similarly.
 
 It takes a list of command-line inputs and must produce some sort of action to be performed as the program's behavior.
 
@@ -94,7 +94,7 @@ That action must be of type `(IO Any)`, which just means it is a synchronous pro
 
 Lux programs can have graphical user interfaces, and in the future they may run in various environments with much different means of interfacing with users, or other programs.
 
-But as a bare minimum, the Lux standard library provides the means to implement command-line interfaces, through the functionality in the `library/lux/control/parser/cli` module.
+But as a bare minimum, the Lux standard library provides the means to implement command-line interfaces, through the functionality in the `parser/lux/program` module.
 
 That module implements a variety of parsers for implementing rich command-line argument processing, and you should definitely take a look at it once you're ready to write your first serious Lux program.
 
@@ -114,14 +114,15 @@ In the previous chapter we compiled and ran a Lux program, but nothing has been 
 ... This will be our program's main module.
 (.require
  [library
-  [lux "*"
-   [program {"+" program:}]
+  [lux (.except)
+   [program (.only program)]
    ["[0]" debug]
    [control
     ["[0]" io]]]])
 
-(program: args
-  (io.io (debug.log! "Hello, world!")))
+(def main
+  (program args
+    (io.io (debug.log! "Hello, world!"))))
 ```
 
 The first part of this program specifies which dependencies we `require`.
@@ -136,7 +137,7 @@ Then we import the `library/lux/control/io` module. We're giving this module an 
 
 Notice how we express nested modules (up to arbitrary depths) by simply nesting in brackets.
 
-Finally, we import the `library/lux/program` module. Notice how the syntax is a bit different in this case. Here, we're saying that we don't want to locally import any definition within it, except `program:`. We use a similar syntax when importing the `library/lux` module, except with an asterisk instead of a plus sign. That just means we want to locally import all the public definitions, instead of just listing the ones we want.
+Finally, we import the `library/lux/program` module. Notice how the syntax is a bit different in this case. Here, we're saying that we don't want to locally import any definition within it, only `program`. We use a similar syntax when importing the `library/lux` module. That just means we want to locally import all the public definitions, except none.
 
 Now, let's analyse the actual code!
 

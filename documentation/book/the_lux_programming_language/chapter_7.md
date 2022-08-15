@@ -63,20 +63,20 @@ They have a list of expected member values/functions, with their associated type
 Here's an example:
 
 ```clojure
-(type: .public (Order a)
+(type .public (Order a)
   (Interface
-   (: (Equivalence a)
-      &equivalence)
+   (is (Equivalence a)
+       equivalence)
 
-   (: (-> a a Bit)
-      <)))
+   (is (-> a a Bit)
+       <)))
 ```
 
 That _interface_ definition comes from the `library/lux/abstract/order` module, and it deals with _ordered_ types; that is, types for which you can compare their values in ways that imply some sort of sequential order.
 
 It's polymorphic/parameterized because this interface must be able to adapt to any type that fits its requirements.
 
-Also, you may notice that it has a member called `&equivalence`, of type `(Equivalence a)`.
+Also, you may notice that it has a member called `equivalence`, of type `(Equivalence a)`.
 
 The reason is that interfaces can expand upon (or be based on) other interfaces (such as `Equivalence`).
 
@@ -99,12 +99,11 @@ If interfaces are record types, then that means implementations must be actual r
 Let's take a look at how you make one:
 
 ```clojure
-(implementation: .public order
+(def .public order
   (Order Frac)
-  
-  (def &equivalence ..equivalence)
-  
-  (def < ..<))
+  (implementation
+    (def equivalence ..equivalence)
+    (def < ..<)))
 ```
 
 This implementation comes from `library/lux/math/number/frac`.
@@ -116,17 +115,17 @@ For implementations, the convention is just to name them as lower-cased versions
 Here is another example, from the `library/lux/data/collection/list` module:
 
 ```clojure
-(implementation: .public monoid
+(def .public monoid
   (All (_ a)
     (Monoid (List a)))
+  (implementation
+    (def identity
+      {.#End})
     
-  (def identity
-    {.#End})
-  
-  (def (compose xs ys)
-    (case xs
-      {.#End}        ys
-      {.#Item x xs'} {.#Item x (compose xs' ys)})))
+    (def (compose xs ys)
+      (when xs
+        {.#End}        ys
+        {.#Item x xs'} {.#Item x (compose xs' ys)}))))
 ```
 
 The reason why implementations have names (besides the fact that they are definitions like any other), is that you can _usually_ construct multiple valid implementations for the same combination of interfaces and parameter types.
@@ -155,7 +154,7 @@ We've put functions and values inside our implementations.
 
 It's time to get them out and use them.
 
-There are 2 main ways to use the stuff inside your implementations: `use` and `#`.
+There are 2 main ways to use the stuff inside your implementations: `use` and `at`.
 
 Let's check them out.
 
@@ -163,11 +162,11 @@ Let's check them out.
 ... Opens an implementation and generates a definition for each of its members (including nested members).
 
 ... For example:
-(open library/lux/math/number/int.order "i::[0]")
+(use "i::[0]" library/lux/math/number/int.order)
 
 ... Will generate:
-(def .private i::= (# library/lux/math/number/int.order =))
-(def .private i::< (# library/lux/math/number/int.order <))
+(def .private i::= (at library/lux/math/number/int.order =))
+(def .private i::< (at library/lux/math/number/int.order <))
 ```
 
 The `use` macro serves as a directive that creates private/un-exported definitions in your module for every member of a particular implementation.
@@ -178,22 +177,24 @@ You may also give it an optional _aliasing pattern_ for the definitions, in case
 
 ```clojure
 ... Allows accessing the value of a implementation's member.
-(: (-> Int Text)
-   (# library/lux/math/number/int.decimal encoded))
+(is (-> Int Text)
+    (at library/lux/math/number/int.decimal encoded))
 
 ... Also allows using that value as a function.
-(# library/lux/math/number/int.decimal encoded +123)
+(at library/lux/math/number/int.decimal encoded +123)
 
 ... => "+123"
 ```
 
-`#` is for when you want to use individual parts of a implementation immediately in your code, instead of opening them first.
+`at` is for when you want to use individual parts of a implementation immediately in your code, instead of opening them first.
 
-	Psss! Did you notice `#` is _piping compatible_?
+	Psss! Did you notice `at` is _piping compatible_?
 
 Also, you don't really need to worry about boilerplate related to using implementations.
 
-There is a module called `library/lux/type/implicit` which gives you a macro called `##` for using implementations without actually specifying which one you need.
+There is a module called `library/lux/type/implicit` which gives you a macro called `a/an` for using implementations without actually specifying which one you need.
+
+	Psss! This macro also has 2 shorter aliases: `a` and `an`.
 
 The macro infers everything for you based on the types of the arguments, the expected type of the expression, and the implementations available in the environment.
 
@@ -209,9 +210,9 @@ And to exemplify it for you, here's a function from the `library/lux/abstract/mo
 (def .public (each monad f xs)
   (All (_ M a b)
     (-> (Monad M) (-> a (M b)) (List a) (M (List b))))
-  (case xs
+  (when xs
     {.#End}
-    (# monad in {.#End})
+    (at monad in {.#End})
 
     {.#Item x xs'}
     (do monad

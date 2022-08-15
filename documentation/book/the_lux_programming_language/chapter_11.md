@@ -17,14 +17,14 @@ The `library/lux/control/parser/code` module houses some powerful tools.
 For starters, it's the home of the (_code_) `Parser` type:
 
 ```clojure
-(type: .public Parser
+(type .public Parser
   (//.Parser (List Code)))
 ```
 
 Which is based on the _generic_ `Parser` type from the `library/lux/control/parser` module:
 
 ```clojure
-(type: .public (Parser s a)
+(type .public (Parser s a)
   (-> s (Try [s a])))
 ```
 
@@ -36,30 +36,31 @@ The `Parser` type works with streams of inputs instead of single elements, and i
 
 There are many such code-parsers (and combinators) in the `library/lux/control/parser/code` module, and you should definitely take a look at what's available in the documentation.
 
-Then, in the `library/lux/macro/syntax` module, there is a mechanism for defining macros: the `syntax:` macro.
+Then, in the `library/lux/macro/syntax` module, there is a mechanism for defining macros: the `syntax` macro.
 
 ```clojure
-... A more advanced way to define macros than 'macro:'.
+... A more advanced way to define macros than 'macro'.
 ... The inputs to the macro can be parsed in complex ways through the use of syntax parsers.
 ... The macro body is also (implicitly) run in the Meta monad, to save some typing.
 ... Also, the compiler state can be accessed through the *lux* binding.
-(syntax: .public (object [.let [imports (class_imports *lux*)
-                                class_vars (list)]
-                          super (opt (super_class_decl^ imports class_vars))
-                          interfaces (tuple (some (super_class_decl^ imports class_vars)))
-                          constructor_args (constructor_args^ imports class_vars)
-                          methods (some (overriden_method_def^ imports))])
-  (let [def_code ($_ text#composite "anon-class:"
-                     (spaced (list (super_class_decl$ (maybe.else object_super_class super))
-                                   (with_brackets (spaced (list#each super_class_decl$ interfaces)))
-                                   (with_brackets (spaced (list#each constructor_arg$ constructor_args)))
-                                   (with_brackets (spaced (list#each (method_def$ id) methods))))))]
-    (in (list (` ((~ (code.text def_code))))))))
+(def .public object
+  (syntax (_ [.let [imports (class_imports *lux*)
+                    class_vars (list)]
+                    super (opt (super_class_decl^ imports class_vars))
+                    interfaces (tuple (some (super_class_decl^ imports class_vars)))
+                    constructor_args (constructor_args^ imports class_vars)
+                    methods (some (overriden_method_def^ imports))])
+    (let [def_code ($_ text#composite "anon-class:"
+                       (spaced (list (super_class_decl$ (maybe.else object_super_class super))
+                                     (with_brackets (spaced (list#each super_class_decl$ interfaces)))
+                                     (with_brackets (spaced (list#each constructor_arg$ constructor_args)))
+                                     (with_brackets (spaced (list#each (method_def$ id) methods))))))]
+      (in (list (` ((, (code.text def_code)))))))))
 ```
 
 	This example is a macro for making anonymous _JVM_ classes that lives in `lux/ffi`.
 
-The difference between `macro:` and `syntax:` is that `syntax:` allows you to parse, in a structured manner, the inputs to your macro, thereby reducing considerably the complexity necessary for making _big_ macros.
+The difference between `macro` and `syntax` is that `syntax` allows you to parse, in a structured manner, the inputs to your macro, thereby reducing considerably the complexity necessary for making _big_ macros.
 
 Also, because you're using code-parsers for the hard work, you can write reusable parsers that you can share throughout your macros, if you want to have common syntax.
 
@@ -67,7 +68,7 @@ You can even compose your parsers, or use parsers from someone else's library.
 
 	There are already some small modules under `library/lux/macro/syntax/` which house some reusable code-parsers and code-generators.
 
-Additionally, `syntax:` binds the `Lux` value on a variable called `*lux*`, so you can use it during your parsing.
+Additionally, `syntax` binds the `Lux` value on a variable called `*lux*`, so you can use it during your parsing.
 
 What do those code-parsers look like?
 
@@ -78,25 +79,27 @@ Here is an example:
 
 (.require
   [library
-   [lux "*"
+   [lux (.except)
     [abstract
-     [monad {"+" do}]]
+     [monad (.only do)]]
     [control
-     ["<>" parser ("[1]#[0]" functor)
-      ["<[0]>" code {"+" Parser}]]]
+     ["<>" parser (.use "[1]#[0]" functor)]]
     [data
      ["[0]" product]
      [collection
-      ["[0]" list ("[1]#[0]" mix)]]]
-    [macro
-     [syntax {"+" syntax:}]
-     ["[0]" code]]
+      ["[0]" list (.use "[1]#[0]" mix)]]]
+    [meta
+     ["[0]" code
+      ["<[1]>" \\parser (.only Parser)]]
+     [macro
+      [syntax (.only syntax)]
+      ["[0]" code]]]
     [math
      [number
       ["n" nat]
       ["i" int]]]]])
 
-(type: Infix
+(type Infix
   (Rec Infix
     (Variant
      {#Const Code}
@@ -141,7 +144,7 @@ And here are some examples of syntax macros:
 
 (def (prefix infix)
   (-> Infix Code)
-  (case infix
+  (when infix
     {#Const value}
     value
     
@@ -149,45 +152,46 @@ And here are some examples of syntax macros:
     (code.form parts)
 
     {#Unary op subject}
-    (` ((~ op) (~ (prefix subject))))
+    (` ((, op) (, (prefix subject))))
     
     {#Binary left op right}
-    (` ((~ op) (~ (prefix right)) (~ (prefix left))))))
+    (` ((, op) (, (prefix right)) (, (prefix left))))))
 
-(syntax: .public (infix [expr ..expression])
-  (in (list (..prefix expr))))
+(def .public infix
+  (syntax (_ [expr ..expression])
+    (in (list (..prefix expr)))))
 ```
 
 ```clojure
-(syntax: .public (^stream& [patterns (<code>.form (<>.many <code>.any))
-                            body <code>.any
-                            branches (<>.some <code>.any)])
-  (with_symbols [g!stream]
-    (let [body+ (` (let [(~+ (|> patterns
-                                 (list#each (function (_ pattern)
-                                              (list (` [(~ pattern) (~ g!stream)])
-                                                    (` ((~! //.result) (~ g!stream))))))
-                                 list#conjoint))]
-                     (~ body)))]
-      (in (list& g!stream body+ branches)))))
+(def .public ^stream&
+  (syntax (_ [patterns (<code>.form (<>.many <code>.any))
+              body <code>.any
+              branches (<>.some <code>.any)])
+    (with_symbols [g!stream]
+      (let [body+ (` (let [(,* (|> patterns
+                                   (list#each (function (_ pattern)
+                                                (list (` [(, pattern) (, g!stream)])
+                                                      (` ((,! //.result) (, g!stream))))))
+                                   list#conjoint))]
+                       (, body)))]
+        (in (list& g!stream body+ branches))))))
 ```
 
 ```clojure
-(syntax: .public (cond> [_ _reversed_
-                         prev <code>.any
-                         else body^
-                         _ _reversed_
-                         branches (<>.some (<>.and body^ body^))])
-  (with_symbols [g!temp]
-    (in (list (` (let [(~ g!temp) (~ prev)]
-                   (cond (~+ (do list.monad
-                               [[test then] branches]
-                               (list (` (|> (~ g!temp) (~+ test)))
-                                     (` (|> (~ g!temp) (~+ then))))))
-                         (|> (~ g!temp) (~+ else)))))))))
+(def .public cond>
+  (syntax (_ [_ _reversed_
+              prev <code>.any
+              else body^
+              _ _reversed_
+              branches (<>.some (<>.and body^ body^))])
+    (with_symbols [g!temp]
+      (in (list (` (let [(, g!temp) (, prev)]
+                     (cond (,* (do list.monad
+                                 [[test then] branches]
+                                 (list (` (|> (, g!temp) (,* test)))
+                                       (` (|> (, g!temp) (,* then))))))
+                           (|> (, g!temp) (,* else))))))))))
 ```
-
-	By the way, the body of `syntax:` runs inside a `(do library/lux/meta.monad [] ...)` expression, so you have immediate access to `Monad`'s `in` method for simple macros, like the last one.
 
 ---
 

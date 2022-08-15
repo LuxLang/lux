@@ -40,7 +40,7 @@ cd ~/lux/stdlib/ \
 
 ```
 cd ~/lux/lux-jvm/ \
-&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-jvm -Dversion=0.7.0-SNAPSHOT -Dpackaging=jar
+&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-jvm -Dversion=0.7.0 -Dpackaging=jar
 
 cd ~/lux/lux-jvm/ && mvn deploy:deploy-file \
 -Durl=https://$NEXUS_USERNAME:$NEXUS_PASSWORD@oss.sonatype.org/content/repositories/snapshots/ \
@@ -49,5 +49,21 @@ cd ~/lux/lux-jvm/ && mvn deploy:deploy-file \
 -DartifactId=lux-jvm \
 -Dversion=0.7.0-SNAPSHOT \
 -Dpackaging=jar
+```
+
+# Release
+
+```
+LUX_VERSION=0.7.0 && \
+cd ~/lux/lux-jvm/ && \
+lein pom && \
+mv pom.xml RELEASE/lux-jvm-$LUX_VERSION.pom && \
+mv target/program.jar RELEASE/lux-jvm-$LUX_VERSION.jar && \
+cd RELEASE && \
+touch README.md && \
+zip lux-jvm-$LUX_VERSION-sources.jar README.md && \
+zip lux-jvm-$LUX_VERSION-javadoc.jar README.md && \
+rm README.md && \
+for file in *.*; do gpg -ab $file; done
 ```
 

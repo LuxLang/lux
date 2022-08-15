@@ -22,7 +22,7 @@ Let's take a look at the `project.lux` file for the Lux standard library itself.
 
 ```clojure
 [""
- ["identity" ["com.github.luxlang" "stdlib" "0.6.5"]
+ ["identity" ["com.github.luxlang" "stdlib" "0.7.0"]
 
   "deploy_repositories" ["snapshots" "https://oss.sonatype.org/content/repositories/snapshots/"
                          "releases" "https://oss.sonatype.org/service/local/staging/deploy/maven2/"]
@@ -31,11 +31,11 @@ Let's take a look at the `project.lux` file for the Lux standard library itself.
                   "https://oss.sonatype.org/service/local/staging/deploy/maven2/"]]
 
  "jvm"
- ["compiler" ["com.github.luxlang" "lux-jvm" "0.6.5" "jar"]]
+ ["lux" ["com.github.luxlang" "lux-jvm" "0.7.0" "jar"]]
 
  "bibliotheca"
- ["info" ["description" "Standard Library for the Lux programming language."]
-  "test" "test/lux"]
+ ["info" ["description" "Standard library for the Lux programming language."]
+  "test" test/lux._]
  ]
 ```
 
@@ -46,16 +46,22 @@ Here is a summary of the file:
 ```clojure
 (.require
  [library
-  ["/" lux "*"
-   [program {"+" program:}]
-   ["_" test {"+" Test}]
+  ["/" lux (.except)
+   [program (.only program)]
+   [test
+    ["_" property (.only Test)]]
    [control
     ["[0]" io]]
    ...
    ]])
 
-(program: args
-  (io.io (_.run! (_.times 100 ..test))))
+...
+...
+...
+
+(def _
+  (program args
+    (io.io (_.run! (_.times 100 ..test)))))
 
 ```
 
@@ -82,17 +88,18 @@ To know how tests work, let's take a look at one of those modules.
 ```clojure
 (.require
   [library
-   [lux "*"
-    ["_" test {"+" Test}]
+   [lux (.except)
+    [test
+     ["_" property (.only Test)]]
     [abstract
-     [monad {"+" do}]
+     [monad (.only do)]
      [\\specification
       ["$[0]" equivalence]
-      ["$[0]" functor {"+" Injection}]]]
+      ["$[0]" functor (.only Injection)]]]
     [control
      ["[0]" maybe]]
     [data
-     ["[0]" bit ("[1]#[0]" equivalence)]]
+     ["[0]" bit (.use "[1]#[0]" equivalence)]]
     [math
      ["[0]" random]
      [number
@@ -109,7 +116,7 @@ To know how tests work, let's take a look at one of those modules.
   (<| (_.covering /._)
       (_.for [/.Stack])
       (do random.monad
-        [size (# random.monad map (n.% 100) random.nat)
+        [size (at random.monad map (n.% 100) random.nat)
          sample (random.stack size random.nat)
          expected_top random.nat]
         ($_ _.and
@@ -118,37 +125,37 @@ To know how tests work, let's take a look at one of those modules.
             (_.for [/.functor]
                    ($functor.spec ..injection /.equivalence /.functor))
             
-            (_.cover [/.size]
-                     (n.= size (/.size sample)))
-            (_.cover [/.empty?]
-                     (bit#= (n.= 0 (/.size sample))
-                            (/.empty? sample)))
-            (_.cover [/.empty]
-                     (/.empty? /.empty))
-            (_.cover [/.value]
-                     (case (/.value sample)
-                       {.#None}
-                       (/.empty? sample)
-                       
-                       {.#Some _}
-                       (not (/.empty? sample))))
-            (_.cover [/.next]
-                     (case (/.next sample)
-                       {.#None}
-                       (/.empty? sample)
-                       
-                       {.#Some [top remaining]}
-                       (# (/.equivalence n.equivalence) =
-                          sample
-                          (/.top top remaining))))
-            (_.cover [/.top]
-                     (case (/.next (/.top expected_top sample))
-                       {.#Some [actual_top actual_sample]}
-                       (and (same? expected_top actual_top)
-                            (same? sample actual_sample))
-                       
-                       {.#None}
-                       false))
+            (_.coverage [/.size]
+                        (n.= size (/.size sample)))
+            (_.coverage [/.empty?]
+                        (bit#= (n.= 0 (/.size sample))
+                               (/.empty? sample)))
+            (_.coverage [/.empty]
+                        (/.empty? /.empty))
+            (_.coverage [/.value]
+                        (when (/.value sample)
+                          {.#None}
+                          (/.empty? sample)
+                          
+                          {.#Some _}
+                          (not (/.empty? sample))))
+            (_.coverage [/.next]
+                        (when (/.next sample)
+                          {.#None}
+                          (/.empty? sample)
+                          
+                          {.#Some [top remaining]}
+                          (at (/.equivalence n.equivalence) =
+                              sample
+                              (/.top top remaining))))
+            (_.coverage [/.top]
+                        (when (/.next (/.top expected_top sample))
+                          {.#Some [actual_top actual_sample]}
+                          (and (same? expected_top actual_top)
+                               (same? sample actual_sample))
+                          
+                          {.#None}
+                          false))
             ))))
 
 ```
@@ -159,7 +166,7 @@ First of all, by using the `covering` macro, you can tell the test suit to track
 
 That way, if your tests miss some _exported/public_ definitions, the report you'll get after running the tests will tell you, so you can judiciously choose to either expand your coverage, or skip covering them.
 
-The `for` and `cover` macros then signal whenever one or more definitions are being covered by a given test.
+The `for` and `coverage` macros then signal whenever one or more definitions are being covered by a given test.
 
 Lux also defines some _specifications_, which are basically parameterizable tests, which implement consistent testing for various interfaces in the standard library.
 

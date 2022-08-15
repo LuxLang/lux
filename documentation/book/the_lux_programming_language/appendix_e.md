@@ -95,7 +95,7 @@ Here are some examples from the `library/lux/ffi` module, where I have some type
 
 (def privacy_modifier^
   (Parser Privacy)
-  (let [(^open "[0]") <>.monad]
+  (let [(open "[0]") <>.monad]
     ($_ <>.or
         (<code>.this! (' "public"))
         (<code>.this! (' "private"))

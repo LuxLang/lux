@@ -37,11 +37,11 @@ That wrapper happens to be a type, as **all** `Functor` wrappers are types.
 But not just any type. You see, functors have requirements.
 
 ```clojure
-(type: .public (Functor f)
+(type .public (Functor f)
   (Interface
-   (: (All (_ a b)
-        (-> (-> a b) (f a) (f b)))
-      each)))
+   (is (All (_ a b)
+         (-> (-> a b) (f a) (f b)))
+       each)))
 ```
 
 This is the `Functor` interface, from `library/lux/abstract/functor`.
@@ -61,9 +61,10 @@ Remember that `Maybe` type we talked about?
 Let's see how it plays with `Functor`.
 
 ```clojure
-(type: .public (Maybe a)
-  {.#None}
-  {.#Some a})
+(type .public (Maybe a)
+  (Variant
+    {.#None}
+    {.#Some a}))
 ```
 
 We've seen `Maybe` before, but now we can analyse out how it's implemented.
@@ -73,13 +74,13 @@ We've seen `Maybe` before, but now we can analyse out how it's implemented.
 Here is its `Functor` implementation.
 
 ```clojure
-(implementation: .public functor
+(def .public functor
   (Functor Maybe)
-  
-  (def (each f ma)
-    (case ma
-      {.#None}   {.#None}
-      {.#Some a} {.#Some (f a)})))
+  (implementation
+    (def (each f ma)
+      (when ma
+        {.#None}   {.#None}
+        {.#Some a} {.#Some (f a)}))))
 
 ... This one lives in the library/lux/data/maybe module, though.
 ```
@@ -104,13 +105,13 @@ Oh, and remember our `iterate_list` function from [chapter 5](chapter_5.md)?
 Turns out, that's just the `Functor` implementation from `library/lux/data/collection/list`:
 
 ```clojure
-(implementation: .public functor
+(def .public functor
   (Functor List)
-  
-  (def (each f ma)
-    (case ma
-      {.#End}        {.#End}
-      {.#Item a ma'} {.#Item (f a) (each f ma')})))
+  (implementation
+    (def (each f ma)
+      (when ma
+        {.#End}        {.#End}
+        {.#Item a ma'} {.#Item (f a) (each f ma')}))))
 ```
 
 Not bad.
@@ -131,21 +132,21 @@ However, to make them really easy to use, you might want to add some extra funct
 
 One thing you may have noticed about the `Functor` interface is that you have a way to operate on functorial values, but you don't have any _standardized_ means of creating them.
 
-I mean, you can use the `list` and `list&` macros to create lists and the `.#None` and `.#Some` tags for `Maybe`, but there is no unified way for creating **any** functorial value.
+I mean, you can use the `list` and `library/lux/data/collection/list.partial` macros to create lists and the `.#None` and `.#Some` tags for `Maybe`, but there is no unified way for creating **any** functorial value.
 
 Well, let me introduce you to `Monad`:
 
 ```clojure
-(type: .public (Monad m)
+(type .public (Monad m)
   (Interface
-   (: (Functor m)
-      &functor)
-   (: (All (_ a)
-        (-> a (m a)))
-      in)
-   (: (All (_ a)
-        (-> (m (m a)) (m a)))
-      conjoint)))
+   (is (Functor m)
+       functor)
+   (is (All (_ a)
+         (-> a (m a)))
+       in)
+   (is (All (_ a)
+         (-> (m (m a)) (m a)))
+       conjoint)))
 ```
 
 This interface extends `Functor` with both the capacity to wrap a normal value `in` a functorial structure, and to join 2 layers of functorial structure into a single, `conjoint` one.
@@ -161,7 +162,7 @@ To get a taste for it, let's check out another functorial type.
 Remember what I said about error-handling?
 
 ```clojure
-(type: .public (Try a)
+(type .public (Try a)
   (Variant
    {#Failure Text}
    {#Success a}))
@@ -172,32 +173,32 @@ This type expresses errors as `Text` values (and it lives in the `library/lux/co
 Here are the relevant `Functor` and `Monad` implementations:
 
 ```clojure
-(implementation: .public functor
+(def .public functor
   (Functor Try)
-  
-  (def (each f ma)
-    (case ma
-      {#Failure msg}
-      {#Failure msg}
-      
-      {#Success datum}
-      {#Success (f datum)})))
+  (implementation
+    (def (each f ma)
+      (when ma
+        {#Failure msg}
+        {#Failure msg}
+        
+        {#Success datum}
+        {#Success (f datum)}))))
 
-(implementation: .public monad
+(def .public monad
   (Monad Try)
-  
-  (def &functor ..functor)
-
-  (def (in a)
-    {#Success a})
-
-  (def (join mma)
-    (case mma
-      {#Failure msg}
-      {#Failure msg}
-      
-      {#Success ma}
-      ma)))
+  (implementation
+    (def functor ..functor)
+    
+    (def (in a)
+      {#Success a})
+    
+    (def (join mma)
+      (when mma
+        {#Failure msg}
+        {#Failure msg}
+        
+        {#Success ma}
+        ma))))
 ```
 
 If you listen to functional programmers, you'll likely get the impression that the invention of monads rivals the invention of the wheel.
@@ -211,7 +212,7 @@ Let's see that in action:
 ```clojure
 (.require
  [library
-   [lux "*"
+   [lux (.except)
      [data
        [collection
          ["[0]" list]]]]])
@@ -232,56 +233,56 @@ _It's magic!_
 Not really. It's just the `Monad` for `List`:
 
 ```clojure
-(implementation: .public functor
+(def .public functor
   (Functor List)
-  
-  (def (each f ma)
-    (case ma
-      {.#End}
-      {.#End}
-      
-      {.#Item a ma'}
-      {.#Item (f a) (each f ma')})))
+  (implementation
+    (def (each f ma)
+      (when ma
+        {.#End}
+        {.#End}
+        
+        {.#Item a ma'}
+        {.#Item (f a) (each f ma')}))))
 
-(implementation: .public mix
+(def .public mix
   (Mix List)
-  
-  (def (mix f init xs)
-    (case xs
-      {.#End}
-      init
+  (implementation
+    (def (mix f init xs)
+      (when xs
+        {.#End}
+        init
 
-      {.#Item x xs'}
-      (mix f (f x init) xs'))))
+        {.#Item x xs'}
+        (mix f (f x init) xs')))))
 
-(implementation: .public monoid
+(def .public monoid
   (All (_ a) (Monoid (List a)))
-  
-  (def identity
-    {.#End})
-    
-  (def (composite xs ys)
-    (case xs
-      {.#End}
-      ys
+  (implementation
+    (def identity
+      {.#End})
       
-      {.#Item x xs'}
-      {.#Item x (compose xs' ys)})))
+    (def (composite xs ys)
+      (when xs
+        {.#End}
+        ys
+        
+        {.#Item x xs'}
+        {.#Item x (compose xs' ys)}))))
 
 (use "[0]" ..monoid)
 
-(implementation: .public monad
+(def .public monad
   (Monad List)
-  
-  (def &functor ..functor)
+  (implementation
+    (def functor ..functor)
 
-  (def (in a)
-    {.#Item a {.#End}})
+    (def (in a)
+      {.#Item a {.#End}})
 
-  (def (conjoint list_of_lists)
-    (mix composite
-         identity
-         (reversed list_of_lists))))
+    (def (conjoint list_of_lists)
+      (mix composite
+           identity
+           (reversed list_of_lists)))))
 
 ... The mix function is for doing incremental iterative computations.
 ... Here, we're using it to build the total output list by composing/concatenating all the input lists in our `list_of_lists`.
@@ -302,7 +303,7 @@ These macros always show up at the right time to saves us from our hurdles!
 ```clojure
 (.require
  [library
-   [lux "*"
+   [lux (.except)
      [data
        ["[0]" maybe]]]])
 

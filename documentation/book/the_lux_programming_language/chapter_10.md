@@ -51,18 +51,18 @@ But macros work with the Lux _AST_, so that's the first thing you need to master
 Check it out:
 
 ```clojure
-(type: .public Location
+(type .public Location
   (Record
    [#module Text
     #line   Nat
     #column Nat]))
 
-(type: .public (Ann m v)
+(type .public (Ann m v)
   (Record
    [#meta  m
     #datum v]))
 
-(type: .public (Code' w)
+(type .public (Code' w)
   (Variant
    {#Bit Bit}
    {#Nat Nat}
@@ -75,7 +75,7 @@ Check it out:
    {#Variant (List (w (Code' w)))}
    {#Tuple (List (w (Code' w)))}))
 
-(type: .public Code
+(type .public Code
   (Ann Location (Code' (Ann Location))))
 ```
 
@@ -128,20 +128,20 @@ The beautiful thing is that `(' (you can use the "'" #macro [to generate {arbitr
 
 ```clojure
 ... Hygienic quasi-quotation as a macro.
-... Unquote (~) and unquote-splice (~+) must also be used as forms.
+... Unquote (,) and unquote-splice (,*) must also be used as forms.
 ... All unprefixed symbols will receive their parent module's prefix if imported; otherwise will receive the prefix of the module on which the quasi-quote is being used.
-(` (def (~ name)
-     (function ((~ name) (~+ args))
-       (~ body))))
+(` (def (, name)
+     (function ((, name) (,* args))
+       (, body))))
 ```
 
 This is a variation on the `'` macro that allows you to do templating with the code you want to generate.
 
-Everything you write will be generated _as is_, except those forms which begin with `~` or `~+`.
+Everything you write will be generated _as is_, except those forms which begin with `,` or `,*`.
 
-`~` means: _evaluate this expression and use its `Code` value_.
+`,` means: _evaluate this expression and use its `Code` value_.
 
-`~+` means: _the value of this expression is a list of `Code`s, and I want to splice all of them in the surrounding `Code` node_.
+`,*` means: _the value of this expression is a list of `Code`s, and I want to splice all of them in the surrounding `Code` node_.
 
 With these tools, you can introduce a lot of complexity and customization into your code generation, which would be a major hassle if you had to build the `Code` nodes yourself.
 
@@ -153,10 +153,10 @@ With these tools, you can introduce a lot of complexity and customization into y
 
 ```clojure
 ... Unhygienic quasi-quotation as a macro.
-... Unquote (~) and unquote-splice (~+) must also be used as forms.
-(`' (def (~ name)
-      (function ((~ name) (~+ args))
-        (~ body))))
+... Unquote (,) and unquote-splice (,*) must also be used as forms.
+(`' (def (, name)
+      (function ((, name) (,* args))
+        (, body))))
 ```
 
 Finally, there is this variation, which removes the hygiene check.
@@ -170,7 +170,7 @@ Now that you know how to generate code like a pro, it's time to see how macros g
 First, let's check the type of macros:
 
 ```clojure
-(type: .public Macro
+(type .public Macro
   (primitive "#Macro"))
 ```
 
@@ -189,7 +189,7 @@ It does so by labelling macros (_type-wise_) with this funky type.
 There is, however, another type which elucidates what is going on with macros.
 
 ```clojure
-(type: .public Macro'
+(type .public Macro'
   (-> (List Code) (Meta (List Code))))
 ```
 
@@ -197,34 +197,36 @@ You might remember from the previous chapter that you can only access the `Lux` 
 
 Now, you can see how everything connects.
 
-You define macros by using the `macro:` macro (_so meta..._):
+You define macros by using the `macro` macro (_so meta..._):
 
 ```clojure
-(macro: .public (symbol tokens)
-  (case tokens
-    (^ (list [_ (.#Symbol [module name])]))
-    (# meta.monad in (list (` [(~ (code.text module)) (~ (code.text name))])))
-    
-    _
-    (meta.failure "Wrong syntax for 'symbol'.")))
+(def .public symbol
+  (macro (_ tokens)
+    (when tokens
+      (list [_ (.#Symbol [module name])])
+      (at meta.monad in (list (` [(, (code.text module)) (, (code.text name))])))
+      
+      _
+      (meta.failure "Wrong syntax for 'symbol'."))))
 ```
 
 Here's another example:
 
 ```clojure
-(macro: .public (else tokens state)
-  (case tokens
-    (^ (.list else maybe))
-    (let [g!temp (macro.symbol "")]
-      (.#Right [state (.list (` (case (~ maybe)
-                                  {.#Some (~ g!temp)}
-                                  (~ g!temp)
+(def .public else
+  (macro (_ tokens state)
+    (when tokens
+      (list else maybe)
+      (let [g!temp (macro.symbol "")]
+        (.#Right [state (.list (` (when (, maybe)
+                                    {.#Some (, g!temp)}
+                                    (, g!temp)
 
-                                  {.#None}
-                                  (~ else))))]))
+                                    {.#None}
+                                    (, else))))]))
 
-    _
-    (.#Left "Wrong syntax for else")))
+      _
+      (.#Left "Wrong syntax for else"))))
 ```
 
 	You may want to read [Appendix C](appendix_c.md) to learn about the pattern-matching macros used in these examples.
@@ -242,7 +244,7 @@ If any macros are used in the output, they will be _expanded_ further until only
 	You may be wondering what is the relationship between the `Macro` and `Macro'` types.
 	When you define a macro, you define it as a function, which is to say, a `Macro'` type.
 	But once it has been defined, it gets re-labelled as a `Macro`, so that way the Lux compiler can distinguish it from other functions.
-	This is all done for you by the `macro:` macro, so there's no need to worry about it.
+	This is all done for you by the `macro` macro, so there's no need to worry about it.
 
 ---
 

@@ -44,7 +44,7 @@ cd ~/lux/stdlib/ \
 
 ```
 cd ~/lux/lux-js/ \
-&& mvn install:install-file -Dfile=target/program.js -DgroupId=com.github.luxlang -DartifactId=lux-js -Dversion=0.7.0-SNAPSHOT -Dpackaging=js
+&& mvn install:install-file -Dfile=target/program.js -DgroupId=com.github.luxlang -DartifactId=lux-js -Dversion=0.7.0 -Dpackaging=js
 
 cd ~/lux/lux-js/ && mvn deploy:deploy-file \
 -Durl=https://$NEXUS_USERNAME:$NEXUS_PASSWORD@oss.sonatype.org/content/repositories/snapshots/ \
@@ -53,5 +53,23 @@ cd ~/lux/lux-js/ && mvn deploy:deploy-file \
 -DartifactId=lux-js \
 -Dversion=0.7.0-SNAPSHOT \
 -Dpackaging=js
+```
+
+# Release
+
+```
+LUX_PROJECT=lux-js && \
+LUX_VERSION=0.7.0 && \
+cd ~/lux/$LUX_PROJECT/ && \
+lux pom && \
+mv pom.xml RELEASE/$LUX_PROJECT-$LUX_VERSION.pom && \
+mv target/program.js RELEASE/$LUX_PROJECT-$LUX_VERSION.js && \
+cd RELEASE && \
+touch README.md && \
+zip $LUX_PROJECT-$LUX_VERSION-sources.jar README.md && \
+zip $LUX_PROJECT-$LUX_VERSION-javadoc.jar README.md && \
+zip $LUX_PROJECT-$LUX_VERSION.jar README.md && \
+rm README.md && \
+for file in *.*; do gpg -ab $file; done
 ```
 

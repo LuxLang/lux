@@ -31,9 +31,9 @@ Where `test`, `then` and `else` are arbitrary Lux expressions.
 In terms of types, it works like this:
 
 ```clojure
-(: X (if (: Bit test)
-       (: X then)
-       (: X else)))
+(is X (if (is Bit test)
+        (is X then)
+        (is X else)))
 ```
 
 Here is an example:
@@ -65,11 +65,11 @@ It looks like this:
 And, in terms of types, it looks like this:
 
 ```clojure
-(: X (cond (: Bit test-1) (: X then-1)
-           (: Bit test-2) (: X then-2)
-           ...
-           (: Bit test-n) (: X then-n)
-           (: X else)))
+(is X (cond (is Bit test-1) (is X then-1)
+            (is Bit test-2) (is X then-2)
+            ...
+            (is Bit test-n) (is X then-n)
+            (is X else)))
 ```
 
 Here is an example:
@@ -102,13 +102,13 @@ For instance, the `factorial'` function you saw in the previous chapter could ha
 ```clojure
 (def (factorial' acc n)
   (-> Nat Nat Nat)
-  (case n
+  (when n
     0 acc
     _ (factorial' (n.* n acc) (-- n))
     ))
 ```
 
-As you may imagine, `case` is the pattern-matching macro.
+As you may imagine, `when` is the pattern-matching macro.
 
 It takes the data you want to pattern-match against (in this case, the `n` variable), and then tests it against several patterns until it finds a match, in which case it executes its branch.
 
@@ -123,7 +123,7 @@ However, since it is binding a variable, that means we could have used `_` inste
 ```clojure
 (def (factorial' acc n)
   (-> Nat Nat Nat)
-  (case n
+  (when n
     0 acc
     _ (factorial' (n.* _ acc) (-- _))
     ))
@@ -141,14 +141,14 @@ Here are a couple more examples so you can see the possibilities.
 
 ```clojure
 (let [test true]
-  (case test
+  (when test
     #1 "Oh, yeah!"
     #0 "Aw, hell naw!"
    ))
 ```
 
 ```clojure
-(case (list 1 2 3)
+(when (list 1 2 3)
   {.#Item x {.#Item y {.#Item z {.#End}}}}
   {.#Some (n.+ x (n.* y z))}
 
@@ -165,25 +165,25 @@ Also, you'll notice the introduction of a new macro, called `let`.
 Its syntax looks like this:
 
 ```clojure
-(: X (let [var-1 expr-1
-           var-2 expr-2
-           ...
-           var-n expr-n]
-       (: X body)))
+(is X (let [var-1 expr-1
+            var-2 expr-2
+            ...
+            var-n expr-n]
+        (is X body)))
 ```
 
 Where the types of the variables will correspond to those of their matching expressions, and the type of the `let` expression will be the same as that of its body.
 
 Also, remember when I told you that you can use pattern-matching to bind variables?
 
-Well, guess what! `let` is implemented in terms of `case`, and it just gives you a more convenient way to bind variables than to go through all the trouble of doing pattern-matching.
+Well, guess what! `let` is implemented in terms of `when`, and it just gives you a more convenient way to bind variables than to go through all the trouble of doing pattern-matching.
 
 Now, in the second example, we're deconstructing a list in order to extract its individual elements.
 
 The `List` type is defined like this:
 
 ```clojure
-(type: (List a)
+(type (List a)
   {#End}
   {#Item a (List a)})
 ```
@@ -271,8 +271,8 @@ To see it in action, let's rewrite (once more!) our `factorial` function:
 ```clojure
 (def (factorial n)
   (-> Nat Nat)
-  (loop [acc 1
-         n n]
+  (loop (again [acc 1
+                n n])
     (if (n.= +0 n)
       acc
       (again (n.* n acc) (-- n)))))
@@ -348,7 +348,7 @@ It's time to put that theory into practice... with an example:
 ```clojure
 (def (iterate_list f list)
   (All (_ a b) (-> (-> a b) (List a) (List b)))
-  (case list
+  (when list
     {.#End}
     {.#End}
 

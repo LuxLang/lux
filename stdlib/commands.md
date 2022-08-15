@@ -31,18 +31,6 @@ cd ~/lux/stdlib/ \
 ## Deploy
 
 ```
-cd ~/lux/stdlib/ && lein install
-
-cd ~/lux/stdlib/ && mvn install:install-file -Dfile=target/library.tar -DgroupId=com.github.luxlang -DartifactId=stdlib -Dversion=0.6.0-SNAPSHOT -Dpackaging=tar
-
-cd ~/lux/stdlib/ && mvn deploy:deploy-file \
--Durl=https://USERNAME:PASSWORD@oss.sonatype.org/content/repositories/snapshots/ \
--Dfile=library.tar \
--DgroupId=com.github.luxlang \
--DartifactId=stdlib \
--Dversion=0.7.0-SNAPSHOT \
--Dpackaging=tar
-
 cd ~/lux/stdlib/ \
 && lux install
 

@@ -31,7 +31,7 @@ Sadly, the ideal world can only exist within our dreams, but (as of v0.6) steps 
 
 Currently, it is possible to write Lux programs that compile to the following target platforms:
 
-* Java Virtual Machines
+* Java virtual machines
 * JavaScript interpreters (such as browsers, and Node JS)
 * Python interpreters
 * Lua interpreters
@@ -66,16 +66,16 @@ And this also means that Lux's concurrency mechanisms work as expected on the JV
 
 In order to compile a Lux program to any of these alternative platforms, you must use a different compiler for each.
 
-An Aedifex `project.lux` file allows for a `"compiler"` option to specify (as a dependency) the compiler you wish to use.
+An Aedifex `project.lux` file allows for a `"lux"` option to specify (as a dependency) the (Lux) compiler you wish to use.
 
-This option can be omitted, in which case it will pick, as a default value: `["com.github.luxlang" "lux-jvm" "0.6.5" "jar"]`.
+This option can be omitted, in which case it will pick, as a default value: `["com.github.luxlang" "lux-jvm" "0.7.0" "jar"]`.
 
 Here are the compilers for the alternative platforms:
 
-* For JavaScript: `["com.github.luxlang" "lux-js" "0.6.5" "js"]`
-* For Python: `["com.github.luxlang" "lux-python" "0.6.5" "jar"]`
-* For Lua: `["com.github.luxlang" "lux-lua" "0.6.5" "jar"]`
-* For Ruby: `["com.github.luxlang" "lux-ruby" "0.6.5" "jar"]`
+* For JavaScript: `["com.github.luxlang" "lux-js" "0.7.0" "js"]`
+* For Python: `["com.github.luxlang" "lux-python" "0.7.0" "jar"]`
+* For Lua: `["com.github.luxlang" "lux-lua" "0.7.0" "jar"]`
+* For Ruby: `["com.github.luxlang" "lux-ruby" "0.7.0" "jar"]`
 
 You don't need to use any special command on Aedifex in order to compile Lux to any alternative platform.
 
@@ -132,40 +132,40 @@ To give you an example of `for` in action, here is a definition from the `librar
 (def .public (replaced pattern replacement template)
   (-> Text Text Text Text)
   (for [@.old
-        (:as Text
-             ("jvm invokevirtual:java.lang.String:replace:java.lang.CharSequence,java.lang.CharSequence"
-              (:as (Primitive "java.lang.String") template)
-              (:as (Primitive "java.lang.CharSequence") pattern)
-              (:as (Primitive "java.lang.CharSequence") replacement)))
+        (as Text
+            ("jvm invokevirtual:java.lang.String:replace:java.lang.CharSequence,java.lang.CharSequence"
+             (as (Primitive "java.lang.String") template)
+             (as (Primitive "java.lang.CharSequence") pattern)
+             (as (Primitive "java.lang.CharSequence") replacement)))
         @.jvm
-        (:as Text
-             ("jvm member invoke virtual" [] "java.lang.String" "replace" []
-              (:as (Primitive "java.lang.String") template)
-              ["Ljava/lang/CharSequence;" (:as (Primitive "java.lang.CharSequence") pattern)]
-              ["Ljava/lang/CharSequence;" (:as (Primitive "java.lang.CharSequence") replacement)]))
+        (as Text
+            ("jvm member invoke virtual" [] "java.lang.String" "replace" []
+             (as (Primitive "java.lang.String") template)
+             ["Ljava/lang/CharSequence;" (as (Primitive "java.lang.CharSequence") pattern)]
+             ["Ljava/lang/CharSequence;" (as (Primitive "java.lang.CharSequence") replacement)]))
         ... TODO: Comment/turn-off when generating a JS compiler using a JVM-based compiler because Nashorn's implementation of "replaceAll" is incorrect. 
         @.js
-        (:as Text
-             ("js object do" "replaceAll" template [pattern replacement]))
+        (as Text
+            ("js object do" "replaceAll" template [pattern replacement]))
         @.python
-        (:as Text
-             ("python object do" "replace" template pattern replacement))
+        (as Text
+            ("python object do" "replace" template pattern replacement))
         ... TODO @.lua
         @.ruby
-        (:as Text
-             ("ruby object do" "gsub" template pattern replacement))
+        (as Text
+            ("ruby object do" "gsub" template pattern replacement))
         @.php
-        (:as Text
-             ("php apply" (:expected ("php constant" "str_replace"))
-              pattern replacement template))
+        (as Text
+            ("php apply" (expected ("php constant" "str_replace"))
+             pattern replacement template))
         ... TODO @.scheme
         ... TODO @.common_lisp
         ... TODO @.r
         ]
        ... Inefficient default
-       (loop [left ""
-              right template]
-         (case (..split_by pattern right)
+       (loop (again [left ""
+                     right template])
+         (when (..split_by pattern right)
            {.#Some [pre post]}
            (again ($_ "lux text concat" left pre replacement) post)
 
@@ -193,7 +193,7 @@ However, it is possible to specify that a file contains code that is only meant 
 * For Lua: `foo.lua.lux`
 * For Ruby: `foo.rb.lux`
 
-If you're using, let's say, the JavaScript compiler for Lux (i.e. `["com.github.luxlang" "lux-js" "0.6.5" "js"]`), whenever you import a module as a dependency, the compiler will first look for a file with the `.js.lux` extension, and if it fails to find one, it will look for a file with the plain `.lux` extension.
+If you're using, let's say, the JavaScript compiler for Lux (i.e. `["com.github.luxlang" "lux-js" "0.7.0" "js"]`), whenever you import a module as a dependency, the compiler will first look for a file with the `.js.lux` extension, and if it fails to find one, it will look for a file with the plain `.lux` extension.
 
 _What happens if I do not have a `.js.lux` file, but I do have files with the other special extensions?_
 

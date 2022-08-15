@@ -25,7 +25,7 @@ But the Lux compiler opens itself for usage within Lux programs and provides Lux
 The `Lux` type enters the stage.
 
 ```clojure
-(type: .public Lux
+(type .public Lux
   (Rec Lux
     (Record
      [#info            Info
@@ -60,7 +60,7 @@ You can actually write computations that can read and even modify (_careful with
 
 This turns out to be massively useful when implementing a variety of powerful macros.
 
-For example, remember the `use` and `#` macros from [chapter 7](chapter_7.md)?
+For example, remember the `use` and `at` macros from [chapter 7](chapter_7.md)?
 
 They actually look up the typing information for the structures you give them to figure out the names of members and generate the code necessary to get that functionality going.
 
@@ -81,7 +81,7 @@ I won't go into detail about what's available, but you'll quickly get an idea of
 However, one thing I _will_ say is that those functions rely heavily on the `Meta` type, which is defined thusly:
 
 ```clojure
-(type: .public (Meta a)
+(type .public (Meta a)
   (-> Lux (Either Text [Lux a])))
 ```
 

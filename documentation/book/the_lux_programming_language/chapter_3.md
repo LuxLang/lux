@@ -161,62 +161,62 @@ Patience, young grasshopper. We'll talk about those in the next chapter.
 
 For now, let's talk about **types**.
 
-The type-annotation macro is called `:` (I know, _real cute_). You use it like this: `(: Some_Type some_value)`.
+The type-annotation macro is called `is`. You use it like this: `(is Some_Type some_value)`.
 
-There is also a separate macro for type-coerciones that's called `:as`, which is used the same way. However, you should probably steer clear off that one, unless you know what you're doing, since you can trick the compiler into thinking a value belongs to any type you want by using it.
+There is also a separate macro for type-coerciones that's called `as`, which is used the same way. However, you should probably steer clear off that one, unless you know what you're doing, since you can trick the compiler into thinking a value belongs to any type you want by using it.
 
 Now that we know about type annotations, I'll show you some types by giving you some valid Lux expressions:
 
 ```clojure
-(: Bit #1)
-(: Bit .true)
-(: Nat 123)
-(: Int -123)
-(: Rev .789)
-(: Frac +456.789)
-(: Text "YOLO")
+(is Bit #1)
+(is Bit .true)
+(is Nat 123)
+(is Int -123)
+(is Rev .789)
+(is Frac +456.789)
+(is Text "YOLO")
 
-(type: Some_Enum
+(type Some_Enum
   (Variant
    {#Primitive}
    {#Variant}
    {#Tuple}))
 
-(: [Int [Text Some_Enum] Bit]
-   [10 ["nested" {#Tuple}] .false])
+(is [Int [Text Some_Enum] Bit]
+    [10 ["nested" {#Tuple}] .false])
 
-(type: Quux
+(type Quux
   (Variant
    {#Foo}
    {#Bar Int Frac Text}))
 
-(: Quux {#Foo})
+(is Quux {#Foo})
 
-(: Quux {#Bar 10 +20.0 "thirty"})
+(is Quux {#Bar 10 +20.0 "thirty"})
 
-(type: Lang
+(type Lang
   (Record
    [#name Text
     #paradigm Paradigm
     #platforms (List Platform)]))
 
-(: Lang
-   [#name "Lux"
-    #paradigm {#Functional}
-    #platforms (list {#JVM})])
+(is Lang
+    [#name "Lux"
+     #paradigm {#Functional}
+     #platforms (list {#JVM})])
 
-(: Lang
-   ["Lux" {#Functional} (list {#JVM})])
+(is Lang
+    ["Lux" {#Functional} (list {#JVM})])
 
-(: [Text Paradigm (List Platform)]
-   [#name "Lux"
-    #paradigm {#Functional}
-    #platforms (list {#JVM})])
+(is [Text Paradigm (List Platform)]
+    [#name "Lux"
+     #paradigm {#Functional}
+     #platforms (list {#JVM})])
 ```
 
-    By the way, the value of a type-annotation or a type-coearcion expression is just the value being annotated/coerced. So `(: Bit #1)` simply yields `#1`.
+    By the way, the value of a type-annotation or a type-coearcion expression is just the value being annotated/coerced. So `(is Bit #1)` simply yields `#1`.
 
-_What is that `type:` thingie?_
+_What is that `type` thingie?_
 
 It's just a macro for defining types. We'll learn more about it in a future chapter.
 

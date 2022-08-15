@@ -11,15 +11,15 @@ Of course, the parser may fail, in which case the user should receive some meani
 The `library/lux/control/parser/text` library provides a type, and a host of combinators, for building and working with text parsers.
 
 ```clojure
-(type: .public Offset
+(type .public Offset
   Nat)
 
-(type: .public Parser
+(type .public Parser
   (//.Parser [Offset Text]))
 
 ... And from library/lux/control/parser
 
-(type: .public (Parser s a)
+(type .public (Parser s a)
   (-> s (Try [s a])))
 ```
 
@@ -129,11 +129,11 @@ For example:
 (regex "a(.)c")
 
 ... That means, these are the types of these regular-expressions:
-(: (Parser Text)
-   (regex "a{1,}"))
+(is (Parser Text)
+    (regex "a{1,}"))
 
-(: (Parser [Text Text])
-   (regex "a(.)c"))
+(is (Parser [Text Text])
+    (regex "a(.)c"))
 ```
 
 ---

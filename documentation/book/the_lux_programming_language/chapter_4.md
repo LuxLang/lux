@@ -23,8 +23,8 @@ What is its type?
 Well, I'm glad you asked.
 
 ```clojure
-(: (-> Nat Nat)
-   (function (plus_two x) (++ (++ x))))
+(is (-> Nat Nat)
+    (function (plus_two x) (++ (++ x))))
 ```
 
 That `->` thingie you see there is a macro for generating function types.
@@ -53,9 +53,9 @@ Well, we just need to define it!
 
 ```clojure
 (def plus_two
-  (: (-> Nat Nat)
-     (function (_ x)
-       (++ (++ x)))))
+  (is (-> Nat Nat)
+      (function (_ x)
+        (++ (++ x)))))
 ```
 
 Or, alternatively:

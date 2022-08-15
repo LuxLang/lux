@@ -28,7 +28,7 @@ cd ~/lux/stdlib/ \
 
 ```
 cd ~/lux/lux-ruby/ \
-&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-ruby -Dversion=0.7.0-SNAPSHOT -Dpackaging=jar
+&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-ruby -Dversion=0.7.0 -Dpackaging=jar
 
 cd ~/lux/lux-ruby/ && mvn deploy:deploy-file \
 -Durl=https://$NEXUS_USERNAME:$NEXUS_PASSWORD@oss.sonatype.org/content/repositories/snapshots/ \
@@ -37,5 +37,22 @@ cd ~/lux/lux-ruby/ && mvn deploy:deploy-file \
 -DartifactId=lux-ruby \
 -Dversion=0.7.0-SNAPSHOT \
 -Dpackaging=jar
+```
+
+# Release
+
+```
+LUX_PROJECT=lux-ruby && \
+LUX_VERSION=0.7.0 && \
+cd ~/lux/$LUX_PROJECT/ && \
+lux pom && \
+mv pom.xml RELEASE/$LUX_PROJECT-$LUX_VERSION.pom && \
+mv target/program.jar RELEASE/$LUX_PROJECT-$LUX_VERSION.jar && \
+cd RELEASE && \
+touch README.md && \
+zip $LUX_PROJECT-$LUX_VERSION-sources.jar README.md && \
+zip $LUX_PROJECT-$LUX_VERSION-javadoc.jar README.md && \
+rm README.md && \
+for file in *.*; do gpg -ab $file; done
 ```
 

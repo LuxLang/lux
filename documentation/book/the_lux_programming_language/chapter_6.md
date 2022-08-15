@@ -9,7 +9,7 @@ We've talked about Lux types already, but only in a very high-level way.
 On this chapter, you'll see how types are constructed, and hopefully that will give you some insight to understand better the subjects of later chapters.
 
 ```clojure
-(type: .public Type
+(type .public Type
   (Rec Type
     (Variant
      {#Primitive Text (List Type)}
@@ -124,7 +124,7 @@ So, another way of thinking of `Nothing` is as the type of failed/erroneous comp
 
 You can think of it as the super-type of all other types: the type of all values.
 
-This means that not only `(: Nat 123)`, but also `(: Any 123)`.
+This means that not only `(is Nat 123)`, but also `(is Any 123)`.
 
 This works because `Any` does not give you any specific information about a value, it only tells you that a value exists, regardless of what its specific type happens to be.
 
@@ -141,7 +141,7 @@ You might think that dummy values are, well, _dumb_, but they show up all the ti
 Consider the `Maybe` type:
 
 ```clojure
-(type: .public (Maybe a)
+(type .public (Maybe a)
   (Variant
    {#None}
    {#Some a}))
@@ -162,7 +162,7 @@ Well, `Any`thing, really.
 So the type definition for `Maybe` is equivalent to this:
 
 ```clojure
-(type: .public (Maybe a)
+(type .public (Maybe a)
   {#None Any} ... Alternatively, {#None []}
   {#Some a})
 ```
@@ -317,13 +317,13 @@ That may sound odd (if you come from Java or other languages with nominal types)
 
 `#Named` gives Lux's type-system a bit of a nominal feel for the convenience of programmers.
 
-## Regarding Error Messages
+## Regarding error messages
 
 When you get error messages from the type-checker during your coding sessions, types will show up in intuitive ways most of the time, with a few exceptions you might want to know about.
 
-Existential types show up in error messages like `⟨e:246⟩` (where 246 is the ID of the type).
+Existential types show up in error messages like `+246` (where 246 is the ID of the type).
 
-Whereas type-variables show up like `⌈v:278⌋`.
+Whereas type-variables show up like `-278`.
 
 Those types tend to show up when there are errors in the definition of some polymorphic function.
 

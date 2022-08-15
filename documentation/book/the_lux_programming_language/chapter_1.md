@@ -23,7 +23,7 @@ Lux uses a custom-made build tool named _Aedifex_ which is configured using a de
 
 To install Aedifex, go to https://github.com/LuxLang/lux/tree/master/shell and download either `lux.bat` or `lux.sh` depending on whether you're on Windows or Linux/Mac.
 
-Also [download the aedifex.jar file](https://github.com/LuxLang/lux/releases/download/0.6.5/aedifex.jar), and place it (along with either of the scripts you downloaded) somewhere in your `PATH`.
+Also [download the aedifex.jar file](https://github.com/LuxLang/lux/releases/download/0.7.0/aedifex.jar), and place it (along with either of the scripts you downloaded) somewhere in your `PATH`.
 
 Now, you'll have access to the `lux` command, which allows you to run Aedifex to build and test Lux projects.
 
@@ -43,10 +43,10 @@ These are the steps:
   "repositories" ["https://oss.sonatype.org/content/repositories/snapshots/"
                   "https://oss.sonatype.org/service/local/staging/deploy/maven2/"]
   
-  "dependencies" [["com.github.luxlang" "stdlib" "0.6.5" "tar"]]
-  "compiler" ["com.github.luxlang" "lux-jvm" "0.6.5" "jar"]
+  "dependencies" [["com.github.luxlang" "stdlib" "0.7.0" "tar"]]
+  "lux" ["com.github.luxlang" "lux-jvm" "0.7.0" "jar"]
 
-  "program" "main"]]
+  "program" main.main]]
 
 ... By default, Aedifex uses the "source" directory for finding your source-code.
 ... The file containing our program will be my_project/source/main.lux.
@@ -57,14 +57,15 @@ These are the steps:
 ```clojure
 (.require
  [library
-  [lux "*"
-   [program {"+" program:}]
+  [lux (.except)
+   [program (.only program)]
    ["[0]" debug]
    [control
     ["[0]" io]]]])
 
-(program: args
-  (io.io (debug.log! "Hello, world!")))
+(def main
+  (program args
+    (io.io (debug.log! "Hello, world!"))))
 
 ... As you can see, this is nothing more than a very simple "Hello, world!" program to test things out.
 ... Everything will be explained later in the rest of the book.
@@ -97,6 +98,10 @@ You can also explore [the Lux repository on GitHub](https://github.com/LuxLang/l
 ## Question #5: Where do I talk about Lux?
 
 The place to talk about Lux is at [the Lux forum](http://luxlang.freeforums.net/).
+
+You can also come and say hi at the [Gitter channel](https://gitter.im/LuxProgrammingLanguage/community).
+
+And, to communicate directly with me, just email me at: luxlisp@gmail.com
 
 ---
 
