@@ -26,6 +26,7 @@
     [number
      ["n" nat (.use "[1]#[0]" equivalence)]]]
    [meta
+    ["[0]" configuration (.only Configuration)]
     [type
      [primitive (.except)]]]]]
  [/
@@ -216,14 +217,15 @@
 
   (type Reservation
     [descriptor.Module module.ID])
-  
+
   (type Frozen
-    [Version module.ID (List Reservation)])
+    [Version Configuration module.ID (List Reservation)])
   
-  (def reader
+  (def parser
     (Parser ..Frozen)
     (all <>.and
          <binary>.nat
+         (<binary>.list (<>.and <binary>.text <binary>.text))
          <binary>.nat
          (<binary>.list (<>.and <binary>.text <binary>.nat))))
 
@@ -231,11 +233,12 @@
     (Format ..Frozen)
     (all \\format.and
          \\format.nat
+         (\\format.list (\\format.and \\format.text \\format.text))
          \\format.nat
          (\\format.list (\\format.and \\format.text \\format.nat))))
   
-  (def .public (export version archive)
-    (-> Version Archive Binary)
+  (def .public (export version configuration archive)
+    (-> Version Configuration Archive Binary)
     (let [(open "/[0]") (representation archive)]
       (|> /#resolver
           dictionary.entries
@@ -243,7 +246,7 @@
                       (when descriptor+document
                         {.#Some _} {.#Some [module id]}
                         {.#None} {.#None})))
-          [version /#next]
+          [version configuration /#next]
           (\\format.result ..format))))
 
   (exception.def .public (version_mismatch [expected actual])
@@ -252,12 +255,22 @@
      (list ["Expected" (%.nat expected)]
            ["Actual" (%.nat actual)])))
 
-  (def .public (import expected binary)
-    (-> Version Binary (Try Archive))
+  (exception.def .public (configuration_mismatch [expected actual])
+    (Exception [Configuration Configuration])
+    (exception.report
+     (list ["Expected" (configuration.format expected)]
+           ["Actual" (configuration.format actual)])))
+
+  (def .public (import expected_version expected_configuration binary)
+    (-> Version Configuration Binary (Try Archive))
     (do try.monad
-      [[actual next reservations] (<binary>.result ..reader binary)
-       _ (exception.assertion ..version_mismatch [expected actual]
-                              (n#= expected actual))]
+      [[actual_version actual_configuration next reservations] (<binary>.result ..parser binary)
+       _ (exception.assertion ..version_mismatch [expected_version actual_version]
+                              (n#= expected_version actual_version))
+       _ (exception.assertion ..configuration_mismatch [expected_configuration actual_configuration]
+                              (at configuration.equivalence =
+                                  expected_configuration
+                                  actual_configuration))]
       (in (abstraction
            [#next next
             #resolver (list#mix (function (_ [module id] archive)
