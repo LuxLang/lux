@@ -14,6 +14,7 @@
      ["[0]" stm (.only Var STM)]]]
    [data
     ["[0]" bit]
+    ["[0]" sum]
     ["[0]" product]
     ["[0]" binary (.only Binary)
      ["_" \\format (.only Format)]]
@@ -261,7 +262,7 @@
             [Type Type Type] (-> ///phase.Wrapper Extender)
             Import (List _io.Context) Configuration
             (Async (Try [<State+> Archive ///phase.Wrapper]))))
-      (do [! (try.with async.monad)]
+      (do [! ..monad]
         [.let [state (//init.state (the context.#host context)
                                    module
                                    compilation_configuration
@@ -646,40 +647,48 @@
                                                             new_dependencies))]
           [all_dependencies duplicates]))
 
-      (def (any|after_imports customs import! module duplicates new_dependencies archive)
+      (def (after_imports customs import! module duplicates new_dependencies archive)
         (All (_ <type_vars>
                 state document object)
           (-> (List ///.Custom) (..Importer state) descriptor.Module (Set descriptor.Module) (List descriptor.Module) Archive
-              (Async (Try [Archive (List state)]))))
-        (do [! (try.with async.monad)]
-          []
-          (if (set.empty? duplicates)
-            (when new_dependencies
-              {.#End}
-              (in [archive (list)])
+              (Async (Try [Archive (List state) (List Text)]))))
+        (if (set.empty? duplicates)
+          (when new_dependencies
+            {.#End}
+            (at ..monad in [archive (list) (list)])
 
-              {.#Item _}
-              (do !
-                [archive,state/* (|> new_dependencies
-                                     (list#each (import! customs module))
-                                     (monad.all ..monad))]
-                (in [(|> archive,state/*
-                         (list#each product.left)
-                         (list#mix archive.composite archive))
-                     (list#each product.right archive,state/*)])))
-            (async#in (exception.except ..cannot_import_twice [module duplicates])))))
+            {.#Item _}
+            (do [! async.monad]
+              [attempts (|> new_dependencies
+                            (list#each (import! customs module))
+                            (monad.all !))
+               .let [[failures successes] (sum.partition attempts)]]
+              (in {try.#Success [(|> successes
+                                     (list#each product.left)
+                                     (list#mix archive.composite archive))
+                                 (list#each product.right successes)
+                                 failures]})))
+          (async#in (exception.except ..cannot_import_twice [module duplicates]))))
 
-      (def (lux|after_imports customs import! module duplicates new_dependencies [archive state])
+      (def (after_lux_imports customs import! module duplicates new_dependencies [archive state])
         (All (_ <type_vars>)
-          (-> (List ///.Custom) Lux_Importer descriptor.Module (Set descriptor.Module) (List descriptor.Module) Lux_Context Lux_Return))
-        (do (try.with async.monad)
-          [[archive state/*] (any|after_imports customs import! module duplicates new_dependencies archive)]
-          (in [archive (when state/*
-                         {.#End}
-                         state
+          (-> (List ///.Custom) Lux_Importer descriptor.Module (Set descriptor.Module) (List descriptor.Module) Lux_Context
+              (..Return [<State+> (List Text)])))
+        (do ..monad
+          [[archive state/* errors] (after_imports customs import! module duplicates new_dependencies archive)]
+          (when errors
+            (list.partial error _)
+            (async#in {try.#Failure error})
 
-                         {.#Item _}
-                         (try.trusted (..updated_state archive state/* state)))])))
+            _
+            (in [archive
+                 (when state/*
+                   {.#End}
+                   state
+
+                   {.#Item _}
+                   (try.trusted (..updated_state archive state/* state)))
+                 errors]))))
 
       (def (next_compilation module [archive state] compilation)
         (All (_ <type_vars>)
@@ -715,34 +724,34 @@
                         compilation custom_compilation
                         all_dependencies (is (Set descriptor.Module)
                                              (set.of_list text.hash (list)))])
-            (do [! (try.with async.monad)]
+            (do [! ..monad]
               [.let [new_dependencies (the ///.#dependencies compilation)
                      [all_dependencies duplicates] (with_new_dependencies new_dependencies all_dependencies)]
-               [archive _] (any|after_imports customs import! module duplicates new_dependencies archive)]
-              (when ((the ///.#process compilation) state archive)
-                {try.#Success [state more|done]}
-                (when more|done
-                  {.#Left more}
-                  (let [continue! (sharing [state document object]
-                                    (is (///.Compilation state document object)
-                                        custom_compilation)
-                                    (is (-> (..Context state) (///.Compilation state document object) (Set descriptor.Module)
-                                            (..Return state))
-                                        (as_expected again)))]
-                    (continue! [archive state] more all_dependencies))
+               [archive _ errors] (after_imports customs import! module duplicates new_dependencies archive)]
+              (with_expansions [<cache_and_fail> (these (do !
+                                                          [_ (cache/archive.cache! (the #file_system platform) configuration context archive)]
+                                                          (async#in {try.#Failure error})))]
+                (when errors
+                  (list.partial error _)
+                  <cache_and_fail>
 
-                  {.#Right entry}
-                  (do !
-                    [.let [entry (has [archive.#module module.#descriptor descriptor.#references] all_dependencies entry)]
-                     _ (..cache_module context platform @module custom_key custom_format entry)]
-                    (async#in (do try.monad
-                                [archive (archive.has module entry archive)]
-                                (in [archive state])))))
+                  _
+                  (when ((the ///.#process compilation) state archive)
+                    {try.#Success [state more|done]}
+                    (when more|done
+                      {.#Left more}
+                      (again [archive state] more all_dependencies)
 
-                {try.#Failure error}
-                (do !
-                  [_ (cache/archive.cache! (the #file_system platform) configuration context archive)]
-                  (async#in {try.#Failure error})))))))
+                      {.#Right entry}
+                      (do !
+                        [.let [entry (has [archive.#module module.#descriptor descriptor.#references] all_dependencies entry)]
+                         _ (..cache_module context platform @module custom_key custom_format entry)]
+                        (async#in (do try.monad
+                                    [archive (archive.has module entry archive)]
+                                    (in [archive state])))))
+
+                    {try.#Failure error}
+                    <cache_and_fail>)))))))
 
       (def (lux_compiler import context platform compilation_sources configuration compiler compilation)
         (All (_ <type_vars>)
@@ -754,45 +763,45 @@
                         compilation compilation
                         all_dependencies (is (Set descriptor.Module)
                                              (set.of_list text.hash (list)))])
-            (do [! (try.with async.monad)]
+            (do [! ..monad]
               [.let [new_dependencies (the ///.#dependencies compilation)
                      [all_dependencies duplicates] (with_new_dependencies new_dependencies all_dependencies)]
-               [archive state] (lux|after_imports customs import! module duplicates new_dependencies [archive state])]
-              (when (next_compilation module [archive state] compilation)
-                {try.#Success [state more|done]}
-                (when more|done
-                  {.#Left more}
-                  (let [continue! (sharing [<type_vars>]
-                                    (is <Platform>
-                                        platform)
-                                    (is (-> Lux_Context (///.Compilation <State+> .Module Any) (Set descriptor.Module)
-                                            (Action [Archive <State+>]))
-                                        (as_expected again)))]
-                    (continue! [archive state] more all_dependencies))
+               [archive state errors] (after_lux_imports customs import! module duplicates new_dependencies [archive state])]
+              (with_expansions [<cache_and_fail> (these (do !
+                                                          [_ (cache/archive.cache! (the #file_system platform) configuration context archive)]
+                                                          (async#in {try.#Failure error})))]
+                (when errors
+                  (list.partial error _)
+                  <cache_and_fail>
 
-                  {.#Right entry}
-                  (do !
-                    [_ (let [report (..module_compilation_log module state)]
-                         (with_expansions [<else> (in (debug.log! report))]
-                           (for @.js (is (Async (Try Any))
-                                         (when console.default
-                                           {.#None}
-                                           <else>
-                                           
-                                           {.#Some console}
-                                           (console.write_line report console)))
-                                <else>)))
-                     .let [entry (has [archive.#module module.#descriptor descriptor.#references] all_dependencies entry)]
-                     _ (..cache_module context platform @module $.key $.format (as (archive.Entry .Module) entry))]
-                    (async#in (do try.monad
-                                [archive (archive.has module entry archive)]
-                                (in [archive
-                                     (..with_reset_log state)])))))
+                  _
+                  (when (next_compilation module [archive state] compilation)
+                    {try.#Success [state more|done]}
+                    (when more|done
+                      {.#Left more}
+                      (again [archive state] more all_dependencies)
 
-                {try.#Failure error}
-                (do !
-                  [_ (cache/archive.cache! (the #file_system platform) configuration context archive)]
-                  (async#in {try.#Failure error})))))))
+                      {.#Right entry}
+                      (do !
+                        [_ (let [report (..module_compilation_log module state)]
+                             (with_expansions [<else> (in (debug.log! report))]
+                               (for @.js (is (Async (Try Any))
+                                             (when console.default
+                                               {.#None}
+                                               <else>
+                                               
+                                               {.#Some console}
+                                               (console.write_line report console)))
+                                    <else>)))
+                         .let [entry (has [archive.#module module.#descriptor descriptor.#references] all_dependencies entry)]
+                         _ (..cache_module context platform @module $.key $.format (as (archive.Entry .Module) entry))]
+                        (async#in (do try.monad
+                                    [archive (archive.has module entry archive)]
+                                    (in [archive
+                                         (..with_reset_log state)])))))
+
+                    {try.#Failure error}
+                    <cache_and_fail>)))))))
 
       (for @.old (these (def Fake_State
                           Type
@@ -812,7 +821,7 @@
           (-> Import context.Context <Platform> (List _io.Context) Configuration (///.Compiler <State+> .Module Any)
               Lux_Compiler))
         (function (_ all_customs importer import! @module [archive lux_state] module)
-          (do [! (try.with async.monad)]
+          (do [! ..monad]
             [input (io.read (the #file_system platform)
                             importer
                             import
