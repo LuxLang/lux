@@ -1,4 +1,4 @@
-(def version "0.7.0")
+(def version "0.8.0-SNAPSHOT")
 (def repo "https://github.com/LuxLang/lux")
 (def sonatype "https://oss.sonatype.org")
 (def sonatype-releases (str sonatype "/service/local/staging/deploy/maven2/"))

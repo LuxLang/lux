@@ -230,7 +230,7 @@
 (def ^:const module-class-name "_")
 (def ^:const +name-separator+ ".")
 
-(def ^:const ^String version "00.07.00")
+(def ^:const ^String version "00.08.00")
 
 ;; Constructors
 (def empty-location (T ["" -1 -1]))

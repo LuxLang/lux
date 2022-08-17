@@ -13,7 +13,7 @@
     ["[0]" text (.use "[1]#[0]" equivalence)
      ["%" \\format]]
     [collection
-     ["[0]" list (.use "[1]#[0]" monad mix)]]]
+     ["[0]" list (.use "[1]#[0]" monoid monad mix)]]]
    ["[0]" meta (.only)
     ["[0]" code (.only)
      ["<[1]>" \\parser (.only Parser)]]
@@ -24,6 +24,165 @@
      [primitive (.except)]]
     ["@" target (.only)
      ["[0]" js]]]]])
+
+... These extensions must be defined this way because importing any of the modules
+... normally used when writing extensions would introduce a circular dependency
+... because the Archive type depends on Binary, and that module depends on this ffi module.
+(def extension_name
+  (syntax (_ [])
+    (do meta.monad
+      [module meta.current_module_name
+       unique_id meta.seed]
+      (in (list (code.text (%.format module " " (%.nat unique_id))))))))
+
+(def extension_analysis
+  (template (_ <name> <parameter>)
+    [{5 #1 [<name> <parameter>]}]))
+
+(def text_analysis
+  (template (_ <it>)
+    [{0 #0 {5 #1 <it>}}]))
+
+(def analysis
+  (template (_ <name> <bindings> <parser> <inputs> <body>)
+    [("lux def analysis" <name>
+      (.function (_ name phase archive inputs)
+        (.function (_ state)
+          (let [<bindings> [name phase archive state]]
+            (when (<code>.result <parser> inputs)
+              {try.#Failure error}
+              {try.#Failure (%.format "Invalid inputs for extension: " (%.text name)
+                                      text.\n error)}
+
+              {try.#Success <inputs>}
+              <body>)))))]))
+
+(def generation
+  (template (_ <name> <bindings> <inputs> <body>)
+    [("lux def generation" <name>
+      (.function (_ name phase archive inputs)
+        (.function (_ state)
+          (let [<bindings> [name phase archive state]]
+            (when inputs
+              <inputs>
+              <body>
+
+              _
+              {try.#Failure (%.format "Invalid inputs for extension: " (%.text name))})))))]))
+
+(for @.js (with_expansions [<undefined> (..extension_name)
+                            <undefined?> (..extension_name)
+                            <object> (..extension_name)
+                            <set> (..extension_name)]
+            (these (analysis <undefined>
+                     [name phase archive state]
+                     <code>.end
+                     _
+                     {try.#Success [state (extension_analysis name (list))]})
+
+                   (generation <undefined>
+                     [name phase archive state]
+                     (list)
+                     {try.#Success [state js.undefined]})
+
+                   (def .public undefined
+                     (template (undefined)
+                       [(.is ..Undefined (<undefined>))]))
+
+                   (analysis <undefined?>
+                     [name phase archive state]
+                     <code>.any
+                     it
+                     (do try.monad
+                       [[state it] (phase archive (` (.is .Any (, it))) state)]
+                       (in [state (extension_analysis name (list it))])))
+
+                   (generation <undefined?>
+                     [name phase archive state]
+                     (list it)
+                     (do try.monad
+                       [[state it] (phase archive it state)]
+                       (in [state (js.= js.undefined it)])))
+
+                   (def .public undefined?
+                     (template (undefined? <it>)
+                       [(.as .Bit (.is .Any (<undefined?> <it>)))]))
+
+                   (analysis <object>
+                     [name phase archive state]
+                     (<>.some (<>.and <code>.text <code>.any))
+                     it
+                     (do [! try.monad]
+                       [[state output] (monad.mix ! (.function (_ [key value] [state output])
+                                                      (do !
+                                                        [[state value] (phase archive (` (.is .Any (, value))) state)]
+                                                        (in [state (list.partial value (text_analysis key) output)])))
+                                                  [state (list)]
+                                                  it)]
+                       (in [state (extension_analysis name (list.reversed output))])))
+
+                   (def text_synthesis
+                     (template (_ <it>)
+                       [{0 #0 {2 #1 <it>}}]))
+
+                   (def (pairs it)
+                     (All (_ a) (-> (List a) (List [a a])))
+                     (when it
+                       (list.partial left right tail)
+                       (list.partial [left right] (pairs tail))
+                       
+                       (list)
+                       (list)
+
+                       _
+                       (.undefined)))
+
+                   (generation <object>
+                     [name phase archive state]
+                     (list.partial head_key head_value tail)
+                     (do [! try.monad]
+                       [[state output] (monad.mix !
+                                                  (.function (_ [key value] [state output])
+                                                    (when key
+                                                      (text_synthesis key)
+                                                      (do try.monad
+                                                        [[state value] (phase archive value state)]
+                                                        (in [state (list.partial [key value] output)]))
+                                                      
+                                                      _
+                                                      (.undefined)))
+                                                  [state (list)]
+                                                  (pairs (list.partial head_key head_value tail)))]
+                       (in [state (js.object (list.reversed output))])))
+
+                   (def .public object
+                     (syntax (_ [it (<>.some <code>.any)])
+                       (in (list (` (.as (..Object .Any)
+                                         (<object> (,* it))))))))
+
+                   (analysis <set>
+                     [name phase archive state]
+                     (all <>.and <code>.text <code>.any <code>.any)
+                     [field value object]
+                     (do try.monad
+                       [[state value] (phase archive (` (.is .Any (, value))) state)
+                        [state object] (phase archive (` (.is (..Object .Any) (, object))) state)]
+                       (in [state (extension_analysis name (list (text_analysis field) value object))])))
+
+                   (generation <set>
+                     [name phase archive state]
+                     (list (text_synthesis field) value object)
+                     (do try.monad
+                       [[state value] (phase archive value state)
+                        [state object] (phase archive object state)]
+                       (in [state (js.set (js.the field object) value)])))
+
+                   (def .public set
+                     (syntax (_ [field <code>.any
+                                 value <code>.any
+                                 object <code>.any])
+                       (in (list (` (.as .Any (<set> (, field) (, value) (, object))))))))
+                   )))
 
 (with_expansions [<constant> (for @.js "js constant"
                                   @.python "python constant"
@@ -44,6 +203,9 @@
                              @.python "python object get"
                              @.lua "lua object get"
                              @.ruby "ruby object get"
+                             (these))
+                  <set> (for @.lua "lua object set"
+                             @.ruby "ruby object set"
                              (these))
                   <import> (for @.python "python import"
                                 @.lua "lua import"
@@ -448,15 +610,27 @@
                g!parameters (..parameters :parameters:)
                g!class_variables (list#each code.local class_parameters)
                g!class (` ((, (code.local (maybe.else class_name alias))) (,* g!class_variables)))
-               :output: [#optional? false #mandatory g!class]]
+               :output: [#optional? false #mandatory g!class]
+               unquantified_type (` (.-> (,* (when :parameters:
+                                               (list)
+                                               (list (` .Any))
+                                               
+                                               _
+                                               (list#each ..output_type :parameters:)))
+                                         (, (|> :output:
+                                                ..output_type
+                                                (..input_type input)))))
+               quantified_type (when (list#composite g!class_variables g!input_variables)
+                                 (list)
+                                 unquantified_type
+
+                                 _
+                                 (` (.All ((, g!it) (,* g!class_variables) (,* g!input_variables))
+                                      (, unquantified_type))))]
            (` (.def ((, g!it) (,* (when g!parameters
                                     {.#End} (list g!it)
                                     _ (list#each (the #mandatory) g!parameters))))
-                (.All ((, g!it) (,* g!class_variables) (,* g!input_variables))
-                  (.-> (,* (list#each ..output_type :parameters:))
-                       (, (|> :output:
-                              ..output_type
-                              (..input_type input)))))
+                (, quantified_type)
                 (.as_expected
                  (, (<| (..input_term input)
                         (..lux_optional :output:)
@@ -465,6 +639,11 @@
                                                            (, (..imported class_name))))))
                                   [(,* (list#each ..host_optional g!parameters))]))))))))))
 
+  (def (optional_value type value)
+    (-> Optional Code Optional)
+    [#optional? (the #optional? type)
+     #mandatory value])
+  
   (def (static_field_definition import! [class_name class_parameters] alias namespace it)
     (-> (List Code) Declaration Alias Namespace (Named Output) Code)
     (let [field (the #name it)
@@ -472,18 +651,41 @@
                    (maybe.else field)
                    (..namespaced namespace class_name alias)
                    code.local)
-          :field: (the #anonymous it)]
+          :field: (the #anonymous it)
+          get (` (.as (io.IO (, (..output_type :field:)))
+                      (io.io (, (<| (lux_optional :field:)
+                                    (for @.js (` (<constant> (, (code.text (%.format (..host_path class_name) "." field)))))
+                                         @.ruby (` (<constant> (, (code.text (%.format (..host_path class_name) "::" field)))))
+                                         ... else
+                                         (` (<get> (, (code.text field))
+                                                   (, (..imported class_name))))))))))
+          set (` (.as (io.IO .Any)
+                      (io.io (, (for @.js (` (..set (, (code.text field))
+                                                    (, (host_optional (optional_value :field: (` ((,' ,) (, g!it))))))
+                                                    (.as (..Object .Any)
+                                                         (<constant> (, (code.text (..host_path class_name)))))))
+                                     @.ruby (` (<set> (, (code.text field))
+                                                      (, (host_optional (optional_value :field: (` ((,' ,) (, g!it))))))
+                                                      (<constant> (, (code.text (..host_path class_name))))))
+                                     @.python (` (<apply> (<constant> "setattr")
+                                                          [(, (..imported class_name))
+                                                           (, (code.text field))
+                                                           (, (host_optional (optional_value :field: (` ((,' ,) (, g!it))))))]))
+                                     ... else
+                                     (` (<set> (, (code.text field))
+                                               (, (host_optional (optional_value :field: (` ((,' ,) (, g!it))))))
+                                               (, (..imported class_name)))))))))]
       (` (def (, g!it)
-           (syntax ((, g!it) [])
+           (syntax ((, g!it) [(, g!it) (<>.maybe <code>.any)])
              (.at meta.monad (,' in)
                   (.list (`' (.exec
                                (,* import!)
-                               (.as (, (..output_type :field:))
-                                    (, (<| (lux_optional :field:)
-                                           (for @.js (` (<constant> (, (code.text (%.format (..host_path class_name) "." field)))))
-                                                @.ruby (` (<constant> (, (code.text (%.format (..host_path class_name) "::" field)))))
-                                                (` (<get> (, (code.text field))
-                                                          (, (..imported class_name)))))))))))))))))
+                               ((,' ,) (when (, g!it)
+                                         {.#None}
+                                         (`' (, get))
+
+                                         {.#Some (, g!it)}
+                                         (`' (, set)))))))))))))
 
   (def (virtual_field_definition [class_name class_parameters] alias namespace it)
     (-> Declaration Alias Namespace (Named Output) Code)
@@ -677,141 +879,6 @@
                                           ("js apply" ("js constant" "Object.prototype.toString.call"))
                                           (as Text)
                                           (text#= "[object process]")))
-                         (maybe.else false)))
-
-                   ... These extensions must be defined this way because importing any of the modules
-                   ... normally used when writing extensions would introduce a circular dependency
-                   ... because the Archive type depends on Binary, and that module depends on this ffi module.
-                   (def extension_name
-                     (syntax (_ [])
-                       (do meta.monad
-                         [module meta.current_module_name
-                          unique_id meta.seed]
-                         (in (list (code.text (%.format module " " (%.nat unique_id))))))))
-
-                   (with_expansions [<undefined> (..extension_name)
-                                     <undefined?> (..extension_name)
-                                     <object> (..extension_name)]
-                     (these (def extension_analysis
-                              (template (_ <name> <parameter>)
-                                [{5 #1 [<name> <parameter>]}]))
-
-                            (def text_analysis
-                              (template (_ <it>)
-                                [{0 #0 {5 #1 <it>}}]))
-
-                            (def analysis
-                              (template (_ <name> <bindings> <parser> <inputs> <body>)
-                                [("lux def analysis" <name>
-                                  (.function (_ name phase archive inputs)
-                                    (.function (_ state)
-                                      (let [<bindings> [name phase archive state]]
-                                        (when (<code>.result <parser> inputs)
-                                          {try.#Failure error}
-                                          {try.#Failure (%.format "Invalid inputs for extension: " (%.text name)
-                                                                  text.\n error)}
-
-                                          {try.#Success <inputs>}
-                                          <body>)))))]))
-
-                            (def generation
-                              (template (_ <name> <bindings> <inputs> <body>)
-                                [("lux def generation" <name>
-                                  (.function (_ name phase archive inputs)
-                                    (.function (_ state)
-                                      (let [<bindings> [name phase archive state]]
-                                        (when inputs
-                                          <inputs>
-                                          <body>
-
-                                          _
-                                          {try.#Failure (%.format "Invalid inputs for extension: " (%.text name))})))))]))
-
-                            (analysis <undefined>
-                              [name phase archive state]
-                              <code>.end
-                              _
-                              {try.#Success [state (extension_analysis name (list))]})
-
-                            (generation <undefined>
-                              [name phase archive state]
-                              (list)
-                              {try.#Success [state js.undefined]})
-
-                            (def .public undefined
-                              (template (undefined)
-                                [(.is ..Undefined (<undefined>))]))
-
-                            (analysis <undefined?>
-                              [name phase archive state]
-                              <code>.any
-                              it
-                              (do try.monad
-                                [[state it] (phase archive (` (.is .Any (, it))) state)]
-                                (in [state (extension_analysis name (list it))])))
-
-                            (generation <undefined?>
-                              [name phase archive state]
-                              (list it)
-                              (do try.monad
-                                [[state it] (phase archive it state)]
-                                (in [state (js.= js.undefined it)])))
-
-                            (def .public undefined?
-                              (template (undefined? <it>)
-                                [(.as .Bit (.is .Any (<undefined?> <it>)))]))
-
-                            (analysis <object>
-                              [name phase archive state]
-                              (<>.some (<>.and <code>.text <code>.any))
-                              it
-                              (do [! try.monad]
-                                [[state output] (monad.mix ! (.function (_ [key value] [state output])
-                                                               (do !
-                                                                 [[state value] (phase archive (` (.is .Any (, value))) state)]
-                                                                 (in [state (list.partial value (text_analysis key) output)])))
-                                                           [state (list)]
-                                                           it)]
-                                (in [state (extension_analysis name (list.reversed output))])))
-
-                            (def text_synthesis
-                              (template (_ <it>)
-                                [{0 #0 {2 #1 <it>}}]))
-
-                            (def (pairs it)
-                              (All (_ a) (-> (List a) (List [a a])))
-                              (when it
-                                (list.partial left right tail)
-                                (list.partial [left right] (pairs tail))
-                                
-                                (list)
-                                (list)
-
-                                _
-                                (.undefined)))
-
-                            (generation <object>
-                              [name phase archive state]
-                              (list.partial head_key head_value tail)
-                              (do [! try.monad]
-                                [[state output] (monad.mix !
-                                                           (.function (_ [key value] [state output])
-                                                             (when key
-                                                               (text_synthesis key)
-                                                               (do try.monad
-                                                                 [[state value] (phase archive value state)]
-                                                                 (in [state (list.partial [key value] output)]))
-                                                               
-                                                               _
-                                                               (.undefined)))
-                                                           [state (list)]
-                                                           (pairs (list.partial head_key head_value tail)))]
-                                (in [state (js.object (list.reversed output))])))
-
-                            (def .public object
-                              (syntax (_ [it (<>.some <code>.any)])
-                                (in (list (` (.as (..Object .Any)
-                                                  (<object> (,* it))))))))
-                            )))
+                         (maybe.else false))))
        (these))
   )

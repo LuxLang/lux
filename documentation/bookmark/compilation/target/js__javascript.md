@@ -1,6 +1,7 @@
 # Reference
 
 0. []()
+0. [Optimizing for JavaScript is hard](https://jfmengels.net/optimizing-javascript-is-hard/)
 0. [Roll your own JavaScript runtime](https://deno.com/blog/roll-your-own-javascript-runtime)
 0. [How JavaScript Array Works Internally?](https://blog.gauravthakur.in/how-javascript-array-works-internally)
 0. [Maybe you don't need Rust and WASM to speed up your JS ](https://mrale.ph/blog/2018/02/03/maybe-you-dont-need-rust-to-speed-up-your-js.html)
