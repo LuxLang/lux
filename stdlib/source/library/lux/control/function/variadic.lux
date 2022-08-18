@@ -1,0 +1,68 @@
+... https://en.wikipedia.org/wiki/Variadic_function
+(.require
+ [library
+  [lux (.except def)
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["?" parser]
+    ["[0]" exception (.only Exception)]]
+   [data
+    ["[0]" text (.only)
+     ["%" \\format]]
+    [collection
+     ["[0]" list (.use "[1]#[0]" monad)]
+     ["[0]" set]]]
+   [math
+    [number
+     ["n" nat]]]
+   ["[0]" meta (.only)
+    ["[0]" code (.only)
+     ["?[1]" \\parser]]
+    [macro (.only with_symbols)
+     [syntax (.only syntax)
+      ["[0]" export]]]]]])
+
+(exception.def .public (duplicate_parameters [definition parameters])
+  (Exception [Symbol (List Text)])
+  (exception.report
+   (list ["Definition" (%.symbol definition)]
+         ["Parameters" (%.list %.text parameters)])))
+
+(exception.def .public (must_have_rest_parameter definition)
+  (Exception Symbol)
+  (exception.report
+   (list ["Definition" (%.symbol definition)])))
+
+(.def .public def
+  (syntax (_ [[exported? [name parameters] type body]
+              (export.parser (all ?.and
+                                  (?code.form (?.and ?code.local (?.some ?code.local)))
+                                  ?code.any
+                                  ?code.any))])
+    (do meta.monad
+      [here meta.current_module_name]
+      (if (n.= (list.size parameters)
+               (set.size (set.of_list text.hash parameters)))
+        (with_symbols [g!function]
+          (when (list.reversed parameters)
+            (list.partial &rest mandatory)
+            (let [mandatory (list#each code.local (list.reversed mandatory))
+                  &rest (code.local &rest)]
+              (in (list (` (.def (, exported?) ((, g!function) (,* mandatory) (, &rest))
+                             (, type)
+                             (, body)))
+                        (` (.def (, exported?) (, (code.local name))
+                             (syntax ((, (code.local name)) [(,* (|> mandatory
+                                                                     (list#each (function (_ parameter)
+                                                                                  (list parameter (` ?code.any))))
+                                                                     list#conjoint))
+                                                             (, &rest) (?.some ?code.any)])
+                               (at meta.monad (,' in)
+                                   (list (` ((, g!function)
+                                             (,* (list#each (|>> , ((,' .,)) `) mandatory))
+                                             (list ((,' .,*) (, &rest)))))))))))))
+
+            _
+            (meta.failure (exception.error ..must_have_rest_parameter [[here name]]))))
+        (meta.failure (exception.error ..duplicate_parameters [[here name] parameters]))))))

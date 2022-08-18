@@ -1,0 +1,243 @@
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    [equivalence (.only Equivalence)]
+    [monad (.only do)]
+    [\\specification
+     ["$[0]" functor (.only Injection Comparison)]
+     ["$[0]" apply]
+     ["$[0]" monad]]]
+   [control
+    ["[0]" maybe]]
+   [data
+    ["[0]" sum]
+    ["[0]" product]
+    ["[0]" bit]
+    ["[0]" text (.only)
+     ["[0]" unicode
+      ["[1]" set]]]
+    [collection
+     ["[0]" list]
+     ["[0]" sequence]
+     ["[0]" array]
+     ["[0]" queue]
+     ["[0]" stack]
+     ["[0]" set]
+     ["[0]" dictionary]]]
+   [math
+    [number
+     ["[0]" i64]
+     ["[0]" nat]
+     ["[0]" int]
+     ["[0]" rev]
+     ["[0]" frac]
+     ["[0]" ratio]
+     ["[0]" complex]]]
+   [meta
+    [type
+     ["[0]" refinement]]]
+   [world
+    ["[0]" time (.only)
+     ["[0]" instant]
+     ["[0]" date]
+     ["[0]" duration]
+     ["[0]" month]
+     ["[0]" day]]]
+   [test
+    ["_" property (.only Test)]]]]
+ [\\library
+  ["[0]" / (.only Random)]])
+
+(def injection
+  (Injection Random)
+  (at /.monad in))
+
+(def (comparison increase,seed)
+  (-> [(I64 Any) (I64 Any)] (Comparison Random))
+  (function (_ == left right)
+    (|> (do /.monad
+          [left left
+           right right]
+          (in (== left right)))
+        (/.result (/.pcg_32 increase,seed))
+        product.right)))
+
+(def (distinct equivalence random)
+  (All (_ a) (-> (Equivalence a) (Random a) (Random Bit)))
+  (do /.monad
+    [reference random
+     example (/.only (|>> (at equivalence = reference) not)
+                     random)]
+    (in (not (same? reference example)))))
+
+(def .public test
+  Test
+  (<| (_.covering /._)
+      (do /.monad
+        [increase,seed (/.and /.nat /.nat)
+         .let [[increase seed] increase,seed]])
+      (_.for [/.Random])
+      (`` (all _.and
+               (_.for [/.functor]
+                      ($functor.spec ..injection (..comparison increase,seed) /.functor))
+               (_.for [/.apply]
+                      ($apply.spec ..injection (..comparison increase,seed) /.apply))
+               (_.for [/.monad]
+                      ($monad.spec ..injection (..comparison increase,seed) /.monad))
+
+               (_.coverage [/.result]
+                 (|> (in true)
+                     (/.result (/.pcg_32 increase,seed))
+                     product.right))
+               
+               (do /.monad
+                 [? (distinct (maybe.equivalence nat.equivalence) (/.maybe /.nat))]
+                 (_.coverage [/.maybe]
+                   ?))
+
+               (do /.monad
+                 [predicate (/.either (in nat.even?)
+                                      (in nat.odd?))
+                  sample (/.only predicate /.nat)]
+                 (_.coverage [/.only]
+                   (predicate sample)))
+
+               (do /.monad
+                 [predicate (/.either (in nat.even?)
+                                      (in nat.odd?))
+                  .let [refiner (refinement.refiner predicate)]
+                  sample (/.refined refiner /.nat)]
+                 (_.coverage [/.refined]
+                   (and (same? predicate (refinement.predicate sample))
+                        (predicate (refinement.value sample)))))
+
+               (do /.monad
+                 [predicate (/.either (in nat.even?)
+                                      (in nat.odd?))
+                  sample (/.one (function (_ it)
+                                  (if (predicate it)
+                                    {.#Some it}
+                                    {.#None}))
+                                /.nat)]
+                 (_.coverage [/.one]
+                   (predicate sample)))
+               
+               (,, (with_template [<random> <equivalence>]
+                     [(do /.monad
+                        [? (distinct <equivalence> <random>)]
+                        (_.coverage [<random>]
+                          ?))]
+
+                     [/.bit bit.equivalence]
+                     [/.i64 i64.equivalence]
+                     [/.nat nat.equivalence]
+                     [/.int int.equivalence]
+                     [/.rev rev.equivalence]
+                     [/.safe_frac frac.equivalence]
+
+                     [/.ratio ratio.equivalence]
+                     [/.complex complex.equivalence]
+
+                     [/.time time.equivalence]
+                     [/.instant instant.equivalence]
+                     [/.date date.equivalence]
+                     [/.duration duration.equivalence]
+                     [/.month month.equivalence]
+                     [/.day day.equivalence]
+                     ))
+               (do /.monad
+                 [? (distinct frac.equivalence (/.only frac.number? /.frac))]
+                 (_.coverage [/.frac]
+                   ?))
+               
+               (,, (with_template [<random>]
+                     [(do /.monad
+                        [? (distinct text.equivalence (<random> 1))]
+                        (_.coverage [<random>]
+                          ?))]
+
+                     [/.unicode]
+                     [/.ascii]
+                     [/.alphabetic]
+                     [/.alpha_numeric]
+                     [/.numeric]
+                     [/.upper_case]
+                     [/.lower_case]
+                     ))
+               (do /.monad
+                 [? (distinct nat.equivalence (/.char unicode.character))]
+                 (_.coverage [/.char]
+                   ?))
+               (do /.monad
+                 [? (distinct text.equivalence (/.text (/.char unicode.character) 1))]
+                 (_.coverage [/.text]
+                   ?))
+
+               (,, (with_template [<random> <equivalence>]
+                     [(do /.monad
+                        [? (distinct (<equivalence> nat.equivalence)
+                                     (<random> 2 /.nat))]
+                        (_.coverage [<random>]
+                          ?))]
+
+                     [/.list list.equivalence]
+                     [/.sequence sequence.equivalence]
+                     [/.array array.equivalence]
+                     [/.queue queue.equivalence]
+                     [/.stack stack.equivalence]
+                     ))
+               (do /.monad
+                 [? (distinct set.equivalence
+                              (/.set nat.hash 2 /.nat))]
+                 (_.coverage [/.set]
+                   ?))
+               (do /.monad
+                 [? (distinct (dictionary.equivalence nat.equivalence)
+                              (/.dictionary nat.hash 2 /.nat /.nat))]
+                 (_.coverage [/.dictionary]
+                   ?))
+               (do /.monad
+                 [? (distinct (list.equivalence nat.equivalence)
+                              (is (Random (List Nat))
+                                  (/.rec (function (_ it)
+                                           (/.or (in [])
+                                                 (/.and /.nat
+                                                        it))))))]
+                 (_.coverage [/.rec]
+                   ?))
+               
+               (,, (with_template [<random> <equivalence>]
+                     [(do /.monad
+                        [? (distinct (<equivalence> nat.equivalence nat.equivalence)
+                                     (<random> /.nat /.nat))]
+                        (_.coverage [<random>]
+                          ?))]
+
+                     [/.or sum.equivalence]
+                     [/.and product.equivalence]
+                     ))
+               (do /.monad
+                 [? (distinct nat.equivalence
+                              (/.either /.nat /.nat))]
+                 (_.coverage [/.either]
+                   ?))
+
+               (_.for [/.PRNG]
+                      (all _.and
+                           (,, (with_template [<prng> <seed>]
+                                 [(_.coverage [<prng>]
+                                    (|> (distinct nat.equivalence /.nat)
+                                        (/.result (<prng> <seed>))
+                                        product.right))]
+
+                                 [/.pcg_32 increase,seed]
+                                 [/.xoroshiro_128+ increase,seed]
+                                 [/.split_mix_64 seed]
+                                 ))
+                           (_.coverage [/.prng]
+                             (|> (distinct nat.equivalence /.nat)
+                                 (/.result (/.prng ++ (|>> .i64) seed))
+                                 product.right))
+                           ))
+               ))))
