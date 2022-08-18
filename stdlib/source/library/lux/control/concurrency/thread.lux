@@ -7,7 +7,6 @@
     ["[0]" monad (.only do)]]
    [control
     ["[0]" try]
-    ["[0]" exception]
     ["[0]" io (.only IO io)]]
    [data
     ["[0]" text]
@@ -22,9 +21,11 @@
     ["[0]" configuration]]
    [world
     [time
-     ["[0]" instant]]]]]
+     ["[0]" instant (.only Instant) (.use "[1]#[0]" order)]
+     ["[0]" duration]]]]]
  [//
-  ["[0]" atom (.only Atom)]])
+  ["[0]" atom (.only Atom)]
+  ["[0]" event]])
 
 (with_expansions [<jvm> (these (ffi.import java/lang/Object
                                  "[1]::[0]")
@@ -68,11 +69,7 @@
          (start [] "io" "?" Any))
        
        ... Default
-       (type Thread
-         (Record
-          [#creation Nat
-           #delay Nat
-           #action (IO Any)]))
+       (these)
        ))
 
 (def .public parallelism
@@ -102,12 +99,9 @@
        @.python (these)
        
        ... Default
-       (these (def started?
-                (Atom Bit)
-                (atom.atom false))
-              (def runner
-                (Atom (List Thread))
-                (atom.atom (list))))))
+       (these (def schedule!,run!
+                (let [[module _] (symbol .._)]
+                  (event.loop module))))))
 
 (def (execute! action)
   (-> (IO Any) Any)
@@ -147,13 +141,8 @@
            (in []))
          
          ... Default
-         (do [! io.monad]
-           [now (at ! each (|>> instant.millis .nat) instant.now)
-            _ (atom.update! (|>> {.#Item [#creation now
-                                          #delay milli_seconds
-                                          #action action]})
-                            ..runner)]
-           (in [])))))
+         (let [[schedule! run!] ..schedule!,run!]
+           (schedule! milli_seconds action)))))
 
 (for @.old (these)
      @.jvm (these)
@@ -161,39 +150,15 @@
      @.python (these)
      
      ... Default
-     (these (exception.def .public cannot_continue_running_threads)
-
-            ... https://en.wikipedia.org/wiki/Event_loop
-            ... Starts the event-loop.
-            (def .public run!
-              (IO Any)
-              (do [! io.monad]
-                [started? (atom.read! ..started?)]
-                (if started?
-                  (in [])
-                  (do !
-                    [_ (atom.write! true ..started?)]
-                    (loop (again [_ []])
-                      (do !
-                        [threads (atom.read! ..runner)]
-                        (when threads
-                          ... And... we're done!
-                          {.#End}
-                          (in [])
-
-                          _
-                          (do !
-                            [now (at ! each (|>> instant.millis .nat) instant.now)
-                             .let [[ready pending] (list.partition (function (_ thread)
-                                                                     (|> (the #creation thread)
-                                                                         (n.+ (the #delay thread))
-                                                                         (n.<= now)))
-                                                                   threads)]
-                             swapped? (atom.compare_and_swap! threads pending ..runner)]
-                            (if swapped?
-                              (do !
-                                [_ (monad.each ! (|>> (the #action) ..execute! io.io) ready)]
-                                (again []))
-                              (panic! (exception.error ..cannot_continue_running_threads []))))
-                          )))))))
-            ))
+     (def .public run!
+       (IO Any)
+       (let [[schedule! run!] ..schedule!,run!]
+         (do io.monad
+           [outcome run!]
+           (when outcome
+             {try.#Success _}
+             (in [])
+             
+             {try.#Failure error}
+             (in (debug.log! error))))))
+     )
