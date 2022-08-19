@@ -1,0 +1,103 @@
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["[0]" try]
+    ["[0]" exception]]
+   [data
+    ["[0]" text (.only)
+     ["%" \\format]]]
+   [math
+    [number
+     ["n" nat]]]
+   ["[0]" meta (.only)
+    ["[0]" static]
+    ["[0]" code (.only)
+     ["<[1]>" \\parser]]
+    [macro
+     [syntax (.only syntax)]
+     ["[0]" expansion]]]
+   [test
+    ["_" property (.only Test)]]]]
+ [\\library
+  ["[0]" /]])
+
+(def macro_error
+  (syntax (_ [macro <code>.any])
+    (function (_ compiler)
+      (when ((expansion.complete macro) compiler)
+        {try.#Failure error}
+        {try.#Success [compiler (list (code.text error))]}
+        
+        {try.#Success _}
+        {try.#Failure "OOPS!"}))))
+
+(/.def [stack expression declaration] Nat)
+
+(with_expansions [<top> (static.random_nat)]
+  (<| static.expansion
+      (declaration <top>)
+      (` (def (,' declaration!) true))))
+
+(def .public test
+  Test
+  (<| (_.covering /._)
+      (all _.and
+           (_.coverage [/.def]
+             (and declaration!
+                  (with_expansions [<top> (static.random_nat)]
+                    (<| static.expansion
+                        (do meta.monad
+                          [it (expression <top> (` true))]
+                          (in (list it)))))))
+           (_.coverage [/.peek /.peek'
+                        /.push /.push']
+             (with_expansions [<expected> (static.random_nat)]
+               (n.= <expected>
+                    (<| static.expansion
+                        (do meta.monad
+                          [_ (/.push <expected> ..stack)
+                           actual (/.peek ..stack)
+                           _ (/.pop ..stack)]
+                          (in (list (code.nat actual))))))))
+           (_.coverage [/.no_active_context]
+             (<| (text.contains? (the exception.#label /.no_active_context))
+                 macro_error
+                 static.expansion
+                 (do meta.monad
+                   [top (/.peek ..stack)]
+                   (in (list (code.nat top))))))
+           (_.coverage [/.pop /.pop' /.pop'']
+             (with_expansions [<dummy> (static.random_nat)
+                               <expected> (static.nat (++ <dummy>))]
+               (n.= <expected>
+                    (<| static.expansion
+                        (do meta.monad
+                          [_ (/.push <dummy> ..stack)
+                           _ (/.pop ..stack)
+                           _ (/.push <expected> ..stack)
+                           actual (/.peek ..stack)
+                           _ (/.pop ..stack)]
+                          (in (list (code.nat actual))))))))
+           (_.coverage [/.search /.search']
+             (with_expansions [<expected> (static.random_nat)]
+               (n.= <expected>
+                    (<| static.expansion
+                        (do meta.monad
+                          [_ (/.push <expected> ..stack)
+                           actual (/.search (n.= <expected>) ..stack)
+                           _ (/.pop ..stack)]
+                          (in (list (code.nat actual))))))))
+           (_.coverage [/.no_example]
+             (with_expansions [<expected> (static.random_nat)]
+               (<| (text.contains? (the exception.#label /.no_example))
+                   macro_error
+                   static.expansion
+                   (do meta.monad
+                     [_ (/.push <expected> ..stack)
+                      actual (/.search (|>> (n.= <expected>) not) ..stack)
+                      _ (/.pop ..stack)]
+                     (in (list (code.nat actual)))))))
+           )))

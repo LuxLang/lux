@@ -1,0 +1,76 @@
+... https://en.wikipedia.org/wiki/Named_parameter
+(.require
+ [library
+  [lux (.except def)
+   [abstract
+    ["[0]" monad (.only do)]]
+   [control
+    ["?" parser]
+    ["[0]" maybe]
+    ["[0]" exception (.only Exception)]]
+   [data
+    ["[0]" text (.only)
+     ["%" \\format]]
+    [collection
+     ["[0]" list (.use "[1]#[0]" monad)]
+     ["[0]" set]
+     ["[0]" dictionary]]]
+   [math
+    [number
+     ["n" nat]]]
+   ["[0]" meta (.only)
+    ["[0]" code (.only)
+     ["?[1]" \\parser]]
+    [macro (.only with_symbols)
+     [syntax (.only syntax)
+      ["[0]" export]]]]]])
+
+(exception.def .public (duplicate_parameters [definition parameters])
+  (Exception [Symbol (List Text)])
+  (exception.report
+   (list ["Definition" (%.symbol definition)]
+         ["Parameters" (%.list %.text parameters)])))
+
+(exception.def .public (invalid_parameters [definition expected actual])
+  (Exception [Symbol (List Text) (List Text)])
+  (exception.report
+   (list ["Definition" (%.symbol definition)]
+         ["Expected" (%.list %.text expected)]
+         ["Actual" (%.list %.text actual)])))
+
+(.def .public def
+  (syntax (_ [[exported? [name parameters] type body]
+              (export.parser (all ?.and
+                                  (?code.form (?.and ?code.local (?.some ?code.local)))
+                                  ?code.any
+                                  ?code.any))])
+    (do meta.monad
+      [here meta.current_module_name]
+      (if (n.= (list.size parameters)
+               (set.size (set.of_list text.hash parameters)))
+        (with_symbols [g!function g!parameters g!_ g!it]
+          (with_expansions [<invalid_parameters> (meta.failure (exception.error ..invalid_parameters [(symbol (, (code.symbol [here name])))
+                                                                                                      (list (,* (list#each code.text parameters)))
+                                                                                                      (dictionary.keys (, g!parameters))]))]
+            (in (list (` (.def (, exported?) ((, g!function) (,* (list#each code.local parameters)))
+                           (, type)
+                           (, body)))
+                      (` (.def (, exported?) (, (code.local name))
+                           (syntax ((, (code.local name)) [(, g!parameters) (?.some (?.and ?code.local ?code.any))])
+                             (let [(, g!parameters) (dictionary.of_list text.hash (, g!parameters))]
+                               (when (dictionary.size (, g!parameters))
+                                 (, (code.nat (list.size parameters)))
+                                 (when (monad.each maybe.monad
+                                                   (function ((, g!_) (, g!it))
+                                                     (dictionary.value (, g!it) (, g!parameters)))
+                                                   (list (,* (list#each code.text parameters))))
+                                   {.#Some (, g!parameters)}
+                                   (at meta.monad (,' in)
+                                       (list (` ((, g!function) ((,' .,*) (, g!parameters))))))
+                                   
+                                   {.#None}
+                                   <invalid_parameters>)
+
+                                 (, g!_)
+                                 <invalid_parameters>)))))))))
+        (meta.failure (exception.error ..duplicate_parameters [[here name] parameters]))))))
