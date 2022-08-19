@@ -1,0 +1,148 @@
+(.require
+ [library
+  [lux (.except or and)
+   [abstract
+    [functor (.only Functor)]
+    ["[0]" monad (.only do)]]
+   [control
+    ["[0]" io (.only IO) (.use "[1]#[0]" functor)]
+    ["[0]" function]]
+   [data
+    ["[0]" product]
+    [collection
+     ["[0]" list]]]
+   [meta
+    [type
+     [primitive (.except)]]]]]
+ [//
+  ["[0]" atom (.only Atom)]])
+
+(type (Dependency a)
+  (-> a (IO Any)))
+
+(primitive .public (Computation a)
+  (Atom [a (List (Dependency a))])
+
+  (def .public value
+    (All (_ a) (-> (Computation a) (IO a)))
+    (|>> representation
+         atom.read!
+         (io#each product.left)))
+
+  (def (computation value)
+    (All (_ a) (-> a (Computation a)))
+    (abstraction (atom.atom [value (list)])))
+
+  (def .public functor
+    (Functor Computation)
+    (implementation
+     (def (each $ input)
+       (io.run! (do [! io.monad]
+                  [old (atom.read! (representation input))
+                   .let [[current dependencies] old
+                         output (computation ($ current))]
+                   ? (atom.compare_and_swap! old
+                                             [current (list.partial (function (retry! next)
+                                                                      (do !
+                                                                        [old (atom.read! (representation output))
+                                                                         .let [[_ dependencies] old]
+                                                                         ? (atom.compare_and_swap! old
+                                                                                                   [($ next) dependencies]
+                                                                                                   (representation output))]
+                                                                        (if ?
+                                                                          (in [])
+                                                                          (retry! next))))
+                                                                    dependencies)]
+                                             (representation input))]
+                  (in (if ?
+                        output
+                        (each $ input))))))))
+
+  (def (watch! dependency it)
+    (All (_ a) (-> (Dependency a) (Computation a) (IO Any)))
+    (do io.monad
+      [.let [it' (representation it)]
+       old (atom.read! it')
+       .let [[current dependencies] old]
+       ? (atom.compare_and_swap! old [current (list.partial dependency dependencies)] it')]
+      (if ?
+        (in [])
+        (watch! dependency it))))
+
+  (def (update! $ output)
+    (All (_ a) (-> (-> a a) (Computation a) (IO Any)))
+    (atom.update! (function (_ [current dependencies])
+                    [($ current) dependencies])
+                  (representation output)))
+
+  (def .public (or left right)
+    (All (_ a b) (-> (Computation a) (Computation b) (Computation (Or a b))))
+    (io.run! (do io.monad
+               [left' (value left)
+                .let [output (computation {.#Left left'})]
+                _ (watch! (function (_ it)
+                            (update! (function.constant {.#Left it}) output))
+                          left)
+                _ (watch! (function (_ it)
+                            (update! (function.constant {.#Right it}) output))
+                          right)]
+               (in output))))
+
+  (def .public (and left right)
+    (All (_ a b) (-> (Computation a) (Computation b) (Computation (And a b))))
+    (io.run! (do io.monad
+               [left' (value left)
+                right' (value right)
+                .let [output (computation [left' right'])]
+                _ (watch! (function (_ left)
+                            (update! (function (_ [_ right])
+                                       [left right])
+                                     output))
+                          left)
+                _ (watch! (function (_ right)
+                            (update! (function (_ [left _])
+                                       [left right])
+                                     output))
+                          right)]
+               (in output))))
+
+  (def .public (either left right)
+    (All (_ a) (-> (Computation a) (Computation a) (Computation a)))
+    (io.run! (do io.monad
+               [left' (value left)
+                .let [output (computation left')]
+                .let [update! (function (_ it)
+                                (update! (function.constant it) output))]
+                _ (watch! update! left)
+                _ (watch! update! right)]
+               (in output))))
+
+  (primitive .public (Var a)
+    (Computation a)
+
+    (def .public (var value)
+      (All (_ a) (-> a (Var a)))
+      (<| (abstraction Var)
+          (abstraction Computation)
+          (atom.atom [value (list)])))
+
+    (def .public mutations
+      (All (_ a) (-> (Var a) (Computation a)))
+      (|>> (representation Var)))
+
+    (def .public (mutate! value it)
+      (All (_ a) (-> a (Var a) (IO Any)))
+      (do [! io.monad]
+        [.let [it' (|> it
+                       (representation Var)
+                       (representation Computation))]
+         old (atom.read! it')
+         .let [[_ dependencies] old]
+         ? (atom.compare_and_swap! old [value dependencies] it')]
+        (if ?
+          (do !
+            [_ (monad.each ! (function.on value) dependencies)]
+            (in []))
+          (mutate! value it))))
+    )
+  )
