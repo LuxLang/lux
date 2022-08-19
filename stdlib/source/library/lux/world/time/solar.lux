@@ -1,0 +1,214 @@
+(.require
+ [library
+  [lux (.except)
+   ["[0]" ffi]
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["[0]" io (.only IO) (.use "[1]#[0]" functor)]]
+   [data
+    [text
+     ["%" \\format (.only Format)]]]
+   [math
+    [number
+     ["i" int]
+     ["f" frac]]]
+   [meta
+    ["@" target]
+    [type
+     [primitive (.except)]]]]]
+ ["[0]" //
+  ["[1]" instant]
+  ["[0]" duration (.only Duration)]])
+
+(type .public Zone
+  Text)
+
+(primitive .public Instant
+  (Record
+   [#utc //.Instant
+    #zone Zone
+    #offset Duration])
+
+  (with_template [<name> <slot> <type>]
+    [(def .public <name>
+       (-> Instant <type>)
+       (|>> representation (the <slot>)))]
+
+    [universal #utc //.Instant]
+    [zone #zone Zone]
+    [offset #offset Duration]
+    )
+
+  (for @.jvm (these (ffi.import java/lang/String
+                      "[1]::[0]")
+                    
+                    (ffi.import java/util/TimeZone
+                      "[1]::[0]"
+                      ("static" getDefault [] "io" java/util/TimeZone)
+                      (getID [] java/lang/String)
+                      (getOffset [long] int))
+                    )
+       @.js (these (ffi.import ResolvedOptions
+                     "[1]::[0]"
+                     (timeZone Text))
+
+                   (ffi.import DateTimeFormat
+                     "[1]::[0]"
+                     (resolvedOptions [] ResolvedOptions))
+
+                   (ffi.import Intl
+                     "[1]::[0]"
+                     ("static" DateTimeFormat [] "io" DateTimeFormat))
+
+                   (ffi.import Date
+                     "[1]::[0]"
+                     (new [])
+                     (getTimezoneOffset [] ffi.Number))
+                   )
+       @.lua (these (ffi.import os/date
+                      "[1]::[0]"
+                      (hour Int)
+                      (min Int))
+
+                    (ffi.import os
+                      "[1]::[0]"
+                      ("static" date [Text] "io" os/date)))
+       @.python (these (ffi.import datetime/timedelta
+                         "[1]::[0]"
+                         (new [Int]))
+
+                       (ffi.import datetime/timezone
+                         "[1]::[0]"
+                         (new [datetime/timedelta]))
+                       
+                       (ffi.import datetime/utcoffset
+                         "[1]::[0]"
+                         (total_seconds [] Frac))
+
+                       (ffi.import datetime/datetime
+                         "[1]::[0]"
+                         ("static" now [datetime/timezone] "io" datetime/datetime)
+                         (utcoffset [] datetime/utcoffset)
+                         (astimezone [] datetime/datetime)
+                         (tzinfo datetime/timezone)
+                         (tzname [] Text))
+                       )
+       @.ruby (these (ffi.import time/Time
+                       "[1]::[0]"
+                       ("static" now [] "io" time/Time)
+                       (zone Text)
+                       ("static" zone_offset [Text] "io" Int)))
+       )
+
+  (def .public local_zone
+    (IO Zone)
+    (do io.monad
+      [_ (in [])]
+      (for @.jvm (|> (java/util/TimeZone::getDefault)
+                     (io#each (|>> java/util/TimeZone::getID
+                                   ffi.of_string)))
+           @.js (|> (Intl::DateTimeFormat [])
+                    (io#each (|>> DateTimeFormat::resolvedOptions
+                                  ResolvedOptions::timeZone)))
+           @.lua (in "")
+           @.python (|> (datetime/timedelta::new +0)
+                        datetime/timezone::new
+                        datetime/datetime::now
+                        (io#each (|>> datetime/datetime::astimezone
+                                      datetime/datetime::tzname)))
+           @.ruby (|> (time/Time::now [])
+                      (io#each time/Time::zone))
+           )))
+
+  (def .public now
+    (IO Instant)
+    (do [! io.monad]
+      [_ (in [])]
+      (for @.jvm (do !
+                   [zone (java/util/TimeZone::getDefault)
+                    utc //.now]
+                   (in (abstraction
+                        [#utc utc
+                         #zone (ffi.of_string (java/util/TimeZone::getID zone))
+                         #offset (|> zone
+                                     (java/util/TimeZone::getOffset (|> utc //.millis ffi.as_long))
+                                     ffi.of_int
+                                     duration.of_millis)])))
+           @.js (do !
+                  [zone ..local_zone
+                   utc //.now]
+                  (in (abstraction
+                       [#utc utc
+                        #zone zone
+                        #offset (|> (Date::new [])
+                                    Date::getTimezoneOffset
+                                    f.int
+                                    (i.* -60,000)
+                                    duration.of_millis)])))
+           @.lua (do !
+                   [zone ..local_zone
+                    univeral (os::date ["*t"])
+                    solar (os::date ["!*t"])
+                    utc //.now]
+                   (in (abstraction
+                        [#utc utc
+                         #zone zone
+                         #offset (|> (i.- (os/date::hour solar)
+                                          (os/date::hour univeral))
+                                     (i.* +60)
+                                     (i.+ (i.- (os/date::min solar)
+                                               (os/date::min univeral)))
+                                     (i.* +60,000)
+                                     duration.of_millis)])))
+           @.python (do !
+                      [tz_now (|> (datetime/timedelta::new +0)
+                                  datetime/timezone::new
+                                  datetime/datetime::now
+                                  (at ! each datetime/datetime::astimezone))
+                       offset (|> tz_now
+                                  datetime/datetime::tzinfo
+                                  datetime/datetime::now
+                                  (at ! each (|>> datetime/datetime::utcoffset
+                                                  datetime/utcoffset::total_seconds
+                                                  f.int
+                                                  (i.* +1000)
+                                                  duration.of_millis)))
+                       utc //.now]
+                      (in (abstraction
+                           [#utc utc
+                            #zone (datetime/datetime::tzname tz_now)
+                            #offset offset])))
+           @.ruby (do !
+                    [zone ..local_zone
+                     seconds (time/Time::zone_offset [zone])
+                     utc //.now]
+                    (in (abstraction
+                         [#utc utc
+                          #zone zone
+                          #offset (duration.of_millis (i.* +1000 seconds))])))
+           )))
+
+  (def (padded it)
+    (-> Int Text)
+    (if (i.< +10 it)
+      (%.format "0" (%.nat (.nat it)))
+      (%.nat (.nat it))))
+
+  (def (sign it)
+    (-> Int Text)
+    (if (i.< +0 it)
+      "-"
+      "+"))
+
+  (def .public (format it)
+    (Format Instant)
+    (let [it (representation it)]
+      (%.format (//.format (//.after (the #offset it) (the #utc it)))
+                (let [hours (|> (the #offset it)
+                                (duration.ticks duration.hour))
+                      minutes (|> (the #offset it)
+                                  (duration.framed duration.hour)
+                                  (duration.ticks duration.minute))]
+                  (%.format (sign hours) (padded (i.abs hours)) ":" (padded minutes))))))
+  )
