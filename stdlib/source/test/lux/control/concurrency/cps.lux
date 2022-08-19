@@ -1,0 +1,92 @@
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]
+    [\\specification
+     ["$[0]" functor (.only Injection Comparison)]
+     ["$[0]" monad]]]
+   [control
+    ["[0]" io]
+    ["[0]" try]
+    ["[0]" exception]]
+   [math
+    ["[0]" random]]
+   [test
+    ["_" property (.only Test)]
+    ["[0]" unit]]]]
+ [\\library
+  ["[0]" / (.only)
+   [//
+    ["[0]" async]]]])
+
+(def injection
+  (Injection /.Process)
+  (at /.monad in))
+
+(def comparison
+  (Comparison /.Process)
+  (function (_ == left right)
+    (io.run!
+     (do io.monad
+       [?left (async.value left)
+        ?right (async.value right)]
+       (in (when [?left ?right]
+             [{.#Some {try.#Success left}}
+              {.#Some {try.#Success right}}]
+             (== left right)
+             
+             _
+             false))))))
+
+(def .public test
+  Test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [expected random.nat]
+        (all _.and
+             (_.for [/.Process]
+                    (all _.and
+                         (_.for [/.functor]
+                                ($functor.spec ..injection ..comparison /.functor))
+                         (_.for [/.monad]
+                                ($monad.spec ..injection ..comparison /.monad))
+                         ))
+             (_.coverage [/.Channel /.Channel' /.Sink /.channel]
+               ... This is already been tested for the FRP module.
+               true)
+             (in (do async.monad
+                   [it (do /.monad
+                         [.let [[channel sink] (/.channel [])]
+                          _ (/.write expected sink)
+                          [actual channel] (/.read channel)]
+                         (in (same? expected actual)))]
+                   (unit.coverage [/.read /.write]
+                     (try.else false it))))
+             (in (do async.monad
+                   [it (do /.monad
+                         [.let [[channel sink] (/.channel [])]
+                          _ (/.close sink)
+                          it (/.try (/.write expected sink))]
+                         (in (when it
+                               {try.#Failure _}
+                               true
+
+                               _
+                               false)))]
+                   (unit.coverage [/.close /.try]
+                     (try.else false it))))
+             (in (do async.monad
+                   [it (do /.monad
+                         [.let [[channel sink] (/.channel [])]
+                          _ (/.close sink)
+                          it (/.try (/.read channel))]
+                         (in (when it
+                               {try.#Failure error}
+                               (exception.match? /.channel_has_been_closed error)
+
+                               _
+                               false)))]
+                   (unit.coverage [/.channel_has_been_closed]
+                     (try.else false it))))
+             ))))
