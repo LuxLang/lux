@@ -16,7 +16,7 @@ If you recall [Chapter 1](chapter_1.md), there was this example code:
 
 Here, we're importing the `library/lux` module.
 
-The `(.except)` option means _locally import every definition exported by the `library/lux` module_.
+The `(.except)` option means _locally_ import every definition exported by the `library/lux` module.
 
 This allows usage of those definitions without having to give them the `library/lux.` prefix, or even the `.` shortcut prefix.
 

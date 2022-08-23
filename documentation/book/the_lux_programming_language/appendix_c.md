@@ -66,7 +66,7 @@ The possibilities are endless when it comes to the refinement you can do, and wh
 ... Allows you to simultaneously bind and de-structure a value.
 (def (hash (^.let set [element_hash _]))
   (list#mix (function (_ elem acc)
-              (n.+ (# element_hash hash elem) acc))
+              (n.+ (at element_hash hash elem) acc))
             0
             (set.list set)))
 ```

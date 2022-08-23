@@ -1,5 +1,7 @@
 # Reference
 
+0. []()
+0. [Understanding transducers](https://andreyorst.gitlab.io/posts/2022-08-13-understanding-transducers/)
 0. [Complete Guide to Transducers](https://nwcalvank.dev/transducers/)
 0. [zug](https://sinusoid.es/zug/)
 0. https://dev.to/greencoder/build-your-own-transducer-and-impress-your-cat---part-1-mhp

@@ -1,6 +1,7 @@
 # Reference
 
 0. []()
+0. [Let it slide](https://world.hey.com/dhh/let-it-slide-9e40f11a)
 0. [Tips for effective engineering](https://budelewski.com/effective-engineering/)
 0. [1. Unfolding the interrelationship diagram](https://world.hey.com/rjs/1-unfolding-the-interrelationship-diagram-5a79e3fc)
 0. [2. Shaping on the demand side](https://world.hey.com/rjs/2-shaping-on-the-demand-side-f2e6a00d)

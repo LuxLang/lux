@@ -27,6 +27,7 @@
 # Reference
 
 0. []()
+0. [just-in-time code generation within webassembly](https://wingolog.org/archives/2022/08/18/just-in-time-code-generation-within-webassembly)
 0. [TeaVM: Build Fast, Modern Web Apps in Java](https://teavm.org/)
 0. [Recommendations when publishing a Wasm library](https://nickb.dev/blog/recommendations-when-publishing-a-wasm-library)
 0. [Building host implementations for WebAssembly interfaces](https://radu-matei.com/blog/wasm-components-host-implementations/)

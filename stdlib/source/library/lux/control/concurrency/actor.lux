@@ -7,7 +7,9 @@
     ["[0]" pipe]
     ["[0]" try (.only Try)]
     ["[0]" exception]
-    ["[0]" io (.only IO io)]]
+    ["[0]" io (.only IO io)]
+    [function
+     [predicate (.only Predicate)]]]
    [data
     ["[0]" bit]
     ["[0]" product]]
@@ -18,7 +20,7 @@
      [primitive (.only primitive representation abstraction)]]]]]
  [//
   ["[0]" atom (.only Atom atom)]
-  ["[0]" async (.only Async Resolver)]
+  ["[0]" async (.only Async Resolver) (.use "[1]#[0]" monad)]
   ["[0]" frp (.only Channel Channel')]])
 
 (exception.def .public poisoned)
@@ -79,10 +81,11 @@
                                    (when ?state'
                                      {try.#Failure error}
                                      (let [[_ resolve] (the #obituary (representation self))]
-                                       (exec (io.run!
-                                              (do io.monad
-                                                [pending (..pending tail)]
-                                                (resolve [error state {.#Item head pending}])))
+                                       (exec
+                                         (io.run!
+                                          (do io.monad
+                                            [pending (..pending tail)]
+                                            (resolve [error state {.#Item head pending}])))
                                          (in [])))
 
                                      {try.#Success state'}
@@ -170,7 +173,7 @@
                (do async.monad
                  [outcome (async.future (..mail! mail actor))]
                  (when outcome
-                   {try.#Success}
+                   {try.#Success _}
                    async
                    
                    {try.#Failure error}
@@ -209,3 +212,40 @@
                               (at ! each try.maybe))
                           (in {.#None}))))
                     channel)))
+
+... The following behavior and messages allow Lux's actors to behave like Clojure's agents.
+... https://clojure.org/reference/agents
+
+(exception.def .public invalid)
+
+(def .public (validated ? it)
+  (All (_ state)
+    (-> (Predicate state) (Behavior state)
+        (Behavior state)))
+  (function (_ mail before actor)
+    (do (try.with async.monad)
+      [after (mail before actor)]
+      (if (? after)
+        (in after)
+        (async#in (exception.except ..invalid []))))))
+
+(def .public state
+  (All (_ state)
+    (Message state state))
+  (function (_ state self)
+    (async#in {try.#Success [state state]})))
+
+(def .public (update $)
+  (All (_ state)
+    (-> (-> state state)
+        (Message state [state state])))
+  (function (_ before self)
+    (let [after ($ before)]
+      (async#in {try.#Success [after [before after]]}))))
+
+(def .public (reset after)
+  (All (_ state)
+    (-> state
+        (Message state state)))
+  (function (_ before self)
+    (async#in {try.#Success [after before]})))
