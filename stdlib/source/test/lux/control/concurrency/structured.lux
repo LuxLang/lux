@@ -1,0 +1,240 @@
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    ["[0]" monad (.only do)]
+    [\\specification
+     ["$[0]" functor (.only Injection Comparison)]
+     ["$[0]" monad]]]
+   [control
+    ["[0]" maybe (.use "[1]#[0]" functor)]
+    ["[0]" try]
+    ["[0]" io (.use "[1]#[0]" monad)]]
+   [data
+    [collection
+     ["[0]" list (.use "[1]#[0]" functor)]]]
+   [math
+    ["[0]" random]
+    [number
+     ["n" nat]]]
+   [test
+    ["_" property (.only Test)]
+    ["[0]" unit]]]]
+ [\\library
+  ["[0]" / (.only)
+   [//
+    ["[0]" atom (.only Atom)]
+    ["[0]" async]]]])
+
+(def injection
+  (Injection /.Async)
+  (at /.monad in))
+
+(def comparison
+  (Comparison /.Async)
+  (function (_ == left right)
+    (io.run!
+     (do io.monad
+       [?left (async.value (/.async left))
+        ?right (async.value (/.async right))]
+       (in (when [?left ?right]
+             [{.#Some {.#Some left}}
+              {.#Some {.#Some right}}]
+             (== left right)
+             
+             _
+             false))))))
+
+(def (action _)
+  (-> [] [(Atom Bit) (/.Action Any)])
+  (let [completed? (is (Atom Bit)
+                       (atom.atom false))]
+    [completed?
+     (function (_ it)
+       (do io.monad
+         [? (/.pending? it)]
+         (if ?
+           (do io.monad
+             [_ (atom.write! true completed?)]
+             (in {.#Some []}))
+           (io#in {.#Some []}))))]))
+
+(def .public test
+  Test
+  (do [! random.monad]
+    [short (at ! each (|>> (n.% 10) ++) random.nat)
+     long (at ! each (|>> (n.% 2) ++ (n.* 50)) random.nat)
+     leftE random.nat
+     rightE random.nat
+
+     in_parallel (at ! each (|>> (n.% 10) (n.+ 2)) random.nat)]
+    (<| (_.covering /._)
+        (_.for [/.Async])
+        (all _.and
+             (_.for [/.functor]
+                    ($functor.spec ..injection ..comparison /.functor))
+             (_.for [/.monad]
+                    ($monad.spec ..injection ..comparison /.monad))
+
+             (in (do async.monad
+                   [leftA (<| /.async
+                              (at /.monad in leftE))]
+                   (unit.coverage [/.async]
+                     (|> leftA
+                         (maybe#each (same? leftE))
+                         (maybe.else false)))))
+             (in (do async.monad
+                   [? (<| /.async
+                          /.with_scope
+                          (function (_ scope))
+                          (/.schedule! scope short (function (_ _) (io#in {.#Some true}))))]
+                   (unit.coverage [/.schedule!]
+                     (maybe.else false ?))))
+             (in (do async.monad
+                   [_ (<| /.async
+                          /.with_scope
+                          (function (_ scope))
+                          (/.future scope (function (_ _) (io#in {.#Some true}))))]
+                   (unit.coverage [/.future]
+                     true)))
+             (in (do async.monad
+                   [_ (<| /.async
+                          /.with_scope
+                          (function (_ scope))
+                          (/.after scope short []))]
+                   (unit.coverage [/.after]
+                     true)))
+             (in (do async.monad
+                   [_ (<| /.async
+                          /.with_scope
+                          (function (_ scope))
+                          (/.delay scope short))]
+                   (unit.coverage [/.delay]
+                     true)))
+             (in (do async.monad
+                   [.let [all_cancelled (is (Atom Nat)
+                                            (atom.atom 0))
+                          [done? done!] (is [(async.Async []) (async.Resolver [])]
+                                            (async.async []))
+                          scope (<| /.with_scope
+                                    (function (_ scope))
+                                    (monad.all /.monad)
+                                    (list#each (function (_ _)
+                                                 (/.schedule! scope long
+                                                              (function (_ it)
+                                                                (do [! io.monad]
+                                                                  [? (/.cancelled? it)]
+                                                                  (if ?
+                                                                    (do !
+                                                                      [[before after] (atom.update! ++ all_cancelled)
+                                                                       _ (if (n.= in_parallel after)
+                                                                           (done! [])
+                                                                           (in false))]
+                                                                      (in {.#Some []}))
+                                                                    (io#in {.#Some []})))))))
+                                    (list.repeated in_parallel []))
+                          _ (io.run! (/.cancel! scope))]
+                    _ (/.async scope)
+                    _ done?
+                    all_cancelled (async.future (atom.read! all_cancelled))]
+                   (unit.coverage [/.with_scope]
+                     (n.= in_parallel all_cancelled))))
+             
+             (_.coverage [/.pending?]
+               (io.run! (/.pending? (<| /.with_scope
+                                        (function (_ scope))
+                                        (/.schedule! scope long (function (_ _) (io#in {.#Some []})))))))
+             (_.coverage [/.completed?]
+               (io.run! (/.completed? (at /.monad in []))))
+             (in (do async.monad
+                   [.let [[done? done!] (is [(async.Async Bit) (async.Resolver Bit)]
+                                            (async.async []))
+                          it (<| /.with_scope
+                                 (function (_ scope))
+                                 (/.schedule! scope long)
+                                 (function (_ it)
+                                   (do io.monad
+                                     [pre (/.cancel! it)
+                                      post (/.cancelled? it)
+                                      _ (done! (and pre post))]
+                                     (in {.#Some []}))))]
+                    _ (/.async it)
+                    ? done?]
+                   (unit.coverage [/.cancel! /.cancelled?]
+                     ?)))
+             (in (do async.monad
+                   [.let [[done? done!] (is [(async.Async Bit) (async.Resolver Bit)]
+                                            (async.async []))
+
+                          [@not_completed action] (..action [])
+                          to_cancel (<| /.with_scope
+                                        (function (_ scope))
+                                        (/.schedule! scope long)
+                                        (function (_ it)
+                                          (do [! io.monad]
+                                            [pre (/.cancel! it)
+                                             _ (done! pre)]
+                                            (in {.#None}))))]
+                    cancelled! done?
+                    .let [confirmed! (io.run! (/.cancelled? to_cancel))]
+                    _ (/.async to_cancel)
+                    not_completed! (async.future (io#each not (atom.read! @not_completed)))
+
+                    .let [[@completed action] (..action [])
+                          to_complete (<| /.with_scope
+                                          (function (_ scope))
+                                          (/.schedule! scope long action))]
+                    _ (/.async to_complete)
+                    completed! (async.future (atom.read! @completed))]
+                   (unit.coverage [/.Action]
+                     (and cancelled!
+                          confirmed!
+                          not_completed!
+                          completed!))))
+
+             (in (do async.monad
+                   [left&right (/.async (with /.monad
+                                          (/.and (in leftE) (in rightE))))]
+                   (unit.coverage [/.and]
+                     (<| (maybe.else false)
+                         (do maybe.monad
+                           [[leftA rightA] left&right]
+                           (in (and (same? leftE leftA)
+                                    (same? rightE rightA))))))))
+             (in (do [! async.monad]
+                   [left (/.async (with /.monad
+                                    (/.or (in leftE) (in rightE))))
+                    right (let [left (<| /.with_scope
+                                         (function (_ scope))
+                                         (/.schedule! scope long (function (_ _) (io#in {.#Some leftE}))))]
+                            (do !
+                              [_ (async.future (/.cancel! left))]
+                              (/.async (/.or left (at /.monad in rightE)))))]
+                   (unit.coverage [/.or]
+                     (when [left right]
+                       [{.#Some {.#Left leftA}}
+                        {.#Some {.#Right rightA}}]
+                       (and (same? leftE leftA)
+                            (same? rightE rightA))
+
+                       _
+                       false))))
+             (in (do [! async.monad]
+                   [left (/.async (with /.monad
+                                    (/.either (in leftE) (in rightE))))
+                    right (let [left (<| /.with_scope
+                                         (function (_ scope))
+                                         (/.schedule! scope long (function (_ _) (io#in {.#Some leftE}))))]
+                            (do !
+                              [_ (async.future (/.cancel! left))]
+                              (/.async (/.either left (at /.monad in rightE)))))]
+                   (unit.coverage [/.either]
+                     (when [left right]
+                       [{.#Some leftA}
+                        {.#Some rightA}]
+                       (and (same? leftE leftA)
+                            (same? rightE rightA))
+
+                       _
+                       false))))
+             ))))
