@@ -1,0 +1,85 @@
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["|" pipe]
+    ["[0]" maybe (.use "[1]#[0]" functor)]]
+   [math
+    ["[0]" random (.only Random)]
+    [number
+     ["n" nat]]]
+   [test
+    ["_" property (.only Test)]
+    ["[0]" unit]]]]
+ [\\library
+  ["[0]" / (.only)
+   [//
+    ["[0]" atom (.only Atom)]
+    ["[0]" async]
+    ["[0]" frp]]]])
+
+(def .public test
+  Test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [expected random.nat
+         shift (random.only (n.> 0) random.nat)])
+      (all _.and
+           (_.coverage [/.Constructor /.event]
+             (let [left (is (/.Constructor Nat)
+                            (/.event (|>>)))
+                   right (is (/.Constructor Nat)
+                             (/.event (|>>)))]
+               (not (same? left right))))
+           (_.coverage [/.Event /.event?]
+             (let [left (is (/.Constructor Nat)
+                            (/.event (|>>)))
+                   right (is (/.Constructor Nat)
+                             (/.event (|>>)))]
+               (`` (and (,, (with_template [<correct> <incorrect>]
+                              [(|> (<correct> expected)
+                                   (/.event? <correct>)
+                                   (maybe#each (same? expected))
+                                   (maybe.else false))
+                               (|> (<correct> expected)
+                                   (/.event? <incorrect>)
+                                   (|.when
+                                     {.#None} true
+                                     {.#Some _} false))]
+
+                              [left right]
+                              [right left]
+                              ))))))
+           (in (let [increase (is (/.Constructor Any)
+                                  (/.event (|>>)))
+                     decrease (is (/.Constructor Any)
+                                  (/.event (|>>)))
+                     counter (is (Atom Nat)
+                                 (atom.atom expected))
+                     [events feed!] (is [(frp.Channel /.Event) (frp.Sink /.Event)]
+                                        (frp.channel []))
+                     scenario/+ (<| (/.scenario events increase expected)
+                                    (function (_ _ so_far)
+                                      (do async.monad
+                                        [[old new] (async.future (atom.update! (n.+ shift) counter))]
+                                        (in new))))
+                     scenario/- (<| (/.scenario events decrease expected)
+                                    (function (_ _ so_far)
+                                      (do async.monad
+                                        [[old new] (async.future (atom.update! (n.- shift) counter))]
+                                        (in new))))]
+                 (do async.monad
+                   [_ (async.future (at feed! feed (increase [])))
+                    _ (async.future (at feed! feed (increase [])))
+                    _ (async.future (at feed! feed (decrease [])))
+                    _ (async.future (at feed! close))
+                    scenario/+ scenario/+
+                    scenario/- scenario/-
+                    count (async.future (atom.read! counter))]
+                   (unit.coverage [/.scenario]
+                     (and (n.= (all n.+ shift expected) count)
+                          (n.= (all n.+ shift shift expected) scenario/+)
+                          (n.= (all n.+ shift expected) scenario/-))))))
+           )))
