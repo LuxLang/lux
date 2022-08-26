@@ -365,6 +365,7 @@ Called by `imenu--generic-function'."
 							(control//pattern-matching (altRE "open"))
 							(control//logic (altRE "and" "or"))
 							(control//contract (altRE "pre" "post"))
+							(control//polymorphism (altRE "method"))
 							;; Type
 							(type//syntax (altRE "Union" "Or" "Variant"
 												 "Tuple" "And" "Record"
@@ -403,7 +404,8 @@ Called by `imenu--generic-function'."
 						(let ((control (altRE control//flow
 											  control//pattern-matching
 											  control//logic
-											  control//contract))
+											  control//contract
+											  control//polymorphism))
 							  (type (altRE type//syntax
 										   type//checking
 										   type//primitive
@@ -589,6 +591,7 @@ This function also returns nil meaning don't specify the indentation."
   ("inlined" 'defun)
   ("context" 'defun)
   ("primitive" 'defun)
+  ("method" 'defun)
   
   ("analysis" 'defun)
   ("synthesis" 'defun)

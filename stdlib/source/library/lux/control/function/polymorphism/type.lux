@@ -1,0 +1,72 @@
+(.require
+ [library
+  [lux (.except def)
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["?" parser (.use "[1]#[0]" monad)]]
+   [data
+    ["[0]" text (.use "[1]#[0]" equivalence)]
+    [collection
+     ["[0]" list (.use "[1]#[0]" functor)]]]
+   ["[0]" meta (.only)
+    ["[0]" code (.only)
+     ["?[1]" \\parser (.only Parser)]]
+    [macro (.only with_symbols)
+     ["[0]" context]
+     [syntax (.only syntax)
+      ["[0]" export]]]
+    [type
+     [implicit (.only a/an)]]]]])
+
+(type Polymorphism
+  (Record
+   [#name Text
+    #interface Code
+    #method Code]))
+
+(context.def [stack expression declaration] Polymorphism)
+
+(.def .public def
+  (syntax (_ [[export_policy name parameters type methods]
+              (export.parser
+               (all ?.and
+                    ?code.local
+                    (?code.tuple (?.many ?code.local))
+                    ?code.any
+                    (?.many ?code.any)))])
+    (<| (with_symbols [g!_ g!interface g!method g!inputs])
+        (..declaration [#name name #interface g!interface #method g!method])
+        (let [name (code.local name)
+              parameters (list#each code.local parameters)])
+        (` (these (type (, export_policy) (, g!interface)
+                    (Interface
+                     (is (All ((, g!_) (,* parameters))
+                           (, type))
+                         (, g!method))))
+                  (.def (, export_policy) (, name)
+                    (syntax ((, g!_) [(, g!inputs) (?.many ?code.any)])
+                      (at meta.monad (,' in)
+                          (list (` (a/an (, g!method) ((,' .,*) (, g!inputs))))))))
+                  (,* methods))))))
+
+(.def method_declaration
+  (Parser [Text (List Code)])
+  (?.either (?code.form (?.and ?code.local (?.some ?code.any)))
+            (?.and ?code.local (?#in (list)))))
+
+(.def .public method
+  (syntax (_ [[[name inputs] specialization body]
+              (all ?.and
+                   ..method_declaration
+                   (?code.tuple (?.many ?code.any))
+                   ?code.any)])
+    (do meta.monad
+      [it (context.search (|>> (the #name) (text#= name)) ..stack)
+       .let [name (code.local name)]]
+      (with_symbols [g!self]
+        (in (list (` (.def .public (, g!self)
+                       ((, (the #interface it)) (,* specialization))
+                       (implementation
+                        (.def ((, (the #method it)) (,* inputs))
+                          (, body)))))))))))
