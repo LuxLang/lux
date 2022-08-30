@@ -1,10 +1,11 @@
 (.require
  [library
-  [lux (.except def global)
+  [lux (.except def global revised)
    [abstract
     [monad (.only do)]]
    [control
     ["?" parser]
+    ["[0]" try (.only Try) (.use "[1]#[0]" functor)]
     ["[0]" exception (.only Exception)]
     ["[0]" maybe]
     [function
@@ -15,19 +16,32 @@
      ["[0]" list (.only)
       ["[0]" property]]]]
    ["[0]" meta (.only)
+    [type (.only sharing by_example)]
     ["[0]" symbol (.use "[1]#[0]" codec)]
     ["[0]" code (.only)
      ["?[1]" \\parser]]]]]
  ["[0]" // (.only)
-  [syntax (.only syntax)]])
+  [syntax (.only syntax)
+   ["[0]" export]]])
 
 (type .public Stack
   List)
 
-(exception.def (no_definition it)
-  (Exception Symbol)
-  (exception.report
-   (list ["Definition" (symbol#encoded it)])))
+(.def Stack'
+  (template (_ value)
+    [[(Stack value) Symbol]]))
+
+(with_template [<name> <type> <format>]
+  [(exception.def .public (<name> it)
+     (Exception <type>)
+     (exception.report
+      (list ["Definition" (<format> it)])))]
+
+  [not_a_definition Symbol symbol#encoded]
+  [not_a_global Symbol symbol#encoded]
+  [not_a_module Text text.format]
+  [no_example Symbol symbol#encoded]
+  )
 
 (.def (global it)
   (-> Symbol (Meta Any))
@@ -43,12 +57,12 @@
       (in it)
       
       {.#None}
-      (meta.failure (exception.error ..no_definition [it])))))
+      (meta.failure (exception.error ..not_a_definition [it])))))
 
 (exception.def .public no_active_context)
 
-(.def .public (peek' _ context)
-  (All (_ a) (-> (Stack a) Symbol (Meta a)))
+(.def .public (peek' [_ context])
+  (All (_ a) (-> (Stack' a) (Meta a)))
   (do meta.monad
     [stack (..global context)]
     (when (|> stack
@@ -62,12 +76,10 @@
 
 (.def .public peek
   (syntax (_ [g!it (at ?.monad each code.symbol ?code.global)])
-    (in (list (` (..peek' (, g!it) (.symbol (, g!it))))))))
+    (in (list (` (..peek' [(, g!it) (.symbol (, g!it))]))))))
 
-(exception.def .public no_example)
-
-(.def .public (search' ? _ context)
-  (All (_ a) (-> (Predicate a) (Stack a) Symbol (Meta a)))
+(.def .public (search' ? [_ context])
+  (All (_ a) (-> (Predicate a) (Stack' a) (Meta a)))
   (do meta.monad
     [stack (..global context)]
     (when (|> stack
@@ -77,84 +89,169 @@
       (in (as_expected it))
       
       {.#None}
-      (meta.failure (exception.error ..no_example [])))))
+      (meta.failure (exception.error ..no_example [context])))))
 
 (.def .public search
   (syntax (_ [g!? ?code.any
               g!context (at ?.monad each code.symbol ?code.global)])
-    (in (list (` (..search' (, g!?) (, g!context) (.symbol (, g!context))))))))
+    (in (list (` (..search' (, g!?) [(, g!context) (.symbol (, g!context))]))))))
 
-(.def (alter on_definition [@ context])
-  (-> (-> Definition Definition) Symbol (Meta Any))
+(.def (alter on_definition [_ definition])
+  (All (_ value)
+    (-> (-> Symbol Definition (Try Definition)) (Stack' value)
+        (Meta Any)))
   (function (_ lux)
-    (let [on_global (is (-> Global Global)
+    (let [[@ context] definition
+          on_global (is (-> Global (Try Global))
                         (function (_ it)
                           (when it
                             {.#Definition it}
-                            {.#Definition (on_definition it)}
+                            (try#each (|>> {.#Definition}) (on_definition definition it))
                             
                             _
-                            it)))
-          on_globals (is (-> (property.List Global) (property.List Global))
-                         (property.revised context on_global))
-          on_module (is (-> Module Module)
-                        (revised .#definitions on_globals))]
-      {.#Right [(revised .#modules (property.revised @ on_module) lux)
-                []]})))
+                            (exception.except ..not_a_definition [definition]))))
+          on_globals (is (-> (property.List Global) (Try (property.List Global)))
+                         (function (_ globals)
+                           (when (property.value context globals)
+                             {.#Some global}
+                             (try#each (function (_ global)
+                                         (property.has context global globals))
+                                       (on_global global))
+                             
+                             {.#None}
+                             (exception.except ..not_a_global [definition]))))
+          on_module (is (-> Module (Try Module))
+                        (function (_ module)
+                          (try#each (function (_ globals)
+                                      (has .#definitions globals module))
+                                    (on_globals (the .#definitions module)))))
+          on_lux (is (-> Lux (Try Lux))
+                     (function (_ lux)
+                       (when (property.value @ (the .#modules lux))
+                         {.#Some module}
+                         (try#each (function (_ module)
+                                     (.revised .#modules (property.has @ module) lux))
+                                   (on_module module))
+                         
+                         {.#None}
+                         (exception.except ..not_a_module [@]))))]
+      (when (on_lux lux)
+        {try.#Success it}
+        {try.#Success [it []]}
+        
+        {try.#Failure error}
+        ((meta.failure error) lux)))))
 
-(.def .public (push' top _)
-  (All (_ a) (-> a (Stack a) Symbol (Meta Any)))
-  (alter (function (_ [exported? type stack])
+(.def .public (push' top)
+  (All (_ value)
+    (-> value (Stack' value)
+        (Meta Any)))
+  (alter (function (_ _ [exported? type stack])
            (|> stack
                (as (Stack Any))
                {.#Item top}
                (is (Stack Any))
-               [exported? type]))))
+               [exported? type]
+               {try.#Success}))))
 
 (.def .public push
   (syntax (_ [g!it ?code.any
               g!context (at ?.monad each code.symbol ?code.global)])
-    (in (list (` (..push' (, g!it) (, g!context) (.symbol (, g!context))))))))
+    (in (list (` (..push' (, g!it) [(, g!context) (.symbol (, g!context))]))))))
+
+(.def .public (revised' ? !)
+  (All (_ value)
+    (-> (Maybe (Predicate value)) (-> value value) (Stack' value)
+        (Meta Any)))
+  (alter (function (_ @ [exported? type stack])
+           (let [stack (sharing [value]
+                         (is (-> value value)
+                             !)
+                         (is (Stack value)
+                             (as_expected stack)))]
+             (when ?
+               {.#Some ?}
+               (do try.monad
+                 [stack (loop (again [stack stack])
+                          (when stack
+                            (list.partial top stack')
+                            (if (? top)
+                              (in (list.partial (! top) stack'))
+                              (do try.monad
+                                [stack' (again stack')]
+                                (in (list.partial top stack'))))
+
+                            _
+                            (exception.except ..no_example [@])))]
+                 (in [exported? type stack]))
+               
+               {.#None}
+               (when stack
+                 (list.partial top stack')
+                 (|> stack'
+                     (list.partial (! top))
+                     (is (Stack Any))
+                     [exported? type]
+                     {try.#Success})
+                 
+                 _
+                 (exception.except ..no_example [@])))))))
+
+(.def .public revised
+  (syntax (_ [g!predicate ?code.any
+              g!revision ?code.any
+              g!context (at ?.monad each code.symbol ?code.global)])
+    (in (list (` (..revised' (, g!predicate)
+                             (, g!revision)
+                             [(, g!context) (.symbol (, g!context))]))))))
 
 (.def .public pop''
-  (-> Symbol (Meta Any))
-  (alter (function (_ [exported? type value])
-           [exported? type (let [value (as (Stack Any) value)]
-                             (maybe.else value (list.tail value)))])))
+  (All (_ value) (-> (Stack' value) (Meta Any)))
+  (alter (function (_ _ [exported? type value])
+           (|> (let [value (as (Stack Any) value)]
+                 (maybe.else value (list.tail value)))
+               [exported? type]
+               {try.#Success}))))
 
 (.def .public pop'
   (syntax (_ [expression? ?code.bit
               context ?code.global])
     (do meta.monad
-      [_ (..pop'' context)]
+      [_ (..pop'' [(list) context])]
       (in (if expression?
             (list (' []))
             (list))))))
 
 (.def .public pop
   (syntax (_ [g!context (at ?.monad each code.symbol ?code.global)])
-    (in (list (` (..pop'' (.symbol (, g!context))))))))
+    (in (list (` (..pop'' [(, g!context) (.symbol (, g!context))]))))))
 
 (.def .public def
   (syntax (_ [.let [! ?.monad
                     ?local (at ! each code.local ?code.local)]
-              [$ g!expression g!declaration] (?code.tuple (all ?.and ?code.local ?local ?local))
+
+              [[export_$? $] [export_expression? g!expression] [export_declaration? g!declaration]]
+              (?code.tuple (all ?.and
+                                (export.parser ?code.local)
+                                (export.parser ?local)
+                                (export.parser ?local)))
+              
               context_type ?code.any])
     (do [! meta.monad]
       [@ meta.current_module_name
        .let [g!context (code.symbol [@ $])]]
       (//.with_symbols [g!it g!body g!_]
-        (in (list (` (.def (, (code.local $))
+        (in (list (` (.def (, export_$?) (, (code.local $))
                        (..Stack (, context_type))
                        (list)))
-                  (` (.def ((, g!expression) (, g!it) (, g!body))
+                  (` (.def (, export_expression?) ((, g!expression) (, g!it) (, g!body))
                        (-> (, context_type) Code (Meta Code))
                        (do meta.monad
                          [(, g!_) (..push (, g!it) (, g!context))]
                          ((,' in) (` (let [((,' ,') (, g!body)) ((,' ,) (, g!body))
                                            ((,' ,') (, g!_)) (..pop' #1 (, g!context))]
                                        ((,' ,') (, g!body))))))))
-                  (` (.def ((, g!declaration) (, g!it) (, g!body))
+                  (` (.def (, export_declaration?) ((, g!declaration) (, g!it) (, g!body))
                        (-> (, context_type) Code (Meta (List Code)))
                        (do meta.monad
                          [(, g!_) (..push (, g!it) (, g!context))]

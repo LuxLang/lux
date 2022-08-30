@@ -1,0 +1,130 @@
+... https://en.wikipedia.org/wiki/Predicate_dispatch
+(.require
+ [library
+  [lux (.except def)
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["?" parser (.use "[1]#[0]" monad)]]
+   [data
+    ["[0]" product]
+    ["[0]" text (.use "[1]#[0]" equivalence)]
+    [collection
+     ["[0]" list (.use "[1]#[0]" functor)]]]
+   ["[0]" meta (.only)
+    ["[0]" static]
+    ["[0]" code (.only)
+     ["?[1]" \\parser (.only Parser)]]
+    ["[0]" macro (.only with_symbols)
+     ["[0]" context]
+     [syntax (.only syntax)
+      ["[0]" export]]]]]]
+ [///
+  ["//" mixin]])
+
+(type Polymorphism
+  (Record
+   [#function Text
+    #quantifications (List Code)
+    #inputs (List Code)
+    #output Code
+    #default Code
+    #export_policy Code
+    #scenarios (List Code)]))
+
+(context.def [stack expression declaration] Polymorphism)
+
+(type Signature
+  (Record
+   [#name Text
+    #next Text
+    #parameters (List Code)]))
+
+(.def signature
+  (Parser Signature)
+  (?code.form
+   (all ?.and
+        ?code.local
+        ?code.local
+        (?.many ?code.any))))
+
+(.def (quoted it)
+  (-> Code Code)
+  (` ((,' .,') (, it))))
+
+(.def .public def
+  (syntax (_ [[export_policy signature quantifications inputs output default methods]
+              (export.parser
+               (all ?.and
+                    ..signature
+                    (?code.tuple (?.some ?code.any))
+                    (?code.tuple (?.many ?code.any))
+                    ?code.any
+                    ?code.any
+                    (?.some ?code.any)))])
+    (<| (with_symbols [g!self g!_ g!scenarios g!scenario g!mixin])
+        (..declaration [#function (the #name signature)
+                        #quantifications quantifications
+                        #inputs inputs
+                        #output output
+                        #default default
+                        #export_policy export_policy
+                        #scenarios (list)])
+        (let [name (quoted (code.local (the #name signature)))
+              next (quoted (code.local (the #next signature)))
+              parameters (list#each quoted (the #parameters signature))
+              [@ _] (symbol .._)
+
+              g!self (quoted g!self)])
+        (` (these (,* methods)
+
+                  (static.expansion
+                   (do meta.monad
+                     [[(, g!_) (, g!_) (, g!_) (, g!_) (, g!_) (, g!_) (, g!scenarios)]
+                      (context.search' (|>> product.left
+                                            (at text.equivalence (,' =) (, (code.text (the #name signature)))))
+                                       [("lux in-module" (, (code.text @)) ..stack)
+                                        (symbol ..stack)])]
+                     (at meta.monad (,' in)
+                         (list (` (.def (, export_policy) (, name)
+                                    (, (quoted (` (<| (,* quantifications)
+                                                      (-> (,* inputs) (, output))))))
+                                    (let [(, (quoted g!mixin)) (is (, (quoted (` (<| (,* quantifications)
+                                                                                     (-> [(,* inputs)] (, output))))))
+                                                                   (//.fixed (all //.mixed
+                                                                                  ((,' .,*) (, g!scenarios))
+                                                                                  (is (, (quoted (` (<| (,* quantifications)
+                                                                                                        (//.Mixin [(,* inputs)] (, output))))))
+                                                                                      (function ((, g!self) (, next) (, name) [(,* parameters)])
+                                                                                        (, (quoted default))))
+                                                                                  )))]
+                                      (function ((, name) (,* parameters))
+                                        ((, (quoted g!mixin)) [(,* parameters)])))))))))
+                  )))))
+
+(.def .public method
+  (syntax (_ [[signature predicate body]
+              (all ?.and
+                   ..signature
+                   ?code.any
+                   ?code.any)])
+    (do [! meta.monad]
+      [.let [criterion (is (-> Polymorphism Bit)
+                           (|>> (the #function)
+                                (text#= (the #name signature))))]
+       it (context.search criterion ..stack)]
+      (with_symbols [g!self]
+        (do !
+          [_ (context.revised {.#Some criterion}
+                              (revised #scenarios (|>> {.#Item (` (//.advice (function ((, g!self) [(,* (the #parameters signature))])
+                                                                               (, predicate))
+                                                                             (, g!self)))}))
+                              ..stack)]
+          (in (list (` (.def (, (the #export_policy it)) (, g!self)
+                         (<| (,* (the #quantifications it))
+                             (//.Mixin [(,* (the #inputs it))] (, (the #output it))))
+                         (function ((, g!self)
+                                    (, (code.local (the #next signature)))
+                                    (, (code.local (the #name signature)))
+                                    [(,* (the #parameters signature))])
+                           (, body)))))))))))
