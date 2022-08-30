@@ -30,14 +30,6 @@
         (return (&/|list (&&/|meta exo-type _location
                                    (&&/$proc (&/T ["lux" "try"]) (&/|list =op) (&/|list)))))))))
 
-(defn- analyse-lux-macro [analyse exo-type ?values]
-  (|do [:let [(&/$Item macro (&/$End)) ?values]
-        [_real-name [_exported? _def-type macro-type]] (&&module/find-def! &/prelude "Macro'")
-        [[=macro*-type =location] =macro] (&&/analyse-1 analyse macro-type macro)
-        _ (&type/check exo-type &type/Macro)]
-    (return (&/|list (&&/|meta exo-type =location
-                               =macro)))))
-
 (do-template [<name> <proc> <input-type> <output-type>]
   (defn- <name> [analyse exo-type ?values]
     (|do [:let [(&/$Item reference (&/$Item sample (&/$End))) ?values]
@@ -235,7 +227,6 @@
   (try (case proc
          "lux is"                   (analyse-lux-is analyse exo-type ?values)
          "lux try"                  (analyse-lux-try analyse exo-type ?values)
-         "lux macro"                (analyse-lux-macro analyse exo-type ?values)
 
          "lux io log"                  (analyse-io-log analyse exo-type ?values)
          "lux io error"                (analyse-io-error analyse exo-type ?values)
