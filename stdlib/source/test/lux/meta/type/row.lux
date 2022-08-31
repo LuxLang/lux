@@ -1,0 +1,146 @@
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["[0]" try]
+    ["[0]" exception]]
+   [data
+    ["[0]" text]]
+   [math
+    ["[0]" random (.only Random)]
+    [number
+     ["n" nat]]]
+   [meta
+    ["[0]" code (.only)
+     ["<[1]>" \\parser]]
+    [macro
+     [syntax (.only syntax)]
+     ["[0]" expansion]
+     ["[0]" template]]]
+   [test
+    ["_" property (.only Test)]]
+   [world
+    [time
+     ["[0]" instant (.only Instant)]
+     ["[0]" duration (.only Duration)]]]]]
+ [\\library
+  ["[0]" /]])
+
+(/.type .public Mortal
+  [@birth Instant
+   @life_span (Maybe Duration)])
+
+(/.type Human
+  Mortal
+  [@name Text])
+
+(/.type (TransHuman id)
+  Human
+  [@id id])
+
+(def macro_error
+  (syntax (_ [macro <code>.any])
+    (function (_ compiler)
+      (when ((expansion.complete macro) compiler)
+        {try.#Failure error}
+        {try.#Success [compiler (list (code.text error))]}
+        
+        {try.#Success _}
+        {try.#Failure "OOPS!"}))))
+
+(template.with_locals [<slot>]
+  (def repeat_slot_error
+    (macro_error
+     (/.type Bad_Row
+       [<slot> Bit
+        <slot> Nat]))))
+
+(def .public test
+  Test
+  (<| (_.covering /._)
+      (_.for [/.Row])
+      (do [! random.monad]
+        [dummy_birth random.instant
+         expected_birth (random.only (|>> (same? dummy_birth) not)
+                                     random.instant)
+         expected_life_span (random.maybe random.duration)
+
+         dummy_name (random.upper_case 1)
+         expected_name (random.upper_case 2)
+
+         dummy_id random.nat
+         expected_id (random.only (|>> (n.= dummy_id) not) random.nat)])
+      (all _.and
+           (_.coverage [/.type /.row]
+             (exec
+               (is Mortal
+                   (/.row [@birth expected_birth
+                           @life_span expected_life_span]))
+               (is Human
+                   (/.row [@name expected_name
+                           @birth expected_birth
+                           @life_span expected_life_span]))
+               (is (TransHuman Nat)
+                   (/.row [@id expected_id
+                           @name expected_name
+                           @birth expected_birth
+                           @life_span expected_life_span]))
+               true))
+           (_.coverage [/.cannot_repeat_slot_names]
+             (text.contains? (the exception.#label /.cannot_repeat_slot_names)
+                             repeat_slot_error))
+           (_.coverage [/.missing_level]
+             (and (|> (/.row [@name expected_name])
+                      macro_error
+                      (text.contains? (the exception.#label /.missing_level)))
+                  (|> (/.row [@id expected_id])
+                      macro_error
+                      (text.contains? (the exception.#label /.missing_level)))
+                  (|> (/.row [@id expected_id
+                              @name expected_name])
+                      macro_error
+                      (text.contains? (the exception.#label /.missing_level)))
+                  (|> (/.row [@id expected_id
+                              @birth expected_birth
+                              @life_span expected_life_span])
+                      macro_error
+                      (text.contains? (the exception.#label /.missing_level)))))
+           (_.for [/.Slot /.slot]
+                  (all _.and
+                       (_.coverage [/.the]
+                         (and (|> (/.row [@birth expected_birth
+                                          @life_span expected_life_span])
+                                  (is Mortal)
+                                  (/.the @birth)
+                                  (same? expected_birth))
+                              (|> (/.row [@name expected_name
+                                          @birth expected_birth
+                                          @life_span expected_life_span])
+                                  (is Human)
+                                  (/.the @name)
+                                  (same? expected_name))
+                              (|> (/.row [@id expected_id
+                                          @name expected_name
+                                          @birth expected_birth
+                                          @life_span expected_life_span])
+                                  (is (TransHuman Nat))
+                                  (/.the @id)
+                                  (same? expected_id))))
+                       (_.coverage [/.has]
+                         (|> (/.row [@birth dummy_birth
+                                     @life_span expected_life_span])
+                             (is Mortal)
+                             (/.has @birth expected_birth)
+                             (/.the @birth)
+                             (same? expected_birth)))
+                       (_.coverage [/.revised]
+                         (|> (/.row [@birth dummy_birth
+                                     @life_span expected_life_span])
+                             (is Mortal)
+                             (/.revised @birth (function (_ _) expected_birth))
+                             (/.the @birth)
+                             (same? expected_birth)))
+                       ))
+           )))
