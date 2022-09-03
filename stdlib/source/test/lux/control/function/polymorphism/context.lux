@@ -1,0 +1,117 @@
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["context" reader (.use "[1]#[0]" monad)]]
+   [data
+    [collection
+     ["[0]" set]]]
+   [math
+    ["[0]" random (.only Random)]
+    [number
+     ["i" int]]]
+   [test
+    ["_" property (.only Test)]]]]
+ [\\library
+  ["[0]" /]])
+
+(/.def .public (arbitrary _ negative zero positive)
+  [(All (_ value))]
+  Int
+  [value value value]
+  value
+  
+  (context#in zero)
+
+  (/.method (arbitrary next negative zero positive)
+    (i.> +0)
+    (context#in positive))
+
+  (/.method (arbitrary next negative zero positive)
+    (i.< +0)
+    (context#in negative))
+  )
+
+(/.layer positive)
+(/.layer negative)
+
+(/.def .public (layered _ negative zero positive)
+  [(All (_ value))]
+  /.Context
+  [value value value]
+  value
+  
+  (context#in zero)
+
+  (/.method (layered next negative zero positive)
+    (/.active? ..positive)
+    (context#in positive))
+
+  (/.method (layered next negative zero positive)
+    (/.active? ..negative)
+    (context#in negative))
+  )
+
+(def .public test
+  Test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [negative random.nat
+         zero random.nat
+         positive random.nat
+         choice random.int])
+      (all _.and
+           (_.coverage [/.def /.method]
+             (|> (arbitrary negative zero positive)
+                 (context.result choice)
+                 (same? (cond (i.> +0 choice) positive
+                              (i.< +0 choice) negative
+                              ... else
+                              zero))))
+           (_.coverage [/.altered]
+             (|> (arbitrary negative zero positive)
+                 (/.altered (i.* -1))
+                 (context.result choice)
+                 (same? (cond (i.> +0 choice) negative
+                              (i.< +0 choice) positive
+                              ... else
+                              zero))))
+           (_.for [/.Context]
+                  (all _.and
+                       (_.coverage [/.empty]
+                         (|> (layered negative zero positive)
+                             (context.result /.empty)
+                             (same? zero)))
+                       (_.coverage [/.with]
+                         (and (|> (layered negative zero positive)
+                                  (/.with ..positive)
+                                  (context.result /.empty)
+                                  (same? positive))
+                              (|> (layered negative zero positive)
+                                  (/.with ..negative)
+                                  (context.result /.empty)
+                                  (same? negative))))
+                       (_.coverage [/.without]
+                         (|> (layered negative zero positive)
+                             (/.without ..positive)
+                             (/.with ..positive)
+                             (context.result /.empty)
+                             (same? zero)))))
+           (_.for [/.Layer /.layer]
+                  (all _.and
+                       (_.coverage [/.active?]
+                         (|> (do context.monad
+                               [it context.read]
+                               (in (/.active? ..positive it)))
+                             (/.with ..positive)
+                             (context.result /.empty)))
+                       (_.coverage [/.inactive?]
+                         (|> (do context.monad
+                               [it context.read]
+                               (in (/.inactive? ..negative it)))
+                             (/.with ..positive)
+                             (context.result /.empty)))
+                       ))
+           )))

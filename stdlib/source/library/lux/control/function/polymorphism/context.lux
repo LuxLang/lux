@@ -1,0 +1,203 @@
+(.require
+ [library
+  [lux (.except def with)
+   [abstract
+    [monad (.only do)]
+    ["[0]" hash]]
+   [control
+    [reader (.only Reader)]
+    ["?" parser (.use "[1]#[0]" monad)]
+    [function
+     ["[0]" predicate (.only Predicate)]]]
+   [data
+    ["[0]" product]
+    ["[0]" text (.use "[1]#[0]" equivalence)]
+    [collection
+     ["[0]" set (.only Set)]
+     ["[0]" list (.use "[1]#[0]" functor)]]]
+   ["[0]" meta (.only)
+    ["[0]" symbol]
+    ["[0]" static]
+    ["[0]" code (.only)
+     ["?[1]" \\parser (.only Parser)]]
+    ["[0]" macro (.only with_symbols)
+     ["[0]" context]
+     [syntax (.only syntax)
+      ["[0]" export]]]
+    [type
+     [primitive (.except #name)]]]]]
+ [///
+  ["//" mixin]])
+
+(.def .public (altered alteration scope)
+  (All (_ context value)
+    (-> (-> context context) (Reader context value)
+        (Reader context value)))
+  (function (_ context)
+    (scope (alteration context))))
+
+(with_expansions [<representation> Symbol]
+  (primitive .public Layer
+    <representation>
+
+    (.def .public layer
+      (syntax (_ [[export_policy name] (export.parser ?code.local)])
+        (do meta.monad
+          [@ meta.current_module_name]
+          (in (list (` (.def (, export_policy) (, (code.local name))
+                         Layer
+                         (<| (as Layer)
+                             (is <representation>)
+                             [(, (code.text @))
+                              (, (code.text name))]))))))))
+
+    (type .public Context
+      (Set Layer))
+
+    (.def .public empty
+      Context
+      (set.empty (at hash.functor each (|>> representation) symbol.hash)))
+    ))
+
+(with_template [<name> <change>]
+  [(.def .public (<name> layer scope)
+     (All (_ value)
+       (-> Layer (Reader Context value)
+           (Reader Context value)))
+     (function (_ context)
+       (scope (<change> layer context))))]
+
+  [with set.has]
+  [without set.lacks]
+  )
+
+(.def .public (active? layer)
+  (All (_ value)
+    (-> Layer (Predicate Context)))
+  (function (_ context)
+    (set.member? context layer)))
+
+(.def .public inactive?
+  (All (_ value)
+    (-> Layer (Predicate Context)))
+  (|>> active? predicate.complement))
+
+(type Polymorphism
+  (Record
+   [#function Text
+    #quantifications (List Code)
+    #context Code
+    #inputs (List Code)
+    #output Code
+    #default Code
+    #export_policy Code
+    #scenarios (List Code)]))
+
+(context.def [stack expression declaration] Polymorphism)
+
+(type Signature
+  (Record
+   [#name Text
+    #next Text
+    #parameters (List Code)]))
+
+(.def signature
+  (Parser Signature)
+  (?code.form
+   (all ?.and
+        ?code.local
+        ?code.local
+        (?.many ?code.any))))
+
+(.def (quoted it)
+  (-> Code Code)
+  (` ((,' .,') (, it))))
+
+(.def .public def
+  (syntax (_ [[export_policy signature] (export.parser ..signature)
+              quantifications (?code.tuple (?.some ?code.any))
+              context ?code.any
+              inputs (?code.tuple (?.many ?code.any))
+              output ?code.any
+              default ?code.any
+              methods (?.some ?code.any)])
+    (<| (with_symbols [g!self g!_ g!scenarios g!scenario g!mixin])
+        (..declaration [#function (the #name signature)
+                        #quantifications quantifications
+                        #context context
+                        #inputs inputs
+                        #output output
+                        #default default
+                        #export_policy export_policy
+                        #scenarios (list)])
+        (let [name (quoted (code.local (the #name signature)))
+              next (quoted (code.local (the #next signature)))
+              parameters (list#each quoted (the #parameters signature))
+              [@ _] (symbol .._)
+
+              g!self (quoted g!self)])
+        (` (these (,* methods)
+
+                  (static.expansion
+                   (do meta.monad
+                     [[(, g!_) (, g!_) (, g!_) (, g!_) (, g!_) (, g!_) (, g!_) (, g!scenarios)]
+                      (context.search' (|>> product.left
+                                            (at text.equivalence (,' =) (, (code.text (the #name signature)))))
+                                       [("lux in-module" (, (code.text @)) ..stack)
+                                        (symbol ..stack)])]
+                     (at meta.monad (,' in)
+                         (list (` (.def (, export_policy) (, name)
+                                    (, (quoted (` (<| (,* quantifications)
+                                                      (-> (,* inputs) (Reader (, context) (, output)))))))
+                                    (let [(, (quoted g!mixin)) (is (, (quoted (` (<| (,* quantifications)
+                                                                                     (-> [(,* inputs)] (Reader (, context) (, output)))))))
+                                                                   (//.fixed (all //.mixed
+                                                                                  ((,' .,*) (, g!scenarios))
+                                                                                  (is (, (quoted (` (<| (,* quantifications)
+                                                                                                        (//.Mixin [(,* inputs)] (Reader (, context) (, output)))))))
+                                                                                      (function ((, g!self) (, next) (, name) [(,* parameters)])
+                                                                                        (, (quoted default))))
+                                                                                  )))]
+                                      (, (when (the #parameters signature)
+                                           (list _)
+                                           (quoted g!mixin)
+
+                                           _
+                                           (` (function ((, name) (,* parameters))
+                                                ((, (quoted g!mixin)) [(,* parameters)]))))))))))))
+                  )))))
+
+(.def .public method
+  (syntax (_ [signature ..signature
+              predicate ?code.any
+              body ?code.any])
+    (do [! meta.monad]
+      [.let [criterion (is (Predicate Polymorphism)
+                           (|>> (the #function)
+                                (text#= (the #name signature))))]
+       it (context.search criterion ..stack)]
+      (with_symbols [g!self g!predicate g!parameters g!context g!_ g!next g!again]
+        (do !
+          [_ (context.revised {.#Some criterion}
+                              (revised #scenarios (|>> {.#Item (` (let [(, g!predicate) (is (<| (,* (the #quantifications it))
+                                                                                                (Predicate (, (the #context it))))
+                                                                                            (, predicate))]
+                                                                    (is (<| (,* (the #quantifications it))
+                                                                            (//.Mixin [(,* (the #inputs it))]
+                                                                                      (Reader (, (the #context it))
+                                                                                              (, (the #output it)))))
+                                                                        (function ((, g!_) (, g!next) (, g!again) (, g!parameters) (, g!context))
+                                                                          (if ((, g!predicate) (, g!context))
+                                                                            ((, g!self) (, g!next) (, g!again) (, g!parameters) (, g!context))
+                                                                            ((, g!next) (, g!parameters) (, g!context)))))))}))
+                              ..stack)]
+          (in (list (` (.def (, (the #export_policy it)) (, g!self)
+                         (<| (,* (the #quantifications it))
+                             (//.Mixin [(,* (the #inputs it))]
+                                       (Reader (, (the #context it))
+                                               (, (the #output it)))))
+                         (function ((, g!self)
+                                    (, (code.local (the #next signature)))
+                                    (, (code.local (the #name signature)))
+                                    [(,* (the #parameters signature))])
+                           (, body)))))))))))

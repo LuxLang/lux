@@ -1,0 +1,126 @@
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]]
+   [control
+    [concurrency
+     ["[0]" async]]]
+   [data
+    ["[0]" text (.only)
+     ["%" \\format]]
+    [collection
+     ["[0]" set (.use "[1]#[0]" equivalence)]]]
+   [math
+    ["[0]" random (.only Random) (.use "[1]#[0]" monad)]
+    [number
+     ["n" nat]]]
+   [meta
+    ["[0]" static]
+    ["[0]" code]]
+   [test
+    ["_" property (.only Test)]]]]
+ [\\library
+  ["[0]" / (.only)
+   [//
+    ["[0]" tally (.only Tally)]]]])
+
+(def (verify expected_message/0 expected_message/1 successes failures [tally message])
+  (-> Text Text Nat Nat [Tally Text] Bit)
+  (and (text.contains? expected_message/0 message)
+       (text.contains? expected_message/1 message)
+       (n.= successes (the tally.#successes tally))
+       (n.= failures (the tally.#failures tally))))
+
+(with_expansions [expected_message/0 (static.random (|>> %.nat code.text) random.nat)
+                  expected_message/1 (static.random (|>> %.int code.text) random.int)
+                  <context> (static.random (|>> %.rev code.text) random.rev)
+                  <success?> (static.random code.bit random.bit)]
+  (these (def .public dummy_target
+           (static.random_nat))
+
+         (def .public test
+           Test
+           (<| random#in
+               (/.covering /._)
+               (/.for [/.Test])
+               (all /.and
+                    (do async.monad
+                      [[success_tally success_message] (/.success expected_message/0)]
+                      (/.coverage [/.success]
+                        (and (text.contains? (%.text expected_message/0) success_message)
+                             (n.= 1 (the tally.#successes success_tally))
+                             (n.= 0 (the tally.#failures success_tally)))))
+                    (do async.monad
+                      [[failure_tally failure_message] (/.failure expected_message/0)]
+                      (/.coverage [/.failure]
+                        (and (text.contains? expected_message/0 failure_message)
+                             (n.= 0 (the tally.#successes failure_tally))
+                             (n.= 1 (the tally.#failures failure_tally)))))
+                    (do async.monad
+                      [[success_tally success_message] (/.test expected_message/0 true)
+                       [failure_tally failure_message] (/.test expected_message/0 false)]
+                      (/.coverage [/.test]
+                        (and (text.ends_with? (%.text expected_message/0) success_message)
+                             (text.ends_with? (%.text expected_message/0) failure_message)
+                             (and (n.= 1 (the tally.#successes success_tally))
+                                  (n.= 0 (the tally.#successes failure_tally)))
+                             (and (n.= 0 (the tally.#failures success_tally))
+                                  (n.= 1 (the tally.#failures failure_tally))))))
+                    (do async.monad
+                      [tt (/.and (/.test expected_message/0 true)
+                                 (/.test expected_message/1 true))
+                       ff (/.and (/.test expected_message/0 false)
+                                 (/.test expected_message/1 false))
+                       tf (/.and (/.test expected_message/0 true)
+                                 (/.test expected_message/1 false))
+                       ft (/.and (/.test expected_message/0 false)
+                                 (/.test expected_message/1 true))]
+                      (/.coverage [/.and]
+                        (and (..verify expected_message/0 expected_message/1 2 0 tt)
+                             (..verify expected_message/0 expected_message/1 0 2 ff)
+                             (..verify expected_message/0 expected_message/1 1 1 tf)
+                             (..verify expected_message/0 expected_message/1 1 1 ft))))
+                    (do async.monad
+                      [[tally _] (/.covering .._ (/.test "" true))]
+                      (/.coverage [/.covering]
+                        (set.member? (the tally.#expected tally) (symbol ..dummy_target))))
+                    (do async.monad
+                      [[not_covering _] (/.covering .._ (/.test "" true))
+                       [covering _] (/.covering .._ (/.coverage [..dummy_target] true))]
+                      (/.coverage [/.coverage]
+                        (and (and (set.member? (the tally.#expected not_covering) (symbol ..dummy_target))
+                                  (not (set.member? (the tally.#actual not_covering) (symbol ..dummy_target))))
+                             (and (set.member? (the tally.#expected covering) (symbol ..dummy_target))
+                                  (set.member? (the tally.#actual covering) (symbol ..dummy_target))))))
+                    (do async.monad
+                      [[reference_tally reference_message] (/.test expected_message/0 <success?>)
+                       [context_tally context_message] (/.context <context>
+                                                         (/.test expected_message/0 <success?>))]
+                      (/.coverage [/.context]
+                        (and (set#= (the tally.#expected context_tally)
+                                    (the tally.#expected reference_tally))
+                             (set#= (the tally.#actual context_tally)
+                                    (the tally.#actual reference_tally))
+                             (n.= (the tally.#successes context_tally)
+                                  (the tally.#successes reference_tally))
+                             (n.= (the tally.#failures context_tally)
+                                  (the tally.#failures reference_tally))
+                             (text.contains? (%.text <context>) context_message)
+                             (not (text.contains? (%.text <context>) reference_message)))))
+                    (do async.monad
+                      [[reference_tally reference_message] (/.test expected_message/0 <success?>)
+                       [context_tally context_message] (<| (/.for [..dummy_target])
+                                                           (/.test expected_message/0 <success?>))]
+                      (/.coverage [/.for]
+                        (and (set#= (the tally.#expected reference_tally)
+                                    (the tally.#expected context_tally))
+                             (not (set#= (the tally.#actual reference_tally)
+                                         (the tally.#actual context_tally)))
+                             (n.= (the tally.#successes reference_tally)
+                                  (the tally.#successes context_tally))
+                             (n.= (the tally.#failures reference_tally)
+                                  (the tally.#failures context_tally))
+                             (not (text.contains? (%.symbol (symbol ..dummy_target)) reference_message))
+                             (text.contains? (%.symbol (symbol ..dummy_target)) context_message))))
+                    )))))
