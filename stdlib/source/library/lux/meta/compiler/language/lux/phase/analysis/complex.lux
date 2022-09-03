@@ -1,6 +1,6 @@
 (.require
  [library
-  [lux (.except)
+  [lux (.except Tag)
    [abstract
     ["[0]" monad (.only do)]]
    [control
@@ -21,7 +21,7 @@
    ["[0]" meta (.only)
     ["[0]" symbol]
     ["[0]" code]
-    ["[0]" type (.only)
+    ["[0]" type (.use "[1]#[0]" equivalence)
      ["[0]" check]]]]]
  ["[0]" //
   ["[1][0]" simple]
@@ -73,6 +73,17 @@
    (list ["Type" (%.type type)]
          ["Tag" (%.symbol tag)]
          ["Expression" (%.code code)])))
+
+(exception.def .public (cannot_order_record [@ code])
+  (Exception [Code (List [Symbol Code])])
+  (exception.report
+   (list ["@" (%.code @)]
+         ["Expression" (|> code
+                           (list#each (function (_ [slot value])
+                                        (list (code.symbol slot) value)))
+                           list#conjoint
+                           code.tuple
+                           %.code)])))
 
 (exception.def .public (cannot_repeat_slot [key record])
   (Exception [Symbol (List [Symbol Code])])
@@ -176,9 +187,13 @@
   (-> Phase Symbol Phase)
   (do [! ///.monad]
     [tag (///extension.lifted (meta.normal tag))
-     [idx group variantT] (///extension.lifted (meta.tag tag))
-     .let [case_size (list.size group)
-           [lefts right?] (/complex.choice case_size idx)]
+     [lefts,right? variantT] (///extension.lifted (meta.tag tag))
+     [lefts right?] (when lefts,right?
+                      {.#Some [lefts right? family]}
+                      (in [lefts right?])
+
+                      {.#None}
+                      (in [0 false]))
      expectedT (///extension.lifted meta.expected_type)]
     (when expectedT
       {.#Var _}
@@ -323,45 +338,83 @@
       (list.any? (list.any? (|>> product.left (text#= name))))
       meta.locals))
 
+(def (slot it)
+  (-> Symbol (Meta Label))
+  (do meta.monad
+    [it (meta.normal it)]
+    (meta.slot it)))
+
+(def (slot_type [[_ it] _])
+  (-> [Label Code] Type)
+  it)
+
+(def (same_record? it)
+  (-> (List [Label Code]) Bit)
+  (when it
+    (list.partial head tail)
+    (let [expected (slot_type head)]
+      (list.every? (|>> slot_type (type#= expected)) tail))
+    
+    (list)
+    false))
+
+(def (complete_record? it)
+  (-> (List [Label Code]) Bit)
+  (loop (again [expected_lefts 0
+                remaining it])
+    (when remaining
+      {.#Item [[{.#Some [lefts .true family]} type] value] {.#End}}
+      (n.= (-- expected_lefts) lefts)
+
+      {.#Item [[{.#None} type] value] {.#End}}
+      (n.= 0 expected_lefts)
+
+      {.#Item [[{.#Some [lefts .false family]} type] value] tail}
+      (and (n.= expected_lefts lefts)
+           (again (++ expected_lefts) tail))
+
+      _
+      false)))
+
+(def sorted_record
+  (-> (List [Label Code]) (List [Label Code]))
+  (list.sorted (function (_ left right)
+                 (when [left right]
+                   [[[{.#Some [leftsL right?L familyL]} typeL] valueL]
+                    [[{.#Some [leftsR right?R familyR]} typeR] valueR]]
+                   (if (n.= leftsL leftsR)
+                     (not right?R)
+                     (n.< leftsL leftsR))
+
+                   _
+                   false))))
+
 ... Lux already possesses the means to analyse tuples, so
 ... re-implementing the same functionality for records makes no sense.
 ... Records, thus, get transformed into tuples by ordering the elements.
-(def (order' head_k record)
+(def (order' head_k original_record)
   (-> Symbol (List [Symbol Code]) (Operation (Maybe [Nat (List Code) Type])))
   (do [! ///.monad]
-    [slotH' (///extension.lifted
-             (do meta.monad
-               [head_k (meta.normal head_k)]
-               (meta.try (meta.slot head_k))))]
-    (when slotH'
-      {try.#Success [_ slot_set recordT]}
+    [record (<| ///extension.lifted
+                meta.try
+                (monad.each ! (function (_ [slot value])
+                                (do !
+                                  [slot (..slot slot)]
+                                  (in [slot value])))
+                            original_record))]
+    (when record
+      {try.#Success record}
       (do !
-        [.let [size_record (list.size record)
-               size_ts (list.size slot_set)]
-         _ (if (n.= size_ts size_record)
-             (in [])
-             (/.except ..record_size_mismatch [size_ts size_record recordT record]))
-         .let [tuple_range (list.indices size_ts)
-               tag->idx (dictionary.of_list symbol.hash (list.zipped_2 slot_set tuple_range))]
-         idx->val (monad.mix !
-                             (function (_ [key val] idx->val)
-                               (do !
-                                 [key (///extension.lifted (meta.normal key))]
-                                 (when (dictionary.value key tag->idx)
-                                   {.#Some idx}
-                                   (if (dictionary.key? idx->val idx)
-                                     (/.except ..cannot_repeat_slot [key record])
-                                     (in (dictionary.has idx val idx->val)))
-
-                                   {.#None}
-                                   (/.except ..slot_does_not_belong_to_record [key recordT]))))
-                             (is (Dictionary Nat Code)
-                                 (dictionary.empty n.hash))
-                             record)
-         .let [ordered_tuple (list#each (function (_ idx)
-                                          (maybe.trusted (dictionary.value idx idx->val)))
-                                        tuple_range)]]
-        (in {.#Some [size_ts ordered_tuple recordT]}))
+        [.let [record (sorted_record record)]
+         _ (///.assertion ..cannot_order_record [(` same_record?) original_record]
+                          (same_record? record))
+         _ (///.assertion ..cannot_order_record [(` complete_record?) original_record]
+                          (complete_record? record))]
+        (in (do maybe.monad
+              [[[_ :record:] _] (list.head record)]
+              (in [(list.size record)
+                   (list#each product.right record)
+                   :record:]))))
 
       {try.#Failure error}
       (in {.#None}))))
@@ -402,10 +455,13 @@
       [head_k (///extension.lifted (meta.normal pseudo_slot))
        slot (///extension.lifted (meta.try (meta.slot head_k)))]
       (when slot
-        {try.#Success [_ slot_set recordT]}
-        (when (list.size slot_set)
-          1 (analyse archive singletonC)
-          _ (..product analyse archive members))
+        {try.#Success [lefts,right? recordT]}
+        (when lefts,right?
+          {.#None}
+          (analyse archive singletonC)
+          
+          _
+          (..product analyse archive members))
 
         _
         (..product analyse archive members)))

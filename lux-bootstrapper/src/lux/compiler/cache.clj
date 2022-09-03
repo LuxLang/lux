@@ -81,23 +81,6 @@
                 [def-type _] (&&&type/deserialize-type _type)]
             (|do [def-value (load-def-value module _name)]
               (&a-module/define module _name (= "1" _exported?) def-type def-value)))
-      ":" (let [[_ _name _exported? _record? _head _tail] parts
-                labels (&/$Item _head (if _tail
-                                        (&/->list (seq (.split _tail "\\.")))
-                                        &/$End))]
-            (|do [def-value (load-def-value module _name)]
-              (&a-module/define-type
-                module _name
-                (= "1" _exported?)
-                def-value (= "1" _record?) labels)))
-      ;; "T" (let [[_ _name _exported? _type _index _group] parts
-      ;;           [_type _] (&&&type/deserialize-type _type)
-      ;;           _group (&/->list (seq (.split _group "\\.")))]
-      ;;       (&a-module/define_tag module _name (= "1" _exported?) _type _group (Long/parseLong _index)))
-      ;; "S" (let [[_ _name _exported? _type _index _group] parts
-      ;;           [_type _] (&&&type/deserialize-type _type)
-      ;;           _group (&/->list (seq (.split _group "\\.")))]
-      ;;       (&a-module/define_slot module _name (= "1" _exported?) _type _group (Long/parseLong _index)))
       )))
 
 (defn ^:private uninstall-cache [module]

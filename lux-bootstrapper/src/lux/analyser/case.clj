@@ -356,8 +356,8 @@
           (&/$None)
           (analyse-tuple-pattern analyse-pattern pattern value-type ?members kont)))
 
-      (&/$Variant (&/$Item [_ (&/$Nat idx)] (&/$Item [_ (&/$Bit right?)] ?values)))
-      (let [idx (if right? (inc idx) idx)]
+      (&/$Variant (&/$Item [_ (&/$Nat lefts)] (&/$Item [_ (&/$Bit right?)] ?values)))
+      (let [idx (if right? (inc lefts) lefts)]
         (|do [value-type* (adjust-type value-type)
               case-type (&type/sum-at idx value-type*)
               [=test =kont] (case (int (&/|length ?values))
@@ -365,25 +365,34 @@
                               1 (analyse-pattern &/$None case-type (&/|head ?values) kont)
                               ;; 1+
                               (analyse-pattern &/$None case-type (&/T [(&/T ["" -1 -1]) (&/$Tuple ?values)]) kont))]
-          (return (&/T [($VariantTestAC (&/T [idx (&/|length (&type/flatten-sum value-type*)) =test])) =kont]))))
+          (return (&/T [($VariantTestAC (&/T [lefts right? =test])) =kont]))))
 
       (&/$Variant (&/$Item [_ (&/$Identifier ?ident)] ?values))
       (|do [[=module =name] (&&/resolved-ident ?ident)
             must-infer? (&type/unknown? value-type)
-            [_exported? variant-type** group idx] (&module/find-tag =module =name)
+            [_exported? [label* variant-type**]] (&module/find-tag =module =name)
+            [lefts right?] (return (|case label*
+                                     (&/$Some [lefts right? family])
+                                     (&/T [lefts right?])
+
+                                     (&/$None)
+                                     (&/T [0 false])))
             variant-type (if must-infer?
                            (|do [variant-type* (&type/instantiate-inference variant-type**)
                                  _ (&type/check value-type variant-type*)]
                              (return variant-type*))
                            (return value-type))
             value-type* (adjust-type variant-type)
-            case-type (&type/sum-at idx value-type*)
+            case-type (let [idx (if right?
+                                  (inc lefts)
+                                  lefts)]
+                        (&type/sum-at idx value-type*))
             [=test =kont] (case (int (&/|length ?values))
                             0 (analyse-pattern &/$None case-type unit-tuple kont)
                             1 (analyse-pattern &/$None case-type (&/|head ?values) kont)
                             ;; 1+
                             (analyse-pattern &/$None case-type (&/T [(&/T ["" -1 -1]) (&/$Tuple ?values)]) kont))]
-        (return (&/T [($VariantTestAC (&/T [idx (&/|length group) =test])) =kont])))
+        (return (&/T [($VariantTestAC (&/T [lefts right? =test])) =kont])))
 
       _
       (&/fail-with-loc (str "[Pattern-matching Error] Unrecognized pattern syntax: " (&/show-ast pattern)))
@@ -394,238 +403,245 @@
                                       (&&/analyse-1 analyse exo-type body))]
     (return (&/$Item pattern+body patterns))))
 
-(defn ^:private merge-total [struct test+body]
-  (|let [[test ?body] test+body]
-    (|case [struct test]
-      [($DefaultTotal total?) ($NoTestAC)]
-      (return ($DefaultTotal true))
+;; (defn ^:private merge-total [struct test+body]
+;;   (|let [[test ?body] test+body]
+;;     (|case [struct test]
+;;       [($DefaultTotal total?) ($NoTestAC)]
+;;       (return ($DefaultTotal true))
 
-      [($BitTotal total? ?values) ($NoTestAC)]
-      (return ($BitTotal true ?values))
+;;       [($BitTotal total? ?values) ($NoTestAC)]
+;;       (return ($BitTotal true ?values))
 
-      [($NatTotal total? ?values) ($NoTestAC)]
-      (return ($NatTotal true ?values))
+;;       [($NatTotal total? ?values) ($NoTestAC)]
+;;       (return ($NatTotal true ?values))
 
-      [($IntTotal total? ?values) ($NoTestAC)]
-      (return ($IntTotal true ?values))
+;;       [($IntTotal total? ?values) ($NoTestAC)]
+;;       (return ($IntTotal true ?values))
 
-      [($RevTotal total? ?values) ($NoTestAC)]
-      (return ($RevTotal true ?values))
+;;       [($RevTotal total? ?values) ($NoTestAC)]
+;;       (return ($RevTotal true ?values))
 
-      [($FracTotal total? ?values) ($NoTestAC)]
-      (return ($FracTotal true ?values))
+;;       [($FracTotal total? ?values) ($NoTestAC)]
+;;       (return ($FracTotal true ?values))
 
-      [($TextTotal total? ?values) ($NoTestAC)]
-      (return ($TextTotal true ?values))
+;;       [($TextTotal total? ?values) ($NoTestAC)]
+;;       (return ($TextTotal true ?values))
 
-      [($TupleTotal total? ?values) ($NoTestAC)]
-      (return ($TupleTotal true ?values))
+;;       [($TupleTotal total? ?values) ($NoTestAC)]
+;;       (return ($TupleTotal true ?values))
 
-      [($VariantTotal total? ?values) ($NoTestAC)]
-      (return ($VariantTotal true ?values))
+;;       [($VariantTotal total? ?values) ($NoTestAC)]
+;;       (return ($VariantTotal true ?values))
 
-      [($DefaultTotal total?) ($StoreTestAC ?idx)]
-      (return ($DefaultTotal true))
+;;       [($DefaultTotal total?) ($StoreTestAC ?idx)]
+;;       (return ($DefaultTotal true))
 
-      [($BitTotal total? ?values) ($StoreTestAC ?idx)]
-      (return ($BitTotal true ?values))
+;;       [($BitTotal total? ?values) ($StoreTestAC ?idx)]
+;;       (return ($BitTotal true ?values))
 
-      [($NatTotal total? ?values) ($StoreTestAC ?idx)]
-      (return ($NatTotal true ?values))
+;;       [($NatTotal total? ?values) ($StoreTestAC ?idx)]
+;;       (return ($NatTotal true ?values))
 
-      [($IntTotal total? ?values) ($StoreTestAC ?idx)]
-      (return ($IntTotal true ?values))
+;;       [($IntTotal total? ?values) ($StoreTestAC ?idx)]
+;;       (return ($IntTotal true ?values))
 
-      [($RevTotal total? ?values) ($StoreTestAC ?idx)]
-      (return ($RevTotal true ?values))
+;;       [($RevTotal total? ?values) ($StoreTestAC ?idx)]
+;;       (return ($RevTotal true ?values))
 
-      [($FracTotal total? ?values) ($StoreTestAC ?idx)]
-      (return ($FracTotal true ?values))
+;;       [($FracTotal total? ?values) ($StoreTestAC ?idx)]
+;;       (return ($FracTotal true ?values))
 
-      [($TextTotal total? ?values) ($StoreTestAC ?idx)]
-      (return ($TextTotal true ?values))
+;;       [($TextTotal total? ?values) ($StoreTestAC ?idx)]
+;;       (return ($TextTotal true ?values))
 
-      [($TupleTotal total? ?values) ($StoreTestAC ?idx)]
-      (return ($TupleTotal true ?values))
+;;       [($TupleTotal total? ?values) ($StoreTestAC ?idx)]
+;;       (return ($TupleTotal true ?values))
 
-      [($VariantTotal total? ?values) ($StoreTestAC ?idx)]
-      (return ($VariantTotal true ?values))
+;;       [($VariantTotal total? ?values) ($StoreTestAC ?idx)]
+;;       (return ($VariantTotal true ?values))
 
-      [($DefaultTotal total?) ($BitTestAC ?value)]
-      (return ($BitTotal total? (&/|list ?value)))
+;;       [($DefaultTotal total?) ($BitTestAC ?value)]
+;;       (return ($BitTotal total? (&/|list ?value)))
 
-      [($BitTotal total? ?values) ($BitTestAC ?value)]
-      (return ($BitTotal total? (&/$Item ?value ?values)))
+;;       [($BitTotal total? ?values) ($BitTestAC ?value)]
+;;       (return ($BitTotal total? (&/$Item ?value ?values)))
 
-      [($DefaultTotal total?) ($NatTestAC ?value)]
-      (return ($NatTotal total? (&/|list ?value)))
+;;       [($DefaultTotal total?) ($NatTestAC ?value)]
+;;       (return ($NatTotal total? (&/|list ?value)))
 
-      [($NatTotal total? ?values) ($NatTestAC ?value)]
-      (return ($NatTotal total? (&/$Item ?value ?values)))
+;;       [($NatTotal total? ?values) ($NatTestAC ?value)]
+;;       (return ($NatTotal total? (&/$Item ?value ?values)))
 
-      [($DefaultTotal total?) ($IntTestAC ?value)]
-      (return ($IntTotal total? (&/|list ?value)))
+;;       [($DefaultTotal total?) ($IntTestAC ?value)]
+;;       (return ($IntTotal total? (&/|list ?value)))
 
-      [($IntTotal total? ?values) ($IntTestAC ?value)]
-      (return ($IntTotal total? (&/$Item ?value ?values)))
+;;       [($IntTotal total? ?values) ($IntTestAC ?value)]
+;;       (return ($IntTotal total? (&/$Item ?value ?values)))
 
-      [($DefaultTotal total?) ($RevTestAC ?value)]
-      (return ($RevTotal total? (&/|list ?value)))
+;;       [($DefaultTotal total?) ($RevTestAC ?value)]
+;;       (return ($RevTotal total? (&/|list ?value)))
 
-      [($RevTotal total? ?values) ($RevTestAC ?value)]
-      (return ($RevTotal total? (&/$Item ?value ?values)))
+;;       [($RevTotal total? ?values) ($RevTestAC ?value)]
+;;       (return ($RevTotal total? (&/$Item ?value ?values)))
 
-      [($DefaultTotal total?) ($FracTestAC ?value)]
-      (return ($FracTotal total? (&/|list ?value)))
+;;       [($DefaultTotal total?) ($FracTestAC ?value)]
+;;       (return ($FracTotal total? (&/|list ?value)))
 
-      [($FracTotal total? ?values) ($FracTestAC ?value)]
-      (return ($FracTotal total? (&/$Item ?value ?values)))
+;;       [($FracTotal total? ?values) ($FracTestAC ?value)]
+;;       (return ($FracTotal total? (&/$Item ?value ?values)))
 
-      [($DefaultTotal total?) ($TextTestAC ?value)]
-      (return ($TextTotal total? (&/|list ?value)))
+;;       [($DefaultTotal total?) ($TextTestAC ?value)]
+;;       (return ($TextTotal total? (&/|list ?value)))
 
-      [($TextTotal total? ?values) ($TextTestAC ?value)]
-      (return ($TextTotal total? (&/$Item ?value ?values)))
+;;       [($TextTotal total? ?values) ($TextTestAC ?value)]
+;;       (return ($TextTotal total? (&/$Item ?value ?values)))
 
-      [($DefaultTotal total?) ($TupleTestAC ?tests)]
-      (|do [structs (&/map% (fn [t]
-                              (merge-total ($DefaultTotal total?) (&/T [t ?body])))
-                            ?tests)]
-        (return ($TupleTotal total? structs)))
+;;       [($DefaultTotal total?) ($TupleTestAC ?tests)]
+;;       (|do [structs (&/map% (fn [t]
+;;                               (merge-total ($DefaultTotal total?) (&/T [t ?body])))
+;;                             ?tests)]
+;;         (return ($TupleTotal total? structs)))
 
-      [($TupleTotal total? ?values) ($TupleTestAC ?tests)]
-      (if (.equals ^Object (&/|length ?values) (&/|length ?tests))
-        (|do [structs (&/map2% (fn [v t]
-                                 (merge-total v (&/T [t ?body])))
-                               ?values ?tests)]
-          (return ($TupleTotal total? structs)))
-        (&/fail-with-loc (str "[Pattern-matching Error] Inconsistent tuple-size.\n"
-                              "Expected: " (&/|length ?values) "\n"
-                              "  Actual: " (&/|length ?tests))))
+;;       [($TupleTotal total? ?values) ($TupleTestAC ?tests)]
+;;       (if (.equals ^Object (&/|length ?values) (&/|length ?tests))
+;;         (|do [structs (&/map2% (fn [v t]
+;;                                  (merge-total v (&/T [t ?body])))
+;;                                ?values ?tests)]
+;;           (return ($TupleTotal total? structs)))
+;;         (&/fail-with-loc (str "[Pattern-matching Error] Inconsistent tuple-size.\n"
+;;                               "Expected: " (&/|length ?values) "\n"
+;;                               "  Actual: " (&/|length ?tests))))
 
-      [($DefaultTotal total?) ($VariantTestAC ?tag ?count ?test)]
-      (|do [sub-struct (merge-total ($DefaultTotal total?)
-                                    (&/T [?test ?body]))
-            structs (|case (&/|list-put ?tag sub-struct (&/|repeat ?count ($DefaultTotal total?)))
-                      (&/$Some list)
-                      (return list)
+;;       [($DefaultTotal total?) ($VariantTestAC ?tag ?count ?test)]
+;;       (|do [sub-struct (merge-total ($DefaultTotal total?)
+;;                                     (&/T [?test ?body]))
+;;             structs (|case (&/|list-put ?tag sub-struct (&/|repeat ?count ($DefaultTotal total?)))
+;;                       (&/$Some list)
+;;                       (return list)
 
-                      (&/$None)
-                      (assert false))]
-        (return ($VariantTotal total? structs)))
+;;                       (&/$None)
+;;                       (assert false))]
+;;         (return ($VariantTotal total? structs)))
 
-      [($VariantTotal total? ?branches) ($VariantTestAC ?tag ?count ?test)]
-      (|do [sub-struct (merge-total (|case (&/|at ?tag ?branches)
-                                      (&/$Some sub)
-                                      sub
-                                      
-                                      (&/$None)
-                                      ($DefaultTotal total?))
-                                    (&/T [?test ?body]))
-            structs (|case (&/|list-put ?tag sub-struct ?branches)
-                      (&/$Some list)
-                      (return list)
+;;       [($VariantTotal total? ?branches) ($VariantTestAC ?tag ?count ?test)]
+;;       (|do [sub-struct (merge-total (|case (&/|at ?tag ?branches)
+;;                                       (&/$Some sub)
+;;                                       sub
 
-                      (&/$None)
-                      (assert false))]
-        (return ($VariantTotal total? structs)))
-      )))
+;;                                       (&/$None)
+;;                                       ($DefaultTotal total?))
+;;                                     (&/T [?test ?body]))
+;;             structs (|case (&/|list-put ?tag sub-struct ?branches)
+;;                       (&/$Some list)
+;;                       (return list)
 
-(defn check-totality+ [check-totality]
-  (fn [?token]
-    (&type/with-var
-      (fn [$var]
-        (|do [=output (check-totality $var ?token)
-              ?type (&type/deref+ $var)
-              =type (&type/clean $var ?type)]
-          (return (&/T [=output =type])))))))
+;;                       (&/$None)
+;;                       (assert false))]
+;;         (return ($VariantTotal total? structs)))
+;;       )))
 
-(defn ^:private check-totality [value-type struct]
-  (|case struct
-    ($DefaultTotal ?total)
-    (return ?total)
+;; (defn check-totality+ [check-totality]
+;;   (fn [?token]
+;;     (&type/with-var
+;;       (fn [$var]
+;;         (|do [=output (check-totality $var ?token)
+;;               ?type (&type/deref+ $var)
+;;               =type (&type/clean $var ?type)]
+;;           (return (&/T [=output =type])))))))
 
-    ($BitTotal ?total ?values)
-    (|do [_ (&type/check value-type &type/Bit)]
-      (return (or ?total
-                  (= #{true false} (set (&/->seq ?values))))))
+;; (defn ^:private check-totality [value-type struct]
+;;   (|case struct
+;;     ($DefaultTotal ?total)
+;;     (return ?total)
 
-    ($NatTotal ?total _)
-    (|do [_ (&type/check value-type &type/Nat)]
-      (return ?total))
+;;     ($BitTotal ?total ?values)
+;;     (|do [_ (&type/check value-type &type/Bit)]
+;;       (return (or ?total
+;;                   (= #{true false} (set (&/->seq ?values))))))
 
-    ($IntTotal ?total _)
-    (|do [_ (&type/check value-type &type/Int)]
-      (return ?total))
+;;     ($NatTotal ?total _)
+;;     (|do [_ (&type/check value-type &type/Nat)]
+;;       (return ?total))
 
-    ($RevTotal ?total _)
-    (|do [_ (&type/check value-type &type/Rev)]
-      (return ?total))
-    
-    ($FracTotal ?total _)
-    (|do [_ (&type/check value-type &type/Frac)]
-      (return ?total))
+;;     ($IntTotal ?total _)
+;;     (|do [_ (&type/check value-type &type/Int)]
+;;       (return ?total))
 
-    ($TextTotal ?total _)
-    (|do [_ (&type/check value-type &type/Text)]
-      (return ?total))
+;;     ($RevTotal ?total _)
+;;     (|do [_ (&type/check value-type &type/Rev)]
+;;       (return ?total))
 
-    ($TupleTotal ?total ?structs)
-    (|case ?structs
-      (&/$End)
-      (|do [value-type* (resolve-type value-type)]
-        (if (&type/type= &type/Any value-type*)
-          (return true)
-          (&/fail-with-loc "[Pattern-maching Error] Unit is not total.")))
-      
-      _
-      (|do [unknown? (&type/unknown? value-type)]
-        (if unknown?
-          (|do [=structs (&/map% (check-totality+ check-totality) ?structs)
-                _ (&type/check value-type (|case (->> (&/|map &/|second =structs) (&/|reverse))
-                                            (&/$Item last prevs)
-                                            (&/fold (fn [right left] (&/$Product left right))
-                                                    last prevs)))]
-            (return (or ?total
-                        (&/fold #(and %1 %2) true (&/|map &/|first =structs)))))
-          (if ?total
-            (return true)
-            (|do [value-type* (resolve-type value-type)]
-              (|case value-type*
-                (&/$Product _)
-                (|let [num-elems (&/|length ?structs)
-                       [_shorter _tuple-types] (&type/tuple-types-for (&/|length ?structs) value-type*)
-                       _ (&/assert! (= num-elems _shorter)
-                                    (&/fail-with-loc (str "[Pattern-maching Error] Tuple-mismatch. Require tuple[" (&/|length (&type/flatten-prod value-type*)) "]. Given tuple [" (&/|length ?structs) "]")))]
-                  (|do [totals (&/map2% check-totality _tuple-types ?structs)]
-                    (return (&/fold #(and %1 %2) true totals))))
-                
-                _
-                (&/fail-with-loc (str "[Pattern-maching Error] Tuple is not total." " - " (&type/show-type value-type*)))))))))
+;;     ($FracTotal ?total _)
+;;     (|do [_ (&type/check value-type &type/Frac)]
+;;       (return ?total))
 
-    ($VariantTotal ?total ?structs)
-    (if ?total
-      (return true)
-      (|do [value-type* (resolve-type value-type)]
-        (|case value-type*
-          (&/$Sum _)
-          (|do [totals (&/map2% check-totality
-                                (&type/flatten-sum value-type*)
-                                ?structs)]
-            (return (&/fold #(and %1 %2) true totals)))
+;;     ($TextTotal ?total _)
+;;     (|do [_ (&type/check value-type &type/Text)]
+;;       (return ?total))
 
-          _
-          (&/fail-with-loc "[Pattern-maching Error] Variant is not total."))))
-    ))
+;;     ($TupleTotal ?total ?structs)
+;;     (|case ?structs
+;;       (&/$End)
+;;       (|do [value-type* (resolve-type value-type)]
+;;         (if (&type/type= &type/Any value-type*)
+;;           (return true)
+;;           (&/fail-with-loc "[Pattern-maching Error] Unit is not total.")))
+
+;;       _
+;;       (|do [unknown? (&type/unknown? value-type)]
+;;         (if unknown?
+;;           (|do [=structs (&/map% (check-totality+ check-totality) ?structs)
+;;                 _ (&type/check value-type (|case (->> (&/|map &/|second =structs) (&/|reverse))
+;;                                             (&/$Item last prevs)
+;;                                             (&/fold (fn [right left] (&/$Product left right))
+;;                                                     last prevs)))]
+;;             (return (or ?total
+;;                         (&/fold #(and %1 %2) true (&/|map &/|first =structs)))))
+;;           (if ?total
+;;             (return true)
+;;             (|do [value-type* (resolve-type value-type)]
+;;               (|case value-type*
+;;                 (&/$Product _)
+;;                 (|let [num-elems (&/|length ?structs)
+;;                        [_shorter _tuple-types] (&type/tuple-types-for (&/|length ?structs) value-type*)
+;;                        _ (&/assert! (= num-elems _shorter)
+;;                                     (&/fail-with-loc (str "[Pattern-maching Error] Tuple-mismatch. Require tuple[" (&/|length (&type/flatten-prod value-type*)) "]. Given tuple [" (&/|length ?structs) "]")))]
+;;                   (|do [totals (&/map2% check-totality _tuple-types ?structs)]
+;;                     (return (&/fold #(and %1 %2) true totals))))
+
+;;                 _
+;;                 (&/fail-with-loc (str "[Pattern-maching Error] Tuple is not total." " - " (&type/show-type value-type*)))))))))
+
+;;     ($VariantTotal ?total ?structs)
+;;     (if ?total
+;;       (return true)
+;;       (|do [value-type* (resolve-type value-type)]
+;;         (|case value-type*
+;;           (&/$Sum _)
+;;           (|do [totals (&/map2% check-totality
+;;                                 (&type/flatten-sum value-type*)
+;;                                 ?structs)]
+;;             (return (&/fold #(and %1 %2) true totals)))
+
+;;           _
+;;           (&/fail-with-loc "[Pattern-maching Error] Variant is not total."))))
+;;     ))
 
 ;; [Exports]
 (defn analyse-branches [analyse exo-type var?? value-type branches]
-  (|do [patterns (&/fold% (fn [patterns branch]
-                            (|let [[pattern body] branch]
-                              (analyse-branch analyse exo-type var?? value-type pattern body patterns)))
-                          &/$End
-                          branches)
-        struct (&/fold% merge-total ($DefaultTotal false) patterns)
-        ? (check-totality value-type struct)
-        _ (&/assert! ? "[Pattern-maching Error] Pattern-matching is not total.")]
-    (return patterns)))
+  (&/fold% (fn [patterns branch]
+             (|let [[pattern body] branch]
+               (analyse-branch analyse exo-type var?? value-type pattern body patterns)))
+           &/$End
+           branches)
+  ;; (|do [patterns (&/fold% (fn [patterns branch]
+  ;;                           (|let [[pattern body] branch]
+  ;;                             (analyse-branch analyse exo-type var?? value-type pattern body patterns)))
+  ;;                         &/$End
+  ;;                         branches)
+  ;;       ;; struct (&/fold% merge-total ($DefaultTotal false) patterns)
+  ;;       ;; ? (check-totality value-type struct)
+  ;;       ;; _ (&/assert! ? "[Pattern-maching Error] Pattern-matching is not total.")
+  ;;       ]
+  ;;   (return patterns))
+  )

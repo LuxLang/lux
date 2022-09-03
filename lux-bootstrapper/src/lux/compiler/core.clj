@@ -61,48 +61,7 @@
                                              datum-separator (if exported? "1" "0")
                                              datum-separator (&&&type/serialize-type ?def-type)
                                              ;; Next
-                                             entry-separator def-entries)
-
-                                        (&/$TypeG [exported? value labels])
-                                        (let [[record? head tail] (|case labels
-                                                                    (&/$Left [head tail])
-                                                                    [false head tail]
-                                                                    
-                                                                    (&/$Right [head tail])
-                                                                    [true head tail])]
-                                          (str ":"
-                                               datum-separator ?name
-                                               datum-separator (if exported? "1" "0")
-                                               datum-separator (if record? "1" "0")
-                                               datum-separator head
-                                               datum-separator (->> tail
-                                                                    (&/|interpose &/+name-separator+)
-                                                                    (&/fold str ""))
-                                               ;; Next
-                                               entry-separator def-entries))
-
-                                        (&/$TagG [?export ?type ?group ?index])
-                                        def-entries
-                                        ;; (str "T"
-                                        ;;      datum-separator ?name
-                                        ;;      datum-separator (if ?export "1" "0")
-                                        ;;      datum-separator (&&&type/serialize-type ?type)
-                                        ;;      datum-separator ?index
-                                        ;;      datum-separator (->> ?group
-                                        ;;                           (&/|interpose &/+name-separator+)
-                                        ;;                           (&/fold str "")))
-
-                                        (&/$SlotG [?export ?type ?group ?index])
-                                        def-entries
-                                        ;; (str "S"
-                                        ;;      datum-separator ?name
-                                        ;;      datum-separator (if ?export "1" "0")
-                                        ;;      datum-separator (&&&type/serialize-type ?type)
-                                        ;;      datum-separator ?index
-                                        ;;      datum-separator (->> ?group
-                                        ;;                           (&/|interpose &/+name-separator+)
-                                        ;;                           (&/fold str "")))
-                                        )))
+                                             entry-separator def-entries))))
                                   ""
                                   defs)
               import-entries (->> imports

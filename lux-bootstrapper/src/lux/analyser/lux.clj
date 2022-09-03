@@ -174,7 +174,7 @@
       _
       (&/fail-with-loc "[Analyser Error] Macro cannot expand to more than 1 output."))))
 
-(defn analyse-variant [analyse ?exo-type idx is-last? ?values]
+(defn analyse-variant [analyse ?exo-type lefts right? ?values]
   (|case ?exo-type
     (&/$Left exo-type)
     (|do [exo-type* (&type/actual-type exo-type)]
@@ -183,7 +183,7 @@
         (&type/with-var
           (fn [$var]
             (|do [exo-type** (&type/apply-type exo-type* $var)
-                  [[variant-type variant-location] variant-analysis] (&&/cap-1 (analyse-variant analyse (&/$Left exo-type**) idx is-last? ?values))
+                  [[variant-type variant-location] variant-analysis] (&&/cap-1 (analyse-variant analyse (&/$Left exo-type**) lefts right? ?values))
                   =var (&type/resolve-type $var)
                   inferred-type (|case =var
                                   (&/$Var iid)
@@ -198,7 +198,7 @@
                                          variant-analysis))))))
 
         _
-        (analyse-variant analyse (&/$Right exo-type*) idx is-last? ?values)))
+        (analyse-variant analyse (&/$Right exo-type*) lefts right? ?values)))
 
     (&/$Right exo-type)
     (|do [exo-type* (|case exo-type
@@ -213,56 +213,61 @@
       (&/with-attempt
         (|case exo-type*
           (&/$Sum _)
-          (|do [vtype (&type/sum-at idx exo-type*)
+          (|do [:let [idx (if right?
+                            (inc lefts)
+                            lefts)]
+                vtype (&type/sum-at idx exo-type*)
                 =value (analyse-variant-body analyse vtype ?values)
                 _location &/location]
             (if (= 1 (&/|length (&type/flatten-sum exo-type*)))
               (return (&/|list =value))
-              (return (&/|list (&&/|meta exo-type _location (&&/$variant idx is-last? =value))))
+              (return (&/|list (&&/|meta exo-type _location (&&/$variant idx right? =value))))
               ))
 
           (&/$UnivQ _)
           (|do [$var &type/existential
                 exo-type** (&type/apply-type exo-type* $var)]
-            (analyse-variant analyse (&/$Right exo-type**) idx is-last? ?values))
+            (analyse-variant analyse (&/$Right exo-type**) lefts right? ?values))
 
           (&/$ExQ _)
           (&type/with-var
             (fn [$var]
               (|do [exo-type** (&type/apply-type exo-type* $var)
-                    =exprs (analyse-variant analyse (&/$Right exo-type**) idx is-last? ?values)]
+                    =exprs (analyse-variant analyse (&/$Right exo-type**) lefts right? ?values)]
                 (&/map% (partial &&/clean-analysis $var) =exprs))))
           
           _
-          (&/fail-with-loc (str "[Analyser Error] Cannot create variant if the expected type is " (&type/show-type exo-type*) " " idx " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))
+          (&/fail-with-loc (str "[Analyser Error] Cannot create variant if the expected type is " (&type/show-type exo-type*) " " lefts " " right? " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))
         (fn [err]
           (|case exo-type
             (&/$Var ?id)
             (|do [=exo-type (&type/deref ?id)]
-              (&/fail-with-loc (str err "\n" "[Analyser Error] Cannot create variant if the expected type is " (&type/show-type =exo-type) " " idx " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))
+              (&/fail-with-loc (str err "\n" "[Analyser Error] Cannot create variant if the expected type is " (&type/show-type =exo-type) " " lefts " " right? " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))
 
             _
-            (&/fail-with-loc (str err "\n" "[Analyser Error] Cannot create variant if the expected type is " (&type/show-type exo-type) " " idx " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
+            (&/fail-with-loc (str err "\n" "[Analyser Error] Cannot create variant if the expected type is " (&type/show-type exo-type) " " lefts " " right? " " (->> ?values (&/|map &/show-ast) (&/|interpose " ") (&/fold str "")))))))
       )))
 
 (defn analyse-variant+ [analyse exo-type module tag-name values]
-  (|do [[exported? wanted-type group idx] (&&module/find-tag module tag-name)
-        :let [is-last? (= idx (dec (&/|length group)))]]
-    (if (= 1 (&/|length group))
+  (|do [[exported? [label* variant_type]] (&&module/find-tag module tag-name)]
+    (|case label*
+      (&/$None)
       (|do [_location &/location]
         (analyse exo-type (&/T [_location (&/$Tuple values)])))
+      
+      (&/$Some [lefts right? family])
       (|case exo-type
         (&/$Var id)
         (|do [? (&type/bound? id)]
           (if (or ? (&&/type-tag? module tag-name))
-            (analyse-variant analyse (&/$Right exo-type) idx is-last? values)
-            (|do [wanted-type* (&type/instantiate-inference wanted-type)
-                  [[variant-type variant-location] variant-analysis] (&&/cap-1 (analyse-variant analyse (&/$Left wanted-type*) idx is-last? values))
+            (analyse-variant analyse (&/$Right exo-type) lefts right? values)
+            (|do [variant_type* (&type/instantiate-inference variant_type)
+                  [[variant-type variant-location] variant-analysis] (&&/cap-1 (analyse-variant analyse (&/$Left variant_type*) lefts right? values))
                   _ (&type/check exo-type variant-type)]
               (return (&/|list (&&/|meta exo-type variant-location variant-analysis))))))
 
         _
-        (analyse-variant analyse (&/$Right exo-type) idx is-last? values)))))
+        (analyse-variant analyse (&/$Right exo-type) lefts right? values)))))
 
 (defn analyse-record [analyse exo-type ?elems]
   (|do [rec-members&rec-type (&&record/order-record false ?elems)]
@@ -577,7 +582,7 @@
                   (&&/analyse-1 analyse type code))]
     (eval! (optimize analysis))))
 
-(defn analyse-def* [analyse optimize eval! compile-def ?name ?value exported? type? & [?expected-type]]
+(defn analyse-def* [analyse optimize eval! compile-def ?name ?value exported? & [?expected-type]]
   (|do [_ &/ensure-declaration
         module-name &/get-module-name
         _ (ensure-undefined! module-name ?name)
@@ -588,7 +593,7 @@
                       (&&/analyse-1 analyse ?expected-type ?value))
                     (&&/analyse-1+ analyse ?value))))
         ==exported? (eval analyse optimize eval! &type/Bit exported?)
-        def-value (compile-def ?name (optimize =value) ==exported? type?)
+        def-value (compile-def ?name (optimize =value) ==exported?)
         _ &type/reset-mappings
         :let [def-type (&&/expr-type* =value)
               _ (println 'DEF (str module-name &/+name-separator+ ?name
@@ -596,19 +601,7 @@
     (return (&/T [module-name def-type def-value ==exported?]))))
 
 (defn analyse-def [analyse optimize eval! compile-def ?name ?value exported?]
-  (|do [_ (analyse-def* analyse optimize eval! compile-def ?name ?value exported? &/$None)]
-    (return &/$End)))
-
-(defn analyse-def-type-tagged [analyse optimize eval! compile-def ?name ?value record? labels* exported?]
-  (|do [labels (&/map% (fn [tag*]
-                         (|case tag*
-                           [_ (&/$Text tag)]
-                           (return tag)
-
-                           _
-                           (&/fail-with-loc "[Analyser Error] Incorrect format for labels.")))
-                       labels*)
-        _ (analyse-def* analyse optimize eval! compile-def ?name ?value exported? (&/$Some (&/T [record? labels])) &type/Type)]
+  (|do [_ (analyse-def* analyse optimize eval! compile-def ?name ?value exported?)]
     (return &/$End)))
 
 (defn analyse-def-alias [?alias ?original]

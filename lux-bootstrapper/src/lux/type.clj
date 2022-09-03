@@ -28,17 +28,13 @@
 (def I64 (&/$Named (&/T [&/prelude "I64"])
                    (&/$UnivQ empty-env
                              (&/$Primitive "#I64" (&/|list (&/$Parameter 1))))))
-(def Nat* (&/$Primitive &&host/nat-data-tag &/$End))
-(def Rev* (&/$Primitive &&host/rev-data-tag &/$End))
-(def Int* (&/$Primitive &&host/int-data-tag &/$End))
-
 (def Bit (&/$Named (&/T [&/prelude "Bit"]) (&/$Primitive "#Bit" &/$End)))
-(def Nat (&/$Named (&/T [&/prelude "Nat"]) (&/$Apply Nat* I64)))
-(def Rev (&/$Named (&/T [&/prelude "Rev"]) (&/$Apply Rev* I64)))
-(def Int (&/$Named (&/T [&/prelude "Int"]) (&/$Apply Int* I64)))
+(def Nat (&/$Named (&/T [&/prelude "Nat"]) (&/$Primitive "#I64" (&/|list (&/$Primitive &&host/nat-data-tag &/$End)))))
+(def Int (&/$Named (&/T [&/prelude "Int"]) (&/$Primitive "#I64" (&/|list (&/$Primitive &&host/int-data-tag &/$End)))))
+(def Rev (&/$Named (&/T [&/prelude "Rev"]) (&/$Primitive "#I64" (&/|list (&/$Primitive &&host/rev-data-tag &/$End)))))
 (def Frac (&/$Named (&/T [&/prelude "Frac"]) (&/$Primitive "#Frac" &/$End)))
 (def Text (&/$Named (&/T [&/prelude "Text"]) (&/$Primitive "#Text" &/$End)))
-(def Ident (&/$Named (&/T [&/prelude "Ident"]) (&/$Product Text Text)))
+(def Symbol (&/$Named (&/T [&/prelude "Symbol"]) (&/$Product Text Text)))
 
 (def Array &&host/Array)
 
@@ -81,10 +77,10 @@
 
 (def Type
   (&/$Named (&/T [&/prelude "Type"])
-            (let [Type (&/$Apply (&/$Parameter 1) (&/$Parameter 0))
+            (let [Type (&/$Apply (&/$Primitive "" &/$End) (&/$Parameter 0))
                   TypeList (&/$Apply Type List)
                   TypePair (&/$Product Type Type)]
-              (&/$Apply Nothing
+              (&/$Apply (&/$Primitive "" &/$End)
                         (&/$UnivQ empty-env
                                   (&/$Sum
                                    ;; Primitive
@@ -117,12 +113,20 @@
                                             ;; App
                                             TypePair
                                             ;; Named
-                                            (&/$Product Ident Type)))))))))))
+                                            (&/$Product Symbol Type)))))))))))
                                   )))))
 
 (def Macro
   (&/$Named (&/T [&/prelude "Macro"])
             (&/$Primitive "#Macro" &/$End)))
+
+(def Tag
+  (&/$Named (&/T [&/prelude "Tag"])
+            (&/$Primitive "#Tag" &/$End)))
+
+(def Slot
+  (&/$Named (&/T [&/prelude "Slot"])
+            (&/$Primitive "#Slot" &/$End)))
 
 (defn bound? [id]
   (fn [state]
@@ -818,7 +822,7 @@
     ))
 
 (defn type-name
-  "(-> Type (Lux Ident))"
+  "(-> Type (Lux Symbol))"
   [type]
   (|case type
     (&/$Named name _)

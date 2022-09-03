@@ -150,9 +150,6 @@
 
 (defvariant
   ("DefinitionG" 1)
-  ("TypeG" 1)
-  ("TagG" 1)
-  ("SlotG" 1)
   ("AliasG" 1))
 
 (deftuple
@@ -1520,3 +1517,25 @@
 
         ($Left ^String msg)
         (fail* msg)))))
+
+(defn all_maybe
+  "(All (_ value)
+        (-> (List (Maybe value))
+            (Maybe (List value))))"
+  [it]
+  (|case it
+    ($Item head tail)
+    (|case head
+      ($Some head*)
+      (|case (all_maybe tail)
+        ($Some tail*)
+        ($Some ($Item head* tail*))
+
+        ($None)
+        $None)
+
+      ($None)
+      $None)
+
+    ($End)
+    ($Some $End)))

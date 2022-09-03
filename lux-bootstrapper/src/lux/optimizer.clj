@@ -198,10 +198,10 @@
     (&/|list ($TextPM _value)
              $PopPM)
 
-    (&a-case/$VariantTestAC _idx _num-options _sub-test)
-    (&/|++ (&/|list ($VariantPM (if (= _idx (dec _num-options))
-                                  (&/$Right _idx)
-                                  (&/$Left _idx))))
+    (&a-case/$VariantTestAC lefts right? _sub-test)
+    (&/|++ (&/|list ($VariantPM (if right?
+                                  (&/$Right (inc lefts))
+                                  (&/$Left lefts))))
            (&/|++ (transform-pm* _sub-test)
                   (&/|list $PopPM)))
 
@@ -1049,7 +1049,7 @@
           ;;            (not (contains-self-reference? _body)))
           ;;     (inline-loop meta _register-offset _scope _captured =args _body)
           ;;     (&/T [meta ($apply =func =args)]))
-            
+          
           ;;   _
           ;;   (&/T [meta ($apply =func =args)]))
           )

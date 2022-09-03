@@ -65,10 +65,10 @@
 
       (&/$Variant (&/$Item [command-meta command] parameters))
       (|case command
-        (&/$Nat idx)
+        (&/$Nat lefts)
         (|let [(&/$Item [_ (&/$Bit ?right)] parameters*) parameters]
           (&/with-analysis-meta location exo-type
-            (&&lux/analyse-variant analyse (&/$Right exo-type) (if ?right (inc idx) idx) ?right parameters*)))
+            (&&lux/analyse-variant analyse (&/$Right exo-type) lefts ?right parameters*)))
 
         (&/$Identifier ?ident)
         (&/with-analysis-meta location exo-type
@@ -125,21 +125,6 @@
                                    )) parameters]
             (&/with-location location
               (&&lux/analyse-def-alias ?alias ?original)))
-
-          "lux def type tagged"
-          (|let [(&/$Item [_ (&/$Identifier "" ?name)]
-                          (&/$Item ?value
-                                   (&/$Item ?labels
-                                            (&/$Item exported?
-                                                     (&/$End)))
-                                   )) parameters]
-            (&/with-location location
-              (|case ?labels
-                [_ (&/$Variant ?tags)]
-                (&&lux/analyse-def-type-tagged analyse optimize eval! compile-def ?name ?value false ?tags exported?)
-                
-                [_ (&/$Tuple ?slots)]
-                (&&lux/analyse-def-type-tagged analyse optimize eval! compile-def ?name ?value true ?slots exported?))))
 
           "lux def module"
           (|let [(&/$Item ?imports (&/$End)) parameters]
