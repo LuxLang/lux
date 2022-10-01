@@ -1,18 +1,23 @@
 (.require
  [library
-  [lux (.except)
+  [lux (.except Synthesis)
    [abstract
     ["[0]" monad (.only do)]]
    [control
     ["[0]" pipe]
-    ["[0]" try]]
+    ["[0]" try]
+    ["[0]" exception (.only Exception)]]
    [data
+    [text
+     ["%" \\format]]
     [collection
      ["[0]" list (.use "[1]#[0]" functor)]
      ["[0]" dictionary (.only Dictionary)]]]
-   [meta
+   ["[0]" meta (.only)
     [macro
-     ["^" pattern]]]]]
+     ["^" pattern]]
+    [type
+     ["[0]" check]]]]]
  ["[0]" /
   ["[1][0]" function]
   ["[1][0]" when]
@@ -20,7 +25,7 @@
   ["/[1]" //
    ["[1][0]" extension]
    ["/[1]" //
-    ["/" synthesis (.only Synthesis Phase)
+    ["/" synthesis (.only Synthesis Operation Phase Extender)
      ["[1][0]" simple]]
     ["[1][0]" analysis (.only Analysis)
      ["[2][0]" simple]
@@ -28,7 +33,9 @@
     [///
      ["[0]" phase (.use "[1]#[0]" monad)]
      [reference (.only)
-      [variable (.only)]]]]]])
+      [variable (.only)]]
+     [meta
+      [archive (.only Archive)]]]]]])
 
 (def (simple analysis)
   (-> ///simple.Simple /simple.Simple)
@@ -50,8 +57,33 @@
      [///simple.#Int /simple.#I64]
      [///simple.#Rev /simple.#I64])))
 
-(def (optimization archive)
-  Phase
+(exception.def .public (not_an_extension [name expected actual])
+  (Exception [Symbol Type Type])
+  (exception.report
+   (list ["Name" (%.symbol name)]
+         ["Expected" (%.type expected)]
+         ["Actual" (%.type actual)])))
+
+(def (extension_application extender lux
+                            phase archive
+                            name parameters)
+  (-> Extender Lux
+      (-> Extender Lux Phase) Archive
+      Symbol (List Analysis)
+      (Operation Synthesis))
+  (when (|> name
+            meta.export
+            (meta.result lux))
+    {try.#Success [exported? type value]}
+    (if (check.subsumes? .Synthesis type)
+      ((extender value) "" (phase extender lux) archive parameters)
+      (phase.except ..not_an_extension [name .Synthesis type]))
+
+    {try.#Failure error}
+    (phase.failure error)))
+
+(def (optimization phase extender lux archive)
+  (-> Phase Extender Lux Phase)
   (function (optimization' analysis)
     (when analysis
       {///analysis.#Simple analysis'}
@@ -75,22 +107,22 @@
       
       {///analysis.#When inputA branchesAB+}
       (/.with_currying? false
-        (/when.synthesize optimization branchesAB+ archive inputA))
+        (/when.synthesize (optimization phase extender lux) branchesAB+ archive inputA))
 
       (///analysis.no_op value)
       (optimization' value)
 
       {///analysis.#Apply _}
       (/.with_currying? false
-        (/function.apply optimization archive analysis))
+        (/function.apply (optimization phase extender lux) archive analysis))
 
       {///analysis.#Function environmentA bodyA}
-      (/function.abstraction optimization environmentA archive bodyA)
+      (/function.abstraction (optimization phase extender lux) environmentA archive bodyA)
 
-      {///analysis.#Extension name args}
+      {///analysis.#Extension ["" name] args}
       (/.with_currying? false
         (function (_ state)
-          (|> (//extension.apply archive optimization [name args])
+          (|> (//extension.apply archive (optimization phase extender lux) [name args])
               (phase.result' state)
               (pipe.when
                 {try.#Failure _}
@@ -101,10 +133,16 @@
 
                 success
                 success))))
+
+      {///analysis.#Extension name parameters}
+      (extension_application extender lux
+                             (optimization phase) archive
+                             name parameters)
       )))
 
-(def .public (phase archive analysis)
-  Phase
-  (do phase.monad
-    [synthesis (..optimization archive analysis)]
-    (phase.lifted (/variable.optimization synthesis))))
+(def .public (phase extender lux)
+  (-> Extender Lux Phase)
+  (function (phase archive analysis)
+    (do phase.monad
+      [synthesis (..optimization phase extender lux archive analysis)]
+      (phase.lifted (/variable.optimization synthesis)))))
