@@ -3,11 +3,28 @@
   [lux (.except)
    [abstract
     [monad (.only do)]]
-   [meta
+   [control
+    ["[0]" try]
+    ["[0]" exception (.only Exception)]]
+   [data
+    [text
+     ["%" \\format]]]
+   ["[0]" meta (.only)
     [macro
-     ["^" pattern]]]]]
+     ["^" pattern]]
+    [target
+     [jvm
+      [bytecode (.only Bytecode)]]]
+    [type
+     ["[0]" check]]
+    [compiler
+     [meta
+      ["[0]" archive (.only Archive)]
+      ["[0]" cache
+       [dependency
+        ["[1]/[0]" artifact]]]]]]]]
  ["[0]" /
-  [runtime (.only Phase)]
+  [runtime (.only Operation Phase Extender)]
   ["[1][0]" primitive]
   ["[1][0]" structure]
   ["[1][0]" reference]
@@ -17,13 +34,38 @@
   ["//[1]" ///
    ["[1][0]" extension]
    [//
-    ["[0]" synthesis]
+    ["[0]" synthesis (.only Synthesis)]
     [///
      ["[0]" reference]
      ["[1]" phase (.use "[1]#[0]" monad)]]]]])
 
-(def .public (generate archive synthesis)
-  Phase
+(exception.def .public (not_an_extension [name expected actual])
+  (Exception [Symbol Type Type])
+  (exception.report
+   (list ["Name" (%.symbol name)]
+         ["Expected" (%.type expected)]
+         ["Actual" (%.type actual)])))
+
+(def (extension_application extender lux
+                            phase archive
+                            name parameters)
+  (-> Extender Lux
+      (-> Extender Lux Phase) Archive
+      Symbol (List Synthesis)
+      (Operation (Bytecode Any)))
+  (when (|> name
+            meta.export
+            (meta.result lux))
+    {try.#Success [exported? type value]}
+    (if (check.subsumes? .Generation type)
+      ((extender value) "" (phase extender lux) archive parameters)
+      (///.except ..not_an_extension [name .Generation type]))
+
+    {try.#Failure error}
+    (///.failure error)))
+
+(def .public (generate extender lux archive synthesis)
+  (-> Extender Lux Phase)
   (when synthesis
     (^.with_template [<tag> <generator>]
       [(<tag> value)
@@ -34,10 +76,10 @@
      [synthesis.text /primitive.text])
 
     (synthesis.variant variantS)
-    (/structure.variant generate archive variantS)
+    (/structure.variant (generate extender lux) archive variantS)
 
     (synthesis.tuple members)
-    (/structure.tuple generate archive members)
+    (/structure.tuple (generate extender lux) archive members)
 
     {synthesis.#Reference reference}
     (when reference
@@ -48,32 +90,35 @@
       (/reference.constant archive constant))
 
     (synthesis.branch/when [valueS pathS])
-    (/when.when generate archive [valueS pathS])
+    (/when.when (generate extender lux) archive [valueS pathS])
 
     (synthesis.branch/exec [this that])
-    (/when.exec generate archive [this that])
+    (/when.exec (generate extender lux) archive [this that])
 
     (synthesis.branch/let [inputS register bodyS])
-    (/when.let generate archive [inputS register bodyS])
+    (/when.let (generate extender lux) archive [inputS register bodyS])
 
     (synthesis.branch/if [conditionS thenS elseS])
-    (/when.if generate archive [conditionS thenS elseS])
+    (/when.if (generate extender lux) archive [conditionS thenS elseS])
 
     (synthesis.branch/get [path recordS])
-    (/when.get generate archive [path recordS])
+    (/when.get (generate extender lux) archive [path recordS])
 
     (synthesis.loop/scope scope)
-    (/loop.scope generate archive scope)
+    (/loop.scope (generate extender lux) archive scope)
 
     (synthesis.loop/again updates)
-    (/loop.again generate archive updates)
+    (/loop.again (generate extender lux) archive updates)
 
     (synthesis.function/abstraction abstraction)
-    (/function.abstraction generate archive abstraction)
+    (/function.abstraction (generate extender lux) archive abstraction)
 
     (synthesis.function/apply application)
-    (/function.apply generate archive application)
+    (/function.apply (generate extender lux) archive application)
 
-    {synthesis.#Extension extension}
-    (///extension.apply archive generate extension)
+    {synthesis.#Extension [["" name] parameters]}
+    (///extension.apply archive (generate extender lux) [name parameters])
+
+    {synthesis.#Extension [name parameters]}
+    (extension_application extender lux generate archive name parameters)
     ))

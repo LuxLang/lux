@@ -78,9 +78,9 @@
     (Record
      [#file_system (file.System Async)
       #host (///generation.Host expression declaration)
-      #phase (///generation.Phase <type_vars>)
+      #phase (-> Extender Lux (///generation.Phase <type_vars>))
       #runtime (<Operation> [Registry Output])
-      #phase_wrapper (-> Archive (<Operation> ///phase.Wrapper))
+      #phase_wrapper ///phase.Wrapper
       #write (-> declaration Binary)]))
 
   ... TODO: Get rid of this
@@ -223,18 +223,9 @@
           (///phase.result' state)
           (at try.monad each product.left)))
 
-    (def (phase_wrapper archive platform state)
+    (def (complete_extensions host_declaration_bundle [analysers synthesizers generators declarations])
       (All (_ <type_vars>)
-        (-> Archive <Platform> <State+> (Try [<State+> ///phase.Wrapper])))
-      (|> archive
-          ((the #phase_wrapper platform))
-          ///declaration.lifted_generation
-          (///phase.result' state)))
-
-    (def (complete_extensions host_declaration_bundle phase_wrapper [analysers synthesizers generators declarations])
-      (All (_ <type_vars>)
-        (-> (-> ///phase.Wrapper (///declaration.Bundle <type_vars>))
-            ///phase.Wrapper
+        (-> (///declaration.Bundle <type_vars>)
             [(Dictionary Text ///analysis.Handler)
              (Dictionary Text ///synthesis.Handler)
              (Dictionary Text (///generation.Handler <type_vars>))
@@ -246,9 +237,9 @@
       [analysers
        synthesizers
        generators
-       (dictionary.composite declarations (host_declaration_bundle phase_wrapper))])
+       (dictionary.composite declarations host_declaration_bundle)])
 
-    (def .public (initialize context module expander host_analysis platform generation_bundle host_declaration_bundle program anchorT,expressionT,declarationT extender
+    (def .public (initialize context module expander host_analysis platform generation_bundle host_declaration_bundle program anchor,expression,declaration extender
                              import compilation_sources compilation_configuration)
       (All (_ <type_vars>)
         (-> context.Context
@@ -257,16 +248,19 @@
             ///analysis.Bundle
             <Platform>
             <Bundle>
-            (-> ///phase.Wrapper (///declaration.Bundle <type_vars>))
+            (///declaration.Bundle <type_vars>)
             (Program expression declaration)
-            [Type Type Type] (-> ///phase.Wrapper Extender)
+            [Type Type Type] Extender
             Import (List _io.Context) Configuration
             (Async (Try [<State+> Archive ///phase.Wrapper]))))
       (do [! ..monad]
-        [.let [state (//init.state (the context.#host context)
+        [.let [phase_wrapper (the #phase_wrapper platform)
+               state (//init.state (the context.#host context)
                                    module
                                    compilation_configuration
+                                   extender
                                    expander
+                                   anchor,expression,declaration
                                    host_analysis
                                    (the #host platform)
                                    (the #phase platform)
@@ -277,20 +271,17 @@
          .let [with_missing_extensions
                (is (All (_ <type_vars>)
                      (-> <Platform> (Program expression declaration) <State+>
-                         (Async (Try [///phase.Wrapper <State+>]))))
+                         (Async (Try <State+>))))
                    (function (_ platform program state)
-                     (async#in
-                      (do try.monad
-                        [[state phase_wrapper] (..phase_wrapper archive platform state)]
-                        (|> state
-                            (initialize_state (extender phase_wrapper)
-                                              (as_expected (..complete_extensions host_declaration_bundle phase_wrapper (as_expected bundles)))
-                                              analysis_state)
-                            (try#each (|>> (//init.with_default_declarations expander host_analysis program anchorT,expressionT,declarationT (extender phase_wrapper))
-                                           [phase_wrapper])))))))]]
+                     (|> state
+                         (initialize_state extender
+                                           (as_expected (..complete_extensions host_declaration_bundle (as_expected bundles)))
+                                           analysis_state)
+                         (try#each (//init.with_default_declarations expander host_analysis program anchor,expression,declaration extender))
+                         async#in)))]]
         (if (archive.archived? archive descriptor.runtime)
           (do !
-            [[phase_wrapper state] (with_missing_extensions platform program state)]
+            [state (with_missing_extensions platform program state)]
             (in [state archive phase_wrapper]))
           (do !
             [[state [archive payload]] (|> (..process_runtime archive platform)
@@ -298,7 +289,7 @@
                                            async#in)
              _ (..cache_module context platform 0 $.key $.format payload)
              
-             [phase_wrapper state] (with_missing_extensions platform program state)]
+             state (with_missing_extensions platform program state)]
             (in [state archive phase_wrapper])))))
 
     (def compilation_log_separator
