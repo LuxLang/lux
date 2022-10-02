@@ -1,9 +1,10 @@
 (.require
  [library
-  [lux (.except)
+  [lux (.except Analysis)
    [abstract
     [monad (.only do)]]
    [control
+    ["[0]" try]
     ["[0]" exception (.only Exception)]]
    [data
     [text
@@ -17,7 +18,9 @@
     ["[0]" location]
     ["[0]" code]
     [macro
-     ["^" pattern]]]]]
+     ["^" pattern]]
+    [type
+     ["[0]" check]]]]]
  ["[0]" /
   ["[1][0]" simple]
   ["[1][0]" complex]
@@ -27,7 +30,7 @@
   ["/[1]" //
    ["[1][0]" extension]
    ["/[1]" //
-    ["/" analysis (.only Analysis Operation Phase)
+    ["/" analysis (.only Analysis Operation Phase Extender)
      ["[1][0]" macro (.only Expander)]
      ["[1][0]" type]]
     [///
@@ -41,6 +44,7 @@
   (exception.report
    (list ["Syntax" (%.code syntax)])))
 
+... TODO: Replace with an inline function.
 (def variant_analysis
   (template (_ analysis archive tag values)
     ... (-> Phase Archive Symbol (List Code) (Operation Analysis))
@@ -51,6 +55,7 @@
        _
        (/complex.variant analysis tag archive (code.tuple values)))]))
 
+... TODO: Replace with an inline function.
 (def sum_analysis
   (template (_ analysis archive lefts right? values)
     ... (-> Phase Archive Nat Bit (List Code) (Operation Analysis))
@@ -61,6 +66,7 @@
        _
        (/complex.sum analysis lefts right? archive (code.tuple values)))]))
 
+... TODO: Replace with an inline function.
 (def when_analysis
   (template (_ analysis archive input branches code)
     ... (-> Phase Archive Code (List Code) Code (Operation Analysis))
@@ -71,30 +77,53 @@
        {.#None}
        (//.except ..invalid [code]))]))
 
-(def apply_analysis
-  (template (_ expander analysis archive functionC argsC+)
-    ... (-> Expander Phase Archive Code (List Code) (Operation Analysis))
-    [(do [! //.monad]
-       [[functionT functionA] (/type.inferring
-                               (analysis archive functionC))]
-       (when functionA
-         (/.constant def_name)
-         (do !
-           [?macro (//extension.lifted (meta.macro def_name))]
-           (when ?macro
-             {.#Some macro}
-             (do !
-               [expansion (//extension.lifted (/macro.single_expansion expander def_name macro argsC+))]
-               (analysis archive expansion))
+(exception.def .public (not_an_extension [name expected actual])
+  (Exception [Symbol Type Type])
+  (exception.report
+   (list ["Name" (%.symbol name)]
+         ["Expected" (%.type expected)]
+         ["Actual" (%.type actual)])))
 
-             _
-             (/function.apply analysis argsC+ functionT functionA archive functionC)))
+(def (extension_application extender
+                            phase archive
+                            name parameters)
+  (-> Extender
+      Phase Archive
+      Symbol (List Code)
+      (Operation Analysis))
+  (do //.monad
+    [[exported? type value] (//extension.lifted (meta.export name))]
+    (if (check.subsumes? .Analysis type)
+      ((extender value) "" phase archive parameters)
+      (//.except ..not_an_extension [name .Analysis type]))))
+
+... TODO: Replace with an inline function.
+(def apply_analysis
+  (template (_ extender expander analysis archive functionC argsC+)
+    ... (-> Extender Expander Phase Archive Code (List Code) (Operation Analysis))
+    [(do [! //.monad]
+       [[function_type function_analysis] (/type.inferring
+                                           (analysis archive functionC))]
+       (when function_analysis
+         (/.constant def_name)
+         (if (check.subsumes? .Analysis function_type)
+           (extension_application extender analysis archive def_name argsC+)
+           (do !
+             [?macro (//extension.lifted (meta.macro def_name))]
+             (when ?macro
+               {.#Some macro}
+               (do !
+                 [expansion (//extension.lifted (/macro.single_expansion expander def_name macro argsC+))]
+                 (analysis archive expansion))
+
+               _
+               (/function.apply analysis argsC+ function_type function_analysis archive functionC))))
 
          _
-         (/function.apply analysis argsC+ functionT functionA archive functionC)))]))
+         (/function.apply analysis argsC+ function_type function_analysis archive functionC)))]))
 
-(def .public (phase expander)
-  (-> Expander Phase)
+(def .public (phase extender expander)
+  (-> Extender Expander Phase)
   (function (analysis archive code)
     (<| (let [[location code'] code])
         ... The location must be set in the state for the sake
@@ -130,7 +159,7 @@
           (//extension.apply archive analysis [extension_name extension_args])
 
           (^.` ((^., functionC) (^.,* argsC+)))
-          (..apply_analysis expander analysis archive functionC argsC+)
+          (..apply_analysis extender expander analysis archive functionC argsC+)
 
           (^.` {(^., [_ {.#Nat lefts}]) (^., [_ {.#Bit right?}]) (^.,* values)})
           (..sum_analysis analysis archive lefts right? values)
