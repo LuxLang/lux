@@ -1,7 +1,6 @@
 (.require
  [library
   [lux (.except)
-   ["[0]" meta]
    [abstract
     ["[0]" monad (.only do)]]
    [control
@@ -11,12 +10,15 @@
     [text
      ["%" \\format (.only format)]]
     [collection
-     ["[0]" list (.use "[1]#[0]" mix monoid)]]]]]
+     ["[0]" list (.use "[1]#[0]" mix monoid)]]]
+   ["[0]" meta (.only)
+    [type
+     ["[0]" check]]]]]
  ["[0]" //
   ["[1][0]" extension]
   ["[1][0]" analysis]
   ["/[1]" //
-   ["/" declaration (.only Operation Phase)]
+   ["/" declaration (.only Operation Phase Extender)]
    ["[1][0]" analysis (.only)
     ["[0]" evaluation]
     ["[1]/[0]" macro (.only Expander)]
@@ -77,9 +79,38 @@
           {try.#Failure error}
           {try.#Failure error})))))
 
+(exception.def .public (not_an_extension [name expected actual])
+  (Exception [Symbol Type Type])
+  (exception.report
+   (list ["Name" (%.symbol name)]
+         ["Expected" (%.type expected)]
+         ["Actual" (%.type actual)])))
+
+(def (extension_application extender
+                            phase archive
+                            name parameters)
+  (All (_ anchor expression declaration)
+    (-> (Extender anchor expression declaration)
+        (Phase anchor expression declaration) Archive
+        Symbol (List Code)
+        (Operation anchor expression declaration /.Requirements)))
+  (do //.monad
+    [[exported? type value] (<| /.lifted_analysis
+                                //extension.lifted
+                                (meta.export name))]
+    (if (check.subsumes? .Declaration type)
+      ((extender value) "" phase archive parameters)
+      (//.except ..not_an_extension [name .Declaration type]))))
+
+(type Outcome
+  (Variant
+   {#More (List Code)}
+   {#Done /.Requirements}))
+
 (with_expansions [<lux_def_module> (these [|form_location| {.#Form (list.partial [|text_location| {.#Text "lux def module"}] annotations)}])]
-  (def .public (phase wrapper expander)
-    (-> //.Wrapper Expander Phase)
+  (def .public (phase wrapper extender expander)
+    (All (_ anchor expression declaration)
+      (-> //.Wrapper (Extender anchor expression declaration) Expander (Phase anchor expression declaration)))
     (function (again archive code)
       (do [! //.monad]
         [state //.state
@@ -98,33 +129,49 @@
           [_ {.#Form (list.partial [_ {.#Text name}] inputs)}]
           (//extension.apply archive again [name inputs])
 
-          [_ {.#Form (list.partial macro inputs)}]
+          [_ {.#Form (list.partial macro|extension inputs)}]
           (do !
-            [expansion (/.lifted_analysis
-                        (do !
-                          [macroA (<| (///analysis/type.expecting Macro)
-                                      (analysis archive macro))]
-                          (when macroA
-                            (///analysis.constant macro_name)
-                            (do !
-                              [?macro (//extension.lifted (meta.macro macro_name))
-                               macro (when ?macro
-                                       {.#Some macro}
-                                       (in macro)
-                                       
-                                       {.#None}
-                                       (//.except ..macro_was_not_found macro_name))]
-                              (//extension.lifted (///analysis/macro.expansion expander macro_name macro inputs)))
-                            
-                            _
-                            (//.except ..invalid_macro_call code))))]
-            (when expansion
-              (list.partial <lux_def_module> referrals)
-              (|> (again archive <lux_def_module>)
-                  (at ! each (revised /.#referrals (list#composite referrals))))
+            [expansion|requirements (do !
+                                      [[def_type def_analysis] (<| /.lifted_analysis
+                                                                   ///analysis/type.inferring
+                                                                   (analysis archive macro|extension))]
+                                      (when def_analysis
+                                        (///analysis.constant def_name)
+                                        (cond (check.subsumes? Macro def_type)
+                                              (/.lifted_analysis
+                                               (do !
+                                                 [?macro (//extension.lifted (meta.macro def_name))
+                                                  macro (when ?macro
+                                                          {.#Some macro}
+                                                          (in macro)
+                                                          
+                                                          {.#None}
+                                                          (//.except ..macro_was_not_found def_name))
+                                                  expansion (//extension.lifted (///analysis/macro.expansion expander def_name macro inputs))]
+                                                 (in {#More expansion})))
 
-              _
-              (..requiring again archive expansion)))
+                                              (check.subsumes? .Declaration def_type)
+                                              (do !
+                                                [requirements (extension_application extender again archive def_name inputs)]
+                                                (in {#Done requirements}))
+                                              
+                                              ... else
+                                              (//.except ..invalid_macro_call [code]))
+                                        
+                                        _
+                                        (//.except ..invalid_macro_call [code])))]
+            (when expansion|requirements
+              {.#Left expansion}
+              (when expansion
+                (list.partial <lux_def_module> referrals)
+                (|> (again archive <lux_def_module>)
+                    (at ! each (revised /.#referrals (list#composite referrals))))
+
+                _
+                (..requiring again archive expansion))
+
+              {.#Right requirements}
+              (in requirements)))
 
           _
           (//.except ..not_a_declaration code))))))

@@ -30,7 +30,7 @@
      ["[1][0]" program (.only Program)]
      ["[1][0]" syntax (.only Aliases)]
      ["[1][0]" synthesis]
-     ["[1][0]" declaration (.only Requirements)]
+     ["[1][0]" declaration (.only Requirements Extender)]
      ["[1][0]" generation]
      ["[1][0]" analysis (.only)
       [macro (.only Expander)]
@@ -40,7 +40,7 @@
       ["[0]P" analysis]
       ["[0]P" synthesis]
       ["[0]P" declaration]
-      ["[0]" extension (.only Extender)
+      ["[0]" extension (.only)
        ["[0]E" analysis]
        ["[0]E" synthesis]
        [declaration
@@ -58,11 +58,11 @@
     (-> Target
         descriptor.Module
         Configuration
-        Extender Expander
+        extension.Extender Expander
         [Type Type Type]
         ///analysis.Bundle
         (///generation.Host expression declaration)
-        (-> Extender Lux (///generation.Phase anchor expression declaration))
+        (-> extension.Extender Lux (///generation.Phase anchor expression declaration))
         (///generation.Bundle anchor expression declaration)
         (///declaration.State+ anchor expression declaration)))
   (let [synthesis_state [synthesisE.bundle ///synthesis.init]
@@ -87,7 +87,7 @@
     (-> ///analysis.Bundle
         (Program expression declaration)
         [Type Type Type]
-        Extender
+        (Extender anchor expression declaration)
         (-> (///declaration.State+ anchor expression declaration)
             (///declaration.State+ anchor expression declaration))))
   (function (_ [declaration_extensions sub_state])
@@ -163,11 +163,10 @@
 
 ... TODO: Inline ASAP
 (def (get_current_payload _)
-  (All (_ declaration)
-    (-> (Payload declaration)
-        (All (_ anchor expression)
-          (///declaration.Operation anchor expression declaration
-                                    (Payload declaration)))))
+  (All (_ anchor expression declaration)
+    (-> (Extender anchor expression declaration)
+        (///declaration.Operation anchor expression declaration
+                                  (Payload declaration))))
   (do ///phase.monad
     [buffer (///declaration.lifted_generation
              ///generation.buffer)
@@ -176,46 +175,43 @@
     (in [buffer registry])))
 
 ... TODO: Inline ASAP
-(def (process_declaration wrapper archive expander pre_payoad code)
-  (All (_ declaration)
-    (-> ///phase.Wrapper Archive Expander (Payload declaration) Code
-        (All (_ anchor expression)
-          (///declaration.Operation anchor expression declaration
-                                    [Requirements (Payload declaration)]))))
+(def (process_declaration wrapper archive extender expander pre_payoad code)
+  (All (_ anchor expression declaration)
+    (-> ///phase.Wrapper Archive (Extender anchor expression declaration) Expander (Payload declaration) Code
+        (///declaration.Operation anchor expression declaration
+                                  [Requirements (Payload declaration)])))
   (do ///phase.monad
     [.let [[pre_buffer pre_registry] pre_payoad]
      _ (///declaration.lifted_generation
         (///generation.set_buffer pre_buffer))
      _ (///declaration.lifted_generation
         (///generation.set_registry pre_registry))
-     requirements (let [execute! (declarationP.phase wrapper expander)]
+     requirements (let [execute! (declarationP.phase wrapper extender expander)]
                     (execute! archive code))
-     post_payload (..get_current_payload pre_payoad)]
+     post_payload (..get_current_payload extender)]
     (in [requirements post_payload])))
 
-(def (iteration' wrapper archive expander reader source pre_payload)
-  (All (_ declaration)
-    (-> ///phase.Wrapper Archive Expander Reader Source (Payload declaration)
-        (All (_ anchor expression)
-          (///declaration.Operation anchor expression declaration
-                                    [Source Requirements (Payload declaration)]))))
+(def (iteration' wrapper archive extender expander reader source pre_payload)
+  (All (_ anchor expression declaration)
+    (-> ///phase.Wrapper Archive (Extender anchor expression declaration) Expander Reader Source (Payload declaration)
+        (///declaration.Operation anchor expression declaration
+                                  [Source Requirements (Payload declaration)])))
   (do ///phase.monad
     [[source code] (///declaration.lifted_analysis
                     (..read source reader))
-     [requirements post_payload] (process_declaration wrapper archive expander pre_payload code)]
+     [requirements post_payload] (process_declaration wrapper archive extender expander pre_payload code)]
     (in [source requirements post_payload])))
 
-(def (iteration wrapper archive expander module source pre_payload aliases)
-  (All (_ declaration)
-    (-> ///phase.Wrapper Archive Expander descriptor.Module Source (Payload declaration) Aliases
-        (All (_ anchor expression)
-          (///declaration.Operation anchor expression declaration
-                                    (Maybe [Source Requirements (Payload declaration)])))))
+(def (iteration wrapper archive extender expander module source pre_payload aliases)
+  (All (_ anchor expression declaration)
+    (-> ///phase.Wrapper Archive (Extender anchor expression declaration) Expander descriptor.Module Source (Payload declaration) Aliases
+        (///declaration.Operation anchor expression declaration
+                                  (Maybe [Source Requirements (Payload declaration)]))))
   (do ///phase.monad
     [reader (///declaration.lifted_analysis
              (..reader module aliases source))]
     (function (_ state)
-      (when (///phase.result' state (..iteration' wrapper archive expander reader source pre_payload))
+      (when (///phase.result' state (..iteration' wrapper archive extender expander reader source pre_payload))
         {try.#Success [state source&requirements&buffer]}
         {try.#Success [state {.#Some source&requirements&buffer}]}
 
@@ -250,13 +246,13 @@
         @module (///phase.lifted (archive.id program_module archive))]
       (///generation.save! @self {.#None} (program [@module @self] |program|))))
 
-  (def .public (compiler program global wrapper expander prelude write_declaration program_module program_definition)
-    (All (_ anchor expression declaration)
+  (def .public (compiler program global wrapper extender expander prelude write_declaration program_module program_definition)
+    (All (_ <parameters>)
       (-> (Program expression declaration) (-> Archive Symbol (///generation.Operation <parameters> expression))
-          ///phase.Wrapper Expander descriptor.Module (-> declaration Binary)
+          ///phase.Wrapper (Extender <parameters>) Expander descriptor.Module (-> declaration Binary)
           descriptor.Module (Maybe Text)
           (Instancer (///declaration.State+ <parameters>) .Module)))
-    (let [execute! (declarationP.phase wrapper expander)]
+    (let [execute! (declarationP.phase wrapper extender expander)]
       (function (_ key parameters input)
         (let [dependencies (default_dependencies prelude input)]
           [///.#dependencies dependencies
@@ -267,7 +263,7 @@
                                                          (..begin dependencies hash input))
                              .let [module (the ///.#module input)]]
                             (loop (again [iteration (<| (///phase.result' state)
-                                                        (..iteration wrapper archive expander module source buffer ///syntax.no_aliases))])
+                                                        (..iteration wrapper archive extender expander module source buffer ///syntax.no_aliases))])
                               (do !
                                 [[state ?source&requirements&temporary_payload] iteration]
                                 (when ?source&requirements&temporary_payload
@@ -321,7 +317,7 @@
                                                                                _ (|> requirements
                                                                                      (the ///declaration.#referrals)
                                                                                      (monad.each ! (execute! archive)))
-                                                                               temporary_payload (..get_current_payload temporary_payload)]
-                                                                              (..iteration wrapper archive expander module source temporary_payload (..module_aliases analysis_module))))))]}]))
+                                                                               temporary_payload (..get_current_payload extender)]
+                                                                              (..iteration wrapper archive extender expander module source temporary_payload (..module_aliases analysis_module))))))]}]))
                                   )))))]))))
   )
