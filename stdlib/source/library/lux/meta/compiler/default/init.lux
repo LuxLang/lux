@@ -64,13 +64,15 @@
         (-> extension.Extender Lux (///generation.Phase anchor expression declaration))
         (///generation.Bundle anchor expression declaration)
         (///declaration.State+ anchor expression declaration)))
-  (let [synthesis_state [synthesisE.bundle ///synthesis.init]
-        generation_state [generation_bundle (///generation.state host module)]
+  (let [synthesis_state [extension.#bundle synthesisE.bundle
+                         extension.#state ///synthesis.init]
+        generation_state [extension.#bundle generation_bundle
+                          extension.#state (///generation.state host module)]
         lux (///analysis.state (///analysis.info version.latest target configuration))
         analysis_phase (analysisP.phase extender expander)
         eval (///analysis/evaluation.evaluator analysis_phase
-                                               [synthesis_state (synthesisP.phase extender lux)]
-                                               [generation_state (generate extender lux)])
+                                               [synthesis_state (synthesisP.phase extender)]
+                                               [generation_state (generate extender)])
         analysis_state [(analysisE.bundle eval host_analysis)
                         lux]]
     [extension.empty
@@ -124,6 +126,33 @@
   [(///generation.Buffer declaration)
    Registry])
 
+(def (with_generation_defaults module)
+  (-> Text
+      (Operation Any))
+  (do [! ///phase.monad]
+    [state ///phase.state
+     _ (|> state
+           (the [extension.#state ///declaration.#generation ///declaration.#state extension.#bundle])
+           dictionary.entries
+           (monad.each !
+                       (function (_ [name handler])
+                         (///declaration.lifted_analysis
+                          (moduleA.define name {.#Default [true .Generation handler]})))))]
+    (in [])))
+
+(def (with_defaults module)
+  (-> Text
+      (Operation Any))
+  (when module
+    .prelude
+    (do ///phase.monad
+      []
+      (with_generation_defaults module))
+
+    _
+    (with ///phase.monad
+      (in []))))
+
 (def (begin dependencies hash input)
   (-> (List descriptor.Module) Nat ///.Input
       (All (_ anchor expression declaration)
@@ -131,11 +160,13 @@
                                   [Source (Payload declaration)])))
   (do ///phase.monad
     [.let [module (the ///.#module input)]
-     _ (///declaration.set_current_module module)]
+     _ (///declaration.set_current_module module)
+     _ (///declaration.lifted_analysis
+        (moduleA.create hash module))
+     _ (with_defaults module)]
     (///declaration.lifted_analysis
      (do [! ///phase.monad]
-       [_ (moduleA.create hash module)
-        _ (monad.each ! moduleA.import dependencies)
+       [_ (monad.each ! moduleA.import dependencies)
         .let [source (///analysis.source (the ///.#module input) (the ///.#code input))]
         _ (///analysis.set_source_code source)]
        (in [source [///generation.empty_buffer

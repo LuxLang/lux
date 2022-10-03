@@ -25,7 +25,7 @@
   ["/[1]" //
    ["[1][0]" extension]
    ["/[1]" //
-    ["/" synthesis (.only Synthesis Operation Phase Extender)
+    ["/" synthesis (.only Synthesis Operation Phase Extender Handler)
      ["[1][0]" simple]]
     ["[1][0]" analysis (.only Analysis)
      ["[2][0]" simple]
@@ -68,23 +68,42 @@
                             phase archive
                             name parameters)
   (-> Extender Lux
-      (-> Extender Lux Phase) Archive
+      Phase Archive
       Symbol (List Analysis)
       (Operation Synthesis))
-  (when (|> name
-            meta.export
+  (when (|> (do [! meta.monad]
+              [definition (meta.try (meta.export name))]
+              (when definition
+                {try.#Success [exported? type definition]}
+                (in [exported? type {.#Left definition}])
+                
+                {try.#Failure error}
+                (do !
+                  [[exported? type default] (meta.default name)]
+                  (in [exported? type {.#Right default}]))))
+            (is (Meta [Bit Type (Either Any Any)]))
             (meta.result lux))
     {try.#Success [exported? type value]}
     (if (check.subsumes? .Synthesis type)
-      ((extender value) "" (phase extender lux) archive parameters)
-      (phase.except ..not_an_extension [name .Synthesis type]))
+      (when value
+        {.#Left definition}
+        ((extender definition) "" phase archive parameters)
+
+        {.#Right default}
+        ((as Handler default) "" phase archive parameters))
+      ... (phase.except ..not_an_extension [name .Synthesis type])
+      (|> parameters
+          (monad.each phase.monad (phase archive))
+          (phase#each (|>> [name] {/.#Extension}))))
 
     {try.#Failure error}
-    (phase.failure error)))
+    (|> parameters
+        (monad.each phase.monad (phase archive))
+        (phase#each (|>> [name] {/.#Extension})))))
 
-(def (optimization phase extender lux archive)
-  (-> Phase Extender Lux Phase)
-  (function (optimization' analysis)
+(def (optimization extender lux)
+  (-> Extender Lux Phase)
+  (function (phase archive analysis)
     (when analysis
       {///analysis.#Simple analysis'}
       (phase#in {/.#Simple (..simple analysis')})
@@ -96,38 +115,39 @@
       (/.with_currying? false
         (when structure
           {///complex.#Variant variant}
-          (do phase.monad
-            [valueS (optimization' (the ///complex.#value variant))]
-            (in (/.variant (has ///complex.#value valueS variant))))
+          (phase#each
+           (function (_ valueS)
+             (/.variant (has ///complex.#value valueS variant)))
+           (phase archive (the ///complex.#value variant)))
 
           {///complex.#Tuple tuple}
           (|> tuple
-              (monad.each phase.monad optimization')
+              (monad.each phase.monad (phase archive))
               (phase#each (|>> /.tuple)))))
       
       {///analysis.#When inputA branchesAB+}
       (/.with_currying? false
-        (/when.synthesize (optimization phase extender lux) branchesAB+ archive inputA))
+        (/when.synthesize phase branchesAB+ archive inputA))
 
       (///analysis.no_op value)
-      (optimization' value)
+      (phase archive value)
 
       {///analysis.#Apply _}
       (/.with_currying? false
-        (/function.apply (optimization phase extender lux) archive analysis))
+        (/function.apply phase archive analysis))
 
       {///analysis.#Function environmentA bodyA}
-      (/function.abstraction (optimization phase extender lux) environmentA archive bodyA)
+      (/function.abstraction phase environmentA archive bodyA)
 
       {///analysis.#Extension ["" name] args}
       (/.with_currying? false
         (function (_ state)
-          (|> (//extension.apply archive (optimization phase extender lux) [name args])
+          (|> (//extension.apply archive phase [name args])
               (phase.result' state)
               (pipe.when
                 {try.#Failure _}
                 (|> args
-                    (monad.each phase.monad optimization')
+                    (monad.each phase.monad (phase archive))
                     (phase#each (|>> [["" name]] {/.#Extension}))
                     (phase.result' state))
 
@@ -136,13 +156,12 @@
 
       {///analysis.#Extension name parameters}
       (extension_application extender lux
-                             (optimization phase) archive
+                             phase archive
                              name parameters)
       )))
 
-(def .public (phase extender lux)
+(def .public (phase extender lux archive analysis)
   (-> Extender Lux Phase)
-  (function (phase archive analysis)
-    (do phase.monad
-      [synthesis (..optimization phase extender lux archive analysis)]
-      (phase.lifted (/variable.optimization synthesis)))))
+  (do phase.monad
+    [synthesis (..optimization extender lux archive analysis)]
+    (phase.lifted (/variable.optimization synthesis))))

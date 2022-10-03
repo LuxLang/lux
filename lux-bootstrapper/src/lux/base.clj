@@ -129,8 +129,7 @@
    "loader"
    "classes"
    "type-env"
-   "dummy-mappings"
-   ])
+   "dummy-mappings"])
 
 (defvariant
   ("Build" 0)
@@ -150,7 +149,8 @@
 
 (defvariant
   ("DefinitionG" 1)
-  ("AliasG" 1))
+  ("AliasG" 1)
+  ("DefaultG" 1))
 
 (deftuple
   ["info"

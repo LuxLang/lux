@@ -185,7 +185,10 @@
                                    {.#Definition [exported? def_type def_value]}
                                    (if (macro_type? def_type)
                                      {.#Some (as Macro def_value)}
-                                     {.#None})))))
+                                     {.#None})
+
+                                   {.#Default _}
+                                   {.#None}))))
 
                            {try.#Failure error}
                            {.#None})]}))))
@@ -286,66 +289,74 @@
        (list.sorted text#<)
        (text.interposed ..listing_separator)))
 
-(def .public (definition name)
-  (-> Symbol (Meta Global))
-  (do ..monad
-    [name (..normal name)
-     .let [[normal_module normal_short] name]]
-    (function (_ lux)
-      (when (is (Maybe Global)
-                (do maybe.monad
-                  [(open "[0]") (|> lux
-                                    (the .#modules)
-                                    (property.value normal_module))]
-                  (property.value normal_short #definitions)))
-        {.#Some definition}
-        {try.#Success [lux definition]}
+(with_template [<name> <yes> <no>]
+  [(def .public (<name> name)
+     (-> Symbol (Meta Global))
+     (do ..monad
+       [name (..normal name)
+        .let [[normal_module normal_short] name]]
+       (function (_ lux)
+         (when (is (Maybe Global)
+                   (do maybe.monad
+                     [(open "[0]") (|> lux
+                                       (the .#modules)
+                                       (property.value normal_module))]
+                     (property.value normal_short #definitions)))
+           {.#Some definition}
+           {try.#Success [lux definition]}
 
-        _
-        (let [current_module (|> lux (the .#current_module) (maybe.else "???"))
-              all_known_modules (|> lux
-                                    (the .#modules)
-                                    (list#each product.left)
-                                    ..module_listing)]
-          {try.#Failure (all text#composite
-                             "Unknown definition: " (symbol#encoded name) text.new_line
-                             "    Current module: " current_module text.new_line
-                             (when (property.value current_module (the .#modules lux))
-                               {.#Some this_module}
-                               (let [candidates (|> lux
-                                                    (the .#modules)
-                                                    (list#each (function (_ [module_name module])
-                                                                 (|> module
-                                                                     (the .#definitions)
-                                                                     (list.all (function (_ [def_name global])
-                                                                                 (`` (when global
-                                                                                       {.#Definition [exported? _]}
-                                                                                       (if (and exported?
-                                                                                                (text#= normal_short def_name))
-                                                                                         {.#Some (symbol#encoded [module_name def_name])}
-                                                                                         {.#None})
+           _
+           (let [current_module (|> lux (the .#current_module) (maybe.else "???"))
+                 all_known_modules (|> lux
+                                       (the .#modules)
+                                       (list#each product.left)
+                                       ..module_listing)]
+             {try.#Failure (all text#composite
+                                "Unknown definition: " (symbol#encoded name) text.new_line
+                                "    Current module: " current_module text.new_line
+                                (when (property.value current_module (the .#modules lux))
+                                  {.#Some this_module}
+                                  (let [candidates (|> lux
+                                                       (the .#modules)
+                                                       (list#each (function (_ [module_name module])
+                                                                    (|> module
+                                                                        (the .#definitions)
+                                                                        (list.all (function (_ [def_name global])
+                                                                                    (`` (when global
+                                                                                          {<yes> [exported? _]}
+                                                                                          (if (and exported?
+                                                                                                   (text#= normal_short def_name))
+                                                                                            {.#Some (symbol#encoded [module_name def_name])}
+                                                                                            {.#None})
 
-                                                                                       {.#Alias _}
-                                                                                       {.#None})))))))
-                                                    list.together
+                                                                                          {.#Alias _}
+                                                                                          {.#None}
+
+                                                                                          {<no> _}
+                                                                                          {.#None})))))))
+                                                       list.together
+                                                       (list.sorted text#<)
+                                                       (text.interposed ..listing_separator))
+                                        imports (|> this_module
+                                                    (the .#imports)
+                                                    ..module_listing)
+                                        aliases (|> this_module
+                                                    (the .#module_aliases)
+                                                    (list#each (function (_ [alias real]) (all text#composite alias " => " real)))
                                                     (list.sorted text#<)
-                                                    (text.interposed ..listing_separator))
-                                     imports (|> this_module
-                                                 (the .#imports)
-                                                 ..module_listing)
-                                     aliases (|> this_module
-                                                 (the .#module_aliases)
-                                                 (list#each (function (_ [alias real]) (all text#composite alias " => " real)))
-                                                 (list.sorted text#<)
-                                                 (text.interposed ..listing_separator))]
-                                 (all text#composite
-                                      "        Candidates: " candidates text.new_line
-                                      "           Imports: " imports text.new_line
-                                      "           Aliases: " aliases text.new_line))
+                                                    (text.interposed ..listing_separator))]
+                                    (all text#composite
+                                         "        Candidates: " candidates text.new_line
+                                         "           Imports: " imports text.new_line
+                                         "           Aliases: " aliases text.new_line))
 
-                               _
-                               "")
-                             " All known modules: " all_known_modules text.new_line)})))))
+                                  _
+                                  "")
+                                " All known modules: " all_known_modules text.new_line)})))))]
+
+  [definition .#Definition .#Default]
+  [default' .#Default .#Definition]
+  )
 
 (def .public (export name)
   (-> Symbol (Meta Definition))
@@ -353,21 +364,53 @@
     [name (..normal name)
      definition (..definition name)]
     (when definition
-      {.#Definition definition}
-      (let [[exported? def_type def_value] definition]
+      {.#Definition it}
+      (let [[exported? def_type def_value] it]
         (if exported?
-          (in definition)
+          (in it)
           (do !
             [.let [[expected _] name]
              actual ..current_module_name]
             (if (text#= expected actual)
-              (in definition)
+              (in it)
               (failure (all text#composite "Definition is not an export: " (symbol#encoded name)))))))
 
       {.#Alias de_aliased}
       (failure (all text#composite
                     "Aliases are not considered exports: "
+                    (symbol#encoded name)))
+
+      {.#Default _}
+      (failure (all text#composite
+                    "Defaults are not considered exports: "
                     (symbol#encoded name))))))
+
+(def .public (default name)
+  (-> Symbol (Meta Default))
+  (do [! ..monad]
+    [name (..normal name)
+     definition (..default' name)]
+    (when definition
+      {.#Definition _}
+      (failure (all text#composite
+                    "Definitions are not considered defaults: "
+                    (symbol#encoded name)))
+
+      {.#Alias de_aliased}
+      (failure (all text#composite
+                    "Aliases are not considered defaults: "
+                    (symbol#encoded name)))
+
+      {.#Default it}
+      (let [[exported? def_type def_value] it]
+        (if exported?
+          (in it)
+          (do !
+            [.let [[expected _] name]
+             actual ..current_module_name]
+            (if (text#= expected actual)
+              (in it)
+              (failure (all text#composite "Default is not an export: " (symbol#encoded name))))))))))
 
 (def .public (definition_type name)
   (-> Symbol (Meta Type))
@@ -378,7 +421,12 @@
       (definition_type de_aliased)
       
       {.#Definition [exported? def_type def_value]}
-      (clean_type def_type))))
+      (clean_type def_type)
+
+      {.#Default _}
+      (failure (all text#composite
+                    "Defaults are not considered definitions: "
+                    (symbol#encoded name))))))
 
 (def .public (type name)
   (-> Symbol (Meta Type))
@@ -405,7 +453,10 @@
                     (type_code .Type)
                     (type_code def_type)))
           (in (as Type def_value))
-          (..failure (all text#composite "Definition is not a type: " (symbol#encoded name))))))))
+          (..failure (all text#composite "Definition is not a type: " (symbol#encoded name)))))
+
+      {.#Default _}
+      (..failure (all text#composite "Default is not a type: " (symbol#encoded name))))))
 
 (def .public (globals module)
   (-> Text (Meta (List [Text Global])))
@@ -426,7 +477,10 @@
                     {.#None}
                     
                     {.#Definition definition}
-                    {.#Some [name definition]})))
+                    {.#Some [name definition]}
+
+                    {.#Default _}
+                    {.#None})))
       (..globals module)))
 
 (def .public (exports module_name)
@@ -594,17 +648,10 @@
           real_def_name
 
           {.#Definition _}
+          def_name
+
+          {.#Default _}
           def_name))))
-
-(def .public compiler_state
-  (Meta Lux)
-  (function (_ lux)
-    {try.#Success [lux lux]}))
-
-(def .public type_context
-  (Meta Type_Context)
-  (function (_ lux)
-    {try.#Success [lux (the .#type_context lux)]}))
 
 (def .public (lifted result)
   (All (_ a) (-> (Try a) (Meta a)))
@@ -614,6 +661,21 @@
 
     {try.#Failure error}
     (..failure error)))
+
+(with_template [<name> <slot> <type>]
+  [(def .public <name>
+     (Meta <type>)
+     (function (_ lux)
+       {try.#Success [lux (the <slot> lux)]}))]
+
+  [compiler_state [] Lux]
+  
+  [type_context .#type_context Type_Context]
+  
+  [target [.#info .#target] Text]
+  [version [.#info .#version] Text]
+  [configuration [.#info .#configuration] (List [Text Text])]
+  )
 
 (def .public (eval type code)
   (-> Type Code (Meta Any))
@@ -625,21 +687,9 @@
 (def .public (try computation)
   (All (_ it) (-> (Meta it) (Meta (Try it))))
   (function (_ lux)
-    (when (computation lux)
-      {try.#Success [lux' output]}
-      {try.#Success [lux' {try.#Success output}]}
+    {try.#Success (when (computation lux)
+                    {try.#Success [lux' output]}
+                    [lux' {try.#Success output}]
 
-      {try.#Failure error}
-      {try.#Success [lux {try.#Failure error}]})))
-
-(with_template [<type> <name> <slot>]
-  [(def .public <name>
-     (Meta <type>)
-     (function (_ lux)
-       {try.#Success [lux
-                      (the [.#info <slot>] lux)]}))]
-
-  [Text target .#target]
-  [Text version .#version]
-  [(List [Text Text]) configuration .#configuration]
-  )
+                    {try.#Failure error}
+                    [lux {try.#Failure error}])}))
