@@ -89,6 +89,28 @@
 
       (&/$Form (&/$Item [command-meta command] parameters))
       (|case command
+        (&/$Identifier "library/lux" "def#")
+        (|let [(&/$Item [_ (&/$Identifier "" ?name)]
+                        (&/$Item ?value
+                                 (&/$Item exported?
+                                          (&/$End))
+                                 )) parameters]
+          (&/with-location location
+            (&&lux/analyse-def analyse optimize eval! compile-def ?name ?value exported?)))
+
+        (&/$Identifier "library/lux" "alias#")
+        (|let [(&/$Item [_ (&/$Identifier "" ?alias)]
+                        (&/$Item [_ (&/$Identifier ?original)]
+                                 (&/$End)
+                                 )) parameters]
+          (&/with-location location
+            (&&lux/analyse-def-alias ?alias ?original)))
+
+        (&/$Identifier "library/lux" "module#")
+        (|let [(&/$Item ?imports (&/$End)) parameters]
+          (&/with-location location
+            (&&lux/analyse-module analyse optimize eval! compile-module ?imports)))
+        
         (&/$Text ?procedure)
         (case ?procedure
           "lux type check"
@@ -108,28 +130,6 @@
                                    (&/$End))) parameters]
             (&/with-analysis-meta location exo-type
               (&&lux/analyse-type-as analyse optimize eval! exo-type ?type ?value)))
-
-          "lux def"
-          (|let [(&/$Item [_ (&/$Identifier "" ?name)]
-                          (&/$Item ?value
-                                   (&/$Item exported?
-                                            (&/$End))
-                                   )) parameters]
-            (&/with-location location
-              (&&lux/analyse-def analyse optimize eval! compile-def ?name ?value exported?)))
-
-          "lux def alias"
-          (|let [(&/$Item [_ (&/$Identifier "" ?alias)]
-                          (&/$Item [_ (&/$Identifier ?original)]
-                                   (&/$End)
-                                   )) parameters]
-            (&/with-location location
-              (&&lux/analyse-def-alias ?alias ?original)))
-
-          "lux def module"
-          (|let [(&/$Item ?imports (&/$End)) parameters]
-            (&/with-location location
-              (&&lux/analyse-module analyse optimize eval! compile-module ?imports)))
 
           "lux in-module"
           (|let [(&/$Item [_ (&/$Text ?module)] (&/$Item ?expr (&/$End))) parameters]
