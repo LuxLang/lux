@@ -110,33 +110,41 @@
         (|let [(&/$Item ?imports (&/$End)) parameters]
           (&/with-location location
             (&&lux/analyse-module analyse optimize eval! compile-module ?imports)))
+
+        (&/$Identifier "library/lux" "is#")
+        (|let [(&/$Item ?type
+                        (&/$Item ?value
+                                 (&/$End))) parameters]
+          (&/with-analysis-meta location exo-type
+            (&&lux/analyse-type-check analyse optimize eval! exo-type ?type ?value)))
+
+        (&/$Identifier "library/lux" "as#")
+        (|let [(&/$Item ?type
+                        (&/$Item ?value
+                                 (&/$End))) parameters]
+          (&/with-analysis-meta location exo-type
+            (&&lux/analyse-type-as analyse optimize eval! exo-type ?type ?value)))
+
+        (&/$Identifier "library/lux" "is_type#")
+        (|let [(&/$Item ?value (&/$End)) parameters]
+          (analyse-ast optimize eval! compile-module compilers &type/Type ?value))
+
+        (&/$Identifier "library/lux" "in_module#")
+        (|let [(&/$Item [_ (&/$Text ?module)] (&/$Item ?expr (&/$End))) parameters]
+          (&/with-location location
+            (&/with-module ?module
+              (analyse exo-type ?expr))))
+
+        (&/$Identifier "library/lux" extension)
+        (if (&&common/uses_new_format? extension)
+          (&/with-analysis-meta location exo-type
+            (&&common/analyse-proc analyse exo-type extension parameters))
+          (&/with-location location
+            (|do [=fn (just-analyse analyse (&/T [command-meta command]))]
+              (&&lux/analyse-apply analyse location exo-type macro-caller =fn parameters))))
         
         (&/$Text ?procedure)
         (case ?procedure
-          "lux type check"
-          (|let [(&/$Item ?type
-                          (&/$Item ?value
-                                   (&/$End))) parameters]
-            (&/with-analysis-meta location exo-type
-              (&&lux/analyse-type-check analyse optimize eval! exo-type ?type ?value)))
-
-          "lux type check type"
-          (|let [(&/$Item ?value (&/$End)) parameters]
-            (analyse-ast optimize eval! compile-module compilers &type/Type ?value))
-
-          "lux type as"
-          (|let [(&/$Item ?type
-                          (&/$Item ?value
-                                   (&/$End))) parameters]
-            (&/with-analysis-meta location exo-type
-              (&&lux/analyse-type-as analyse optimize eval! exo-type ?type ?value)))
-
-          "lux in-module"
-          (|let [(&/$Item [_ (&/$Text ?module)] (&/$Item ?expr (&/$End))) parameters]
-            (&/with-location location
-              (&/with-module ?module
-                (analyse exo-type ?expr))))
-
           ;; else
           (&/with-analysis-meta location exo-type
             (cond (.startsWith ^String ?procedure "jvm")

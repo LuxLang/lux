@@ -7,7 +7,7 @@
     ["[0]" try]
     ["[0]" exception (.only Exception)]]
    [data
-    [text
+    ["[0]" text (.only)
      ["%" \\format (.only format)]]
     [collection
      ["[0]" list]]]
@@ -15,6 +15,7 @@
     [number
      ["n" nat]]]
    ["[0]" meta (.only)
+    ["[0]" symbol (.use "[1]#[0]" equivalence)]
     ["[0]" location]
     ["[0]" code]
     [macro
@@ -30,7 +31,7 @@
   ["/[1]" //
    ["[1][0]" extension]
    ["/[1]" //
-    ["/" analysis (.only Analysis Operation Phase Extender)
+    ["/" analysis (.only Analysis Operation Phase Handler Extender)
      ["[1][0]" macro (.only Expander)]
      ["[1][0]" type]]
     [///
@@ -84,6 +85,33 @@
          ["Expected" (%.type expected)]
          ["Actual" (%.type actual)])))
 
+(type Value
+  (Variant
+   {#Normal Any}
+   {#Special Any}))
+
+(def (global_value name)
+  (-> Symbol (Meta [Type Value]))
+  (do meta.monad
+    [global (meta.local name)]
+    (when global
+      {.#Definition [exported? type value]}
+      (in [type {#Normal value}])
+
+      {.#Default [exported? type value]}
+      (in [type {#Special value}])
+      
+      {.#Alias _}
+      (undefined))))
+
+(def (global_analysis name)
+  (-> Symbol (Meta Value))
+  (do meta.monad
+    [[type value] (global_value name)]
+    (if (check.subsumes? .Analysis type)
+      (in value)
+      (meta.failure (exception.error ..not_an_extension [name .Analysis type])))))
+
 (def (extension_application extender
                             phase archive
                             name parameters)
@@ -92,35 +120,73 @@
       Symbol (List Code)
       (Operation Analysis))
   (do //.monad
-    [[exported? type value] (//extension.lifted (meta.export name))]
-    (if (check.subsumes? .Analysis type)
-      ((extender value) "" phase archive parameters)
-      (//.except ..not_an_extension [name .Analysis type]))))
+    [value (//extension.lifted (global_analysis name))
+     .let [[module short] name]]
+    (when value
+      {#Normal definition}
+      ((extender definition) short phase archive parameters)
+
+      {#Special default}
+      ((as Handler default) short phase archive parameters))))
+
+... TODO: Replace with an inline function.
+(exception.def .public (not_a_macro name)
+  (Exception Symbol)
+  (exception.report
+   (list ["Name" (%.symbol name)])))
+
+(def (macro_application extender expander analysis archive def_name argsC+)
+  (-> Extender Expander Phase Archive Symbol (List Code) (Operation Analysis))
+  (do [! //.monad]
+    [?macro (//extension.lifted (meta.macro def_name))]
+    (when ?macro
+      {.#Some macro}
+      (do !
+        [expansion (//extension.lifted (/macro.single_expansion expander def_name macro argsC+))]
+        (analysis archive expansion))
+
+      _
+      (//.except ..not_a_macro [def_name]))))
+
+... TODO: Replace with an inline function.
+(def (global_application extender expander analysis archive function_type function_analysis def_name functionC argsC+)
+  (-> Extender Expander Phase Archive Type Analysis Symbol Code (List Code) (Operation Analysis))
+  (<| (if (check.subsumes? .Analysis function_type)
+        (extension_application extender analysis archive def_name argsC+))
+      (if (check.subsumes? .Macro function_type)
+        (macro_application extender expander analysis archive def_name argsC+))
+      (/function.apply analysis argsC+ function_type function_analysis archive functionC)))
+
+... TODO: Replace with an inline function.
+(def (term_application extender expander analysis archive functionC argsC+)
+  (-> Extender Expander Phase Archive Code (List Code) (Operation Analysis))
+  (do //.monad
+    [[function_type function_analysis] (/type.inferring
+                                        (analysis archive functionC))]
+    (when function_analysis
+      (/.constant def_name)
+      (global_application extender expander analysis archive function_type function_analysis def_name functionC argsC+)
+
+      _
+      (/function.apply analysis argsC+ function_type function_analysis archive functionC))))
 
 ... TODO: Replace with an inline function.
 (def apply_analysis
   (template (_ extender expander analysis archive functionC argsC+)
     ... (-> Extender Expander Phase Archive Code (List Code) (Operation Analysis))
-    [(do [! //.monad]
-       [[function_type function_analysis] (/type.inferring
-                                           (analysis archive functionC))]
-       (when function_analysis
-         (/.constant def_name)
-         (if (check.subsumes? .Analysis function_type)
-           (extension_application extender analysis archive def_name argsC+)
-           (do !
-             [?macro (//extension.lifted (meta.macro def_name))]
-             (when ?macro
-               {.#Some macro}
-               (do !
-                 [expansion (//extension.lifted (/macro.single_expansion expander def_name macro argsC+))]
-                 (analysis archive expansion))
+    [(when functionC
+       [_ {.#Symbol global}]
+       (do //.monad
+         [it (//.try (extension_application extender analysis archive global argsC+))]
+         (when it
+           {try.#Success it}
+           (in it)
+           
+           {try.#Failure error}
+           (term_application extender expander analysis archive functionC argsC+)))
 
-               _
-               (/function.apply analysis argsC+ function_type function_analysis archive functionC))))
-
-         _
-         (/function.apply analysis argsC+ function_type function_analysis archive functionC)))]))
+       _
+       (term_application extender expander analysis archive functionC argsC+))]))
 
 (def .public (phase extender expander)
   (-> Extender Expander Phase)

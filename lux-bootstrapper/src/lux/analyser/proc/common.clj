@@ -156,13 +156,13 @@
   ["i64" "%"] analyse-int-rem  &type/Int  &type/Int
   ["i64" "<"] analyse-int-lt   &type/Int  &type/Bit
 
-  ["f64" "+"] analyse-frac-add &type/Frac &type/Frac
-  ["f64" "-"] analyse-frac-sub &type/Frac &type/Frac
-  ["f64" "*"] analyse-frac-mul &type/Frac &type/Frac
-  ["f64" "/"] analyse-frac-div &type/Frac &type/Frac
-  ["f64" "%"] analyse-frac-rem &type/Frac &type/Frac
-  ["f64" "="] analyse-frac-eq  &type/Frac &type/Bit
-  ["f64" "<"] analyse-frac-lt  &type/Frac &type/Bit
+  ["f64" "+"] analyse-f64-add &type/Frac &type/Frac
+  ["f64" "-"] analyse-f64-sub &type/Frac &type/Frac
+  ["f64" "*"] analyse-f64-mul &type/Frac &type/Frac
+  ["f64" "/"] analyse-f64-div &type/Frac &type/Frac
+  ["f64" "%"] analyse-f64-rem &type/Frac &type/Frac
+  ["f64" "="] analyse-f64-eq  &type/Frac &type/Bit
+  ["f64" "<"] analyse-f64-lt  &type/Frac &type/Bit
   )
 
 (do-template [<encode> <encode-op> <decode> <decode-op> <type>]
@@ -183,7 +183,7 @@
           (return (&/|list (&&/|meta exo-type _location
                                      (&&/$proc (&/T <decode-op>) (&/|list =x) (&/|list)))))))))
 
-  analyse-frac-encode ["f64" "encode"] analyse-frac-decode ["f64" "decode"] &type/Frac
+  analyse-f64-encode ["f64" "encode"] analyse-f64-decode ["f64" "decode"] &type/Frac
   )
 
 (do-template [<name> <from-type> <to-type> <op>]
@@ -197,7 +197,7 @@
 
   analyse-int-char  &type/Int  &type/Text   ["i64" "char"]
   analyse-int-frac  &type/Int  &type/Frac   ["i64" "f64"]
-  analyse-frac-int  &type/Frac &type/Int    ["f64" "i64"]
+  analyse-f64-int  &type/Frac &type/Int    ["f64" "i64"]
 
   analyse-io-log    &type/Text &type/Any    ["io" "log"]
   analyse-io-error  &type/Text &type/Nothing ["io" "error"]
@@ -223,53 +223,76 @@
                                          (&/$Item =input (&/$Item =else (&/|map &/|second =pairs)))
                                          (&/|map &/|first =pairs)))))))
 
+(let [extensions #{"is?#" "try#" "when_char#"
+
+                   "log#" "error#"
+
+                   "text_=#" "text_<#" "text_composite#"
+                   "text_clip#" "text_index#" "text_size#" "text_char#"
+
+                   "i64_and#" "i64_or#" "i64_xor#" "i64_left#" "i64_right#"
+                   "i64_+#" "i64_-#" "i64_=#"
+
+                   "int_*#" "int_/#" "int_%#" "int_<#"
+                   "int_f64#" "int_char#"
+
+                   "f64_+#" "f64_-#" "f64_*#" "f64_/#" "f64_%#"
+                   "f64_=#" "f64_<#"
+                   "f64_int#" "f64_encoded#" "f64_decoded#"}]
+  (defn uses_new_format? [extension]
+    (if (extensions extension)
+      true
+      false)))
+
 (defn analyse-proc [analyse exo-type proc ?values]
   (try (case proc
-         "lux is"                   (analyse-lux-is analyse exo-type ?values)
-         "lux try"                  (analyse-lux-try analyse exo-type ?values)
-
-         "lux io log"                  (analyse-io-log analyse exo-type ?values)
-         "lux io error"                (analyse-io-error analyse exo-type ?values)
-         
-         "lux text ="      (analyse-text-eq analyse exo-type ?values)
-         "lux text <"      (analyse-text-lt analyse exo-type ?values)
-         "lux text concat" (analyse-text-concat analyse exo-type ?values)
-         "lux text clip"   (analyse-text-clip analyse exo-type ?values)
-         "lux text index"  (analyse-text-index analyse exo-type ?values)
-         "lux text size"   (analyse-text-size analyse exo-type ?values)
-         "lux text char"   (analyse-text-char analyse exo-type ?values)
-         
-         "lux i64 and"         (analyse-i64-and analyse exo-type ?values)
-         "lux i64 or"          (analyse-i64-or analyse exo-type ?values)
-         "lux i64 xor"         (analyse-i64-xor analyse exo-type ?values)
-         "lux i64 left-shift"  (analyse-i64-left-shift analyse exo-type ?values)
-         "lux i64 right-shift" (analyse-i64-right-shift analyse exo-type ?values)
-         "lux i64 +" (analyse-i64-add analyse exo-type ?values)
-         "lux i64 -" (analyse-i64-sub analyse exo-type ?values)
-         "lux i64 =" (analyse-i64-eq analyse exo-type ?values)
-         
-         "lux i64 *" (analyse-int-mul analyse exo-type ?values)
-         "lux i64 /" (analyse-int-div analyse exo-type ?values)
-         "lux i64 %" (analyse-int-rem analyse exo-type ?values)
-         "lux i64 <" (analyse-int-lt analyse exo-type ?values)
-         "lux i64 f64" (analyse-int-frac analyse exo-type ?values)
-         "lux i64 char" (analyse-int-char analyse exo-type ?values)
-         
-         "lux f64 +" (analyse-frac-add analyse exo-type ?values)
-         "lux f64 -" (analyse-frac-sub analyse exo-type ?values)
-         "lux f64 *" (analyse-frac-mul analyse exo-type ?values)
-         "lux f64 /" (analyse-frac-div analyse exo-type ?values)
-         "lux f64 %" (analyse-frac-rem analyse exo-type ?values)
-         "lux f64 =" (analyse-frac-eq analyse exo-type ?values)
-         "lux f64 <" (analyse-frac-lt analyse exo-type ?values)
-         "lux f64 encode" (analyse-frac-encode analyse exo-type ?values)
-         "lux f64 decode" (analyse-frac-decode analyse exo-type ?values)
-         "lux f64 i64" (analyse-frac-int analyse exo-type ?values)
-
+         "is?#" (analyse-lux-is analyse exo-type ?values)
+         "try#" (analyse-lux-try analyse exo-type ?values)
          ;; Special extensions for performance reasons
          ;; Will be replaced by custom extensions in the future.
-         "lux syntax char case!" (analyse-syntax-char-case! analyse exo-type ?values)
+         "when_char#" (analyse-syntax-char-case! analyse exo-type ?values)
+
+         "log#" (analyse-io-log analyse exo-type ?values)
+         "error#" (analyse-io-error analyse exo-type ?values)
          
+         "text_=#" (analyse-text-eq analyse exo-type ?values)
+         "text_<#" (analyse-text-lt analyse exo-type ?values)
+         "text_composite#" (analyse-text-concat analyse exo-type ?values)
+         "text_clip#" (analyse-text-clip analyse exo-type ?values)
+         "text_index#" (analyse-text-index analyse exo-type ?values)
+         "text_size#" (analyse-text-size analyse exo-type ?values)
+         "text_char#" (analyse-text-char analyse exo-type ?values)
+         
+         "i64_and#" (analyse-i64-and analyse exo-type ?values)
+         "i64_or#" (analyse-i64-or analyse exo-type ?values)
+         "i64_xor#" (analyse-i64-xor analyse exo-type ?values)
+         "i64_left#"  (analyse-i64-left-shift analyse exo-type ?values)
+         "i64_right#" (analyse-i64-right-shift analyse exo-type ?values)
+         
+         "i64_+#" (analyse-i64-add analyse exo-type ?values)
+         "i64_-#" (analyse-i64-sub analyse exo-type ?values)
+         "i64_=#" (analyse-i64-eq analyse exo-type ?values)
+         
+         "int_*#" (analyse-int-mul analyse exo-type ?values)
+         "int_/#" (analyse-int-div analyse exo-type ?values)
+         "int_%#" (analyse-int-rem analyse exo-type ?values)
+         "int_<#" (analyse-int-lt analyse exo-type ?values)
+
+         "int_f64#" (analyse-int-frac analyse exo-type ?values)
+         "int_char#" (analyse-int-char analyse exo-type ?values)
+         
+         "f64_+#" (analyse-f64-add analyse exo-type ?values)
+         "f64_-#" (analyse-f64-sub analyse exo-type ?values)
+         "f64_*#" (analyse-f64-mul analyse exo-type ?values)
+         "f64_/#" (analyse-f64-div analyse exo-type ?values)
+         "f64_%#" (analyse-f64-rem analyse exo-type ?values)
+         "f64_=#" (analyse-f64-eq analyse exo-type ?values)
+         "f64_<#" (analyse-f64-lt analyse exo-type ?values)
+
+         "f64_int#" (analyse-f64-int analyse exo-type ?values)
+         "f64_encoded#" (analyse-f64-encode analyse exo-type ?values)
+         "f64_decoded#" (analyse-f64-decode analyse exo-type ?values)
+
          ;; else
          (&/fail-with-loc (str "[Analyser Error] Unknown host procedure: " proc)))
     (catch Exception ex
