@@ -4,6 +4,7 @@
    [abstract
     [monad (.only do)]]
    [control
+    ["[0]" maybe]
     ["[0]" try]
     ["[0]" exception (.only Exception)]]
    [data
@@ -15,7 +16,6 @@
     [number
      ["n" nat]]]
    ["[0]" meta (.only)
-    ["[0]" symbol (.use "[1]#[0]" equivalence)]
     ["[0]" location]
     ["[0]" code]
     [macro
@@ -78,39 +78,38 @@
        {.#None}
        (//.except ..invalid [code]))]))
 
-(exception.def .public (not_an_extension [name expected actual])
-  (Exception [Symbol Type Type])
-  (exception.report
-   (list ["Name" (%.symbol name)]
-         ["Expected" (%.type expected)]
-         ["Actual" (%.type actual)])))
-
 (type Value
   (Variant
    {#Normal Any}
    {#Special Any}))
 
 (def (global_value name)
-  (-> Symbol (Meta [Type Value]))
+  (-> Symbol (Meta (Maybe [Type Value])))
   (do meta.monad
-    [global (meta.local name)]
+    [global (meta.try (meta.local name))]
     (when global
-      {.#Definition [exported? type value]}
-      (in [type {#Normal value}])
+      {try.#Success global}
+      (in (when global
+            {.#Definition [exported? type value]}
+            {.#Some [type {#Normal value}]}
 
-      {.#Default [exported? type value]}
-      (in [type {#Special value}])
+            {.#Default [exported? type value]}
+            {.#Some [type {#Special value}]}
+            
+            {.#Alias _}
+            {.#None}))
       
-      {.#Alias _}
-      (undefined))))
+      {try.#Failure error}
+      (in {.#None}))))
 
 (def (global_analysis name)
-  (-> Symbol (Meta Value))
+  (-> Symbol (Meta (Maybe Value)))
   (do meta.monad
-    [[type value] (global_value name)]
-    (if (check.subsumes? .Analysis type)
-      (in value)
-      (meta.failure (exception.error ..not_an_extension [name .Analysis type])))))
+    [type,value (global_value name)]
+    (in (do maybe.monad
+          [[type value] type,value
+           maybe.when (check.subsumes? .Analysis type)]
+          (in value)))))
 
 (def (extension_application extender
                             phase archive
@@ -118,16 +117,23 @@
   (-> Extender
       Phase Archive
       Symbol (List Code)
-      (Operation Analysis))
-  (do //.monad
+      (Operation (Maybe Analysis)))
+  (do [! //.monad]
     [value (//extension.lifted (global_analysis name))
      .let [[module short] name]]
     (when value
-      {#Normal definition}
-      ((extender definition) short phase archive parameters)
+      {.#Some value}
+      (do !
+        [it (when value
+              {#Normal definition}
+              ((extender definition) short phase archive parameters)
 
-      {#Special default}
-      ((as Handler default) short phase archive parameters))))
+              {#Special default}
+              ((as Handler default) short phase archive parameters))]
+        (in {.#Some it}))
+
+      {.#None}
+      (in {.#None}))))
 
 ... TODO: Replace with an inline function.
 (exception.def .public (not_a_macro name)
@@ -151,10 +157,12 @@
 ... TODO: Replace with an inline function.
 (def (global_application extender expander analysis archive function_type function_analysis def_name functionC argsC+)
   (-> Extender Expander Phase Archive Type Analysis Symbol Code (List Code) (Operation Analysis))
-  (<| (if (check.subsumes? .Analysis function_type)
-        (extension_application extender analysis archive def_name argsC+))
-      (if (check.subsumes? .Macro function_type)
+  (<| (if (check.subsumes? .Macro function_type)
         (macro_application extender expander analysis archive def_name argsC+))
+      (if (check.subsumes? .Analysis function_type)
+        (do //.monad
+          [it (extension_application extender analysis archive def_name argsC+)]
+          (in (maybe.trusted it))))
       (/function.apply analysis argsC+ function_type function_analysis archive functionC)))
 
 ... TODO: Replace with an inline function.
@@ -177,12 +185,12 @@
     [(when functionC
        [_ {.#Symbol global}]
        (do //.monad
-         [it (//.try (extension_application extender analysis archive global argsC+))]
+         [it (extension_application extender analysis archive global argsC+)]
          (when it
-           {try.#Success it}
+           {.#Some it}
            (in it)
            
-           {try.#Failure error}
+           {.#None}
            (term_application extender expander analysis archive functionC argsC+)))
 
        _

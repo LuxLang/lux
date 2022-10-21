@@ -34,7 +34,6 @@
      ["[1][0]" generation]
      ["[1][0]" analysis (.only)
       [macro (.only Expander)]
-      ["[1]/[0]" evaluation]
       ["[0]A" module]]
      [phase
       ["[0]P" analysis]
@@ -42,56 +41,36 @@
       ["[0]P" declaration]
       ["[0]" extension (.only)
        ["[0]E" analysis]
-       ["[0]E" synthesis]
        [declaration
         ["[0]D" lux]]]]]]
    [meta
     ["[0]" archive (.only Archive)
+     [key (.only Key)]
      ["[0]" unit]
      ["[0]" registry (.only Registry)]
      ["[0]" module (.only)
       ["[0]" descriptor]
       ["[0]" document]]]]]])
 
-(def .public (state target module configuration extender expander host_analysis host generate generation_bundle)
+(def .public (state target module configuration extender expander host generate)
   (All (_ anchor expression declaration)
     (-> Target
         descriptor.Module
         Configuration
         extension.Extender Expander
-        ///analysis.Bundle
         (///generation.Host expression declaration)
         (-> extension.Extender Lux (///generation.Phase anchor expression declaration))
-        (///generation.Bundle anchor expression declaration)
         (///declaration.State+ anchor expression declaration)))
-  (let [synthesis_state [extension.#bundle synthesisE.bundle
-                         extension.#state ///synthesis.init]
-        generation_state [extension.#bundle generation_bundle
-                          extension.#state (///generation.state host module)]
-        lux (///analysis.state (///analysis.info version.latest target configuration))
-        analysis_phase (analysisP.phase extender expander)
-        eval (///analysis/evaluation.evaluator analysis_phase
-                                               [synthesis_state (synthesisP.phase extender)]
-                                               [generation_state (generate extender)])
-        analysis_state [(analysisE.bundle eval host_analysis)
-                        lux]]
+  (let [lux (///analysis.state (///analysis.info version.latest target configuration))]
     [extension.empty
-     [///declaration.#analysis [///declaration.#state analysis_state
-                                ///declaration.#phase analysis_phase]
-      ///declaration.#synthesis [///declaration.#state synthesis_state
+     [///declaration.#analysis [///declaration.#state [extension.empty lux]
+                                ///declaration.#phase (analysisP.phase extender expander)]
+      ///declaration.#synthesis [///declaration.#state [extension.#bundle extension.empty
+                                                        extension.#state ///synthesis.init]
                                  ///declaration.#phase (synthesisP.phase extender)]
-      ///declaration.#generation [///declaration.#state generation_state
+      ///declaration.#generation [///declaration.#state [extension.#bundle extension.empty
+                                                         extension.#state (///generation.state host module)]
                                   ///declaration.#phase (generate extender)]]]))
-
-(def .public (with_default_declarations host_analysis)
-  (All (_ anchor expression declaration)
-    (-> ///analysis.Bundle
-        (-> (///declaration.State+ anchor expression declaration)
-            (///declaration.State+ anchor expression declaration))))
-  (function (_ [declaration_extensions sub_state])
-    [(dictionary.composite declaration_extensions
-                           (luxD.bundle host_analysis))
-     sub_state]))
 
 (type Reader
   (-> Source (Either [Source Text] [Source Code])))
@@ -124,12 +103,11 @@
   [(///generation.Buffer declaration)
    Registry])
 
-(def with_analysis_defaults
-  (Operation Any)
+(def (with_analysis_defaults bundle)
+  (-> ///analysis.Bundle
+      (Operation Any))
   (do [! ///phase.monad]
-    [state ///phase.state
-     _ (|> state
-           (the [extension.#state ///declaration.#analysis ///declaration.#state extension.#bundle])
+    [_ (|> bundle
            dictionary.entries
            (monad.each !
                        (function (_ [name handler])
@@ -137,12 +115,12 @@
                           (moduleA.define name {.#Default [true .Analysis handler]})))))]
     (in [])))
 
-(def with_generation_defaults
-  (Operation Any)
+(def (with_generation_defaults bundle)
+  (All (_ anchor expression declaration)
+    (-> (///generation.Bundle anchor expression declaration)
+        (///declaration.Operation anchor expression declaration Any)))
   (do [! ///phase.monad]
-    [state ///phase.state
-     _ (|> state
-           (the [extension.#state ///declaration.#generation ///declaration.#state extension.#bundle])
+    [_ (|> bundle
            dictionary.entries
            (monad.each !
                        (function (_ [name handler])
@@ -150,12 +128,12 @@
                           (moduleA.define name {.#Default [true .Generation handler]})))))]
     (in [])))
 
-(def with_declaration_defaults
-  (Operation Any)
+(def (with_declaration_defaults bundle)
+  (All (_ anchor expression declaration)
+    (-> (///declaration.Bundle anchor expression declaration)
+        (///declaration.Operation anchor expression declaration Any)))
   (do [! ///phase.monad]
-    [state ///phase.state
-     _ (|> state
-           (the extension.#bundle)
+    [_ (|> bundle
            dictionary.entries
            (monad.each !
                        (function (_ [name handler])
@@ -163,23 +141,31 @@
                           (moduleA.define name {.#Default [true .Declaration handler]})))))]
     (in [])))
 
-(def (with_defaults module)
-  (-> Text
-      (Operation Any))
+(type .public (Extensions anchor expression declaration)
+  [///analysis.Bundle
+   (///generation.Bundle anchor expression declaration)
+   (///declaration.Bundle anchor expression declaration)])
+
+(def (with_defaults module [analysis_bundle generation_bundle host_declaration_bundle])
+  (All (_ anchor expression declaration)
+    (-> Text (Extensions anchor expression declaration)
+        (///declaration.Operation anchor expression declaration Any)))
   (when module
     .prelude
     (do ///phase.monad
-      [_ with_analysis_defaults
-       _ with_generation_defaults]
-      with_declaration_defaults)
+      [_ (with_analysis_defaults analysis_bundle)
+       _ (with_generation_defaults generation_bundle)]
+      (with_declaration_defaults (dictionary.composite host_declaration_bundle
+                                                       luxD.bundle)))
 
     _
     (with ///phase.monad
       (in []))))
 
-(def (begin dependencies hash input)
-  (-> (List descriptor.Module) Nat ///.Input
-      (All (_ anchor expression declaration)
+(def (begin dependencies hash input all_extensions)
+  (All (_ anchor expression declaration)
+    (-> (List descriptor.Module) Nat ///.Input
+        (Extensions anchor expression declaration)
         (///declaration.Operation anchor expression declaration
                                   [Source (Payload declaration)])))
   (do ///phase.monad
@@ -187,7 +173,7 @@
      _ (///declaration.set_current_module module)
      _ (///declaration.lifted_analysis
         (moduleA.create hash module))
-     _ (with_defaults module)]
+     _ (with_defaults module all_extensions)]
     (///declaration.lifted_analysis
      (do [! ///phase.monad]
        [_ (monad.each ! moduleA.import dependencies)
@@ -299,11 +285,13 @@
         @module (///phase.lifted (archive.id program_module archive))]
       (///generation.save! @self {.#None} (program [@module @self] |program|))))
 
-  (def .public (compiler program global wrapper extender expander prelude write_declaration program_module program_definition)
+  (def .public (compiler program global wrapper extender expander prelude write_declaration program_module program_definition
+                         extensions)
     (All (_ <parameters>)
       (-> (Program expression declaration) (-> Archive Symbol (///generation.Operation <parameters> expression))
           ///phase.Wrapper (Extender <parameters>) Expander descriptor.Module (-> declaration Binary)
           descriptor.Module (Maybe Text)
+          (Extensions <parameters>)
           (Instancer (///declaration.State+ <parameters>) .Module)))
     (let [execute! (declarationP.phase wrapper extender expander)]
       (function (_ key parameters input)
@@ -313,7 +301,7 @@
                           (do [! try.monad]
                             [.let [hash (text#hash (the ///.#code input))]
                              [state [source buffer]] (<| (///phase.result' state)
-                                                         (..begin dependencies hash input))
+                                                         (..begin dependencies hash input extensions))
                              .let [module (the ///.#module input)]]
                             (loop (again [iteration (<| (///phase.result' state)
                                                         (..iteration wrapper archive extender expander module source buffer ///syntax.no_aliases))])
@@ -335,7 +323,6 @@
                                                   (in []))
                                                 (in []))]
                                            (..end module)))
-                                     
                                      .let [descriptor [descriptor.#hash hash
                                                        descriptor.#name module
                                                        descriptor.#file (the ///.#file input)

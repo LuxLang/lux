@@ -93,8 +93,7 @@
         (try.with async.monad)))
 
   (with_expansions [<Platform> (these (Platform <type_vars>))
-                    <State+> (these (///declaration.State+ <type_vars>))
-                    <Bundle> (these (///generation.Bundle <type_vars>))]
+                    <State+> (these (///declaration.State+ <type_vars>))]
 
     (def (format //)
       (All (_ a)
@@ -189,21 +188,9 @@
                                       (archive.has descriptor.runtime entry archive))))]
         (in [archive entry])))
 
-    (def (initialize_state extender
-                           [analysers
-                            synthesizers
-                            generators
-                            declarations]
-                           analysis_state
-                           state)
+    (def (initialize_state analysis_state state)
       (All (_ <type_vars>)
-        (-> extension.Extender
-            [(Dictionary Text ///analysis.Handler)
-             (Dictionary Text ///synthesis.Handler)
-             (Dictionary Text (///generation.Handler <type_vars>))
-             (Dictionary Text (///declaration.Handler <type_vars>))]
-            .Lux
-            <State+>
+        (-> .Lux <State+>
             (Try <State+>)))
       (|> (sharing [<type_vars>]
             (is <State+>
@@ -211,44 +198,18 @@
             (is (///declaration.Operation <type_vars> Any)
                 (do [! ///phase.monad]
                   [_ (///declaration.lifted_analysis
-                      (do !
-                        [_ (///analysis.set_state analysis_state)]
-                        (extension.with extender analysers)))
-                   _ (///declaration.lifted_synthesis
-                      (extension.with extender synthesizers))
-                   _ (///declaration.lifted_generation
-                      (extension.with extender (as_expected generators)))
-                   _ (extension.with extender (as_expected declarations))]
+                      (///analysis.set_state analysis_state))]
                   (in []))))
           (///phase.result' state)
           (at try.monad each product.left)))
 
-    (def (complete_extensions host_declaration_bundle [analysers synthesizers generators declarations])
-      (All (_ <type_vars>)
-        (-> (///declaration.Bundle <type_vars>)
-            [(Dictionary Text ///analysis.Handler)
-             (Dictionary Text ///synthesis.Handler)
-             (Dictionary Text (///generation.Handler <type_vars>))
-             (Dictionary Text (///declaration.Handler <type_vars>))]
-            [(Dictionary Text ///analysis.Handler)
-             (Dictionary Text ///synthesis.Handler)
-             (Dictionary Text (///generation.Handler <type_vars>))
-             (Dictionary Text (///declaration.Handler <type_vars>))]))
-      [analysers
-       synthesizers
-       generators
-       (dictionary.composite declarations host_declaration_bundle)])
-
-    (def .public (initialize context module expander host_analysis platform generation_bundle host_declaration_bundle program extender
+    (def .public (initialize context module expander platform program extender
                              import compilation_sources compilation_configuration)
       (All (_ <type_vars>)
         (-> context.Context
             descriptor.Module
             Expander
-            ///analysis.Bundle
             <Platform>
-            <Bundle>
-            (///declaration.Bundle <type_vars>)
             (Program expression declaration)
             extension.Extender
             Import (List _io.Context) Configuration
@@ -260,27 +221,21 @@
                                    compilation_configuration
                                    extender
                                    expander
-                                   host_analysis
                                    (the #host platform)
-                                   (the #phase platform)
-                                   generation_bundle)]
+                                   (the #phase platform))]
          _ (is (Async (Try Any))
                (cache.enable! async.monad (the #file_system platform) context))
          [archive analysis_state bundles] (ioW.thaw (list) compilation_configuration (the #host platform) (the #file_system platform) context import compilation_sources)
          .let [with_missing_extensions
                (is (All (_ <type_vars>)
-                     (-> <Platform> (Program expression declaration) <State+>
-                         (Async (Try <State+>))))
-                   (function (_ platform program state)
+                     (-> <State+> (Async (Try <State+>))))
+                   (function (_ state)
                      (|> state
-                         (initialize_state extender
-                                           (as_expected (..complete_extensions host_declaration_bundle (as_expected bundles)))
-                                           analysis_state)
-                         (try#each (//init.with_default_declarations host_analysis))
+                         (initialize_state analysis_state)
                          async#in)))]]
         (if (archive.archived? archive descriptor.runtime)
           (do !
-            [state (with_missing_extensions platform program state)]
+            [state (with_missing_extensions state)]
             (in [state archive phase_wrapper]))
           (do !
             [[state [archive payload]] (|> (..process_runtime archive platform)
@@ -288,7 +243,7 @@
                                            async#in)
              _ (..cache_module context platform 0 $.key $.format payload)
              
-             state (with_missing_extensions platform program state)]
+             state (with_missing_extensions state)]
             (in [state archive phase_wrapper])))))
 
     (def compilation_log_separator
@@ -639,7 +594,7 @@
 
       (def (after_imports customs import! module duplicates new_dependencies archive)
         (All (_ <type_vars>
-                state document object)
+                state)
           (-> (List ///.Custom) (..Importer state) descriptor.Module (Set descriptor.Module) (List descriptor.Module) Archive
               (Async (Try [Archive (List state) (List Text)]))))
         (if (set.empty? duplicates)
@@ -682,8 +637,8 @@
 
       (def (next_compilation module [archive state] compilation)
         (All (_ <type_vars>)
-          (-> descriptor.Module Lux_Context (///.Compilation <State+> .Module Any)
-              (Try [<State+> (Either (///.Compilation <State+> .Module Any)
+          (-> descriptor.Module Lux_Context (///.Compilation <State+> .Module)
+              (Try [<State+> (Either (///.Compilation <State+> .Module)
                                      (archive.Entry Any))])))
         ((the ///.#process compilation)
          ... TODO: The "///declaration.set_current_module" below shouldn't be necessary. Remove it ASAP.
@@ -694,20 +649,23 @@
              product.left)
          archive))
 
-      (def (compiler program global phase_wrapper extender expander platform program_module program_definition)
+      (def (compiler program global phase_wrapper extender expander platform program_module program_definition
+                     all_extensions)
         (All (_ <type_vars>)
           (-> (Program expression declaration) (-> Archive Symbol (///generation.Operation <type_vars> expression))
               ///phase.Wrapper (Extender <type_vars>) Expander <Platform> Text (Maybe Module)
-              (///.Compiler <State+> .Module Any)))
-        (let [instancer (//init.compiler program global phase_wrapper extender expander syntax.prelude (the #write platform) program_module program_definition)]
+              (//init.Extensions <type_vars>)
+              (///.Compiler <State+> .Module)))
+        (let [instancer (//init.compiler program global phase_wrapper extender expander syntax.prelude (the #write platform) program_module program_definition
+                                         all_extensions)]
           (instancer $.key (list))))
 
       (def (custom_compiler import context platform compilation_sources configuration
                             compiler custom_key custom_format custom_compilation)
         (All (_ <type_vars>
-                state document object)
-          (-> Import context.Context <Platform> (List _io.Context) Configuration (///.Compiler <State+> .Module Any)
-              (Key document) (Format document) (///.Compilation state document object)
+                state document)
+          (-> Import context.Context <Platform> (List _io.Context) Configuration (///.Compiler <State+> .Module)
+              (Key document) (Format document) (///.Compilation state document)
               (-> (List ///.Custom) descriptor.Module Lux_Importer module.ID (..Context state) descriptor.Module (..Return state))))
         (function (_ customs importer import! @module [archive state] module)
           (loop (again [[archive state] [archive state]
@@ -773,8 +731,8 @@
 
       (def (lux_compiler import context platform compilation_sources configuration compiler compilation)
         (All (_ <type_vars>)
-          (-> Import context.Context <Platform> (List _io.Context) Configuration (///.Compiler <State+> .Module Any)
-              (///.Compilation <State+> .Module Any)
+          (-> Import context.Context <Platform> (List _io.Context) Configuration (///.Compiler <State+> .Module)
+              (///.Compilation <State+> .Module)
               Lux_Compiler))
         (function (_ customs importer import! @module [archive state] module)
           (loop (again [[archive state] [archive (..set_current_module module state)]
@@ -814,16 +772,12 @@
 
                         (def Fake_Document
                           Type
-                          {.#Primitive (%.nat (static.random_nat)) (list)})
-
-                        (def Fake_Object
-                          Type
                           {.#Primitive (%.nat (static.random_nat)) (list)}))
            (these))
 
       (def (serial_compiler import context platform compilation_sources configuration compiler)
         (All (_ <type_vars>)
-          (-> Import context.Context <Platform> (List _io.Context) Configuration (///.Compiler <State+> .Module Any)
+          (-> Import context.Context <Platform> (List _io.Context) Configuration (///.Compiler <State+> .Module)
               Lux_Compiler))
         (function (_ all_customs importer import! @module [archive lux_state] module)
           (do [! ..monad]
@@ -833,7 +787,7 @@
                             compilation_sources
                             (the context.#host_module_extension context)
                             module)]
-            (loop (again [customs (for @.old (as (List (///.Custom Fake_State Fake_Document Fake_Object))
+            (loop (again [customs (for @.old (as (List (///.Custom Fake_State Fake_Document))
                                                  all_customs)
                                        all_customs)])
               (when customs
@@ -885,23 +839,26 @@
                         {try.#Success [context (the compiler.#parameters it) /#value]}
                         (exception.except ..invalid_custom_compiler [/#definition /#type]))))))
 
-      (def .public (compile program global lux_compiler phase_wrapper import file_context extender expander platform compilation context)
+      (def .public (compile program global lux_compiler phase_wrapper import file_context extender expander platform compilation context
+                            all_extensions)
         (All (_ <type_vars>)
           (-> (Program expression declaration) (-> Archive Symbol (///generation.Operation <type_vars> expression))
               (-> Any ..Custom) ///phase.Wrapper Import context.Context (Extender <type_vars>) Expander <Platform> Compilation Lux_Context
+              (//init.Extensions <type_vars>)
               Lux_Return))
-        (let [[host_dependencies libraries compilers sources target program_module program_definition configuration] compilation
-              import! (|> (..compiler program global phase_wrapper extender expander platform program_module program_definition)
-                          (serial_compiler import file_context platform sources configuration)
-                          (..parallel context))]
-          (do [! ..monad]
-            [customs (|> compilers
-                         (list#each (function (_ it)
-                                      (do !
-                                        [[context parameters custom] (..custom import! it)]
-                                        (async#in (|> custom
-                                                      lux_compiler
-                                                      (function.on parameters))))))
-                         (monad.all !))]
-            (import! customs descriptor.runtime program_module))))
+        (do [! ..monad]
+          [.let [[host_dependencies libraries compilers sources target program_module program_definition configuration] compilation
+                 import! (|> (..compiler program global phase_wrapper extender expander platform program_module program_definition
+                                         all_extensions)
+                             (serial_compiler import file_context platform sources configuration)
+                             (..parallel context))]
+           customs (|> compilers
+                       (list#each (function (_ it)
+                                    (do !
+                                      [[context parameters custom] (..custom import! it)]
+                                      (async#in (|> custom
+                                                    lux_compiler
+                                                    (function.on parameters))))))
+                       (monad.all !))]
+          (import! customs descriptor.runtime program_module)))
       )))
