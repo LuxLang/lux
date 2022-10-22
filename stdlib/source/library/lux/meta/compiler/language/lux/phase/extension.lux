@@ -3,8 +3,10 @@
   [lux (.except)
    [abstract
     [equivalence (.only Equivalence)]
-    [hash (.only Hash)]]
+    [hash (.only Hash)]
+    [monad (.only do)]]
    [control
+    ["[0]" try]
     ["[0]" exception (.only Exception)]]
    [data
     ["[0]" product]
@@ -12,53 +14,121 @@
      ["%" \\format (.only Format)]]
     [collection
      ["[0]" list]
-     ["[0]" dictionary (.only Dictionary)]]]]]
+     ["[0]" dictionary (.only Dictionary)]]]
+   ["[0]" meta (.only)
+    ["[0]" symbol]
+    [type (.only sharing)
+     ["[0]" check]]]]]
  [/////
-  ["[0]" phase]])
+  ["[0]" phase (.only Operation Phase) (.use "[1]#[0]" functor)]
+  [meta
+   [archive (.only Archive)]]])
 
-(type .public Name
-  Text)
-
-(type .public (Extension a)
+(type .public (Extension of)
   (Record
-   [#name Name
-    #parameters (List a)]))
+   [#name Symbol
+    #parameters (List of)]))
 
 (def .public equivalence
-  (All (_ a)
-    (-> (Equivalence a)
-        (Equivalence (Extension a))))
+  (All (_ of)
+    (-> (Equivalence of)
+        (Equivalence (Extension of))))
   (|>> list.equivalence
-       (product.equivalence text.equivalence)))
+       (product.equivalence symbol.equivalence)))
 
 (def .public hash
-  (All (_ a)
-    (-> (Hash a)
-        (Hash (Extension a))))
+  (All (_ of)
+    (-> (Hash of)
+        (Hash (Extension of))))
   (|>> list.hash
-       (product.hash text.hash)))
+       (product.hash symbol.hash)))
 
-(type .public (Handler s i o)
-  (-> (phase.Phase s i o)
-      (phase.Phase s (List i) o)))
+(type .public (Handler state input output)
+  (-> (Phase state input output)
+      (Phase state (List input) output)))
 
-(type .public (Bundle s i o)
-  (Dictionary Name (Handler s i o)))
+(type .public (Bundle state input output)
+  (Dictionary Text (Handler state input output)))
 
-(exception.def .public (incorrect_arity [name arity args])
-  (Exception [Name Nat Nat])
-  (exception.report
-   (list ["Extension" (%.text name)]
-         ["Expected" (%.nat arity)]
-         ["Actual" (%.nat args)])))
+(def .public empty
+  Bundle
+  (dictionary.empty text.hash))
 
-(exception.def .public (invalid_syntax [name %format inputs])
-  (All (_ a)
-    (Exception [Name (Format a) (List a)]))
-  (exception.report
-   (list ["Extension" (%.text name)]
-         ["Inputs" (exception.listing %format inputs)])))
-
-(type .public (Extender s i o)
+(type .public (Extender state input output)
   (-> Any
-      (Handler s i o)))
+      (Handler state input output)))
+
+(exception.def .public (invalid [global expected actual])
+  (Exception [Symbol Type Type])
+  (exception.report
+   (list ["Definition" (%.symbol global)]
+         ["Expected" (%.type expected)]
+         ["Actual" (%.type actual)])))
+
+(exception.def .public (error error)
+  (Exception Text)
+  error)
+
+(type Value
+  (Variant
+   {#Normal Any}
+   {#Special Any}))
+
+(def (global_value name)
+  (-> Symbol (Meta [Type Value]))
+  (do meta.monad
+    [global (meta.local name)]
+    (when global
+      {.#Definition [exported? type value]}
+      (in [type {#Normal value}])
+
+      {.#Default [exported? type value]}
+      (in [type {#Special value}])
+      
+      {.#Alias _}
+      (undefined))))
+
+(def (global_extension expected_type name)
+  (-> Type Symbol (Meta Value))
+  (do meta.monad
+    [[actual_type value] (global_value name)]
+    (if (check.subsumes? expected_type actual_type)
+      (in value)
+      (meta.failure (exception.error ..invalid [name expected_type actual_type])))))
+
+(def .public (application extender
+                          lux phase archive
+                          expected_type global parameters
+                          when_valid
+                          when_invalid)
+  (All (_ state input raw_output processed_output)
+    (-> (Extender state input raw_output)
+        Lux (Phase state input raw_output) Archive
+        Type Symbol (List input)
+        (-> raw_output processed_output)
+        (-> Text (Maybe (Operation state processed_output)))
+        (Operation state processed_output)))
+  (when (|> (do [! meta.monad]
+              [value (global_extension expected_type global)]
+              (in ((when value
+                     {#Normal definition}
+                     (extender definition)
+
+                     {#Special default}
+                     (sharing [state input raw_output]
+                       (is (Extender state input raw_output)
+                           extender)
+                       (is (Handler state input raw_output)
+                           (as_expected default))))
+                   phase archive parameters)))
+            (meta.result lux))
+    {try.#Success operation}
+    (phase#each when_valid operation)
+
+    {try.#Failure error}
+    (when (when_invalid error)
+      {.#Some when_invalid}
+      when_invalid
+
+      {.#None}
+      (phase.except ..error [error]))))

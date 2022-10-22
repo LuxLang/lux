@@ -37,7 +37,7 @@
  ["[0]" //
   ["[1][0]" init]
   ["/[1]" // (.only)
-   ["[1][0]" phase (.only Phase)]
+   ["[0]" phase (.only Phase) (.use "[1]#[0]" monad)]
    [language
     [lux
      [program (.only Program)]
@@ -80,7 +80,7 @@
       #host (///generation.Host expression declaration)
       #phase (-> extension.Extender Lux (///generation.Phase <type_vars>))
       #runtime (<Operation> [Registry Output])
-      #phase_wrapper ///phase.Wrapper
+      #phase_wrapper phase.Wrapper
       #write (-> declaration Binary)]))
 
   ... TODO: Get rid of this
@@ -150,7 +150,7 @@
     (def (compile_runtime! platform)
       (All (_ <type_vars>)
         (-> <Platform> (///generation.Operation <type_vars> [Registry Output])))
-      (do ///phase.monad
+      (do phase.monad
         [_ ..initialize_buffer!]
         (the #runtime platform)))
 
@@ -177,34 +177,40 @@
         (-> Archive <Platform>
             (///declaration.Operation <type_vars>
                                       [Archive (archive.Entry .Module)])))
-      (do ///phase.monad
+      (do phase.monad
         [[registry payload] (///declaration.lifted_generation
                              (..compile_runtime! platform))
          .let [entry [..runtime_module payload registry]]
-         archive (///phase.lifted (if (archive.reserved? archive descriptor.runtime)
-                                    (archive.has descriptor.runtime entry archive)
-                                    (do try.monad
-                                      [[_ archive] (archive.reserve descriptor.runtime archive)]
-                                      (archive.has descriptor.runtime entry archive))))]
+         archive (phase.lifted (if (archive.reserved? archive descriptor.runtime)
+                                 (archive.has descriptor.runtime entry archive)
+                                 (do try.monad
+                                   [[_ archive] (archive.reserve descriptor.runtime archive)]
+                                   (archive.has descriptor.runtime entry archive))))]
         (in [archive entry])))
 
-    (def (initialize_state analysis_state state)
+    (def (initialize_state analysis_state all_extensions)
       (All (_ <type_vars>)
-        (-> .Lux <State>
-            (Try <State>)))
-      (|> (sharing [<type_vars>]
-            (is <State>
-                state)
-            (is (///declaration.Operation <type_vars> Any)
-                (do [! ///phase.monad]
-                  [_ (///declaration.lifted_analysis
-                      (///analysis.set_state analysis_state))]
-                  (in []))))
-          (///phase.result' state)
-          (at try.monad each product.left)))
+        (-> .Lux (//init.Extensions <type_vars>)
+            (///declaration.Operation <type_vars> Any)))
+      (do [! phase.monad]
+        [_ (///declaration.lifted_analysis
+            (///analysis.set_state analysis_state))]
+        (//init.with_defaults .prelude all_extensions)))
+
+    (def (with_extended_prelude state archive)
+      (-> Lux Archive Archive)
+      (|> (do try.monad
+            [prelude (meta.result state (meta.module .prelude))
+             entry (archive.find .prelude archive)
+             .let [entry (has [archive.#module module.#document]
+                              (document.document $.key prelude)
+                              entry)]]
+            (archive.has! .prelude entry archive))
+          (try.else archive)))
 
     (def .public (initialize context module expander platform program extender
-                             import compilation_sources compilation_configuration)
+                             import compilation_sources compilation_configuration
+                             all_extensions)
       (All (_ <type_vars>)
         (-> context.Context
             descriptor.Module
@@ -213,7 +219,8 @@
             (Program expression declaration)
             extension.Extender
             Import (List _io.Context) Configuration
-            (Async (Try [<State> Archive ///phase.Wrapper]))))
+            (//init.Extensions <type_vars>)
+            (Async (Try [<State> Archive phase.Wrapper]))))
       (do [! ..monad]
         [.let [phase_wrapper (the #phase_wrapper platform)
                state (//init.state (the context.#host context)
@@ -228,22 +235,22 @@
          [archive analysis_state bundles] (ioW.thaw (list) compilation_configuration (the #host platform) (the #file_system platform) context import compilation_sources)
          .let [with_missing_extensions
                (is (All (_ <type_vars>)
-                     (-> <State> (Async (Try <State>))))
-                   (function (_ state)
-                     (|> state
-                         (initialize_state analysis_state)
+                     (-> (//init.Extensions <type_vars>) <State> (Async (Try <State>))))
+                   (function (_ all_extensions state)
+                     (|> (initialize_state analysis_state all_extensions)
+                         (phase.result' state)
+                         (try#each product.left)
                          async#in)))]]
-        (if (archive.archived? archive descriptor.runtime)
+        (if (archive.archived? archive .prelude)
           (do !
-            [state (with_missing_extensions state)]
+            [state (with_missing_extensions all_extensions state)
+             .let [archive (with_extended_prelude (the [///declaration.#analysis ///declaration.#state] state) archive)]]
             (in [state archive phase_wrapper]))
           (do !
             [[state [archive payload]] (|> (..process_runtime archive platform)
-                                           (///phase.result' state)
+                                           (phase.result' state)
                                            async#in)
-             _ (..cache_module context platform 0 $.key $.format payload)
-             
-             state (with_missing_extensions state)]
+             _ (..cache_module context platform 0 $.key $.format payload)]
             (in [state archive phase_wrapper])))))
 
     (def compilation_log_separator
@@ -356,32 +363,6 @@
 
             ... else
             {try.#Success []}))
-
-    (exception.def .public (cannot_overwrite_extension extension)
-      (Exception extension.Name)
-      (exception.report
-       (list ["Extension" (%.text extension)])))
-
-    (def (with_extensions from to)
-      (All (_ state input output)
-        (-> (extension.Bundle state input output)
-            (extension.Bundle state input output)
-            (Try (extension.Bundle state input output))))
-      (monad.mix try.monad
-                 (function (_ [extension expected] output)
-                   (with_expansions [<inherited> (dictionary.has extension expected output)]
-                     (when (dictionary.value extension output)
-                       {.#None}
-                       {try.#Success <inherited>}
-                       
-                       {.#Some actual}
-                       (if (same? expected actual)
-                         {try.#Success <inherited>}
-                         (exception.except ..cannot_overwrite_extension [extension])))))
-                 to
-                 ... TODO: Come up with something better. This is not an ideal solution because it can mask overwrites happening across multiple imported modules.
-                 (list.only (|>> product.left (dictionary.key? to) not)
-                            (dictionary.entries from))))
 
     (type (Context state)
       [Archive state])
@@ -539,7 +520,7 @@
         (All (_ <type_vars>)
           (-> descriptor.Module <State> <State>))
         (|> (///declaration.set_current_module module)
-            (///phase.result' state)
+            (phase.result' state)
             try.trusted
             product.left))
 
@@ -614,7 +595,7 @@
          ... TODO: The "///declaration.set_current_module" below shouldn't be necessary. Remove it ASAP.
          ... TODO: The context shouldn't need to be re-set either.
          (|> (///declaration.set_current_module module)
-             (///phase.result' state)
+             (phase.result' state)
              try.trusted
              product.left)
          archive))
@@ -623,7 +604,7 @@
                      all_extensions)
         (All (_ <type_vars>)
           (-> (Program expression declaration) (-> Archive Symbol (///generation.Operation <type_vars> expression))
-              ///phase.Wrapper (Extender <type_vars>) Expander <Platform> Text (Maybe Module)
+              phase.Wrapper (Extender <type_vars>) Expander <Platform> Text (Maybe Module)
               (//init.Extensions <type_vars>)
               (///.Compiler <State> .Module)))
         (let [instancer (//init.compiler program global phase_wrapper extender expander syntax.prelude (the #write platform) program_module program_definition
@@ -811,7 +792,7 @@
                             all_extensions)
         (All (_ <type_vars>)
           (-> (Program expression declaration) (-> Archive Symbol (///generation.Operation <type_vars> expression))
-              (-> Any ..Custom) ///phase.Wrapper Import context.Context (Extender <type_vars>) Expander <Platform> Compilation Lux_Context
+              (-> Any ..Custom) phase.Wrapper Import context.Context (Extender <type_vars>) Expander <Platform> Compilation Lux_Context
               (//init.Extensions <type_vars>)
               Lux_Return))
         (do [! ..monad]
