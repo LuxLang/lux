@@ -375,7 +375,6 @@ Called by `imenu--generic-function'."
 												 "Interface"
 												 "type_literal"))
 							(type//checking (altRE "is" "as" "let" "as_expected" "type_of" "sharing" "by_example" "hole"))
-							(type//primitive (altRE "primitive" "abstraction" "representation" "transmutation"))
 							(type//poly (altRE "polytypic"))
 							(type//dynamic (altRE "dynamic" "static"))
 							(type//capability (altRE "capability"))
@@ -399,8 +398,7 @@ Called by `imenu--generic-function'."
 							(remember (altRE "remember" "to_do" "fix_me"))
 							(extension (altRE "analysis" "synthesis" "generation" "declaration"))
 							(definition (altRE "\\.require"
-											   "def" "inlined" "type"
-											   "vocabulary")))
+											   "def" "inlined" "type")))
 						(let ((control (altRE control//flow
 											  control//pattern-matching
 											  control//logic
@@ -408,7 +406,6 @@ Called by `imenu--generic-function'."
 											  control//polymorphism))
 							  (type (altRE type//syntax
 										   type//checking
-										   type//primitive
 										   type//poly
 										   type//dynamic
 										   type//capability))

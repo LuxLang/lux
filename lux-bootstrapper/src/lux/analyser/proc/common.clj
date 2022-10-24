@@ -225,7 +225,7 @@
 
 (let [extensions #{"is?#" "try#" "when_char#"
 
-                   "log#" "error#"
+                   "log!#" "error#"
 
                    "text_=#" "text_<#" "text_composite#"
                    "text_clip#" "text_index#" "text_size#" "text_char#"
@@ -252,7 +252,7 @@
          ;; Will be replaced by custom extensions in the future.
          "when_char#" (analyse-syntax-char-case! analyse exo-type ?values)
 
-         "log#" (analyse-io-log analyse exo-type ?values)
+         "log!#" (analyse-io-log analyse exo-type ?values)
          "error#" (analyse-io-error analyse exo-type ?values)
          
          "text_=#" (analyse-text-eq analyse exo-type ?values)
