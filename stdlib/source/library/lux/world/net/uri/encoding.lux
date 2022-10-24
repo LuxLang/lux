@@ -1,0 +1,116 @@
+... https://en.wikipedia.org/wiki/Percent-encoding
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["[0]" try (.only Try)]
+    ["[0]" exception (.only Exception)]]
+   [data
+    ["[0]" text (.only)
+     [char (.only Char)]]
+    [collection
+     ["[0]" set (.only Set)]]]
+   [math
+    [number
+     ["[0]" nat]]]]])
+
+(type .public URI_Encoded
+  Text)
+
+(with_expansions [<reserved> (these [" " "%20"]
+                                    ["!" "%21"]
+                                    ["#" "%23"]
+                                    ["$" "%24"]
+                                    ["%" "%25"]
+                                    ["&" "%26"]
+                                    ["'" "%27"]
+                                    ["(" "%28"]
+                                    [")" "%29"]
+                                    ["*" "%2A"]
+                                    ["+" "%2B"]
+                                    ["," "%2C"]
+                                    ["/" "%2F"]
+                                    [":" "%3A"]
+                                    [";" "%3B"]
+                                    ["=" "%3D"]
+                                    ["?" "%3F"]
+                                    ["@" "%40"]
+                                    ["[" "%5B"]
+                                    ["]" "%5D"])]
+  (def .public reserved
+    (Set Char)
+    (set.of_list nat.hash
+                 (`` (list (,, (with_template [<char> <encoding>]
+                                 [(char <char>)]
+                                 
+                                 <reserved>))))))
+  
+  (def .public (encoded input)
+    (-> Text URI_Encoded)
+    (let [size (text.size input)]
+      (loop (again [index 0
+                    slice_start 0
+                    output ""])
+        (if (nat.< size index)
+          (`` (when (.text_char# index input)
+                (,, (with_template [<char> <encoding>]
+                      [(char <char>)
+                       (let [index' (++ index)]
+                         (again index'
+                                index'
+                                (all .text_composite#
+                                     output
+                                     (.text_clip# slice_start (nat.- slice_start index) input)
+                                     <encoding>)))]
+
+                      <reserved>))
+                
+                _
+                (again (++ index)
+                       slice_start
+                       output)))
+          (all .text_composite#
+               output
+               (.text_clip# slice_start (nat.- slice_start index) input))))))
+  )
+
+(def escape (char "%"))
+
+(exception.def (invalid it)
+  (Exception URI_Encoded)
+  (exception.report
+   (list ["Value" (text.format it)])))
+
+(def .public (decoded input)
+  (-> URI_Encoded (Try Text))
+  (let [size (text.size input)]
+    (loop (again [index 0
+                  slice_start 0
+                  output ""])
+      (if (nat.< size index)
+        (`` (when (.text_char# index input)
+              ..escape
+              (let [encoding_start (++ index)
+                    encoding_end (++ encoding_start)]
+                (if (nat.< size encoding_end)
+                  (do try.monad
+                    [value (|> input
+                               (.text_clip# encoding_start 2)
+                               (at nat.hex decoded))
+                     .let [index' (++ encoding_end)]]
+                    (again index'
+                           index'
+                           (all .text_composite# output
+                                (.text_clip# slice_start (nat.- slice_start index) input)
+                                (text.of_char value))))
+                  (exception.except ..invalid [input])))
+              
+              _
+              (again (++ index)
+                     slice_start
+                     output)))
+        {try.#Success (|> input
+                          (.text_clip# slice_start (nat.- slice_start index))
+                          (.text_composite# output))}))))

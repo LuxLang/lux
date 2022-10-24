@@ -1,9 +1,11 @@
 (.require
  [library
   [lux (.except has)
+   [abstract
+    ["[0]" monad (.only do)]]
    [control
     ["[0]" pipe]
-    ["[0]" try (.only Try)]
+    ["[0]" try (.only Try) (.use "[1]#[0]" monad)]
     ["[0]" exception (.only Exception)]]
    [data
     ["[0]" text (.only)
@@ -17,7 +19,9 @@
  [//
   ["[0]" mime (.only MIME)]
   ["[0]" cookie]
-  [// (.only URL)]])
+  [// (.only URL)
+   ["[0]" uri
+    ["[1]" encoding]]]])
 
 (type .public Headers
   (Dictionary Text Text))
@@ -88,17 +92,20 @@
   [#name "Set-Cookie"
    #in (|>> dictionary.entries
             (list#mix (function (_ [name value] previous)
-                        (when previous
-                          "" (%.format name ..assignment value)
-                          _ (%.format previous ..separator name ..assignment value)))
+                        (with_expansions [<key,value> (these (uri.encoded name) ..assignment value)]
+                          (when previous
+                            "" (%.format <key,value>)
+                            _ (%.format previous ..separator <key,value>))))
                       ""))
    #out (|>> (text.all_split_by ..separator)
-             (list#mix (function (_ cookie jar)
-                         (when (text.split_by ..assignment cookie)
-                           {.#Some [name value]}
-                           (dictionary.has name value jar)
-                           
-                           {.#None}
-                           jar))
-                       cookie.empty)
-             {try.#Success})])
+             (monad.mix try.monad
+                        (function (_ cookie jar)
+                          (when (text.split_by ..assignment cookie)
+                            {.#Some [name value]}
+                            (do try.monad
+                              [name (uri.decoded name)]
+                              (in (dictionary.has name value jar)))
+                            
+                            {.#None}
+                            (try#in jar)))
+                        cookie.empty))])
