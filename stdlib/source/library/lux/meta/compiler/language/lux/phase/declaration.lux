@@ -16,15 +16,14 @@
      ["[0]" check]]]]]
  ["[0]" //
   ["[0]" extension]
-  ["[1][0]" analysis]
   ["/[1]" //
    ["/" declaration (.only Operation Phase Handler Extender)]
-   ["[1][0]" analysis (.only)
+   ["[0]" analysis (.only)
     ["[0]" evaluation]
     ["[1]/[0]" macro (.only Expander)]
     ["[1]/[0]" type]]
    [///
-    ["//" phase (.use "[1]#[0]" monad)]
+    ["[0]" phase (.use "[1]#[0]" monad)]
     [reference (.only)
      [variable (.only)]]
     [meta
@@ -49,10 +48,10 @@
         (Operation anchor expression declaration /.Requirements)))
   (when expansion
     {.#End}
-    (//#in /.no_requirements)
+    (phase#in /.no_requirements)
     
     {.#Item head tail}
-    (do //.monad
+    (do phase.monad
       [head' (phase archive head)
        tail' (requiring phase archive tail)]
       (in (/.merge_requirements head' tail')))))
@@ -62,25 +61,49 @@
    {#More (List Code)}
    {#Done /.Requirements}))
 
+(def (macro_or_extension analysis archive whole_term function_term)
+  (All (_ anchor expression declaration)
+    (-> analysis.Phase Archive Code Code (Operation anchor expression declaration Symbol)))
+  (when function_term
+    [_ {.#Symbol it}]
+    (phase#in it)
+
+    function_term
+    (do phase.monad
+      [[type analysis] (/.lifted_analysis
+                        (analysis/type.inferring
+                         (analysis archive function_term)))]
+      (when analysis
+        (analysis.constant definition)
+        (if (or (check.subsumes? .Macro type)
+                (check.subsumes? .Declaration type))
+          (in definition)
+          (phase.except ..not_a_declaration [whole_term]))
+
+        _
+        (phase.except ..not_a_declaration [whole_term])))))
+
 (with_expansions [<lux_def_module> (these [|form_location| {.#Form (list.partial [|text_location| {.#Symbol [..prelude "module#"]}] annotations)}])]
   (def .public (phase wrapper extender expander)
     (All (_ anchor expression declaration)
-      (-> //.Wrapper (Extender anchor expression declaration) Expander (Phase anchor expression declaration)))
+      (-> phase.Wrapper (Extender anchor expression declaration) Expander (Phase anchor expression declaration)))
     (function (again archive code)
-      (do [! //.monad]
-        [state //.state
-         .let [compiler_eval ((evaluation.evaluator (the [/.#analysis /.#phase] state)
+      (do [! phase.monad]
+        [state phase.state
+         .let [analysis (the [/.#analysis /.#phase] state)
+               compiler_eval ((evaluation.evaluator analysis
                                                     [(the [/.#synthesis /.#state] state)
                                                      (the [/.#synthesis /.#phase] state)]
                                                     [(the [/.#generation /.#state] state)
                                                      (the [/.#generation /.#phase] state)])
                               archive)
                extension_eval (as Eval (wrapper (as_expected compiler_eval)))]
-         _ (//.with (has [/.#analysis /.#state .#eval] extension_eval state))]
+         _ (phase.with (has [/.#analysis /.#state .#eval] extension_eval state))]
         (when code
-          [_ {.#Form (list.partial [_ {.#Symbol macro|extension}] inputs)}]
+          [_ {.#Form (list.partial term inputs)}]
           (do !
-            [expansion|requirements (extension.application extender
+            [macro|extension (macro_or_extension analysis archive code term)
+             expansion|requirements (extension.application extender
                                                            (the [/.#analysis /.#state] state) again archive
                                                            .Declaration macro|extension inputs
                                                            (|>> {#Done})
@@ -91,11 +114,11 @@
                                                                          {.#Some macro}
                                                                          (/.lifted_analysis
                                                                           (do !
-                                                                            [expansion (///analysis/macro.expansion expander macro|extension macro inputs)]
+                                                                            [expansion (analysis/macro.expansion expander macro|extension macro inputs)]
                                                                             (in {#More expansion})))
                                                                          
                                                                          {.#None}
-                                                                         (//.except ..invalid_macro_call [code])))}))]
+                                                                         (phase.except ..invalid_macro_call [code])))}))]
             (when expansion|requirements
               {.#Left expansion}
               (when expansion
@@ -110,4 +133,4 @@
               (in requirements)))
 
           _
-          (//.except ..not_a_declaration code))))))
+          (phase.except ..not_a_declaration [code]))))))

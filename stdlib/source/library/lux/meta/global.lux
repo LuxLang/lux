@@ -1,0 +1,91 @@
+(.require
+ [library
+  [lux (.except with)
+   [abstract
+    ["[0]" monad (.only do)]]
+   [control
+    ["?" parser]
+    ["[0]" maybe]]
+   [data
+    ["[0]" product]
+    [text
+     ["%" \\format]]
+    [collection
+     ["[0]" list (.use "[1]#[0]" functor mix)
+      ["[0]" property]]]]
+   ["[0]" meta (.only)
+    ["[0]" code (.only)
+     ["?[1]" \\parser]]
+    ["[0]" macro (.only)
+     [syntax (.only syntax)]]]]])
+
+(def with_replacement
+  (syntax (_ [[module short] ?code.global
+              local ?code.local
+              hidden ?code.local])
+    (do meta.monad
+      [here meta.current_module_name
+       _ (is (Meta Any)
+             (function (_ lux)
+               (let [lux (revised .#modules
+                                  (is (-> (property.List .Module) (property.List .Module))
+                                      (property.revised module (is (-> .Module .Module)
+                                                                   (function (_ module)
+                                                                     (|> (do maybe.monad
+                                                                           [global (property.value short (the .#definitions module))]
+                                                                           (in (revised .#definitions
+                                                                                        (|>> (property.has short {.#Alias [here local]})
+                                                                                             (property.has hidden global))
+                                                                                        module)))
+                                                                         (maybe.else module))))))
+                                  lux)]
+                 {.#Right [lux []]})))]
+      (in (list)))))
+
+(def without_replacement
+  (syntax (_ [[module short] ?code.global
+              hidden ?code.local])
+    (do meta.monad
+      [_ (is (Meta Any)
+             (function (_ lux)
+               (let [lux (revised .#modules
+                                  (is (-> (property.List .Module) (property.List .Module))
+                                      (property.revised module (is (-> .Module .Module)
+                                                                   (function (_ module)
+                                                                     (|> (do maybe.monad
+                                                                           [global (property.value hidden (the .#definitions module))]
+                                                                           (in (revised .#definitions
+                                                                                        (|>> (property.has short global)
+                                                                                             (property.lacks hidden))
+                                                                                        module)))
+                                                                         (maybe.else module))))))
+                                  lux)]
+                 {.#Right [lux []]})))]
+      (in (list)))))
+
+(def .public with
+  (syntax (_ [replacements (?code.tuple (?.some (?.and ?code.global ?code.any)))
+              declarations (?.some ?code.any)])
+    (when (list.reversed replacements)
+      (list)
+      (in declarations)
+
+      (list [global value])
+      (do [! meta.monad]
+        [g!local (macro.symbol "g!local")
+         g!hidden (macro.symbol "g!hidden")
+         .let [[@ _] (symbol .._)]]
+        (in (list (` (def (, g!local)
+                       (type_of (, (code.symbol global)))
+                       (, value)))
+                  (` ((.in_module# (, (code.text @)) ..with_replacement) (, (code.symbol global)) (, g!local) (, g!hidden)))
+                  (` (these (,* declarations)))
+                  (` ((.in_module# (, (code.text @)) ..without_replacement) (, (code.symbol global)) (, g!hidden))))))
+
+      (list.partial [global re_definition] tail)
+      (in (list (list#mix (function (_ [global re_definition] body)
+                            (` (..with [(, (code.symbol global)) (, re_definition)]
+                                 (, body))))
+                          (` (..with [(, (code.symbol global)) (, re_definition)]
+                               (,* declarations)))
+                          tail))))))

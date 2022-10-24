@@ -1,49 +1,121 @@
+... https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie
 (.require
  [library
-  [lux (.except)
-   [control
+  [lux (.except has)
+   [abstract
     [monad (.only do)]
+    [equivalence (.only Equivalence)]]
+   [control
     ["[0]" try (.only Try)]
-    ["p" parser (.use "[1]#[0]" monad)
-     ["l" text (.only Parser)]]]
+    ["[0]" exception (.only Exception)]
+    ["?" parser (.use "[1]#[0]" monad)]]
    [data
-    [number
-     ["i" int]]
-    [text
-     ["%" \\format (.only format)]]
-    [format
-     ["[0]" context (.only Context)]]
+    ["[0]" text (.only)
+     ["%" \\format (.only format)]
+     ["?[1]" \\parser (.only Parser)]]
     [collection
-     ["[0]" dictionary]]]
+     ["[0]" dictionary (.only Dictionary)]]]
+   [math
+    [number
+     ["n" nat]
+     ["i" int]]]
+   [meta
+    [type
+     ["[0]" primitive (.only primitive)]]]
    [world
-    [time
-     ["[0]" duration (.only Duration)]]]]]
- ["[0]" // (.only Header)
-  ["[0]" header]])
+    ["[0]" time (.only)
+     ["[0]" day]
+     ["[0]" month]
+     ["[0]" year]
+     ["[0]" date]
+     ["[0]" instant (.only Instant)]
+     ["[0]" duration (.only Duration)]]]]])
 
-(type .public Directive
-  (-> Text Text))
+(type .public (Cookie of)
+  (Record
+   [#name Text
+    #in (-> of
+            Text)
+    #out (-> Text
+             (Try of))]))
 
-(def (directive extension)
-  (-> Text Directive)
-  (function (_ so_far)
-    (format so_far "; " extension)))
+(def (digits/2 it)
+  (-> Nat
+      Text)
+  (if (n.< 10 it)
+    (format "0" (%.nat it))
+    (%.nat it)))
 
-(def .public (set name value)
-  (-> Text Text Header)
-  (header.has "Set-Cookie" (format name "=" value)))
+... https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Date
+(def (date it)
+  (-> Instant
+      Text)
+  (let [day (when (instant.day_of_week it)
+              {day.#Sunday} "Sun"
+              {day.#Monday} "Mon"
+              {day.#Tuesday} "Tue"
+              {day.#Wednesday} "Wed"
+              {day.#Thursday} "Thu"
+              {day.#Friday} "Fri"
+              {day.#Saturday} "Sat")
+        date (let [it (instant.date it)
+                   day_of_month (digits/2 (date.day_of_month it))
+                   month (when (date.month it)
+                           {month.#January} "Jan"
+                           {month.#February} "Feb"
+                           {month.#March} "Mar"
+                           {month.#April} "Apr"
+                           {month.#May} "May"
+                           {month.#June} "Jun"
+                           {month.#July} "Jul"
+                           {month.#August} "Aug"
+                           {month.#September} "Sep"
+                           {month.#October} "Oct"
+                           {month.#November} "Nov"
+                           {month.#December} "Dec")
+                   year (let [it (year.value (date.year it))]
+                          (if (i.< +0 it)
+                            (%.int it)
+                            (%.nat (.nat it))))]
+               (format day_of_month " " month " " year))
+        time (let [it (time.clock (instant.time it))]
+               (format (digits/2 (the time.#hour it))
+                       ":" (digits/2 (the time.#minute it))
+                       ":" (digits/2 (the time.#second it))))]
+    (format day ", " date " " time " GMT")))
+
+(type .public (Attribute of)
+  (-> (Cookie of)
+      (Cookie of)))
+
+(def separator "; ")
+
+(def (attribute extension it)
+  (-> Text
+      Attribute)
+  [#name (the #name it)
+   #in (function (_ value)
+         (format ((the #in it) value) ..separator extension))
+   #out (the #out it)])
+
+(def .public (expires when)
+  (-> Instant
+      Attribute)
+  (..attribute (format "Expires=" (date when))))
 
 (def .public (max_age duration)
-  (-> Duration Directive)
+  (-> Duration
+      Attribute)
   (let [seconds (duration.ticks duration.second duration)]
-    (..directive (format "Max-Age=" (if (i.< +0 seconds)
+    (..attribute (format "Max-Age=" (if (i.< +0 seconds)
                                       (%.int seconds)
                                       (%.nat (.nat seconds)))))))
 
 (with_template [<name> <prefix>]
   [(def .public (<name> value)
-     (-> Text Directive)
-     (..directive (format <prefix> "=" value)))]
+     (-> Text
+         Attribute)
+     (..attribute (format <prefix> "=" value)))]
 
   [domain "Domain"]
   [path "Path"]
@@ -51,41 +123,67 @@
 
 (with_template [<name> <tag>]
   [(def .public <name>
-     Directive
-     (..directive <tag>))]
+     Attribute
+     (..attribute <tag>))]
 
   [secure "Secure"]
   [http_only "HttpOnly"]
   )
 
-(type .public CSRF_Policy
-  (Variant
-   {#Strict}
-   {#Lax}))
+(primitive .public CSRF_Policy
+  Text
 
-(def .public (same_site policy)
-  (-> CSRF_Policy Directive)
-  (..directive (format "SameSite=" (when policy
-                                     {#Strict} "Strict"
-                                     {#Lax} "Lax"))))
+  (with_template [<name> <value>]
+    [(def .public <name>
+       CSRF_Policy
+       (primitive.abstraction <value>))]
+    
+    [strict "Strict"]
+    [lax "Lax"]
+    [none "None"])
 
-(def (cookie context)
-  (-> Context (Parser Context))
-  (do p.monad
-    [key (l.slice (l.many! (l.none_of! "=")))
-     _ (l.this "=")
-     value (l.slice (l.many! (l.none_of! ";")))]
-    (in (dictionary.has key value context))))
+  (def .public (same_site policy)
+    (-> CSRF_Policy
+        Attribute)
+    (..attribute (format "SameSite=" (primitive.representation policy))))
+  )
 
-(def (cookies context)
-  (-> Context (Parser Context))
-  (all p.either
-       (do p.monad
-         [context' (..cookie context)
-          _ (l.this "; ")]
-         (cookies context'))
-       (p#in context)))
+(type .public Jar
+  (Dictionary Text Text))
 
-(def .public (get header)
-  (-> Text (Try Context))
-  (l.result header (..cookies context.empty)))
+(def .public equivalence
+  (Equivalence Jar)
+  (dictionary.equivalence text.equivalence))
+
+(def .public empty
+  Jar
+  (dictionary.empty text.hash))
+
+(def .public (has cookie value jar)
+  (All (_ of)
+    (-> (Cookie of) of Jar
+        Jar))
+  (dictionary.has (the #name cookie) ((the #in cookie) value) jar))
+
+(exception.def .public (unknown [cookie])
+  (All (_ of)
+    (Exception (Cookie of)))
+  (exception.report
+   (list ["Cookie" (%.text (the #name cookie))])))
+
+(def .public (value cookie jar)
+  (All (_ of)
+    (-> (Cookie of) Jar
+        (Try of)))
+  (when (dictionary.value (the #name cookie) jar)
+    {.#Some it}
+    (let [value (when (text.split_by ..separator it)
+                  {.#Some [before after]}
+                  before
+                  
+                  {.#None}
+                  it)]
+      ((the #out cookie) value))
+    
+    {.#None}
+    (exception.except ..unknown [cookie])))

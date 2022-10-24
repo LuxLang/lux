@@ -1,0 +1,113 @@
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    ["[0]" monad (.only do)]
+    [\\specification
+     ["[0]S" equivalence]]]
+   [control
+    ["|" pipe]
+    ["[0]" try (.use "[1]#[0]" functor)]]
+   [data
+    ["[0]" text (.use "[1]#[0]" equivalence)]
+    [collection
+     ["[0]" dictionary]]]
+   [math
+    ["[0]" random (.only Random)]]
+   [test
+    ["_" property (.only Test)]]]]
+ [\\library
+  ["[0]" /]])
+
+(def .public (random cookies)
+  (-> (List (Ex (_ of) [(/.Cookie of) (Random of)]))
+      (Random /.Jar))
+  (monad.mix random.monad
+             (function (_ [cookie random] jar)
+               (do random.monad
+                 [value random]
+                 (in (/.has cookie value jar))))
+             /.empty
+             cookies))
+
+(def .public test
+  Test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [name (random.upper_case 1)
+         fake_name (random.upper_case 2)
+         expected (random.lower_case 1)
+         .let [cookie (is (/.Cookie Text)
+                          [/.#name name
+                           /.#in (|>>)
+                           /.#out (|>> {try.#Success})])
+               fake_cookie (is (/.Cookie Text)
+                               [/.#name fake_name
+                                /.#in (|>>)
+                                /.#out (|>> {try.#Success})])]
+
+         duration random.duration
+         instant random.instant
+         domain (random.lower_case 2)
+         path (random.lower_case 3)])
+      (_.for [/.Cookie /.#name /.#in /.#out])
+      (all _.and
+           (_.for [/.equivalence]
+                  (equivalenceS.spec /.equivalence (..random (list [cookie (random.lower_case 1)]))))
+           (_.for [/.Jar]
+                  (all _.and
+                       (_.coverage [/.empty]
+                         (dictionary.empty? /.empty))
+                       (_.coverage [/.has /.value]
+                         (|> /.empty
+                             (/.has cookie expected)
+                             (/.value cookie)
+                             (try#each (text#= expected))
+                             (try.else false)))
+                       (_.coverage [/.unknown]
+                         (|> /.empty
+                             (/.has cookie expected)
+                             (/.value fake_cookie)
+                             (|.when
+                               {try.#Success _} false
+                               {try.#Failure _} true)))
+                       ))
+           (_.for [/.Attribute]
+                  (`` (all _.and
+                           (,, (with_template [<attribute> <value>]
+                                 [(_.coverage [<attribute>]
+                                    (|> /.empty
+                                        (/.has (<attribute> <value> cookie) expected)
+                                        (/.value cookie)
+                                        (try#each (text#= expected))
+                                        (try.else false)))]
+
+                                 [/.expires instant]
+                                 [/.max_age duration]
+                                 [/.domain domain]
+                                 [/.path path]
+                                 ))
+                           (,, (with_template [<attribute>]
+                                 [(_.coverage [<attribute>]
+                                    (|> /.empty
+                                        (/.has (<attribute> cookie) expected)
+                                        (/.value cookie)
+                                        (try#each (text#= expected))
+                                        (try.else false)))]
+
+                                 [/.secure]
+                                 [/.http_only]
+                                 ))
+                           (_.coverage [/.CSRF_Policy /.strict /.lax /.none /.same_site]
+                             (let [uses_policy! (is (-> /.CSRF_Policy Bit)
+                                                    (function (_ it)
+                                                      (|> /.empty
+                                                          (/.has (/.same_site it cookie) expected)
+                                                          (/.value cookie)
+                                                          (try#each (text#= expected))
+                                                          (try.else false))))]
+                               (and (uses_policy! /.strict)
+                                    (uses_policy! /.lax)
+                                    (uses_policy! /.none))))
+                           )))
+           )))
