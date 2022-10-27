@@ -1,0 +1,106 @@
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]
+    [codec (.only Codec)]
+    [equivalence (.only Equivalence)]]
+   [control
+    ["?" parser]
+    ["[0]" try (.only Try)]]
+   [data
+    ["[0]" text (.only)
+     ["%" \\format]
+     ["?[1]" \\parser (.only Parser)]]
+    [collection
+     ["[0]" list (.use "[1]#[0]" functor)]
+     ["[0]" dictionary (.only Dictionary)]]]
+   [math
+    [number
+     ["[0]" nat]]]
+   [world
+    [net
+     ["[0]" uri
+      ["[1]" encoding]]]]]])
+
+(type .public Query
+  (Dictionary Text Text))
+
+(def .public empty
+  Query
+  (dictionary.empty text.hash))
+
+(def .public equivalence
+  (Equivalence Query)
+  (dictionary.equivalence text.equivalence))
+
+(def component
+  (Parser Text)
+  (?.rec
+   (function (_ component)
+     (do [! ?.monad]
+       [head (?text.some (?text.none_of "+%&;"))]
+       (all ?.either
+            (?.after (?.either ?text.end
+                               (?text.this "&"))
+                     (in head))
+            (do !
+              [_ (?text.this "+")
+               tail component]
+              (in (%.format head " " tail)))
+            (do !
+              [_ (?text.this "%")
+               code (|> (?text.exactly 2 ?text.hexadecimal)
+                        (?.codec nat.hex)
+                        (at ! each text.of_char))
+               tail component]
+              (in (%.format head code tail))))))))
+
+(def separators
+  "&;")
+
+(def assignment
+  "=")
+
+(def invalid
+  (%.format "=" "&;"))
+
+(def (form query)
+  (-> Query (Parser Query))
+  (all ?.either
+       (do ?.monad
+         [_ ?text.end]
+         (in query))
+       (do [! ?.monad]
+         [key (?text.some (?text.none_of ..invalid))
+          key (?text.local key ..component)
+          key (?.lifted (uri.decoded key))]
+         (?.either (do !
+                     [_ (?text.this ..assignment)
+                      value ..component
+                      value (?.lifted (uri.decoded value))]
+                     (form (dictionary.has key value query)))
+                   (do !
+                     [_ (all ?.or
+                             (?text.one_of ..separators)
+                             ?text.end)]
+                     (form (dictionary.has key "" query)))))
+       ... if invalid form data, just stop parsing...
+       (at ?.monad in query)))
+
+(def format
+  (%.Format Query)
+  (|>> dictionary.entries
+       (list#each (function (_ [key value])
+                    (%.format (uri.encoded key) "=" (uri.encoded value))))
+       (text.interposed "&")))
+
+(def query
+  (-> Text (Try Query))
+  (?text.result (..form ..empty)))
+
+(def .public codec
+  (Codec Text Query)
+  (implementation
+   (def encoded ..format)
+   (def decoded ..query)))

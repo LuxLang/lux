@@ -1,6 +1,6 @@
 (.require
  [library
-  [lux (.except Analysis)
+  [lux (.except Analysis global local)
    [abstract
     ["[0]" monad (.only do)]]
    [control
@@ -9,7 +9,7 @@
     ["[0]" try]
     ["[0]" exception (.only Exception)]]
    [data
-    ["[0]" text (.only)
+    ["[0]" text (.use "[1]#[0]" equivalence)
      [char (.only Char)]
      ["%" \\format (.only format)]]
     [collection
@@ -30,11 +30,13 @@
    [//
     ["[0]" analysis (.only Analysis Operation Phase Handler Bundle)
      [evaluation (.only Eval)]
-     ["[0]A" type]]
+     ["[0]A" type]
+     ["[0]" scope]]
     ["[0]" synthesis]
     ["[0]" generation]
     ["[0]" declaration]
     [///
+     ["[0]" reference]
      ["[0]" phase]
      [meta
       [archive (.only Archive)]]]]]])
@@ -206,13 +208,85 @@
         (<| (typeA.expecting input)
             (phase archive valueC))))]))
 
+(exception.def .public (foreign_module_has_not_been_imported [current foreign quoted global])
+  (Exception [Text Text Text Symbol])
+  (exception.report
+   (list ["Current" current]
+         ["Foreign" foreign]
+         ["Quoted" quoted]
+         ["Global" (%.symbol global)])))
+
+(exception.def .public (global_has_not_been_exported global)
+  (Exception Symbol)
+  (exception.report
+   (list ["Global" (%.symbol global)])))
+
+(exception.def .public (defaults_cannot_be_referenced global)
+  (Exception Symbol)
+  (exception.report
+   (list ["Default" (%.symbol global)])))
+
+(def global
+  (-> Text Handler)
+  (..custom
+   [(<>.and <code>.text <code>.global)
+    (function (again extension_name phase archive [quoted_module def_name])
+      (with_expansions [<return> (in (|> def_name reference.constant {analysis.#Reference}))]
+        (do [! phase.monad]
+          [constant (meta.definition def_name)]
+          (when constant
+            {.#Alias real_def_name}
+            (again extension_name phase archive [quoted_module real_def_name])
+            
+            {.#Definition [exported? actualT _]}
+            (do !
+              [_ (typeA.inference actualT)
+               (^.let def_name [::module ::name]) (meta.normal def_name)
+               current meta.current_module_name]
+              (if (text#= current ::module)
+                <return>
+                (if exported?
+                  (do !
+                    [imported! (meta.imported_by? ::module current)]
+                    (if (or imported!
+                            (text#= quoted_module ::module))
+                      <return>
+                      (analysis.except ..foreign_module_has_not_been_imported [current ::module quoted_module def_name])))
+                  (analysis.except ..global_has_not_been_exported [def_name]))))
+
+            {.#Default _}
+            (analysis.except ..defaults_cannot_be_referenced [def_name])))))]))
+
+(exception.def .public (unknown_local name)
+  (Exception Text)
+  (exception.report
+   (list ["Name" (%.text name)])))
+
+(def local
+  (-> Text Handler)
+  (..custom
+   [<code>.local
+    (function (_ extension_name phase archive [it])
+      (do [! phase.monad]
+        [?var (scope.variable it)]
+        (when ?var
+          {.#Some [local_type local_reference]}
+          (do !
+            [_ (typeA.inference local_type)]
+            (in (|> local_reference reference.variable {analysis.#Reference})))
+
+          {.#None}
+          (analysis.except ..unknown_local [it]))))]))
+
 (def with_basic_extensions
   (-> Bundle Bundle)
   (|>> (install "is_type#" (..caster .Type .Type))
        (install "is?#" lux::is?)
        (install "try#" lux::try)
        (install "in_module#" lux::in_module)
-       (install "when_char#" lux::syntax_char_case!)))
+       (install "when_char#" lux::syntax_char_case!)
+       (install "local#" ..local)
+       (install "global#" ..global)))
 
 (def with_io_extensions
   (-> Bundle Bundle)

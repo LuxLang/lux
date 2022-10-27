@@ -1,19 +1,21 @@
 (.require
  [library
-  [lux (.except)
+  [lux (.except global)
    [abstract
     [equivalence (.only Equivalence)]
     [hash (.only Hash)]
     [monad (.only do)]]
    [control
+    ["[0]" maybe]
     ["[0]" try]
     ["[0]" exception (.only Exception)]]
    [data
     ["[0]" product]
-    ["[0]" text (.only)
+    ["[0]" text (.use "[1]#[0]" equivalence)
      ["%" \\format (.only Format)]]
     [collection
-     ["[0]" list]
+     ["[0]" list (.only)
+      ["[0]" property]]
      ["[0]" dictionary (.only Dictionary)]]]
    ["[0]" meta (.only)
     ["[0]" symbol]
@@ -74,10 +76,45 @@
    {#Normal Any}
    {#Special Any}))
 
-(def (global_value name)
-  (-> Symbol (Meta [Type Value]))
+(def (global validated_global? name)
+  (-> Bit Symbol (Meta Global))
   (do meta.monad
-    [global (meta.local name)]
+    [name (meta.normal name)
+     current_module_name meta.current_module_name
+     lux meta.compiler_state]
+    (loop (again [[normal_module normal_short] name])
+      (when (is (Maybe Global)
+                (do maybe.monad
+                  [(open "/[0]") (|> lux
+                                     (the .#modules)
+                                     (property.value normal_module))]
+                  (property.value normal_short /#definitions)))
+        {.#Some it}
+        (when it
+          {.#Definition [exported? type value]}
+          (if (or validated_global?
+                  exported?
+                  (text#= current_module_name normal_module))
+            (in it)
+            (meta.failure (%.format "Global is not an export: " (%.symbol name))))
+
+          {.#Default [exported? type value]}
+          (if (or validated_global?
+                  exported?
+                  (text#= current_module_name normal_module))
+            (in it)
+            (meta.failure (%.format "Global is not an export: " (%.symbol name))))
+
+          {.#Alias de_aliased}
+          (again de_aliased))
+
+        {.#None it}
+        (meta.failure (%.format "Unknown global: " (%.symbol name)))))))
+
+(def (global_value validated_global? name)
+  (-> Bit Symbol (Meta [Type Value]))
+  (do meta.monad
+    [global (..global validated_global? name)]
     (when global
       {.#Definition [exported? type value]}
       (in [type {#Normal value}])
@@ -88,28 +125,28 @@
       {.#Alias _}
       (undefined))))
 
-(def (global_extension expected_type name)
-  (-> Type Symbol (Meta Value))
+(def (global_extension expected_type validated_global? name)
+  (-> Type Bit Symbol (Meta Value))
   (do meta.monad
-    [[actual_type value] (global_value name)]
+    [[actual_type value] (global_value validated_global? name)]
     (if (check.subsumes? expected_type actual_type)
       (in value)
       (meta.failure (exception.error ..invalid [name expected_type actual_type])))))
 
 (def .public (application extender
                           lux phase archive
-                          expected_type global parameters
+                          expected_type validated_global? global parameters
                           when_valid
                           when_invalid)
   (All (_ state input raw_output processed_output)
     (-> (Extender state input raw_output)
         Lux (Phase state input raw_output) Archive
-        Type Symbol (List input)
+        Type Bit Symbol (List input)
         (-> raw_output processed_output)
         (-> Text (Maybe (Operation state processed_output)))
         (Operation state processed_output)))
   (when (|> (do [! meta.monad]
-              [value (global_extension expected_type global)]
+              [value (global_extension expected_type validated_global? global)]
               (in ((when value
                      {#Normal definition}
                      (extender definition)

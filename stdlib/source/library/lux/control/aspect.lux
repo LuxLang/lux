@@ -1,0 +1,324 @@
+(.require
+ [library
+  [lux (.except Global #Local #location with local global)
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["?" parser]
+    ["[0]" maybe]
+    [function
+     [predicate (.only Predicate)]]]
+   [data
+    ["[0]" text (.use "[1]#[0]" equivalence)
+     ["%" \\format]]
+    [collection
+     ["[0]" list (.use "[1]#[0]" mix)
+      ["[0]" property]]]]
+   ["[0]" meta (.only)
+    [extension (.only analysis declaration)]
+    ["[0]" code (.only)
+     ["?[1]" \\parser]]
+    ["[0]" macro (.only)
+     [syntax (.only syntax)]
+     ["^" pattern]]
+    [type
+     ["[0]" check]]
+    [compiler
+     ["[0]" phase]
+     [language
+      [lux
+       ["[0]" declaration]
+       ["[0]" analysis (.only)
+        ["[0]" module]
+        ["[0]" type]]]]]]]])
+
+(type .public (Advice value)
+  (-> value value))
+
+(type .public After
+  Advice)
+
+(type .public (Around input output)
+  (Advice (-> input output)))
+
+(def .public (before pre)
+  (All (_ input output)
+    (-> (-> input input)
+        (Around input output)))
+  (function (_ it input)
+    (it (pre input))))
+
+(type .public (Reference name)
+  (Record
+   [#name name
+    #type Type]))
+
+(type .public Local
+  (Reference Text))
+
+(type .public Global
+  (Reference Symbol))
+
+(type .public Scenario
+  (Variant
+   {#Local Local}
+   {#Global Global}))
+
+(type .public Join_Point
+  (Record
+   [#location Location
+    #scenario Scenario]))
+
+(type .public Point_Cut
+  (Predicate Join_Point))
+
+(def .public (when_module ?)
+  (-> (Predicate Text)
+      Point_Cut)
+  (|>> (the [#location .#module])
+       ?))
+
+(with_template [<type> <tag> <name>]
+  [(def .public (<name> ?)
+     (-> (Predicate <type>)
+         Point_Cut)
+     (function (_ it)
+       (when (the #scenario it)
+         {<tag> it}
+         (? it)
+
+         _
+         false)))]
+
+  [Local #Local when_local]
+  [Global #Global when_global]
+  )
+
+(def .public (typed? expected)
+  (-> Type
+      Point_Cut)
+  (function (_ it)
+    (when (the #scenario it)
+      (^.or {#Local [_ it]}
+            {#Global [_ it]})
+      (check.subsumes? expected it))))
+
+(type .public Aspect
+  (List [Point_Cut Symbol]))
+
+(def (without_global [module short])
+  (-> Symbol (analysis.Operation Any))
+  (function (_ lux)
+    (let [without_global (is (-> (property.List .Global) (property.List .Global))
+                             (property.lacks short))
+          without_global (is (-> .Module .Module)
+                             (revised .#definitions without_global))
+          without_global (is (-> (property.List .Module) (property.List .Module))
+                             (property.revised module without_global))
+          without_global (is (-> Lux Lux)
+                             (revised .#modules without_global))]
+      {.#Right [(without_global lux)
+                []]})))
+
+(def (global_reference name)
+  (-> Symbol (Meta .Global))
+  (do meta.monad
+    [name (meta.normal name)
+     current_module_name meta.current_module_name
+     lux meta.compiler_state]
+    (loop (again [[normal_module normal_short] name])
+      (when (is (Maybe .Global)
+                (do maybe.monad
+                  [(open "/[0]") (|> lux
+                                     (the .#modules)
+                                     (property.value normal_module))]
+                  (property.value normal_short /#definitions)))
+        {.#Some it}
+        (when it
+          {.#Definition [exported? type value]}
+          (if (or exported?
+                  (text#= current_module_name normal_module))
+            (in it)
+            (meta.failure (%.format "Global is not an export: " (%.symbol name))))
+
+          {.#Default [exported? type value]}
+          (if (or exported?
+                  (text#= current_module_name normal_module))
+            (in it)
+            (meta.failure (%.format "Global is not an export: " (%.symbol name))))
+
+          {.#Alias de_aliased}
+          (again de_aliased))
+
+        {.#None it}
+        (meta.failure (%.format "Unknown global: " (%.symbol name)))))))
+
+(def (with_cached_analysis name then)
+  (All (_ of)
+    (-> Symbol (-> [Code .Global] (analysis.Operation of))
+        (analysis.Operation of)))
+  (do phase.monad
+    [g!cache (macro.symbol "g!cache")
+     global (global_reference name)
+     .let [cache_name (%.code g!cache)]
+     _ (module.define cache_name global)
+     it (then [g!cache global])
+     current_module_name meta.current_module_name
+     _ (without_global [current_module_name cache_name])]
+    (in it)))
+
+(def (with_cached_analysis' name then)
+  (All (_ anchor expression declaration of)
+    (-> Symbol (-> [Code .Global] (declaration.Operation anchor expression declaration of))
+        (declaration.Operation anchor expression declaration of)))
+  (do phase.monad
+    [g!cache (declaration.lifted_analysis
+              (macro.symbol "g!cache"))
+     global (declaration.lifted_analysis
+             (global_reference name))
+     .let [cache_name (%.code g!cache)]
+     _ (declaration.lifted_analysis
+        (module.define cache_name global))
+     it (then [g!cache global])
+     current_module_name (declaration.lifted_analysis
+                          meta.current_module_name)
+     _ (declaration.lifted_analysis
+        (without_global [current_module_name cache_name]))]
+    (in it)))
+
+(def (with_temporary_global [name new] then)
+  (All (_ of)
+    (-> [Symbol .Global] (analysis.Operation of)
+        (analysis.Operation of)))
+  (do phase.monad
+    [old (global_reference name)
+     _ (module.override_definition name new)
+     it then
+     _ (module.override_definition name old)]
+    (in it)))
+
+(def (with_temporary_global' [name new] then)
+  (All (_ anchor expression declaration of)
+    (-> [Symbol .Global] (declaration.Operation anchor expression declaration of)
+        (declaration.Operation anchor expression declaration of)))
+  (do phase.monad
+    [old (declaration.lifted_analysis
+          (global_reference name))
+     _ (declaration.lifted_analysis
+        (module.override_definition name new))
+     it then
+     _ (declaration.lifted_analysis
+        (module.override_definition name old))]
+    (in it)))
+
+(def (expression type term)
+  (-> Type analysis.Analysis Analysis)
+  (analysis (_ phase archive [])
+    (do phase.monad
+      [_ (type.inference type)]
+      (in term))))
+
+(def (with_cached_expression [type term] then)
+  (All (_ of)
+    (-> [Type analysis.Analysis]
+        (-> (-> Code (analysis.Operation of))
+            (analysis.Operation of))))
+  (do phase.monad
+    [g!cache (macro.symbol "g!cache")
+     .let [cache_name (%.code g!cache)]
+     _ (module.define cache_name {.#Definition [false Analysis (expression type term)]})
+     it (then g!cache)
+     current_module_name meta.current_module_name
+     _ (without_global [current_module_name cache_name])]
+    (in it)))
+
+(with_template [<name> <parameters> <term> <scenario> <advised>]
+  [(def (<name> original aspect)
+     (-> Code Aspect Analysis)
+     (analysis (_ phase archive <parameters>)
+       (do [! phase.monad]
+         [[type term] (type.inferring
+                       (phase archive <term>))
+          _ (type.inference type)
+          location meta.location
+          .let [join_point [#location location
+                            #scenario {<scenario> [it type]}]]]
+         (when (list.one (function (_ [point_cut advice])
+                           (if (point_cut join_point)
+                             {.#Some advice}
+                             {.#None}))
+                         aspect)
+           {.#Some advice}
+           (<| (with_cached_expression [type term])
+               (function (_ analysis))
+               (phase archive <advised>))
+           
+           {.#None}
+           (in term)))))]
+
+  [local [it ?code.local]
+   (` ((, original) (, (code.local it))))
+   #Local
+   (` ((, (code.symbol advice)) ((, analysis))))]
+  [global [quoted_module ?code.any
+           it ?code.global]
+   (` ((, original) (, quoted_module) (, (code.symbol it))))
+   #Global
+   (let [[advice_module _] advice]
+     (` (((, original) (, (code.text advice_module)) (, (code.symbol advice)))
+         ((, analysis)))))]
+  )
+
+(def with|analysis
+  Analysis
+  (analysis (_ phase archive [aspect ?code.any
+                              body ?code.any])
+    (do [! phase.monad]
+      [aspect (meta.eval Aspect aspect)
+       .let [aspect (as Aspect aspect)]]
+      (list#mix (function (_ [original value] then)
+                  (<| (with_cached_analysis original)
+                      (function (_ [g!original original_global]))
+                      (with_temporary_global [original {.#Definition [true Analysis (value g!original aspect)]}])
+                      then))
+                (phase archive body)
+                (list [(symbol .local#) ..local]
+                      [(symbol .global#) ..global])))))
+
+(def with|declaration
+  Declaration
+  (declaration (_ phase archive [aspect ?code.any
+                                 body ?code.any])
+    (do [! phase.monad]
+      [aspect (declaration.lifted_analysis
+               (meta.eval Aspect aspect))
+       .let [aspect (as Aspect aspect)]]
+      (list#mix (function (_ [original value] then)
+                  (<| (with_cached_analysis' original)
+                      (function (_ [g!original original_global]))
+                      (with_temporary_global' [original {.#Definition [true Analysis (value g!original aspect)]}])
+                      then))
+                (phase archive body)
+                (list [(symbol .local#) ..local]
+                      [(symbol .global#) ..global])))))
+
+(def expression?
+  (Meta Bit)
+  (function (_ lux)
+    {.#Right [lux
+              (when (the .#expected lux)
+                {.#Some _} true
+                {.#None _} false)]}))
+
+(def .public with
+  (syntax (_ [aspect ?code.any
+              body ?code.any])
+    (do meta.monad
+      [? ..expression?
+       .let [[@ _] (symbol .._)
+             <with> (if ?
+                      (` ..with|analysis)
+                      (` ..with|declaration))]]
+      (in (list (` ((.in_module# (, (code.text @)) (, <with>))
+                    (, aspect)
+                    (, body))))))))

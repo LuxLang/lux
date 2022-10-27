@@ -3,97 +3,31 @@
   [lux (.except Analysis)
    [abstract
     [monad (.only do)]]
-   [control
-    ["[0]" exception (.only Exception)]]
-   [data
-    ["[0]" text (.use "[1]#[0]" equivalence)
-     ["%" \\format (.only format)]]]
    ["[0]" meta (.only)
-    [macro
-     ["^" pattern]]]]]
- ["[0]" //
-  ["/[1]" //
-   [//
-    ["/" analysis (.only Analysis Operation)
-     ["[1][0]" type]
-     ["[1][0]" scope]]
-    [///
-     ["[1][0]" reference]
-     ["[1]" phase]]]]])
+    ["[0]" code]]]]
+ ["[0]" ///
+  [//
+   ["/" analysis (.only Analysis Operation Phase Extender)
+    ["[0]" scope]]
+   [///
+    ["[0]" phase]
+    [meta
+     [archive (.only Archive)]]]]])
 
-(exception.def .public (foreign_module_has_not_been_imported [current foreign quoted definition])
-  (Exception [Text Text Text Symbol])
-  (exception.report
-   (list ["Current" current]
-         ["Foreign" foreign]
-         ["Quoted" quoted]
-         ["Definition" (%.symbol definition)])))
-
-(exception.def .public (definition_has_not_been_exported definition)
-  (Exception Symbol)
-  (exception.report
-   (list ["Definition" (%.symbol definition)])))
-
-(exception.def .public (defaults_are_not_definitions global)
-  (Exception Symbol)
-  (exception.report
-   (list ["Default" (%.symbol global)])))
-
-(def (definition quoted_module def_name)
-  (-> Text Symbol (Operation Analysis))
-  (with_expansions [<return> (in (|> def_name ///reference.constant {/.#Reference}))]
-    (do [! ///.monad]
-      [constant (meta.definition def_name)]
-      (when constant
-        {.#Alias real_def_name}
-        (definition quoted_module real_def_name)
-        
-        {.#Definition [exported? actualT _]}
-        (do !
-          [_ (/type.inference actualT)
-           (^.let def_name [::module ::name]) (meta.normal def_name)
-           current meta.current_module_name]
-          (if (text#= current ::module)
-            <return>
-            (if exported?
-              (do !
-                [imported! (meta.imported_by? ::module current)]
-                (if (or imported!
-                        (text#= quoted_module ::module))
-                  <return>
-                  (/.except ..foreign_module_has_not_been_imported [current ::module quoted_module def_name])))
-              (/.except ..definition_has_not_been_exported [def_name]))))
-
-        {.#Default _}
-        (/.except ..defaults_are_not_definitions [def_name])))))
-
-(def (variable var_name)
-  (-> Text (Operation (Maybe Analysis)))
-  (do [! ///.monad]
-    [?var (/scope.variable var_name)]
-    (when ?var
-      {.#Some [actualT ref]}
-      (do !
-        [_ (/type.inference actualT)]
-        (in {.#Some (|> ref ///reference.variable {/.#Reference})}))
-
-      {.#None}
-      (in {.#None}))))
-
-(def .public (reference quoted_module it)
-  (-> Text Symbol (Operation Analysis))
+(def .public (reference extender analysis archive quoted_module it)
+  (-> Extender Phase Archive Text Symbol (Operation Analysis))
   (when it
     ["" short]
-    (do [! ///.monad]
-      [?var (variable short)]
+    (do [! phase.monad]
+      [?var (scope.variable short)]
       (when ?var
-        {.#Some varA}
-        (in varA)
+        {.#Some _}
+        (/.delegated extender analysis archive (symbol .local#) (list (code.symbol it)))
 
         {.#None}
         (do !
           [this_module meta.current_module_name]
-          (definition quoted_module [this_module short]))))
+          (/.delegated extender analysis archive (symbol .global#) (list (code.text quoted_module) (code.symbol [this_module short]))))))
 
     _
-    (definition quoted_module it)))
+    (/.delegated extender analysis archive (symbol .global#) (list (code.text quoted_module) (code.symbol it)))))
