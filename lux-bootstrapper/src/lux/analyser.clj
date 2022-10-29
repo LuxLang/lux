@@ -98,14 +98,6 @@
           (&/with-location location
             (&&lux/analyse-def analyse optimize eval! compile-def ?name ?value exported?)))
 
-        (&/$Identifier "library/lux" "alias#")
-        (|let [(&/$Item [_ (&/$Identifier "" ?alias)]
-                        (&/$Item [_ (&/$Identifier ?original)]
-                                 (&/$End)
-                                 )) parameters]
-          (&/with-location location
-            (&&lux/analyse-def-alias ?alias ?original)))
-
         (&/$Identifier "library/lux" "module#")
         (|let [(&/$Item ?imports (&/$End)) parameters]
           (&/with-location location

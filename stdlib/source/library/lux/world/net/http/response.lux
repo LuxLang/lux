@@ -1,74 +1,80 @@
 (.require
  [library
-  [lux (.except static)
+  [lux (.except)
    [control
-    ["[0]" io]
+    ["[0]" try]
     [concurrency
-     ["[0]" async]
-     ["[0]" frp (.use "[1]#[0]" monad)]]]
+     ["[0]" async (.only Async)]]]
    [data
-    ["[0]" text
-     ["[0]" encoding]]
+    ["[0]" binary (.only Binary)]
+    [text
+     [encoding
+      ["[0]" utf8]]]
     [format
      ["[0]" html]
      ["[0]" css (.only CSS)]
-     ["[0]" context]
-     ["[0]" json (.only JSON) (.use "[1]#[0]" codec)]]]
-   [world
-    ["[0]" binary (.only Binary)]]]]
- ["[0]" // (.only Status Body Response Server)
-  ["[0]" status]
-  ["[0]" mime (.only MIME)]
+     ["[0]" json (.only JSON) (.use "[1]#[0]" codec)]]]]]
+ ["[0]" // (.only Body Message)
+  ["[0]" status (.only Status)]
   ["[0]" header]
-  [// (.only URL)]])
+  [// (.only URL)
+   ["[0]" mime (.only MIME)]]])
 
-(def .public (static response)
-  (-> Response Server)
-  (function (_ request)
-    (async.resolved response)))
+(type .public (Response !)
+  (Record
+   [#status Status
+    #message (Message !)]))
 
 (def .public empty
-  (-> Status Response)
-  (let [body (frp#in (at encoding.utf8 encoded ""))]
+  (-> Status (Response Async))
+  (let [body (is (Body Async)
+                 (function (_ _)
+                   (async.resolved {try.#Success [0 (at utf8.codec encoded "")]})))]
     (function (_ status)
-      [status
-       [//.#headers (|> context.empty
-                        (header.content_length 0)
-                        (header.content_type mime.utf_8))
-        //.#body body]])))
+      [#status status
+       #message [//.#headers (|> header.empty
+                                 (header.has header.content_length 0)
+                                 (header.has header.content_type mime.utf_8))
+                 //.#body body]])))
 
 (def .public (temporary_redirect to)
-  (-> URL Response)
-  (let [[status message] (..empty status.temporary_redirect)]
-    [status (revised //.#headers (header.location to) message)]))
+  (-> URL (Response Async))
+  (|> status.temporary_redirect
+      ..empty
+      (revised [#message //.#headers] (header.has header.location to))))
 
 (def .public not_found
-  Response
+  (Response Async)
   (..empty status.not_found))
 
 (def .public (content status type data)
-  (-> Status MIME Binary Response)
-  [status
-   [//.#headers (|> context.empty
-                    (header.content_length (binary.size data))
-                    (header.content_type type))
-    //.#body (frp#in data)]])
+  (-> Status MIME Binary (Response Async))
+  (let [length (binary.size data)]
+    [#status status
+     #message [//.#headers (|> header.empty
+                               (header.has header.content_length length)
+                               (header.has header.content_type type))
+               //.#body (function (_ _)
+                          (async.resolved {try.#Success [length data]}))]]))
 
 (def .public bad_request
-  (-> Text Response)
-  (|>> (at encoding.utf8 encoded) (content status.bad_request mime.utf_8)))
+  (-> Text (Response Async))
+  (|>> (at utf8.codec encoded)
+       (content status.bad_request mime.utf_8)))
 
 (def .public ok
-  (-> MIME Binary Response)
+  (-> MIME Binary (Response Async))
   (content status.ok))
 
 (with_template [<name> <type> <mime> <pre>]
   [(def .public <name>
-     (-> <type> Response)
-     (|>> <pre> (at encoding.utf8 encoded) (..ok <mime>)))]
+     (-> <type> (Response Async))
+     (|>> <pre>
+          (at utf8.codec encoded)
+          (..ok <mime>)))]
 
   [text Text          mime.utf_8 (<|)]
   [html html.Document mime.html  html.html]
-  [css  CSS           mime.css   css.css]
+  [css  (CSS Any)     mime.css   css.css]
   [json JSON          mime.json  json#encoded]
   )

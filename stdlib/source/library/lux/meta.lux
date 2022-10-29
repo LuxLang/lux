@@ -173,16 +173,16 @@
                                            name name])
                                (do maybe.monad
                                  [$module (property.value module modules)
-                                  definition (is (Maybe Global)
-                                                 (|> $module
-                                                     (is Module)
-                                                     (the .#definitions)
-                                                     (property.value name)))]
+                                  [exported? definition] (is (Maybe [Bit Global])
+                                                             (|> $module
+                                                                 (is Module)
+                                                                 (the .#definitions)
+                                                                 (property.value name)))]
                                  (when definition
                                    {.#Alias [r_module r_name]}
                                    (again r_module r_name)
                                    
-                                   {.#Definition [exported? def_type def_value]}
+                                   {.#Definition [def_type def_value]}
                                    (if (macro_type? def_type)
                                      {.#Some (as Macro def_value)}
                                      {.#None})
@@ -291,19 +291,19 @@
 
 (with_template [<name> <yes> <no>]
   [(def .public (<name> name)
-     (-> Symbol (Meta Global))
+     (-> Symbol (Meta [Bit Global]))
      (do ..monad
        [name (..normal name)
         .let [[normal_module normal_short] name]]
        (function (_ lux)
-         (when (is (Maybe Global)
+         (when (is (Maybe [Bit Global])
                    (do maybe.monad
                      [(open "[0]") (|> lux
                                        (the .#modules)
                                        (property.value normal_module))]
                      (property.value normal_short #definitions)))
-           {.#Some definition}
-           {try.#Success [lux definition]}
+           {.#Some exported?,definition}
+           {try.#Success [lux exported?,definition]}
 
            _
            (let [current_module (|> lux (the .#current_module) (maybe.else "???"))
@@ -321,9 +321,9 @@
                                                        (list#each (function (_ [module_name module])
                                                                     (|> module
                                                                         (the .#definitions)
-                                                                        (list.all (function (_ [def_name global])
+                                                                        (list.all (function (_ [def_name [exported? global]])
                                                                                     (`` (when global
-                                                                                          {<yes> [exported? _]}
+                                                                                          {<yes> _}
                                                                                           (if (and exported?
                                                                                                    (text#= normal_short def_name))
                                                                                             {.#Some (symbol#encoded [module_name def_name])}
@@ -362,23 +362,21 @@
   (-> Symbol (Meta Definition))
   (do [! ..monad]
     [name (..normal name)
-     definition (..definition name)]
+     .let [[expected _] name]
+     [exported? definition] (..definition name)
+     actual ..current_module_name]
     (when definition
       {.#Definition it}
-      (let [[exported? def_type def_value] it]
-        (if exported?
-          (in it)
-          (do !
-            [.let [[expected _] name]
-             actual ..current_module_name]
-            (if (text#= expected actual)
-              (in it)
-              (failure (all text#composite "Definition is not an export: " (symbol#encoded name)))))))
+      (if (or exported?
+              (text#= expected actual))
+        (in it)
+        (failure (all text#composite "Definition is not an export: " (symbol#encoded name))))
 
-      {.#Alias de_aliased}
-      (failure (all text#composite
-                    "Aliases are not considered exports: "
-                    (symbol#encoded name)))
+      {.#Alias it}
+      (if (or exported?
+              (text#= expected actual))
+        (export it)
+        (failure (all text#composite "Alias is not an export: " (symbol#encoded name))))
 
       {.#Default _}
       (failure (all text#composite
@@ -389,7 +387,7 @@
   (-> Symbol (Meta Default))
   (do [! ..monad]
     [name (..normal name)
-     definition (..default' name)]
+     [exported? definition] (..default' name)]
     (when definition
       {.#Definition _}
       (failure (all text#composite
@@ -402,15 +400,14 @@
                     (symbol#encoded name)))
 
       {.#Default it}
-      (let [[exported? def_type def_value] it]
-        (if exported?
-          (in it)
-          (do !
-            [.let [[expected _] name]
-             actual ..current_module_name]
-            (if (text#= expected actual)
-              (in it)
-              (failure (all text#composite "Default is not an export: " (symbol#encoded name))))))))))
+      (if exported?
+        (in it)
+        (do !
+          [.let [[expected _] name]
+           actual ..current_module_name]
+          (if (text#= expected actual)
+            (in it)
+            (failure (all text#composite "Default is not an export: " (symbol#encoded name)))))))))
 
 (with_template [<name> <slot> <type>]
   [(def .public <name>
@@ -430,12 +427,12 @@
 (def .public (definition_type name)
   (-> Symbol (Meta Type))
   (do ..monad
-    [definition (definition name)]
+    [[exported? definition] (definition name)]
     (when definition
       {.#Alias de_aliased}
       (definition_type de_aliased)
       
-      {.#Definition [exported? def_type def_value]}
+      {.#Definition [def_type def_value]}
       (clean_type def_type)
 
       {.#Default _}
@@ -456,12 +453,12 @@
 (def .public (type_definition name)
   (-> Symbol (Meta Type))
   (do ..monad
-    [definition (definition name)]
+    [[exported? definition] (definition name)]
     (when definition
       {.#Alias de_aliased}
       (type_definition de_aliased)
       
-      {.#Definition [exported? def_type def_value]}
+      {.#Definition [def_type def_value]}
       (let [type_code (`` (.in_module# (,, (static .prelude)) .type_code))]
         (if (or (same? .Type def_type)
                 (at code.equivalence =
@@ -474,7 +471,7 @@
       (..failure (all text#composite "Default is not a type: " (symbol#encoded name))))))
 
 (def .public (globals module)
-  (-> Text (Meta (List [Text Global])))
+  (-> Text (Meta (List [Text [Bit Global]])))
   (function (_ lux)
     (when (property.value module (the .#modules lux))
       {.#Some module}
@@ -484,28 +481,54 @@
       {try.#Failure (all text#composite "Unknown module: " module)})))
 
 (def .public (definitions module)
-  (-> Text (Meta (List [Text Definition])))
+  (-> Text (Meta (List [Text [Bit Definition]])))
   (at ..monad each
-      (list.all (function (_ [name global])
+      (list.all (function (_ [name [exported? global]])
                   (when global
                     {.#Alias de_aliased}
                     {.#None}
                     
                     {.#Definition definition}
-                    {.#Some [name definition]}
+                    {.#Some [name [exported? definition]]}
 
                     {.#Default _}
                     {.#None})))
       (..globals module)))
+
+(def .public (resolved_globals module)
+  (-> Text (Meta (List [Text [Bit Definition]])))
+  (do [! ..monad]
+    [it (..globals module)
+     .let [it (list.all (function (_ [name [exported? global]])
+                          (when global
+                            {.#Alias de_aliased}
+                            {.#Some [name exported? {.#Left de_aliased}]}
+                            
+                            {.#Definition definition}
+                            {.#Some [name exported? {.#Right definition}]}
+
+                            {.#Default _}
+                            {.#None}))
+                        it)]]
+    (monad.each ! (function (_ [name exported? it])
+                    (when it
+                      {.#Left de_aliased}
+                      (do !
+                        [de_aliased (export de_aliased)]
+                        (in [name [exported? de_aliased]]))
+                      
+                      {.#Right definition}
+                      (in [name [exported? definition]])))
+                it)))
 
 (def .public (exports module_name)
   (-> Text (Meta (List [Text Definition])))
   (do ..monad
     [constants (..definitions module_name)]
     (in (do list.monad
-          [[name [exported? def_type def_value]] constants]
+          [[name [exported? [def_type def_value]]] constants]
           (if exported?
-            (in [name [exported? def_type def_value]])
+            (in [name [def_type def_value]])
             (list))))))
 
 (def .public modules
@@ -527,9 +550,9 @@
   (do ..monad
     [.let [[module_name name] type_name]
      module (..module module_name)]
-    (in (list.one (function (_ [short global])
+    (in (list.one (function (_ [short [exported? global]])
                     (when global
-                      {.#Definition [exported? type value]}
+                      {.#Definition [type value]}
                       (if (type#= Slot type)
                         (let [[label type] (as Label value)]
                           (when type
@@ -592,7 +615,7 @@
         =module (..module module)
         this_module_name ..current_module_name]
        (when (property.value name (the .#definitions =module))
-         {.#Some {.#Definition [exported? def_type def_value]}}
+         {.#Some [exported? {.#Definition [def_type def_value]}]}
          (if (or (text#= this_module_name module)
                  exported?)
            (if (type#= <type> def_type)
@@ -614,9 +637,9 @@
     [=module (..module module)
      this_module_name ..current_module_name]
     (in (property.values
-         (list#mix (function (_ [short global] output)
+         (list#mix (function (_ [short [exported? global]] output)
                      (when global
-                       {.#Definition [exported? type value]}
+                       {.#Definition [type value]}
                        (if (and (type#= Slot type)
                                 (or exported?
                                     (text#= this_module_name module)))
@@ -657,7 +680,7 @@
 (def .public (de_aliased def_name)
   (-> Symbol (Meta Symbol))
   (do ..monad
-    [constant (..definition def_name)]
+    [[exported? constant] (..definition def_name)]
     (in (when constant
           {.#Alias real_def_name}
           real_def_name

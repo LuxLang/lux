@@ -103,10 +103,10 @@
     (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
       (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
         (|case $def
-          (&/$AliasG [o-module o-name])
+          [exported? (&/$AliasG [o-module o-name])]
           ((type-def o-module o-name) state)
           
-          (&/$DefinitionG [exported? ?type ?value])
+          [exported? (&/$DefinitionG [?type ?value])]
           (if (&type/type= &type/Type ?type)
             (return* state (&/T [exported? ?value]))
             ((&/fail-with-loc (str "[Analyser Error] Not a type: " (&/ident->text (&/T [module name]))))
@@ -165,12 +165,13 @@
       (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
         (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
           (|case $def
-            (&/$AliasG [?r-module ?r-name])
+            [exported? (&/$AliasG [?r-module ?r-name])]
             ((find-def! ?r-module ?r-name)
              state)
 
-            (&/$DefinitionG $def*)
-            (return* state (&/T [(&/T [module name]) $def*])))
+            [exported? (&/$DefinitionG $def*)]
+            (return* state (&/T [(&/T [module name])
+                                 (&/T [exported? $def*])])))
           ((&/fail-with-loc (str "[Analyser Error @ find-def!] Definition does not exist: " (&/ident->text (&/T [module name]))
                                  " at module: " (pr-str current-module)))
            state))
@@ -185,23 +186,21 @@
       (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
         (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
           (|case $def
-            (&/$AliasG [?r-module ?r-name])
-            (if (.equals ^Object current-module module)
-              ((find-def! ?r-module ?r-name)
-               state)
-              ((&/fail-with-loc (str "[Analyser Error @ find-def] Cannot use (private) alias: " (str module &/+name-separator+ name)
-                                     " at module: " current-module))
-               state))
-            
-            (&/$DefinitionG [exported? ?type ?value])
+            [exported? $def*]
             (if (or (.equals ^Object current-module module)
                     (and exported?
                          (or (.equals ^Object &/prelude module)
                              (.equals ^Object quoted_module module)
                              (imports? state module current-module))))
-              (return* state (&/T [(&/T [module name])
-                                   (&/T [exported? ?type ?value])]))
-              ((&/fail-with-loc (str "[Analyser Error @ find-def] Cannot use private definition: " (str module &/+name-separator+ name)
+              (|case $def*
+                (&/$AliasG [?r-module ?r-name])
+                ((find-def! ?r-module ?r-name)
+                 state)
+                
+                (&/$DefinitionG [?type ?value])
+                (return* state (&/T [(&/T [module name])
+                                     (&/T [exported? (&/T [?type ?value])])])))
+              ((&/fail-with-loc (str "[Analyser Error @ find-def] Cannot use private global: " (str module &/+name-separator+ name)
                                      " at module: " current-module))
                state)))
           ((&/fail-with-loc (str "[Analyser Error @ find-def] Definition does not exist: " (str module &/+name-separator+ name)
@@ -217,8 +216,8 @@
       (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
         (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
           (|case $def
-            (&/$AliasG [?r-module ?r-name]) (return* state $def)
-            (&/$DefinitionG _) (return* state $def))
+            [exported? (&/$AliasG [?r-module ?r-name])] (return* state $def)
+            [exported? (&/$DefinitionG _)] (return* state $def))
           ((&/fail-with-loc (str "[Analyser Error @ find-def] Global does not exist: " (str module &/+name-separator+ name)
                                  " at module: " current-module))
            state))
@@ -269,7 +268,7 @@
           (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
             (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
               (|case $def
-                (&/$AliasG [?r-module ?r-name])
+                [exported? (&/$AliasG [?r-module ?r-name])]
                 (if (.equals ^Object current-module module)
                   ((<find!> ?r-module ?r-name)
                    state)
@@ -278,7 +277,7 @@
                                          " @ " (quote <find>)))
                    state))
 
-                (&/$DefinitionG [exported? ?type ?value])
+                [exported? (&/$DefinitionG [?type ?value])]
                 (if (or (.equals ^Object current-module module)
                         exported?)
                   (if (&type/type= <definition_type> ?type)
@@ -355,7 +354,7 @@
                 (return (&/T [_module _hash]))))
             _imports)))
 
-(defn define-alias [module name de-aliased]
+(defn define-alias [module name exported? de-aliased]
   (if_not_defined
       module name
       (fn [state]
@@ -367,7 +366,7 @@
                                      (&/|update module
                                                 (fn [m]
                                                   (&/update$ $defs
-                                                             #(&/|put name (&/$AliasG de-aliased) %)
+                                                             #(&/|put name (&/T [exported? (&/$AliasG de-aliased)]) %)
                                                              m))
                                                 ms))))
                    nil)
@@ -388,7 +387,7 @@
                                      (&/|update module
                                                 (fn [m]
                                                   (&/update$ $defs
-                                                             #(&/|put name (&/$DefinitionG (&/T [exported? def-type def-value])) %)
+                                                             #(&/|put name (&/T [exported? (&/$DefinitionG (&/T [def-type def-value]))]) %)
                                                              m))
                                                 ms))))
                    nil)

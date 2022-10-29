@@ -119,7 +119,7 @@
 (defn compile-apply [compile ?fn ?args]
   (|case ?fn
     [_ (&o/$def ?module ?name)]
-    (|do [[_ [_ _ func-obj]] (&a-module/find-def! ?module ?name)
+    (|do [[_ [_ [_ func-obj]]] (&a-module/find-def! ?module ?name)
           class-loader &/loader
           :let [func-class (class func-obj)
                 func-arity (.get ^Field (.getDeclaredField func-class &&/arity-field) nil)

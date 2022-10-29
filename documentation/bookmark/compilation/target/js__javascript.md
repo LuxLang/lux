@@ -1,6 +1,7 @@
 # Reference
 
 0. []()
+0. [The Modern Guide to Packaging your JavaScript library](https://github.com/frehner/modern-guide-to-packaging-js-library)
 0. [Optimizing for JavaScript is hard](https://jfmengels.net/optimizing-javascript-is-hard/)
 0. [Roll your own JavaScript runtime](https://deno.com/blog/roll-your-own-javascript-runtime)
 0. [How JavaScript Array Works Internally?](https://blog.gauravthakur.in/how-javascript-array-works-internally)

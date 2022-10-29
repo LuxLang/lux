@@ -34,7 +34,7 @@
   ["[1][0]" analysis]
   ["/[1]" //
    ["/[1]" //
-    ["[1][0]" analysis (.only)
+    ["[0]" analysis (.only)
      [macro (.only Expander)]
      ["[1]/[0]" evaluation]
      ["[0]A" type]
@@ -227,15 +227,15 @@
     (Operation anchor expression declaration Any))
   (do [! phase.monad]
     [state phase.state
-     .let [eval (/////analysis/evaluation.evaluator (the [/////declaration.#analysis /////declaration.#phase] state)
-                                                    [(the [/////declaration.#synthesis /////declaration.#state] state)
-                                                     (the [/////declaration.#synthesis /////declaration.#phase] state)]
-                                                    [(the [/////declaration.#generation /////declaration.#state] state)
-                                                     (the [/////declaration.#generation /////declaration.#phase] state)])]
+     .let [eval (analysis/evaluation.evaluator (the [/////declaration.#analysis /////declaration.#phase] state)
+                                               [(the [/////declaration.#synthesis /////declaration.#state] state)
+                                                (the [/////declaration.#synthesis /////declaration.#phase] state)]
+                                               [(the [/////declaration.#generation /////declaration.#state] state)
+                                                (the [/////declaration.#generation /////declaration.#phase] state)])]
      _ (/////declaration.lifted_analysis
         (do !
-          [_ (moduleA.override_definition [.prelude "is#"] {.#Default [true .Analysis (analysisE.is#_extension eval "is#")]})
-           _ (moduleA.override_definition [.prelude "as#"] {.#Default [true .Analysis (analysisE.as#_extension eval "as#")]})]
+          [_ (moduleA.override_definition [.prelude "is#"] [true {.#Default [.Analysis (analysisE.is#_extension eval "is#")]}])
+           _ (moduleA.override_definition [.prelude "as#"] [true {.#Default [.Analysis (analysisE.as#_extension eval "as#")]}])]
           (in [])))]
     (in [])))
 
@@ -250,16 +250,38 @@
   (..custom
    [(all <>.and <code>.local <code>.any <code>.any)
     (function (_ phase archive [short_name valueC exported?C])
-      (do phase.monad
-        [_ ..refresh
-         current_module (/////declaration.lifted_analysis meta.current_module_name)
-         .let [full_name [current_module short_name]]
-         [type valueT value] (..definition archive full_name {.#None} valueC)
-         [_ _ exported?] (evaluate! archive Bit exported?C)
-         _ (/////declaration.lifted_analysis
-            (moduleA.define short_name {.#Definition [(as Bit exported?) type value]}))
-         _ (..announce_definition! short_name type)]
-        (in /////declaration.no_requirements)))]))
+      (when valueC
+        [_ {.#Symbol original}]
+        (do phase.monad
+          [_ ..refresh
+           state phase.state
+           .let [analysis (the [/////declaration.#analysis /////declaration.#phase] state)]
+           [code//type codeA] (<| /////declaration.lifted_analysis
+                                  typeA.fresh
+                                  typeA.inferring
+                                  (analysis archive valueC))
+           [_ _ exported?] (evaluate! archive Bit exported?C)
+           .let [original (when codeA
+                            (analysis.constant original)
+                            original
+
+                            _
+                            (undefined))]
+           _ (/////declaration.lifted_analysis
+              (moduleA.define short_name [(as Bit exported?) {.#Alias original}]))]
+          (in /////declaration.no_requirements))
+
+        _
+        (do phase.monad
+          [_ ..refresh
+           current_module (/////declaration.lifted_analysis meta.current_module_name)
+           .let [full_name [current_module short_name]]
+           [type valueT value] (..definition archive full_name {.#None} valueC)
+           [_ _ exported?] (evaluate! archive Bit exported?C)
+           _ (/////declaration.lifted_analysis
+              (moduleA.define short_name [(as Bit exported?) {.#Definition [type value]}]))
+           _ (..announce_definition! short_name type)]
+          (in /////declaration.no_requirements))))]))
 
 (def imports
   (Parser (List Import))
@@ -283,36 +305,6 @@
                         imports))]
         (in [/////declaration.#imports imports
              /////declaration.#referrals (list)])))]))
-
-(exception.def .public (cannot_alias_an_alias [local foreign target])
-  (Exception [Alias Alias Symbol])
-  (exception.report
-   (list ["Local alias" (%.symbol local)]
-         ["Foreign alias" (%.symbol foreign)]
-         ["Target definition" (%.symbol target)])))
-
-(def (define_alias alias original)
-  (-> Text Symbol (/////analysis.Operation Any))
-  (do phase.monad
-    [current_module meta.current_module_name
-     constant (meta.definition original)]
-    (when constant
-      {.#Alias de_aliased}
-      (phase.except ..cannot_alias_an_alias [[current_module alias] original de_aliased])
-      
-      {.#Definition _}
-      (moduleA.define alias {.#Alias original}))))
-
-(def def_alias
-  Handler
-  (..custom
-   [(all <>.and <code>.local <code>.symbol)
-    (function (_ phase archive [alias def_name])
-      (do phase.monad
-        [_ (phase.sub [(the [/////declaration.#analysis /////declaration.#state])
-                       (has [/////declaration.#analysis /////declaration.#state])]
-                      (define_alias alias def_name))]
-        (in /////declaration.no_requirements)))]))
 
 ... TODO: Stop requiring these types and the "swapped" function below to make types line-up.
 (with_template [<name> <anonymous>]
@@ -362,5 +354,4 @@
   Bundle
   (|> ///.empty
       (dictionary.has "def#" lux::def)
-      (dictionary.has "module#" def_module)
-      (dictionary.has "alias#" def_alias)))
+      (dictionary.has "module#" def_module)))

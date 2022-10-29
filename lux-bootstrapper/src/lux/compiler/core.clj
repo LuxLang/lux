@@ -46,7 +46,7 @@
         defs &a-module/defs
         imports &a-module/imports
         :let [def-entries (&/fold (fn [def-entries _def]
-                                    (|let [[?name _definition] _def]
+                                    (|let [[?name [exported? _definition]] _def]
                                       (|case _definition
                                         (&/$AliasG [_dmodule _dname])
                                         (str "A"
@@ -55,7 +55,7 @@
                                              ;; Next
                                              entry-separator def-entries)
                                         
-                                        (&/$DefinitionG [exported? ?def-type ?def-value])
+                                        (&/$DefinitionG [?def-type ?def-value])
                                         (str "D"
                                              datum-separator ?name
                                              datum-separator (if exported? "1" "0")

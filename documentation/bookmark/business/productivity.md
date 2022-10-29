@@ -1,6 +1,7 @@
 # Reference
 
 0. []()
+0. [Rockstar Developers Are THE WORST Developers](https://www.youtube.com/watch?v=mVY2rFninp8)
 0. [Let it slide](https://world.hey.com/dhh/let-it-slide-9e40f11a)
 0. [Tips for effective engineering](https://budelewski.com/effective-engineering/)
 0. [1. Unfolding the interrelationship diagram](https://world.hey.com/rjs/1-unfolding-the-interrelationship-diagram-5a79e3fc)

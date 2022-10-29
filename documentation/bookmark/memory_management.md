@@ -6,6 +6,7 @@
 # Allocation
 
 0. []()
+0. [malloc() and free() are a bad API](https://www.foonathan.net/2022/08/malloc-interface/#content)
 0. [How to allocate memory](https://geocar.sdf1.org/alloc.html)
 0. [Always Bump Downwards](https://fitzgeraldnick.com/2019/11/01/always-bump-downwards.html)
 

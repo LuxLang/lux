@@ -290,7 +290,7 @@
       (analyse-tuple analyse (&/$Right exo-type) ?elems))))
 
 (defn ^:private analyse-global [analyse exo-type quoted_module module name]
-  (|do [[[r-module r-name] [exported? endo-type ?value]] (&&module/find-def quoted_module module name)
+  (|do [[[r-module r-name] [exported? [endo-type ?value]]] (&&module/find-def quoted_module module name)
         ;; This is a small shortcut to optimize analysis of typing code.
         _ (if (and (&type/type= &type/Type endo-type)
                    (&type/type= &type/Type exo-type))
@@ -403,7 +403,7 @@
 (defn analyse-apply [analyse location exo-type macro-caller =fn ?args]
   (|case =fn
     [_ (&&/$def ?module ?name)]
-    (|do [[real-name [exported? ?type ?value]] (&&module/find-def! ?module ?name)]
+    (|do [[real-name [exported? [?type ?value]]] (&&module/find-def! ?module ?name)]
       (if (&type/type= &type/Macro ?type)
         (|do [macro-expansion (fn [state]
                                 (|case (macro-caller ?value ?args state)
@@ -592,26 +592,28 @@
                     (&/with-expected-type ?expected-type
                       (&&/analyse-1 analyse ?expected-type ?value))
                     (&&/analyse-1+ analyse ?value))))
+        :let [aliased (|case =value
+                        [_ (&&/$def ?original)]
+                        ?original
+
+                        _
+                        nil)]
         ==exported? (eval analyse optimize eval! &type/Bit exported?)
-        def-value (compile-def ?name (optimize =value) ==exported?)
+        def-value (if aliased
+                    (&/without-repl-closure
+                     (&&module/define-alias module-name ?name ==exported? aliased))
+                    (compile-def ?name (optimize =value) ==exported?))
         _ &type/reset-mappings
         :let [def-type (&&/expr-type* =value)
-              _ (println 'DEF (str module-name &/+name-separator+ ?name
-                                   " : " (&type/show-type def-type)))]]
+              _ (if aliased
+                  nil
+                  (println 'DEF (str module-name &/+name-separator+ ?name
+                                     " : " (&type/show-type def-type))))]]
     (return (&/T [module-name def-type def-value ==exported?]))))
 
 (defn analyse-def [analyse optimize eval! compile-def ?name ?value exported?]
   (|do [_ (analyse-def* analyse optimize eval! compile-def ?name ?value exported?)]
     (return &/$End)))
-
-(defn analyse-def-alias [?alias ?original]
-  (|let [[r-module r-name] ?original]
-    (|do [module-name &/get-module-name
-          _ (ensure-undefined! module-name ?alias)
-          _ (&&module/find-def "" r-module r-name)
-          _ (&/without-repl-closure
-             (&&module/define-alias module-name ?alias ?original))]
-      (return &/$End))))
 
 (defn ^:private merge-module-states
   "(-> Host Host Host)"
