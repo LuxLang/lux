@@ -53,6 +53,7 @@
 # Algorithm
 
 0. []()
+0. [Block floating point](https://en.wikipedia.org/wiki/Block_floating_point)
 0. [Speeding up atan2f by 50x](https://mazzo.li/posts/vectorized-atan2.html)
 0. [Kahan summation algorithm](https://en.wikipedia.org/wiki/Kahan_summation_algorithm)
 

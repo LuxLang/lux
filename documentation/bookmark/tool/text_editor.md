@@ -1,15 +1,18 @@
 # Modal editing
 
+0. []()
 0. [Beyond Vim and Emacs: A Scalable UI Paradigm](https://emacsconf.org/2020/talks/07/)
 
 # Code navigation
 
+0. []()
 0. [Navigate your code like it's 2021](https://austinhenley.com/blog/coderibbon.html)
 0. [Introducing stack graphs](https://github.blog/2021-12-09-introducing-stack-graphs/)
 0. ["Incremental, zero-config Code Nav using stack graphs" by Douglas Creager](https://www.youtube.com/watch?v=l2R1PTGcwrE)
 
 # Rendering
 
+0. []()
 0. [Text Rendering Hates You](https://gankra.github.io/blah/text-hates-you/)
 0. [Graphics for JVM](https://tonsky.me/blog/skija/)
 0. https://github.com/JetBrains/skija/
@@ -18,14 +21,17 @@
 
 # Font
 
+0. []()
 0. [Google Noto Fonts: Beautiful and free fonts for all languages](https://www.google.com/get/noto/)
 
 # Residential programming
 
+0. []()
 0. [Residential Programming without Mutable State - Thomas Getgood](https://www.youtube.com/watch?v=Kgw9fblSOx4)
 
 # Good Ideas
 
+0. []()
 0. https://medium.com/@NikitaVoloboev/write-once-never-write-again-c2fa1f6c4e8
 0. [Inline: Efficient Source Code Editing and Manipulation with Code Portals](https://www.youtube.com/watch?v=NQ5h2Ibw6ck)
 0. https://devclass.com/2019/02/15/atlassian-make-jira-invisible-target-developers-ides/
@@ -37,15 +43,18 @@
 
 # Voice
 
+0. []()
 0. [Speaking in code: how to program by voice](https://www.nature.com/articles/d41586-018-05588-x)
 
 # Refactoring
 
+0. []()
 0. https://medium.com/zoosk-engineering/refactoring-at-scale-with-abstract-syntax-trees-a3f989ec8524
 0. https://about.sourcegraph.com/
 
 # Visual programming
 
+0. []()
 0. https://github.com/ivanreese/visual-programming-codex
 0. [Lambda Days 2018 - Piotr Moczurad - Visual-textual functional programming with Luna](https://www.youtube.com/watch?v=6xUOuzafmO0)
 0. https://www.luna-lang.org/
@@ -94,6 +103,7 @@
 
 # Syntax Highlighting
 
+0. []()
 0. [Syntax highlighting is backwards](https://www.benkuhn.net/syntax)
 0. [Coding in color](https://medium.com/@evnbr/coding-in-color-3a6db2743a1e)
 0. https://code.visualstudio.com/blogs/2017/02/08/syntax-highlighting-optimizations
@@ -102,14 +112,17 @@
 
 # Music
 
+0. []()
 0. https://www.hooktheory.com/hookpad/app
 
 # Data-Structures
 
+0. []()
 0. [Data Structures for Text Sequences](https://www.cs.unm.edu/~crowley/papers/sds.pdf)
 
 # Shell
 
+0. []()
 0. https://masteringemacs.org/article/complete-guide-mastering-eshell
 0. https://medium.com/readcomiccode/behold-z-the-unsung-jewel-that-rethinks-shell-navigation-dae262bb6bdc
 0. https://gitlab.com/emacsomancer/equake
@@ -117,23 +130,27 @@
 
 # Language Server Protocol
 
+0. []()
 0. https://tomassetti.me/language-server-dot-visual-studio/
 0. https://github.com/Microsoft/language-server-protocol/blob/master/README.md
 0. https://www.ncameron.org/blog/what-the-rls-can-do/
 
 # Semantic-oriented programming
 
+0. []()
 0. https://en.wikipedia.org/wiki/Semantic-oriented_programming
 0. https://prezi.com/gp6u1jpgkxej/what-are-soplets/
 0. http://symade.tigris.org/
 
 # Integrated Development Environment (IDE)
 
+0. []()
 0. [Theia 1.0 - Finally a Good Browser IDE](https://dev.to/svenefftinge/theia-1-0-finally-a-good-browser-ide-3ok0)
 0. https://www.eclipse.org/che/
 
 # Advanced AST/source-code manipulation tools
 
+0. []()
 0. https://caseywatts.com/2018/08/23/codemods.html
 0. https://vimeo.com/189514610
 0. https://github.com/facebook/jscodeshift
@@ -142,12 +159,14 @@
 
 # Extensibility
 
+0. []()
 0. [The Spoofax Language Workbench](https://metaborg.github.io/spoofax/)
 0. [A Language Independent Task Engine for Incremental Name and Type Analysis](https://www.researchgate.net/publication/290110229_A_Language_Independent_Task_Engine_for_Incremental_Name_and_Type_Analysis)
 0. [Extensible Type-Directed Editing](http://cattheory.com/extensibleTypeDirectedEditing.pdf)
 
 # Parsing
 
+0. []()
 0. [tree-sitter](http://tree-sitter.github.io/tree-sitter/)
 0. [tree-sitter: An incremental parsing system for programming tools](https://github.com/tree-sitter/tree-sitter)
 0. https://blog.github.com/2018-10-31-atoms-new-parsing-system/
@@ -155,14 +174,17 @@
 
 # Notebook
 
+0. []()
 0. https://tiddlywiki.com/
 
 # Extension
 
+0. []()
 0. https://github.com/Pext/Pext
 
 # Collaborative editing
 
+0. []()
 0. https://github.com/gsilvamartin/RTCode
 0. https://hackernoon.com/building-conclave-a-decentralized-real-time-collaborative-text-editor-a6ab438fe79f
 0. https://github.com/xi-editor/xi-editor/issues/1187
@@ -172,6 +194,8 @@
 
 ## General
 
+0. []()
+0. [JSON Hero](https://jsonhero.io/)
 0. https://texteditors.org/cgi-bin/wiki.pl?EditorIndex
 0. [Slate: A completely customizable framework for building rich text editors.](https://github.com/ianstormtaylor/slate)
 0. [Trix: A rich text editor for everyday writing.](https://trix-editor.org/)
@@ -235,9 +259,11 @@
 
 ## Tree editor
 
+0. []()
 0. http://justinpombrio.net/tree-editors/survey.html
 
 ## Image editor
 
+0. []()
 0. https://www.ludigraphix.org/
 

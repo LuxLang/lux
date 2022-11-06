@@ -42,5 +42,8 @@
 # Reference
 
 0. []()
+0. [What do you do, Testing or Checking?](https://www.infoq.com/news/2009/12/testing-or-checking/)
+0. [Testing vs. Checking](https://www.developsense.com/blog/2009/08/testing-vs-checking/)
+0. [J.B. Rainsberger - Integrated Tests Are A Scam](https://vimeo.com/80533536)
 0. [Test Anything Protocol](http://testanything.org/)
 

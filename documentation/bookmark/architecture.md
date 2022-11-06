@@ -1,6 +1,7 @@
 # Reference
 
 0. []()
+0. [A Syntactic Theory of Software Architecture](https://www.panda.sys.t.u-tokyo.ac.jp/kushiro/ReferencePaper/Pattern&Framework/00385969.pdf)
 0. [How to plan the architectural attributes?](https://kalali.blog/2022/06/software-architecture-attributes-how-to-decide/)
 0. [Architectural Decision Records](https://adr.github.io/)
 0. [Why You Should Care about Software Architecture](https://www.infoq.com/articles/care-about-architecture/)
