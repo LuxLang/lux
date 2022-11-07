@@ -51,6 +51,7 @@
                                         (&/$AliasG [_dmodule _dname])
                                         (str "A"
                                              datum-separator ?name
+                                             datum-separator (if exported? "1" "0")
                                              datum-separator _dmodule &/+name-separator+ _dname
                                              ;; Next
                                              entry-separator def-entries)
