@@ -1,0 +1,393 @@
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only Monad do)]]
+   [control
+    ["[0]" try]
+    [concurrency
+     ["[0]" async (.only Async)]]]
+   [data
+    ["[0]" text (.use "[1]#[0]" equivalence)
+     ["%" \\format]
+     [encoding
+      ["[0]" utf8 (.use "[1]#[0]" codec)]]]
+    ["[0]" binary (.only Binary) (.use "[1]#[0]" equivalence)
+     ["[1]T" \\test]]
+    [collection
+     ["[0]" dictionary]]
+    [format
+     ["[0]" json (.use "[1]#[0]" equivalence codec)
+      ["?[1]" \\parser]
+      ["[1]T" \\test]]]]
+   [math
+    ["[0]" random (.only Random) (.use "[1]#[0]" monad)]
+    [number
+     ["n" nat]]]
+   [test
+    ["_" property (.only Test)]
+    ["[0]" unit]]
+   [world
+    ["[0]" environment
+     ["?[1]" \\parser]]]]]
+ [\\library
+  ["[0]" / (.only)
+   ["/[1]" // (.only)
+    ["[0]" header]
+    ["[0]" response]
+    ["[0]" request (.only Request)]
+    ["[0]" version
+     ["[1]T" \\test]]
+    ["[0]" status (.only)
+     ["[1]T" \\test]]
+    ["/[1]" // (.only)
+     ["[0]" mime (.only)
+      ["[1]T" \\test]]
+     ["[0]" uri (.only)
+      ["[0]" query]
+      ["[0]" scheme (.only)
+       ["[1]T" \\test]]
+      ["[0]" port
+       ["[1]T" \\test]]]]]]])
+
+(def address
+  (Random ///.Address)
+  (all random.and
+       (random.lower_cased 1)
+       portT.random
+       ))
+
+(def identification
+  (Random //.Identification)
+  (all random.and
+       ..address
+       ..address
+       ))
+
+(def protocol
+  (Random //.Protocol)
+  (all random.and
+       versionT.random
+       schemeT.random
+       ))
+
+(def method
+  (Random //.Method)
+  (all random.either
+       (random#in {//.#Post})
+       (random#in {//.#Get})
+       (random#in {//.#Put})
+       (random#in {//.#Patch})
+       (random#in {//.#Delete})
+       (random#in {//.#Head})
+       (random#in {//.#Connect})
+       (random#in {//.#Options})
+       (random#in {//.#Trace})
+       ))
+
+(def resource
+  (Random //.Resource)
+  (all random.and
+       ..method
+       (random.lower_cased 2)
+       ))
+
+(def (message ! body)
+  (All (_ !)
+    (-> (Monad !) Binary
+        (Random (//.Message !))))
+  (all random.and
+       (random#in header.empty)
+       (random#in (function (_ _)
+                    (at ! in {try.#Success [(binary.size body) body]})))
+       ))
+
+(def data
+  (Random [Nat Binary])
+  (do random.monad
+    [size (random#each (n.% 10) random.nat)
+     data (random.upper_cased size)]
+    (in [size (utf8#encoded data)])))
+
+(def (request !)
+  (All (_ !)
+    (-> (Monad !)
+        (Random (/.Request !))))
+  (all random.and
+       ..identification
+       ..protocol
+       ..resource
+       (do random.monad
+         [[_ data] ..data]
+         (message ! data))
+       ))
+
+(def scheme_test
+  Test
+  (<| (do [! random.monad]
+        [expected_request (..request async.monad)
+         expected_status statusT.random
+         expected_mime mimeT.random
+         [expected_data_size expected_data] ..data
+         .let [expected_server (is /.Server
+                                   (function (_ ! request)
+                                     (at ! in (response.content ! expected_status expected_mime expected_data))))]])
+      (`` (all _.and
+               (,, (with_template [<server> <scheme>]
+                     [(in (do [! async.monad]
+                            [good_response (let [expected_request (has [request.#protocol //.#scheme] <scheme> expected_request)]
+                                             (<server> expected_server ! expected_request))
+                             good_body ((the [response.#message //.#body] good_response) {.#None})
+
+                             bad_response (let [expected_request (has [request.#protocol //.#scheme] scheme.file expected_request)]
+                                            (<server> expected_server ! expected_request))]
+                            (unit.coverage [<server>]
+                              (and (n.= expected_status
+                                        (the response.#status good_response))
+                                   (when good_body
+                                     {try.#Success [actual_data_size actual_data]}
+                                     (and (n.= expected_data_size actual_data_size)
+                                          (binary#= expected_data actual_data))
+                                     
+                                     {try.#Failure error}
+                                     false)
+
+                                   (n.= status.not_found
+                                        (the response.#status bad_response))
+                                   ))))]
+
+                     [/.http scheme.http]
+                     [/.https scheme.https]
+                     ))
+               ))))
+
+(def method_test
+  Test
+  (<| (do [! random.monad]
+        [expected_request (..request async.monad)
+         expected_status statusT.random
+         expected_mime mimeT.random
+         [expected_data_size expected_data] ..data
+         .let [expected_server (is /.Server
+                                   (function (_ ! request)
+                                     (at ! in (response.content ! expected_status expected_mime expected_data))))]])
+      (`` (all _.and
+               (,, (with_template [<server> <correct_method> <incorrect_method>]
+                     [(in (do [! async.monad]
+                            [good_response (let [expected_request (has [request.#resource //.#method] {<correct_method>} expected_request)]
+                                             (<server> expected_server ! expected_request))
+                             good_body ((the [response.#message //.#body] good_response) {.#None})
+
+                             bad_response (let [expected_request (has [request.#resource //.#method] {<incorrect_method>} expected_request)]
+                                            (<server> expected_server ! expected_request))]
+                            (unit.coverage [<server>]
+                              (and (n.= expected_status
+                                        (the response.#status good_response))
+                                   (when good_body
+                                     {try.#Success [actual_data_size actual_data]}
+                                     (and (n.= expected_data_size actual_data_size)
+                                          (binary#= expected_data actual_data))
+                                     
+                                     {try.#Failure error}
+                                     false)
+
+                                   (n.= status.not_found
+                                        (the response.#status bad_response))
+                                   ))))]
+
+                     [/.get //.#Get //.#Trace]
+                     [/.post //.#Post //.#Trace]
+                     [/.put //.#Put //.#Trace]
+                     [/.patch //.#Patch //.#Trace]
+                     [/.delete //.#Delete //.#Trace]
+                     [/.head //.#Head //.#Trace]
+                     [/.connect //.#Connect //.#Trace]
+                     [/.options //.#Options //.#Trace]
+                     [/.trace //.#Trace //.#Get]
+                     ))
+               ))))
+
+(def .public test
+  Test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [expected_request (..request async.monad)
+         expected_status statusT.random
+         expected_mime mimeT.random
+         [expected_data_size expected_data] ..data
+         .let [expected_server (is /.Server
+                                   (function (_ ! request)
+                                     (at ! in (response.content ! expected_status expected_mime expected_data))))]])
+      (_.for [/.Server])
+      (`` (all _.and
+               ..scheme_test
+               ..method_test
+               (do !
+                 [bad_uri (random.upper_cased 2)
+                  good_uri (random.upper_cased 3)]
+                 (in (do [! async.monad]
+                       [good_response (let [expected_request (has [request.#resource //.#uri] good_uri expected_request)]
+                                        (/.uri good_uri expected_server ! expected_request))
+                        good_body ((the [response.#message //.#body] good_response) {.#None})
+
+                        bad_response (let [expected_request (has [request.#resource //.#uri] bad_uri expected_request)]
+                                       (/.uri good_uri expected_server ! expected_request))]
+                       (unit.coverage [/.uri]
+                         (and (n.= expected_status
+                                   (the response.#status good_response))
+                              (when good_body
+                                {try.#Success [actual_data_size actual_data]}
+                                (and (n.= expected_data_size actual_data_size)
+                                     (binary#= expected_data actual_data))
+                                
+                                {try.#Failure error}
+                                false)
+
+                              (n.= status.not_found
+                                   (the response.#status bad_response))
+                              )))))
+               (in (do [! async.monad]
+                     [.let [server (is /.Server
+                                       (/.or (/.http expected_server)
+                                             (/.https expected_server)))]
+                      http_response (server ! (has [request.#protocol //.#scheme] scheme.http expected_request))
+                      http_body ((the [response.#message //.#body] http_response) {.#None})
+
+                      https_response (server ! (has [request.#protocol //.#scheme] scheme.https expected_request))
+                      https_body ((the [response.#message //.#body] https_response) {.#None})
+                      
+                      bad_response (server ! (has [request.#protocol //.#scheme] scheme.file expected_request))]
+                     (unit.coverage [/.or]
+                       (let [correct_http_status!
+                             (n.= expected_status
+                                  (the response.#status http_response))
+
+                             correct_http_body!
+                             (when http_body
+                               {try.#Success [actual_data_size actual_data]}
+                               (and (n.= expected_data_size actual_data_size)
+                                    (binary#= expected_data actual_data))
+                               
+                               {try.#Failure error}
+                               false)
+
+                             correct_https_status!
+                             (n.= expected_status
+                                  (the response.#status https_response))
+                             
+                             correct_https_body!
+                             (when https_body
+                               {try.#Success [actual_data_size actual_data]}
+                               (and (n.= expected_data_size actual_data_size)
+                                    (binary#= expected_data actual_data))
+                               
+                               {try.#Failure error}
+                               false)
+
+                             not_found!
+                             (n.= status.not_found
+                                  (the response.#status bad_response))]
+                         (and correct_http_status!
+                              correct_http_body!
+
+                              correct_https_status!
+                              correct_https_body!
+
+                              not_found!)))))
+               (in (do [! async.monad]
+                     [.let [server (is (/.Server Async)
+                                       (/.static (response.content ! expected_status expected_mime expected_data)))]
+                      response (server ! (has [request.#protocol //.#scheme] scheme.http expected_request))
+                      body ((the [response.#message //.#body] response) {.#None})]
+                     (unit.coverage [/.static]
+                       (and (n.= expected_status
+                                 (the response.#status response))
+                            (when body
+                              {try.#Success [actual_data_size actual_data]}
+                              (and (n.= expected_data_size actual_data_size)
+                                   (binary#= expected_data actual_data))
+                              
+                              {try.#Failure error}
+                              false)
+                            ))))
+               (do !
+                 [path (random.upper_cased 4)
+                  expected_property (random.lower_cased 5)
+                  expected_value (random.lower_cased 6)
+                  .let [uri (uri.uri scheme.http {.#None} path
+                                     {.#Some (|> query.empty
+                                                 (dictionary.has expected_property expected_value))}
+                                     {.#None})]]
+                 (in (do [! async.monad]
+                       [.let [server (is (/.Server Async)
+                                         (/.query (?environment.property expected_property)
+                                                  (function (_ actual_value)
+                                                    (/.static (response.text ! actual_value)))))]
+                        response (server ! (request.uri uri expected_request))
+                        body ((the [response.#message //.#body] response) {.#None})]
+                       (unit.coverage [/.query]
+                         (and (n.= status.ok
+                                   (the response.#status response))
+                              (<| (try.else false)
+                                  (do try.monad
+                                    [[_ actual_value] body
+                                     actual_value (utf8#decoded actual_value)]
+                                    (in (text#= expected_value actual_value))))
+                              )))))
+               (do !
+                 [expected (random.lower_cased 7)]
+                 (in (do [! async.monad]
+                       [.let [server (is (/.Server Async)
+                                         (/.text (function (_ actual)
+                                                   (/.static (response.text ! actual)))))]
+                        response (server ! (request.text ! expected))
+                        body ((the [response.#message //.#body] response) {.#None})]
+                       (unit.coverage [/.text]
+                         (and (n.= status.ok
+                                   (the response.#status response))
+                              (<| (try.else false)
+                                  (do try.monad
+                                    [[_ actual] body
+                                     actual (utf8#decoded actual)]
+                                    (in (text#= expected actual))))
+                              )))))
+               (do !
+                 [expected jsonT.random]
+                 (in (do [! async.monad]
+                       [.let [server (is (/.Server Async)
+                                         (/.json ?json.any
+                                                 (function (_ actual)
+                                                   (/.static (response.json ! actual)))))]
+                        response (server ! (request.json ! expected))
+                        body ((the [response.#message //.#body] response) {.#None})]
+                       (unit.coverage [/.json]
+                         (and (n.= status.ok
+                                   (the response.#status response))
+                              (<| (try.else false)
+                                  (do try.monad
+                                    [[_ actual] body
+                                     actual (utf8#decoded actual)
+                                     actual (json#decoded actual)]
+                                    (in (json#= expected actual))))
+                              )))))
+               (do !
+                 [expected_property (random.lower_cased 8)
+                  expected_value (random.lower_cased 9)]
+                 (in (do [! async.monad]
+                       [.let [server (is (/.Server Async)
+                                         (/.form (?environment.property expected_property)
+                                                 (function (_ actual_value)
+                                                   (/.static (response.text ! actual_value)))))]
+                        response (server ! (request.form ! (|> query.empty
+                                                               (dictionary.has expected_property expected_value))))
+                        body ((the [response.#message //.#body] response) {.#None})]
+                       (unit.coverage [/.form]
+                         (and (n.= status.ok
+                                   (the response.#status response))
+                              (<| (try.else false)
+                                  (do try.monad
+                                    [[_ actual_value] body
+                                     actual_value (utf8#decoded actual_value)]
+                                    (in (text#= expected_value actual_value))))
+                              )))))
+               ))))

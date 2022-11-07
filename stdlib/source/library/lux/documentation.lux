@@ -1,6 +1,7 @@
 (.require
  [library
-  [lux (.except Definition Module Declaration #Definition #module)
+  [lux (.except Definition Module Declaration #Definition #module comment)
+   ["[0]" debug]
    [abstract
     [monad (.only do)]
     ["[0]" enum]]
@@ -133,22 +134,30 @@
      [syntax.open_tuple   syntax.close_tuple   .#Tuple])
     ))
 
-(def blank_line
-  Text
-  (format \n \n))
+(def .public (comment it module)
+  (-> Text
+      (-> Text (Markdown Block)))
+  (<| (md.code "clojure")
+      (format "... " it)))
 
-(def (fragment_documentation module fragment)
-  (-> Text Fragment Text)
-  (when fragment
-    {#Comment comment}
-    (format "... " comment)
+(def (example' it module)
+  (-> Code
+      (-> Text (Markdown Block)))
+  (<| (md.code "clojure")
+      (let [reference_column (..reference_column it)
+            [location _] it]
+        (|> it
+            (..code_documentation module (has .#column reference_column location) reference_column)
+            product.right))))
 
-    {#Code example}
-    (let [reference_column (..reference_column example)
-          [location _] example]
-      (|> example
-          (..code_documentation module (has .#column reference_column location) reference_column)
-          product.right))))
+(def .public example
+  (template (_ it)
+    [((debug.private ..example') (' it))]))
+
+(def .public (deprecated when module)
+  (-> Text
+      (-> Text (Markdown Block)))
+  (md.paragraph (md.text (format "Deprecated: " when))))
 
 (def parameter_type_name
   (-> Nat Text)
@@ -455,30 +464,6 @@
       _
       (in name))))
 
-(def example_separator
-  Code
-  (let [c/01 "...."
-        c/04 (format c/01 c/01 c/01 c/01)
-        c_16 (format c/04 c/04 c/04 c/04)]
-    (code.text (format blank_line
-                       c_16 \n c_16
-                       blank_line))))
-
-(.type Example
-  (List Fragment))
-
-(def example
-  (Parser Example)
-  (<code>.tuple (<>.many ..fragment)))
-
-(def (example_documentation module example)
-  (-> Text Example Code)
-  (|> example
-      (list#each (..fragment_documentation module))
-      (list.interposed ..blank_line)
-      (text.interposed "")
-      code.text))
-
 (.type Declaration
   [Symbol (List Text)])
 
@@ -527,9 +512,10 @@
 (def definition_documentation
   (syntax (_ [[name parameters] ..declaration
               description ..description
-              examples (<>.some ..example)])
+              examples (<>.some <code>.any)])
     (do meta.monad
-      [minimal (expansion.single (` (..minimal_definition_documentation
+      [.let [module (product.left name)]
+       minimal (expansion.single (` (..minimal_definition_documentation
                                      ((, (code.symbol name))
                                       (,* (list#each code.local parameters))))))]
       (in (list (` (all md.then
@@ -549,10 +535,11 @@
                               (list)
                               
                               _
-                              (list (` (<| (md.code "clojure")
-                                           (%.format (,* (|> examples
-                                                             (list#each (..example_documentation (product.left name)))
-                                                             (list.interposed ..example_separator))))))))))
+                              (list (` (all md.then
+                                            (,* (list#each (function (_ example)
+                                                             (` ((, example) (, (code.text module)))))
+                                                           examples))
+                                            ))))))
                    ))))))
 
 (.type .public Definition

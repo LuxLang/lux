@@ -1,0 +1,193 @@
+(.require
+ [library
+  [lux (.except or static)
+   [abstract
+    ["[0]" monad (.only Monad do)]]
+   [control
+    ["[0]" maybe]
+    ["[0]" try (.only Try)]]
+   [data
+    ["[0]" text (.only)
+     [encoding
+      ["[0]" utf8 (.use "[1]#[0]" codec)]]]
+    [collection
+     ["[0]" list (.use "[1]#[0]" functor mix)]
+     ["[0]" dictionary]]
+    [format
+     ["[0]" json (.only JSON) (.use "[1]#[0]" codec)
+      ["?[1]" \\parser]]]]
+   [math
+    [number
+     ["n" nat]]]
+   [meta
+    [macro
+     ["^" pattern]]]
+   [world
+    ["[0]" environment
+     ["?[1]" \\parser]]]]]
+ ["[0]" // (.only Body)
+  ["[0]" status]
+  ["[0]" cookie]
+  ["[0]" request (.only Request)]
+  ["[0]" response (.only Response)]
+  [//
+   [uri (.only URI)
+    ["[0]" scheme (.use "[1]#[0]" equivalence)]
+    ["[0]" query (.use "[1]#[0]" codec)]]]])
+
+(type .public (Server !)
+  (-> (Monad !) (Request !)
+      (! (Response !))))
+
+(with_template [<scheme> <name>]
+  [(def .public (<name> server)
+     (All (_ !)
+       (-> (Server !)
+           (Server !)))
+     (function (_ ! request)
+       (if (scheme#= <scheme> (the [request.#protocol //.#scheme] request))
+         (server ! request)
+         (at ! in (response.not_found !)))))]
+
+  [scheme.http  http]
+  [scheme.https https]
+  )
+
+(with_template [<method> <name>]
+  [(def .public (<name> server)
+     (All (_ !)
+       (-> (Server !)
+           (Server !)))
+     (function (_ ! request)
+       (when (the [request.#resource //.#method] request)
+         {<method>}
+         (server ! request)
+
+         _
+         (at ! in (response.not_found !)))))]
+
+  [//.#Get     get]
+  [//.#Post    post]
+  [//.#Put     put]
+  [//.#Patch   patch]
+  [//.#Delete  delete]
+  [//.#Head    head]
+  [//.#Connect connect]
+  [//.#Options options]
+  [//.#Trace   trace]
+  )
+
+(def .public (uri path server)
+  (All (_ !)
+    (-> URI (Server !)
+        (Server !)))
+  (function (_ ! request)
+    (if (text.starts_with? path (the [request.#resource //.#uri] request))
+      (server ! (revised [request.#resource //.#uri]
+                         (|>> (text.clip_since (text.size path))
+                              maybe.trusted)
+                         request))
+      (at ! in (response.not_found !)))))
+
+(def .public (or primary alternative)
+  (All (_ !)
+    (-> (Server !) (Server !)
+        (Server !)))
+  (function (_ ! request)
+    (do !
+      [response (primary ! request)
+       .let [[status message] response]]
+      (if (n.= status.not_found status)
+        (alternative ! request)
+        (in response)))))
+
+(def .public (static response)
+  (All (_ !)
+    (-> (Response !)
+        (Server !)))
+  (function (_ ! request)
+    (at ! in response)))
+
+(def (body_text ! body)
+  (All (_ !)
+    (-> (Monad !) (Body !)
+        (! (Try Text))))
+  (do !
+    [blob (body {.#None})]
+    (in (do try.monad
+          [[_ blob] blob]
+          (utf8#decoded blob)))))
+
+(def (failure !)
+  (All (_ !)
+    (-> (Monad !)
+        (Response !)))
+  (response.bad_request ! ""))
+
+(def .public (query parser server)
+  (All (_ ! of)
+    (-> (?environment.Parser of) (-> of (Server !))
+        (Server !)))
+  (function (_ ! request)
+    (let [full (the [request.#resource //.#uri] request)
+          [uri query] (|> full
+                          (text.split_by "?")
+                          (maybe.else [full ""]))]
+      (when (do try.monad
+              [query (query#decoded query)
+               input (?environment.result parser query)]
+              (in [(has [request.#resource //.#uri] uri request)
+                   input]))
+        {try.#Success [request input]}
+        (server input ! request)
+        
+        {try.#Failure error}
+        (at ! in (..failure !))))))
+
+(def .public (text server)
+  (All (_ !)
+    (-> (-> Text (Server !))
+        (Server !)))
+  (function (_ ! request)
+    (do !
+      [?raw (body_text ! (the [request.#message //.#body] request))]
+      (when ?raw
+        {try.#Success content}
+        (server content ! request)
+        
+        {try.#Failure error}
+        (at ! in (..failure !))))))
+
+(def .public (form parser server)
+  (All (_ ! of)
+    (-> (?environment.Parser of) (-> of (Server !))
+        (Server !)))
+  (function (_ ! request)
+    (do !
+      [?body (body_text ! (the [request.#message //.#body] request))]
+      (when (do try.monad
+              [body ?body
+               form (query#decoded body)]
+              (?environment.result parser form))
+        {try.#Success input}
+        (server input ! request)
+        
+        {try.#Failure error}
+        (at ! in (..failure !))))))
+
+(def .public (json parser server)
+  (All (_ ! of)
+    (-> (?json.Parser of) (-> of (Server !))
+        (Server !)))
+  (function (_ ! request)
+    (do !
+      [?raw (body_text ! (the [request.#message //.#body] request))]
+      (when (do try.monad
+              [raw ?raw
+               content (json#decoded raw)]
+              (?json.result parser content))
+        {try.#Success input}
+        (server input ! request)
+        
+        {try.#Failure error}
+        (at ! in (..failure !))))))
