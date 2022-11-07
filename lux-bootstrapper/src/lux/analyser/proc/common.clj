@@ -45,13 +45,12 @@
   )
 
 (defn- analyse-text-concat [analyse exo-type ?values]
-  (|do [:let [(&/$Item parameter (&/$Item subject (&/$End))) ?values]
-        =parameter (&&/analyse-1 analyse &type/Text parameter)
-        =subject (&&/analyse-1 analyse &type/Text subject)
+  (|do [=values (&/map% (fn [it] (&&/analyse-1 analyse &type/Text it))
+                        ?values)
         _ (&type/check exo-type &type/Text)
         _location &/location]
     (return (&/|list (&&/|meta exo-type _location
-                               (&&/$proc (&/T ["text" "concat"]) (&/|list =parameter =subject) (&/|list)))))))
+                               (&&/$proc (&/T ["text" "concat"]) =values (&/|list)))))))
 
 (defn- analyse-text-index [analyse exo-type ?values]
   (|do [:let [(&/$Item start (&/$Item part (&/$Item text (&/$End)))) ?values]

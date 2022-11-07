@@ -80,6 +80,7 @@
 
 # Time-travelling
 
+0. [Calling functions in the past](https://medium.com/time-travel-debugging/calling-functions-in-the-past-4bb03bdc124d)
 0. [Travelling through time with WinDbg at a system level](https://www.youtube.com/watch?v=mB9LIztjSKg)
 
 # Monitoring

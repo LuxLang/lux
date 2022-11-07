@@ -4,8 +4,10 @@
    [abstract
     ["[0]" monad (.only do)]]
    [control
+    ["|" pipe]
     ["<>" parser]
-    ["[0]" try]]
+    ["[0]" try]
+    ["[0]" function]]
    [data
     ["[0]" product]
     [collection
@@ -295,15 +297,20 @@
        (dictionary.has "f64_encoded#|generation" (unary ..f64::encode))
        (dictionary.has "f64_decoded#|generation" (unary ..f64::decode))))
 
+(def $String::length
+  (_.invokevirtual ..$String "length" (type.method [(list) (list) type.int (list)])))
+
 (def (text::size inputG)
   (Unary (Bytecode Any))
   (all _.composite
        inputG
        (_.checkcast $String)
-       (_.invokevirtual ..$String "length" (type.method [(list) (list) type.int (list)]))
+       $String::length
        ..lux_int))
 
-(def no_op (Bytecode Any) (_#in []))
+(def no_op
+  (Bytecode Any)
+  (_#in []))
 
 (with_template [<name> <pre_subject> <pre_param> <op> <post>]
   [(def (<name> [paramG subjectG])
@@ -324,12 +331,64 @@
    ..lux_int]
   )
 
-(def (text::concat [leftG rightG])
-  (Binary (Bytecode Any))
-  (all _.composite
-       leftG (_.checkcast $String)
-       rightG (_.checkcast $String)
-       (_.invokevirtual ..$String "concat" (type.method [(list) (list ..$String) ..$String (list)]))))
+(def text::composite
+  (Variadic (Bytecode Any))
+  (let [$StringBuilder (type.class "java.lang.StringBuilder" (list))
+        add_part! (is (-> (Bytecode Any)
+                          (Bytecode Any))
+                      (function (_ it)
+                        (all _.composite
+                             it
+                             (_.checkcast $String)
+                             )))
+        update_size! (is (Bytecode Any)
+                         (all _.composite
+                              _.dup
+                              $String::length
+                              _.dup2_x1
+                              _.pop2
+                              _.iadd
+                              ))
+        new_StringBuilder (is (Bytecode Any)
+                              (all _.composite
+                                   (_.new $StringBuilder)
+                                   _.dup_x1
+                                   _.swap
+                                   (_.invokespecial $StringBuilder "<init>" (type.method [(list) (list type.int) type.void (list)]))
+                                   ))
+        compose_part! (is (Bytecode Any)
+                          (all _.composite
+                               _.swap
+                               (_.invokevirtual $StringBuilder "append" (type.method [(list) (list ..$String) $StringBuilder (list)]))
+                               ))]
+    (|>> (|.when (list)
+           (_.string "")
+
+           (list single)
+           single
+
+           (list left right)
+           (all _.composite
+                left (_.checkcast $String)
+                right (_.checkcast $String)
+                (_.invokevirtual ..$String "concat" (type.method [(list) (list ..$String) ..$String (list)])))
+
+           parts
+           (do [! _.monad]
+             [_ (_.int (.i64 +0))
+              _ (monad.each ! (is (-> (Bytecode Any)
+                                      (Bytecode Any))
+                                  (function (_ it)
+                                    (all _.composite
+                                         (add_part! it)
+                                         update_size!
+                                         )))
+                            (list.reversed parts))
+              _ new_StringBuilder
+              _ (monad.each ! (function.constant compose_part!)
+                            parts)]
+             (_.invokevirtual $StringBuilder "toString" (type.method [(list) (list) ..$String (list)])))
+           ))))
 
 (def (text::clip [offset! length! subject!])
   (Trinary (Bytecode Any))
@@ -367,7 +426,7 @@
   (-> Bundle Bundle)
   (|>> (dictionary.has "text_=#|generation" (binary ..text::=))
        (dictionary.has "text_<#|generation" (binary ..text::<))
-       (dictionary.has "text_composite#|generation" (binary ..text::concat))
+       (dictionary.has "text_composite#|generation" (variadic ..text::composite))
        (dictionary.has "text_index#|generation" (trinary ..text::index))
        (dictionary.has "text_size#|generation" (unary ..text::size))
        (dictionary.has "text_char#|generation" (binary ..text::char))

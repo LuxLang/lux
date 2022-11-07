@@ -1,6 +1,6 @@
 # Reference
 
-0. []()
+0. [Kenny Baas-Schwegler — Autonomy, is that what we really want?](https://www.youtube.com/watch?v=ijKATZCQZL4)
 0. [How I structure my teams for growth](https://medium.com/@smnbss/how-i-structure-my-teams-for-growth-3272e4c3fc28)
 0. [Capacity Plan](https://fev.al/posts/capacity-plan/)
 0. [Team organisation by capabilities](https://blog.georgovassilis.com/2021/09/25/team-organisation-by-capabilities/)

@@ -147,7 +147,8 @@
 
 ## General
 
-0. []()
+0. [FeatureBase: The First OLAP Database Built Entirely on Bitmaps](https://www.featurebase.com/)
+	0. [FeatureBase](https://github.com/FeatureBaseDB/featurebase)
 0. [Velox: Meta’s Unified Execution Engine](https://research.facebook.com/publications/velox-metas-unified-execution-engine/)
 0. [Skytable](https://skytable.io/)
 0. https://github.com/Workiva/eva/

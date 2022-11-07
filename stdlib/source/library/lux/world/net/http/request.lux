@@ -1,143 +1,127 @@
 (.require
  [library
   [lux (.except)
+   [abstract
+    [monad (.only Monad)]]
    [control
-    pipe
-    ["[0]" monad (.only do)]
-    ["[0]" maybe]
-    ["[0]" try (.only Try)]
-    [concurrency
-     ["[0]" async (.only Async)]
-     ["[0]" frp]]]
+    ["[0]" try]]
    [data
-    ["[0]" number
-     ["n" nat]]
-    ["[0]" text
-     ["[0]" encoding]]
+    ["[0]" binary (.only Binary)]
+    [text
+     [encoding
+      ["[0]" utf8 (.use "[1]#[0]" codec)]]]
     [format
-     ["[0]" context (.only Context Property)]
-     ["[0]" json (.only JSON)
-      ["<[1]>" \\parser]]]
-    [collection
-     ["[0]" list (.use "[1]#[0]" functor mix)]
-     ["[0]" dictionary]]]
-   [meta
-    [macro
-     ["^" pattern]]]
-   [world
-    ["[0]" binary (.only Binary)]]]]
- ["[0]" // (.only Body Response Server)
-  ["[1][0]" response]
-  ["[1][0]" query]
-  ["[1][0]" cookie]])
+     ["[0]" json (.only JSON) (.use "[1]#[0]" codec)]]]]]
+ ["[0]" // (.only Body)
+  ["[0]" version]
+  ["[0]" header (.only Header)]
+  ["/[1]" // (.only)
+   ["[0]" mime]
+   [uri (.only URI)
+    ["[0]" scheme]
+    ["[0]" query (.only Query) (.use "[1]#[0]" codec)]]]])
 
 (type .public (Request !)
-  [Identification Protocol Resource (Message !)])
+  (Record
+   [#identification //.Identification
+    #protocol //.Protocol
+    #resource //.Resource
+    #message (//.Message !)]))
 
-(type .public (Server !)
-  (-> (Request !)
-      (! (Response !))))
+(def (body ! it)
+  (All (_ !)
+    (-> (Monad !) Binary
+        (//.Body !)))
+  (function (_ _)
+    (at ! in {try.#Success [(binary.size it) it]})))
 
-(def .public (static response)
-  (-> Response Server)
-  (function (_ request)
-    (async.resolved response)))
+(def .public (utf8 ! it)
+  (All (_ !)
+    (-> (Monad !) Text
+        (Request !)))
+  [#identification [//.#local [///.#host ""
+                               ///.#port 0]
+                    //.#remote [///.#host ""
+                                ///.#port 0]]
+   #protocol [//.#version version.v1_1
+              //.#scheme scheme.http]
+   #resource [//.#method {//.#Post}
+              //.#uri ""]
+   #message [//.#headers (|> header.empty
+                             (header.has header.content_type mime.utf_8))
+             //.#body (body ! (utf8#encoded it))]])
 
-(def (merge inputs)
-  (-> (List Binary) Binary)
-  (let [[_ output] (try.trusted
-                    (monad.mix try.monad
-                               (function (_ input [offset output])
-                                 (let [amount (binary.size input)]
-                                   (at try.functor each (|>> [(n.+ amount offset)])
-                                       (binary.copy amount 0 input offset output))))
-                               [0 (|> inputs
-                                      (list#each binary.size)
-                                      (list#mix n.+ 0)
-                                      binary.empty)]
-                               inputs))]
-    output))
+(def .public text ..utf8)
 
-(def (read_text_body body)
-  (-> Body (Async (Try Text)))
-  (do async.monad
-    [blobs (frp.list body)]
-    (in (at encoding.utf8 decoded (merge blobs)))))
+(def .public (json ! it)
+  (All (_ !)
+    (-> (Monad !) JSON
+        (Request !)))
+  [#identification [//.#local [///.#host ""
+                               ///.#port 0]
+                    //.#remote [///.#host ""
+                                ///.#port 0]]
+   #protocol [//.#version version.v1_1
+              //.#scheme scheme.http]
+   #resource [//.#method {//.#Post}
+              //.#uri ""]
+   #message [//.#headers (|> header.empty
+                             (header.has header.content_type mime.json))
+             //.#body (body ! (utf8#encoded (json#encoded it)))]])
 
-(def failure
-  (//response.bad_request ""))
+(def .public (form ! it)
+  (All (_ !)
+    (-> (Monad !) Query
+        (Request !)))
+  [#identification [//.#local [///.#host ""
+                               ///.#port 0]
+                    //.#remote [///.#host ""
+                                ///.#port 0]]
+   #protocol [//.#version version.v1_1
+              //.#scheme scheme.http]
+   #resource [//.#method {//.#Post}
+              //.#uri ""]
+   #message [//.#headers (|> header.empty
+                             (header.has header.content_type mime.form))
+             //.#body (body ! (utf8#encoded (query#encoded it)))]])
 
-(def .public (json reader server)
-  (All (_ a) (-> (<json>.Reader a) (-> a Server) Server))
-  (function (_ (^.let request [identification protocol resource message]))
-    (do async.monad
-      [?raw (read_text_body (the //.#body message))]
-      (when (do try.monad
-              [raw ?raw
-               content (at json.codec decoded raw)]
-              (json.result content reader))
-        {try.#Success input}
-        (server input request)
-        
-        {try.#Failure error}
-        (async.resolved ..failure)))))
+(with_template [<name> <scheme>]
+  [(def .public <name>
+     (All (_ !)
+       (-> (Request !)
+           (Request !)))
+     (|>> (has [#protocol //.#scheme] <scheme>)))]
 
-(def .public (text server)
-  (-> (-> Text Server) Server)
-  (function (_ (^.let request [identification protocol resource message]))
-    (do async.monad
-      [?raw (read_text_body (the //.#body message))]
-      (when ?raw
-        {try.#Success content}
-        (server content request)
-        
-        {try.#Failure error}
-        (async.resolved ..failure)))))
+  [http scheme.http]
+  [https scheme.https]
+  )
 
-(def .public (query property server)
-  (All (_ a) (-> (Property a) (-> a Server) Server))
-  (function (_ [identification protocol resource message])
-    (let [full (the //.#uri resource)
-          [uri query] (|> full
-                          (text.split_by "?")
-                          (maybe.else [full ""]))]
-      (when (do try.monad
-              [query (//query.parameters query)
-               input (context.result query property)]
-              (in [[identification protocol (has //.#uri uri resource) message]
-                   input]))
-        {try.#Success [request input]}
-        (server input request)
-        
-        {try.#Failure error}
-        (async.resolved ..failure)))))
+(with_template [<name> <method>]
+  [(def .public <name>
+     (All (_ !)
+       (-> (Request !)
+           (Request !)))
+     (has [#resource //.#method] {<method>}))]
 
-(def .public (form property server)
-  (All (_ a) (-> (Property a) (-> a Server) Server))
-  (function (_ (^.let request [identification protocol resource message]))
-    (do async.monad
-      [?body (read_text_body (the //.#body message))]
-      (when (do try.monad
-              [body ?body
-               form (//query.parameters body)]
-              (context.result form property))
-        {try.#Success input}
-        (server input request)
-        
-        {try.#Failure error}
-        (async.resolved ..failure)))))
+  [post //.#Post]
+  [get //.#Get]
+  [put //.#Put]
+  [patch //.#Patch]
+  [delete //.#Delete]
+  [head //.#Head]
+  [connect //.#Connect]
+  [options //.#Options]
+  [trace //.#Trace]
+  )
 
-(def .public (cookies property server)
-  (All (_ a) (-> (Property a) (-> a Server) Server))
-  (function (_ (^.let request [identification protocol resource message]))
-    (when (do try.monad
-            [cookies (|> (the //.#headers message)
-                         (dictionary.value "Cookie")
-                         (maybe.else "")
-                         //cookie.get)]
-            (context.result cookies property))
-      {try.#Success input}
-      (server input request)
-      
-      {try.#Failure error}
-      (async.resolved ..failure))))
+(def .public (uri it)
+  (All (_ !)
+    (-> URI (Request !)
+        (Request !)))
+  (|>> (has [#resource //.#uri] it)))
+
+(def .public (with_header it value)
+  (All (_ ! of)
+    (-> (Header of) of (Request !)
+        (Request !)))
+  (|>> (revised [#message //.#headers] (header.has it value))))

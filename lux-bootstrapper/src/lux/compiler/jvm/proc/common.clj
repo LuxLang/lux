@@ -222,17 +222,25 @@
     (return nil)))
 
 (defn compile-text-concat [compile ?values special-args]
-  (|do [:let [(&/$Item ?x (&/$Item ?y (&/$End))) ?values]
-        ^MethodVisitor *writer* &/get-writer
-        _ (compile ?x)
-        :let [_ (doto *writer*
-                  (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String"))]
-        _ (compile ?y)
-        :let [_ (doto *writer*
-                  (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String"))]
-        :let [_ (doto *writer*
-                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "concat" "(Ljava/lang/String;)Ljava/lang/String;"))]]
-    (return nil)))
+  (|do [^MethodVisitor *writer* &/get-writer
+        =values (&/map% (fn [it]
+                          (|do [_ (compile it)]
+                            (return (doto *writer*
+                                      (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String")))))
+                        ?values)]
+    (return (|case =values
+              (&/$End)
+              (.visitLdcInsn *writer* "")
+              
+              (&/$Item head tail)
+              (loop [tail tail]
+                (|case tail
+                  (&/$End)
+                  nil
+                  
+                  (&/$Item head* tail*)
+                  (do (.visitMethodInsn *writer* Opcodes/INVOKEVIRTUAL "java/lang/String" "concat" "(Ljava/lang/String;)Ljava/lang/String;")
+                    (recur tail*))))))))
 
 (defn compile-text-clip [compile ?values special-args]
   (|do [:let [(&/$Item ?text (&/$Item ?offset (&/$Item ?length (&/$End)))) ?values]

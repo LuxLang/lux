@@ -1,0 +1,226 @@
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["|" pipe]
+    ["[0]" try]]
+   [data
+    ["[0]" identity (.only Identity)]
+    ["[0]" binary (.use "[1]#[0]" equivalence)]
+    [text
+     [encoding
+      ["[0]" utf8 (.use "[1]#[0]" codec)]]]
+    [format
+     ["[0]" json (.use "[1]#[0]" codec)
+      ["[1]T" \\test]]]]
+   [math
+    ["[0]" random (.only Random)]
+    [number
+     ["n" nat]]]
+   [test
+    ["_" property (.only Test)]]]]
+ [\\library
+  ["[0]" / (.only)
+   ["/[1]" // (.only)
+    ["[0]" header]
+    [//
+     ["[0]" mime (.use "[1]#[0]" equivalence)]
+     [uri
+      ["[0]" scheme (.use "[1]#[0]" equivalence)]
+      ["[0]" query (.use "[1]#[0]" codec)
+       ["[1]T" \\test]]]]]]])
+
+(def .public test
+  Test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [expected_text (random.upper_cased 3)
+         expected_json jsonT.random
+         expected_form (queryT.random 2)
+         expected_uri (random.upper_cased 4)
+         expected_content_length random.nat])
+      (_.for [/.Request
+              /.#identification /.#message /.#protocol /.#resource])
+      (`` (all _.and
+               (_.coverage [/.utf8 /.text]
+                 (and (same? /.utf8 /.text)
+                      (let [it (/.utf8 identity.monad expected_text)]
+                        (and (|> it
+                                 (the [/.#message //.#headers])
+                                 (header.one header.content_type)
+                                 (|.when
+                                   {try.#Success actual}
+                                   (mime#= mime.utf_8 actual)
+                                   
+                                   {try.#Failure error}
+                                   false))
+                             (when ((the [/.#message //.#body] it) {.#None})
+                               {try.#Success [_ actual]}
+                               (binary#= (utf8#encoded expected_text)
+                                         actual)
+                               
+                               {try.#Failure error}
+                               false)
+                             ))))
+               (_.coverage [/.json]
+                 (let [it (/.json identity.monad expected_json)]
+                   (and (|> it
+                            (the [/.#message //.#headers])
+                            (header.one header.content_type)
+                            (|.when
+                              {try.#Success actual}
+                              (mime#= mime.json actual)
+                              
+                              {try.#Failure error}
+                              false))
+                        (when ((the [/.#message //.#body] it) {.#None})
+                          {try.#Success [_ actual]}
+                          (binary#= (utf8#encoded (json#encoded expected_json))
+                                    actual)
+                          
+                          {try.#Failure error}
+                          false)
+                        )))
+               (_.coverage [/.form]
+                 (let [it (/.form identity.monad expected_form)]
+                   (and (|> it
+                            (the [/.#message //.#headers])
+                            (header.one header.content_type)
+                            (|.when
+                              {try.#Success actual}
+                              (mime#= mime.form actual)
+                              
+                              {try.#Failure error}
+                              false))
+                        (when ((the [/.#message //.#body] it) {.#None})
+                          {try.#Success [_ actual]}
+                          (binary#= (utf8#encoded (query#encoded expected_form))
+                                    actual)
+                          
+                          {try.#Failure error}
+                          false)
+                        )))
+               (,, (with_template [<request> <scheme>]
+                     [(_.coverage [<request>]
+                        (let [it (is (/.Request Identity)
+                                     (<request> (/.utf8 identity.monad expected_text)))]
+                          (and (|> it
+                                   (the [/.#protocol //.#scheme])
+                                   (scheme#= <scheme>))
+                               (|> it
+                                   (the [/.#message //.#headers])
+                                   (header.one header.content_type)
+                                   (|.when
+                                     {try.#Success actual}
+                                     (mime#= mime.utf_8 actual)
+                                     
+                                     {try.#Failure error}
+                                     false))
+                               (when ((the [/.#message //.#body] it) {.#None})
+                                 {try.#Success [_ actual]}
+                                 (binary#= (utf8#encoded expected_text)
+                                           actual)
+                                 
+                                 {try.#Failure error}
+                                 false)
+                               )))]
+
+                     [/.http scheme.http]
+                     [/.https scheme.https]
+                     ))
+               (,, (with_template [<request> <method>]
+                     [(_.coverage [<request>]
+                        (let [it (is (/.Request Identity)
+                                     (<request> (/.utf8 identity.monad expected_text)))]
+                          (and (|> it
+                                   (the [/.#resource //.#method])
+                                   (|.when
+                                     {<method>}
+                                     true
+
+                                     _
+                                     false))
+                               (|> it
+                                   (the [/.#message //.#headers])
+                                   (header.one header.content_type)
+                                   (|.when
+                                     {try.#Success actual}
+                                     (mime#= mime.utf_8 actual)
+                                     
+                                     {try.#Failure error}
+                                     false))
+                               (when ((the [/.#message //.#body] it) {.#None})
+                                 {try.#Success [_ actual]}
+                                 (binary#= (utf8#encoded expected_text)
+                                           actual)
+                                 
+                                 {try.#Failure error}
+                                 false)
+                               )))]
+
+                     [/.post //.#Post]
+                     [/.get //.#Get]
+                     [/.put //.#Put]
+                     [/.patch //.#Patch]
+                     [/.delete //.#Delete]
+                     [/.head //.#Head]
+                     [/.connect //.#Connect]
+                     [/.options //.#Options]
+                     [/.trace //.#Trace]
+                     ))
+               (_.coverage [/.uri]
+                 (let [it (is (/.Request Identity)
+                              (/.uri expected_uri (/.utf8 identity.monad expected_text)))]
+                   (and (|> it
+                            (the [/.#resource //.#uri])
+                            (same? expected_uri))
+                        (|> it
+                            (the [/.#message //.#headers])
+                            (header.one header.content_type)
+                            (|.when
+                              {try.#Success actual}
+                              (mime#= mime.utf_8 actual)
+                              
+                              {try.#Failure error}
+                              false))
+                        (when ((the [/.#message //.#body] it) {.#None})
+                          {try.#Success [_ actual]}
+                          (binary#= (utf8#encoded expected_text)
+                                    actual)
+                          
+                          {try.#Failure error}
+                          false)
+                        )))
+               (_.coverage [/.with_header]
+                 (let [it (is (/.Request Identity)
+                              (|> (/.utf8 identity.monad expected_text)
+                                  (/.with_header header.content_length expected_content_length)))]
+                   (and (|> it
+                            (the [/.#message //.#headers])
+                            (header.one header.content_length)
+                            (|.when
+                              {try.#Success actual}
+                              (n.= expected_content_length actual)
+                              
+                              {try.#Failure error}
+                              false))
+                        (|> it
+                            (the [/.#message //.#headers])
+                            (header.one header.content_type)
+                            (|.when
+                              {try.#Success actual}
+                              (mime#= mime.utf_8 actual)
+                              
+                              {try.#Failure error}
+                              false))
+                        (when ((the [/.#message //.#body] it) {.#None})
+                          {try.#Success [_ actual]}
+                          (binary#= (utf8#encoded expected_text)
+                                    actual)
+                          
+                          {try.#Failure error}
+                          false)
+                        )))
+               ))))
