@@ -1,6 +1,6 @@
 # Reference
 
-0. []()
+0. [Fast cubic Bézier curve offsetting.](https://gasiulis.name/cubic-curve-offsetting/)
 0. [Parallel curves of cubic Béziers](https://raphlinus.github.io/curves/2022/09/09/parallel-beziers.html)
 0. [Curves and Surfaces](https://ciechanow.ski/curves-and-surfaces/)
 0. [The Beauty of Bézier Curves](https://www.youtube.com/watch?v=aVwxzDHniEw)

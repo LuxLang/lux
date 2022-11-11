@@ -140,13 +140,13 @@
 
 # Exemplar
 
-0. []()
 0. [Debunking “Purpose-Built Data Systems”: Enter the Universal Database](https://tiledb.com/blog/debunking-purpose-built-data-systems-enter-the-universal-database-2021-08-04)
 0. [Irmin](https://irmin.org/)
 0. [Database of Databases](https://dbdb.io/)
 
 ## General
 
+0. [How FoundationDB works and why it works](https://blog.the-pans.com/notes-on-the-foundationdb-paper/)
 0. [FeatureBase: The First OLAP Database Built Entirely on Bitmaps](https://www.featurebase.com/)
 	0. [FeatureBase](https://github.com/FeatureBaseDB/featurebase)
 0. [Velox: Meta’s Unified Execution Engine](https://research.facebook.com/publications/velox-metas-unified-execution-engine/)

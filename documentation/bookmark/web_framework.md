@@ -5,7 +5,7 @@
 
 # Virtual DOM
 
-0. []()
+0. [You Might Not Need The Virtual DOM](https://blog.functorial.com/posts/2018-03-12-You-Might-Not-Need-The-Virtual-DOM.html)
 0. [Virtual DOM is pure overhead](https://svelte.dev/blog/virtual-dom-is-pure-overhead)
 0. [million: <1kb virtual DOM - it's fast!](https://million.js.org/)
 0. [Optimal Virtual DOM](https://blog.kabir.sh/posts/optimal-virtual-dom.html)
@@ -17,7 +17,7 @@
 
 # Reference
 
-0. []()
+0. [JavaScript APIs You Don’t Know About](https://www.smashingmagazine.com/2022/09/javascript-api-guide/)
 0. [JavaScript Hydration Is a Workaround, Not a Solution](https://thenewstack.io/javascript-hydration-is-a-workaround-not-a-solution/)
 0. [Functional UI](https://take.surf/2022/07/04/functional-ui)
 0. [UIs Are Not Pure Functions of the Model - React.js and Cocoa Side by Side](https://blog.metaobject.com/2018/12/uis-are-not-pure-functions-of-model.html)

@@ -1,5 +1,6 @@
 # Reference
 
+0. [Better Java logging, inspired by Clojure and Rust](https://mccue.dev/pages/9-25-22-better-java-logging)
 0. [Spans - a key concept of distributed tracing](https://signoz.io/blog/distributed-tracing-span/)
 0. [Structured Logging for Python](https://www.structlog.org/en/latest/)
 0. [The Value of Correlation IDs](https://www.rapid7.com/blog/post/2016/12/23/the-value-of-correlation-ids/)

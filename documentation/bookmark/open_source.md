@@ -1,6 +1,9 @@
 # Reference
 
-0. []()
+0. [StarTrack](https://github.com/seladb/StarTrack-js)
+0. [1% rule](https://en.wikipedia.org/wiki/1%25_rule)
+0. [Open Source Antidote: critical and alternative views on free and open source software](https://writing.kemitchell.com/lists/Antidote.html)
+0. [There is no “software supply chain”](https://iliana.fyi/blog/software-supply-chain/)
 0. [The Myth of Mass Collaboration](https://staltz.com/the-myth-of-mass-collaboration.html)
 0. [Open Source Explained](https://blog.erlend.sh/open-source-explained)
 0. [Trust Signals in Open Source Projects](https://hackernoon.com/the-signs-of-a-great-open-source-project)
