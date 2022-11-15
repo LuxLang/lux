@@ -1,5 +1,6 @@
 # Reference
 
+0. [Seven Sins of Numerical Linear Algebra](https://nhigham.com/2022/10/11/seven-sins-of-numerical-linear-algebra/)
 0. [Basic Linear Algebra Subprograms](https://en.wikipedia.org/wiki/Basic_Linear_Algebra_Subprograms)
 0. [Linear Algebra And Multi Dimensional Geometry](https://mirtitles.org/2020/02/13/4129/)
 0. [Interactive Linear Algebra](https://textbooks.math.gatech.edu/ila/)

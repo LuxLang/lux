@@ -1,6 +1,6 @@
 # Reference
 
-0. []()
+0. [Awesome Structure Editors](https://github.com/yairchu/awesome-structure-editors)
 0. [Restructuring Structure Editing](https://tylr.fun/essay/)
 0. [The Animated Guide to Symex](https://countvajhula.com/2021/09/25/the-animated-guide-to-symex/)
 0. [Leo](https://www.leoeditor.com/)

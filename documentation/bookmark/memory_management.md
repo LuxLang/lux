@@ -42,7 +42,7 @@
 
 # Reference
 
-0. []()
+0. [Write barrier optimizations in regions](https://maoni0.medium.com/write-barrier-optimizations-in-regions-984bde6c0ffc)
 0. [Move Operation + "Use After Move" Diagnostic](https://github.com/apple/swift-evolution/blob/main/proposals/0366-move-function.md)
 0. [Relative Pointers](https://www.gingerbill.org/article/2020/05/17/relative-pointers/)
 0. [Scopes Describe Frames: A Uniform Model for Memory Layout in Dynamic Semantics](http://drops.dagstuhl.de/opus/volltexte/2016/6114/)

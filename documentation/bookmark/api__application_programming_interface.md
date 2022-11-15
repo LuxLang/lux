@@ -1,6 +1,6 @@
 # Reference
 
-0. []()
+0. [Functional options for friendly APIs](https://dave.cheney.net/2014/10/17/functional-options-for-friendly-apis)
 0. [Best Practices for Building Reliable APIs](https://api7.ai/blog/best-practices-for-building-reliable-apis-with-api-gateways)
 0. [rSQL](https://rsql.io/)
 0. [Taxi language](https://taxilang.org/)

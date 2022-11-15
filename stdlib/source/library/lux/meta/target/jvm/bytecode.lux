@@ -46,6 +46,7 @@
    ["[1][0]" constant (.only UTF8)
     ["[1]/[0]" pool (.only Pool Resource)]]
    [attribute
+    ["[0]" line_number_table (.only Line_Number_Table)]
     [code
      ["[1][0]" exception (.only Exception)]]]
    ["[0]" type (.only Type)
@@ -63,16 +64,20 @@
   (Record
    [#program_counter Address
     #next Label
-    #known Resolver]))
+    #known Resolver
+    #line_number_table Line_Number_Table]))
 
 (def fresh
   Tracker
   [#program_counter /address.start
    #next 0
-   #known (dictionary.empty n.hash)])
+   #known (dictionary.empty n.hash)
+   #line_number_table line_number_table.empty])
 
 (type .public Relative
-  (-> Resolver (Try [(Sequence Exception) Instruction])))
+  (-> Resolver
+      (Try [(Sequence Exception)
+            Instruction])))
 
 (def no_exceptions
   (Sequence Exception)
@@ -118,7 +123,8 @@
    (def composite ..relative#composite)))
 
 (type .public (Bytecode a)
-  (+State Try [Pool Environment Tracker] (Writer Relative a)))
+  (+State Try [Pool Environment Tracker]
+          (Writer Relative a)))
 
 (def .public new_label
   (Bytecode Label)
@@ -276,11 +282,17 @@
   (..failure (exception.error exception value)))
 
 (def .public (resolve environment bytecode)
-  (All (_ a) (-> Environment (Bytecode a) (Resource [Environment (Sequence Exception) Instruction a])))
+  (All (_ a)
+    (-> Environment (Bytecode a)
+        (Resource [Environment Line_Number_Table (Sequence Exception) Instruction a])))
   (function (_ pool)
     (<| (try|do [[pool environment tracker] [relative output]] (bytecode [pool environment ..fresh]))
         (try|do [exceptions instruction] (relative (the #known tracker)))
-        (try|in [pool [environment exceptions instruction output]]))))
+        (try|in [pool [environment
+                       (the #line_number_table tracker)
+                       exceptions
+                       instruction
+                       output]]))))
 
 (def (step estimator counter)
   (-> Estimator Address (Try Address))
@@ -1176,3 +1188,17 @@
       ... {try.#Failure error}
       failure
       (as_expected failure))))
+
+(def .public (map line)
+  (-> Nat (Bytecode Any))
+  (function (_ [pool environment tracker])
+    (<| (let [instruction (/address.value (the #program_counter tracker))])
+        (try|do line (//unsigned.u2 line))
+        (try|in [[pool
+                  environment
+                  (revised #line_number_table
+                           (sequence.suffix [line_number_table.#start_program_counter instruction
+                                             line_number_table.#line_number line])
+                           tracker)]
+                 [..relative#identity
+                  []]]))))
