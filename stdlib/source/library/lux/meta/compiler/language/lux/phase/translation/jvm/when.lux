@@ -1,0 +1,327 @@
+(.require
+ [library
+  [lux (.except Type Label Synthesis if let exec when int)
+   [abstract
+    ["[0]" monad (.only do)]]
+   [control
+    ["[0]" function]]
+   [data
+    [collection
+     ["[0]" list (.use "[1]#[0]" mix)]]
+    ["[0]" text (.use "[1]#[0]" equivalence)
+     ["%" \\format (.only format)]]]
+   [math
+    [number
+     ["n" nat]
+     ["[0]" i32]]]
+   [meta
+    [macro
+     ["^" pattern]]
+    [target
+     [jvm
+      ["_" bytecode (.only Label Bytecode) (.use "[1]#[0]" monad)
+       [environment
+        [limit
+         ["[0]" stack]]]]
+      ["[0]" type (.only Type)
+       [category (.only Method)]]]]]]]
+ ["[0]" //
+  ["[1][0]" type]
+  ["[1][0]" runtime (.only Operation Phase Translator)]
+  ["[1][0]" value]
+  ["[1][0]" structure]
+  [////
+   ["[0]" translation]
+   ["[0]" synthesis (.only Path Fork Synthesis)
+    [access
+     ["[0]" member (.only Member)]]]
+   [///
+    ["[0]" phase (.use "operation#[0]" monad)]
+    [reference
+     [variable (.only Register)]]]]])
+
+(def (pop_alt stack_depth)
+  (-> Nat (Bytecode Any))
+  (.when stack_depth
+    0 (_#in [])
+    1 _.pop
+    2 _.pop2
+    _ ... (n.> 2)
+    (all _.composite
+         _.pop2
+         (pop_alt (n.- 2 stack_depth)))))
+
+(def int
+  (-> (I64 Any) (Bytecode Any))
+  (|>> .i64 i32.i32 _.int))
+
+(def long
+  (-> (I64 Any) (Bytecode Any))
+  (|>> .int _.long))
+
+(def peek
+  (Bytecode Any)
+  (all _.composite
+       _.dup
+       (//runtime.get //runtime.stack_head)))
+
+(def pop
+  (Bytecode Any)
+  (all _.composite
+       (//runtime.get //runtime.stack_tail)
+       (_.checkcast //type.stack)))
+
+(def (left_projection lefts)
+  (-> Nat (Bytecode Any))
+  (all _.composite
+       (_.checkcast //type.tuple)
+       (..int lefts)
+       (.when lefts
+         0
+         _.aaload
+         
+         lefts
+         //runtime.left_projection)))
+
+(def (right_projection lefts)
+  (-> Nat (Bytecode Any))
+  (all _.composite
+       (_.checkcast //type.tuple)
+       (..int lefts)
+       //runtime.right_projection))
+
+(def equals@Object
+  (.let [class (type.class "java.lang.Object" (list))
+         method (type.method [(list) (list //type.value) type.boolean (list)])]
+    (_.invokevirtual class "equals" method)))
+
+(def (path|bind register)
+  (-> Register (Operation (Bytecode Any)))
+  (operation#in (all _.composite
+                     ..peek
+                     (_.astore register))))
+
+(def (path|bit_fork again @else [when thenP elseP])
+  (-> (-> Path (Operation (Bytecode Any)))
+      Label [Bit Path (Maybe Path)]
+      (Operation (Bytecode Any)))
+  (do phase.monad
+    [then! (again thenP)
+     else! (.when elseP
+             {.#Some elseP}
+             (again elseP)
+
+             {.#None}
+             (in (_.goto @else)))
+     .let [if! (.if when _.ifeq _.ifne)]]
+    (in (do _.monad
+          [@else _.new_label]
+          (all _.composite
+               ..peek
+               (//value.unwrap type.boolean)
+               (if! @else)
+               then!
+               (_.set_label @else)
+               else!)))))
+
+(with_template [<name> <type> <unwrap> <dup> <pop> <test> <comparison> <if>]
+  [(def (<name> again @else cons)
+     (-> (-> Path (Operation (Bytecode Any)))
+         Label (Fork <type> Path)
+         (Operation (Bytecode Any)))
+     (do [! phase.monad]
+       [fork! (monad.mix ! (function (_ [test thenP] else!)
+                             (do !
+                               [then! (again thenP)]
+                               (in (do _.monad
+                                     [@else _.new_label]
+                                     (all _.composite
+                                          <dup>
+                                          (<test> test)
+                                          <comparison>
+                                          (<if> @else)
+                                          <pop>
+                                          then!
+                                          (_.set_label @else)
+                                          else!)))))
+                         (all _.composite
+                              <pop>
+                              (_.goto @else))
+                         {.#Item cons})]
+       (in (all _.composite
+                ..peek
+                <unwrap>
+                fork!))))]
+
+  [path|i64_fork (I64 Any) (//value.unwrap type.long) _.dup2 _.pop2 ..long _.lcmp _.ifne]
+  [path|f64_fork Frac (//value.unwrap type.double) _.dup2 _.pop2 _.double _.dcmpl _.ifne]
+  [path|text_fork Text (at _.monad in []) _.dup _.pop _.string ..equals@Object _.ifeq]
+  )
+
+(def (path' stack_depth @else @end phase archive)
+  (-> Nat Label Label (Translator Path))
+  (function (again path)
+    (.when path
+      {synthesis.#Pop}
+      (operation#in ..pop)
+      
+      {synthesis.#Bind register}
+      (..path|bind register)
+
+      (^.with_template [<tag> <path>]
+        [{<tag> it}
+         (<path> again @else it)])
+      ([synthesis.#Bit_Fork ..path|bit_fork]
+       [synthesis.#I64_Fork ..path|i64_fork]
+       [synthesis.#F64_Fork ..path|f64_fork]
+       [synthesis.#Text_Fork ..path|text_fork])
+
+      {synthesis.#Then bodyS}
+      (do phase.monad
+        [body! (phase archive bodyS)]
+        (in (all _.composite
+                 (..pop_alt stack_depth)
+                 body!
+                 (_.when_continuous (_.goto @end)))))
+      
+      (synthesis.side lefts right?)
+      (operation#in
+       (do _.monad
+         [@success _.new_label]
+         (all _.composite
+              ..peek
+              (_.checkcast //type.variant)
+              (//structure.lefts lefts)
+              (//structure.right? right?)
+              //runtime.when
+              _.dup
+              (_.ifnonnull @success)
+              _.pop
+              (_.goto @else)
+              (_.set_label @success)
+              //runtime.push)))
+
+      (^.with_template [<pattern> <projection>]
+        [(<pattern> lefts)
+         (operation#in (all _.composite
+                            ..peek
+                            (<projection> lefts)
+                            //runtime.push))
+
+         ... Extra optimization
+         (synthesis.path/seq
+          (<pattern> lefts)
+          (synthesis.!bind_top register thenP))
+         (do phase.monad
+           [then! (path' stack_depth @else @end phase archive thenP)]
+           (in (all _.composite
+                    ..peek
+                    (<projection> lefts)
+                    (_.astore register)
+                    then!)))])
+      ([synthesis.member/left ..left_projection]
+       [synthesis.member/right ..right_projection])
+      
+      {synthesis.#Seq leftP rightP}
+      (do phase.monad
+        [left! (path' stack_depth @else @end phase archive leftP)
+         right! (path' stack_depth @else @end phase archive rightP)]
+        (in (all _.composite
+                 left!
+                 right!)))
+
+      {synthesis.#Alt leftP rightP}
+      (do phase.monad
+        [@alt_else //runtime.forge_label
+         left! (path' (++ stack_depth) @alt_else @end phase archive leftP)
+         right! (path' stack_depth @else @end phase archive rightP)]
+        (in (all _.composite
+                 _.dup
+                 left!
+                 (_.set_label @alt_else)
+                 _.pop
+                 right!)))
+      )))
+
+(def (path @end phase archive path)
+  (-> Label (Translator Path))
+  (do phase.monad
+    [@else //runtime.forge_label
+     path! (..path' 1 @else @end phase archive path)]
+    (in (all _.composite
+             path!
+             (<| (_.when_acknowledged @else)
+                 (all _.composite
+                      (_.set_label @else)
+                      //runtime.pm_failure
+                      (_.goto @end)
+                      ))
+             ))))
+
+(def .public (if phase archive [testS thenS elseS])
+  (Translator [Synthesis Synthesis Synthesis])
+  (do phase.monad
+    [test! (phase archive testS)
+     then! (phase archive thenS)
+     else! (phase archive elseS)]
+    (in (do _.monad
+          [@else _.new_label
+           @end _.new_label]
+          (all _.composite
+               test!
+               (//value.unwrap type.boolean)
+               (_.ifeq @else)
+               then!
+               (_.when_continuous (_.goto @end))
+               (_.set_label @else)
+               else!
+               (<| (_.when_acknowledged @end)
+                   (_.set_label @end)))))))
+
+(def .public (exec phase archive [this that])
+  (Translator [Synthesis Synthesis])
+  (do phase.monad
+    [this! (phase archive this)
+     that! (phase archive that)]
+    (in (all _.composite
+             this!
+             _.pop
+             that!))))
+
+(def .public (let phase archive [inputS register bodyS])
+  (Translator [Synthesis Register Synthesis])
+  (do phase.monad
+    [input! (phase archive inputS)
+     body! (phase archive bodyS)]
+    (in (all _.composite
+             input!
+             (_.astore register)
+             body!))))
+
+(def .public (get phase archive [path recordS])
+  (Translator [(List Member) Synthesis])
+  (do phase.monad
+    [record! (phase archive recordS)]
+    (in (list#mix (function (_ step so_far!)
+                    (.let [next! (.if (the member.#right? step)
+                                   (..right_projection (the member.#lefts step))
+                                   (..left_projection (the member.#lefts step)))]
+                      (all _.composite
+                           so_far!
+                           next!)))
+                  record!
+                  (list.reversed path)))))
+
+(def .public (when phase archive [valueS path])
+  (Translator [Synthesis Path])
+  (do phase.monad
+    [@end //runtime.forge_label
+     value! (phase archive valueS)
+     path! (..path @end phase archive path)]
+    (in (all _.composite
+             _.aconst_null
+             value!
+             //runtime.push
+             path!
+             (<| (_.when_acknowledged @end)
+                 (_.set_label @end))))))

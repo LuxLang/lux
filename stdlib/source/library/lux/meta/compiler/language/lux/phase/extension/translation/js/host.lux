@@ -1,0 +1,162 @@
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    ["[0]" monad (.only do)]]
+   [control
+    ["<>" parser]
+    ["[0]" function]]
+   [data
+    [collection
+     ["[0]" dictionary]
+     ["[0]" list]]]
+   [meta
+    [target
+     ["_" js (.only Var Expression)]]]]]
+ ["[0]" //
+  ["[1][0]" common (.only custom)]
+  ["//[1]" ///
+   ["/" bundle]
+   ["/[1]" //
+    ["[0]" extension]
+    [translation
+     [extension (.only Nullary Unary Binary Trinary
+                       nullary unary binary trinary)]
+     ["//" js
+      ["[1][0]" runtime (.only Operation Phase Handler Bundle
+                               with_vars)]]]
+    ["/[1]" //
+     ["[0]" translation]
+     [synthesis
+      ["<s>" \\parser (.only Parser)]]
+     ["//[1]" ///
+      ["[1][0]" phase]]]]]])
+
+(def array::new
+  (Unary Expression)
+  (|>> (_.the //runtime.i64_low_field) list (_.new (_.var "Array"))))
+
+(def array::length
+  (Unary Expression)
+  (|>> (_.the "length") //runtime.i64::of_number))
+
+(def (array::read [indexG arrayG])
+  (Binary Expression)
+  (_.at (_.the //runtime.i64_low_field indexG)
+        arrayG))
+
+(def (array::write [indexG valueG arrayG])
+  (Trinary Expression)
+  (//runtime.array//write indexG valueG arrayG))
+
+(def (array::delete [indexG arrayG])
+  (Binary Expression)
+  (//runtime.array//delete indexG arrayG))
+
+(def array
+  Bundle
+  (<| (/.prefix "array")
+      (|> /.empty
+          (/.install "new" (unary array::new))
+          (/.install "length" (unary array::length))
+          (/.install "read" (binary array::read))
+          (/.install "write" (trinary array::write))
+          (/.install "delete" (binary array::delete))
+          )))
+
+(def object::new
+  (custom
+   [(all <>.and <s>.any (<>.some <s>.any))
+    (function (_ extension phase archive [constructorS inputsS])
+      (do [! ////////phase.monad]
+        [constructorG (phase archive constructorS)
+         inputsG (monad.each ! (phase archive) inputsS)]
+        (in (_.new constructorG inputsG))))]))
+
+(def object::get
+  Handler
+  (custom
+   [(all <>.and <s>.text <s>.any)
+    (function (_ extension phase archive [fieldS objectS])
+      (do ////////phase.monad
+        [objectG (phase archive objectS)]
+        (in (_.the fieldS objectG))))]))
+
+(def object::do
+  Handler
+  (custom
+   [(all <>.and <s>.text <s>.any (<>.some <s>.any))
+    (function (_ extension phase archive [methodS objectS inputsS])
+      (do [! ////////phase.monad]
+        [objectG (phase archive objectS)
+         inputsG (monad.each ! (phase archive) inputsS)]
+        (in (_.do methodS inputsG objectG))))]))
+
+(with_template [<!> <?> <unit>]
+  [(def <!> (Nullary Expression) (function.constant <unit>))
+   (def <?> (Unary Expression) (_.= <unit>))]
+
+  [object::null object::null? _.null]
+  [object::undefined object::undefined? _.undefined]
+  )
+
+(def object
+  Bundle
+  (<| (/.prefix "object")
+      (|> /.empty
+          (/.install "new" object::new)
+          (/.install "get" object::get)
+          (/.install "do" object::do)
+          (/.install "null" (nullary object::null))
+          (/.install "null?" (unary object::null?))
+          (/.install "undefined" (nullary object::undefined))
+          (/.install "undefined?" (unary object::undefined?))
+          )))
+
+(def js::constant
+  (custom
+   [<s>.text
+    (function (_ extension phase archive name)
+      (at ////////phase.monad in (_.var name)))]))
+
+(def js::apply
+  (custom
+   [(all <>.and <s>.any (<>.some <s>.any))
+    (function (_ extension phase archive [abstractionS inputsS])
+      (do [! ////////phase.monad]
+        [abstractionG (phase archive abstractionS)
+         inputsG (monad.each ! (phase archive) inputsS)]
+        (in (_.apply abstractionG inputsG))))]))
+
+(def js::function
+  (custom
+   [(all <>.and <s>.i64 <s>.any)
+    (function (_ extension phase archive [arity abstractionS])
+      (do [! ////////phase.monad]
+        [abstractionG (phase archive abstractionS)
+         .let [variable (is (-> Text (Operation Var))
+                            (|>> translation.symbol
+                                 (at ! each _.var)))]
+         g!inputs (monad.each ! (function (_ _) (variable "input"))
+                              (list.repeated (.nat arity) []))
+         g!abstraction (variable "abstraction")]
+        (in (_.closure g!inputs
+                       (all _.then
+                            (_.define g!abstraction abstractionG)
+                            (_.return (when (.nat arity)
+                                        0 (_.apply_1 g!abstraction //runtime.unit)
+                                        1 (_.apply g!abstraction g!inputs)
+                                        _ (_.apply_1 g!abstraction (_.array g!inputs)))))))))]))
+
+(def .public bundle
+  Bundle
+  (<| (/.prefix "js")
+      (|> /.empty
+          (dictionary.composite ..array)
+          (dictionary.composite ..object)
+
+          (/.install "constant" js::constant)
+          (/.install "apply" js::apply)
+          (/.install "type-of" (unary _.type_of))
+          (/.install "function" js::function)
+          )))

@@ -1,0 +1,131 @@
+(.require
+ [library
+  [lux (.except function)
+   [abstract
+    ["[0]" monad (.only do)]]
+   [data
+    ["[0]" product]
+    [text
+     ["%" \\format (.only format)]]
+    [collection
+     ["[0]" list (.use "[1]#[0]" functor mix)]]]
+   [meta
+    [target
+     ["_" js (.only Expression Computation Var Statement)]]]]]
+ ["[0]" //
+  ["[1][0]" runtime (.only Operation Phase Phase! Translator)]
+  ["[1][0]" reference]
+  ["[1][0]" when]
+  ["/[1]" //
+   ["[1][0]" reference]
+   ["//[1]" ///
+    [analysis (.only Abstraction Reification Analysis)]
+    [synthesis (.only Synthesis)]
+    ["[1][0]" translation]
+    ["//[1]" ///
+     [arity (.only Arity)]
+     ["[1][0]" phase (.use "[1]#[0]" monad)]
+     [reference
+      [variable (.only Register Variable)]]
+     [meta
+      [archive
+       ["[0]" unit]]
+      ["[0]" cache
+       [dependency
+        ["[1]" artifact]]]]]]]])
+
+(def .public (apply expression archive [functionS argsS+])
+  (Translator (Reification Synthesis))
+  (do [! ///////phase.monad]
+    [functionO (expression archive functionS)
+     argsO+ (monad.each ! (expression archive) argsS+)]
+    (in (_.apply functionO argsO+))))
+
+(def capture
+  (-> Register Var)
+  (|>> (///reference.foreign //reference.system) as_expected))
+
+(def (with_closure @self inits body!)
+  (-> Var (List Expression) Statement [Statement Expression])
+  (when inits
+    {.#End}
+    [(_.function_definition @self (list) body!)
+     @self]
+
+    _
+    [(_.function_definition @self
+                            (|> (list.enumeration inits)
+                                (list#each (|>> product.left ..capture)))
+                            (_.return (_.function @self (list) body!)))
+     (_.apply @self inits)]))
+
+(def @curried
+  (_.var "curried"))
+
+(def input
+  (|>> ++ //when.register))
+
+(def @@arguments
+  (_.var "arguments"))
+
+(def (@scope function_name)
+  (-> unit.ID Text)
+  (format (///reference.artifact function_name) "_scope"))
+
+(def .public (function statement expression archive [environment arity bodyS])
+  (-> Phase! (Translator (Abstraction Synthesis)))
+  (do [! ///////phase.monad]
+    [dependencies (cache.dependencies archive bodyS)
+     [function_name body!] (/////translation.with_new_context archive dependencies
+                             (do !
+                               [scope (at ! each ..@scope
+                                          (/////translation.context archive))]
+                               (/////translation.with_anchor [1 scope]
+                                 (statement expression archive bodyS))))
+     .let [arityO (|> arity .int _.i32)
+           @num_args (_.var "num_args")
+           @scope (..@scope function_name)
+           @self (_.var (///reference.artifact function_name))
+           apply_poly (.function (_ args func)
+                        (|> func (_.do "apply" (list _.null args))))
+           initialize_self! (_.define (//when.register 0) @self)
+           initialize! (list#mix (.function (_ post pre!)
+                                   (all _.then
+                                        pre!
+                                        (_.define (..input post) (_.at (_.i32 (.int post)) @@arguments))))
+                                 initialize_self!
+                                 (list.indices arity))]
+     environment (monad.each ! (expression archive) environment)
+     .let [[definition instantiation] (with_closure @self environment
+                                        (all _.then
+                                             (_.define @num_args (_.the "length" @@arguments))
+                                             (<| (_.if (|> @num_args (_.= arityO))
+                                                   (all _.then
+                                                        initialize!
+                                                        (_.with_label (_.label @scope)
+                                                          (_.do_while (_.boolean true)
+                                                                      body!))))
+                                                 (_.if (|> @num_args (_.> arityO))
+                                                   (let [arity_inputs (|> (_.array (list))
+                                                                          (_.the "slice")
+                                                                          (_.do "call" (list @@arguments (_.i32 +0) arityO)))
+                                                         extra_inputs (|> (_.array (list))
+                                                                          (_.the "slice")
+                                                                          (_.do "call" (list @@arguments arityO)))]
+                                                     (_.return (|> @self
+                                                                   (apply_poly arity_inputs)
+                                                                   (apply_poly extra_inputs)))))
+                                                 ... (|> @num_args (_.< arityO))
+                                                 (let [all_inputs (|> (_.array (list))
+                                                                      (_.the "slice")
+                                                                      (_.do "call" (list @@arguments)))]
+                                                   (all _.then
+                                                        (_.define @curried all_inputs)
+                                                        (_.return (_.closure (list)
+                                                                             (let [@missing all_inputs]
+                                                                               (_.return (apply_poly (_.do "concat" (list @missing) @curried)
+                                                                                                     @self))))))))
+                                             ))]
+     _ (/////translation.execute! definition)
+     _ (/////translation.save! (product.right function_name) {.#None} definition)]
+    (in instantiation)))

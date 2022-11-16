@@ -1,0 +1,242 @@
+(.require
+ [library
+  [lux (.except when let if)
+   [abstract
+    ["[0]" monad (.only do)]]
+   [data
+    ["[0]" product]
+    ["[0]" text (.only)
+     ["%" \\format (.only format)]]
+    [collection
+     ["[0]" list (.use "[1]#[0]" functor mix)]
+     ["[0]" set]]]
+   [math
+    [number
+     ["i" int]]]
+   [meta
+    [macro
+     ["^" pattern]
+     ["[0]" template]]
+    [target
+     ["_" r (.only Expression SVar)]]]]]
+ ["[0]" //
+  ["[1][0]" runtime (.only Operation Phase Translator)]
+  ["[1][0]" reference]
+  ["[1][0]" primitive]
+  ["/[1]" //
+   ["[1][0]" reference]
+   ["/[1]" //
+    ["[1][0]" synthesis
+     ["[1]/[0]" when]]
+    ["/[1]" //
+     ["[1][0]" synthesis (.only Member Synthesis Path)]
+     ["[1][0]" translation]
+     ["//[1]" ///
+      [reference
+       ["[1][0]" variable (.only Register)]]
+      ["[1][0]" phase (.use "[1]#[0]" monad)]
+      [meta
+       [archive (.only Archive)]]]]]]])
+
+(def .public register
+  (-> Register SVar)
+  (|>> (///reference.local //reference.system) as_expected))
+
+(def .public capture
+  (-> Register SVar)
+  (|>> (///reference.foreign //reference.system) as_expected))
+
+(def .public (let expression archive [valueS register bodyS])
+  (Translator [Synthesis Register Synthesis])
+  (do ///////phase.monad
+    [valueO (expression archive valueS)
+     bodyO (expression archive bodyS)]
+    (in (_.block
+         (all _.then
+              (_.set! (..register register) valueO)
+              bodyO)))))
+
+(def .public (if expression archive [testS thenS elseS])
+  (Translator [Synthesis Synthesis Synthesis])
+  (do ///////phase.monad
+    [testO (expression archive testS)
+     thenO (expression archive thenS)
+     elseO (expression archive elseS)]
+    (in (_.if testO thenO elseO))))
+
+(def .public (get expression archive [pathP valueS])
+  (Translator [(List Member) Synthesis])
+  (do ///////phase.monad
+    [valueO (expression archive valueS)]
+    (in (list#mix (function (_ side source)
+                    (.let [method (.when side
+                                    (^.with_template [<side> <accessor>]
+                                      [(<side> lefts)
+                                       (<accessor> (_.int (.int lefts)))])
+                                    ([.#Left  //runtime.tuple::left]
+                                     [.#Right //runtime.tuple::right]))]
+                      (method source)))
+                  valueO
+                  (list.reversed pathP)))))
+
+(def $savepoint (_.var "lux_pm_cursor_savepoint"))
+(def $cursor (_.var "lux_pm_cursor"))
+(def $temp (_.var "lux_pm_temp"))
+(def $alt_error (_.var "alt_error"))
+
+(def top
+  _.length)
+
+(def next
+  (|>> _.length (_.+ (_.int +1))))
+
+(def (push! value var)
+  (-> Expression SVar Expression)
+  (_.set_item! (next var) value var))
+
+(def (pop! var)
+  (-> SVar Expression)
+  (_.set_item! (top var) _.null var))
+
+(def (push_cursor! value)
+  (-> Expression Expression)
+  (push! value $cursor))
+
+(def save_cursor!
+  Expression
+  (push! (_.slice (_.float +1.0) (_.length $cursor) $cursor)
+         $savepoint))
+
+(def restore_cursor!
+  Expression
+  (_.set! $cursor (_.item (top $savepoint) $savepoint)))
+
+(def peek
+  Expression
+  (|> $cursor (_.item (top $cursor))))
+
+(def pop_cursor!
+  Expression
+  (pop! $cursor))
+
+(def error
+  (_.string (template.with_locals [error]
+              (template.text [error]))))
+
+(def fail!
+  (_.stop ..error))
+
+(def (catch handler)
+  (-> Expression Expression)
+  (_.function (list $alt_error)
+    (_.if (|> $alt_error (_.= ..error))
+      handler
+      (_.stop $alt_error))))
+
+(def (pattern_matching' expression archive)
+  (Translator Path)
+  (function (again pathP)
+    (.when pathP
+      {/////synthesis.#Then bodyS}
+      (expression archive bodyS)
+
+      {/////synthesis.#Pop}
+      (///////phase#in ..pop_cursor!)
+
+      {/////synthesis.#Bind register}
+      (///////phase#in (_.set! (..register register) ..peek))
+
+      {/////synthesis.#Bit_Fork when thenP elseP}
+      (do [! ///////phase.monad]
+        [then! (again thenP)
+         else! (.when elseP
+                 {.#Some elseP}
+                 (again elseP)
+
+                 {.#None}
+                 (in ..fail!))]
+        (in (.if when
+              (_.if ..peek
+                then!
+                else!)
+              (_.if ..peek
+                else!
+                then!))))
+
+      (^.with_template [<tag> <format> <=>]
+        [{<tag> item}
+         (do [! ///////phase.monad]
+           [clauses (monad.each ! (function (_ [match then])
+                                    (do !
+                                      [then! (again then)]
+                                      (in [(<=> (|> match <format>)
+                                                ..peek)
+                                           then!])))
+                                {.#Item item})]
+           (in (list#mix (function (_ [when then] else)
+                           (_.if when then else))
+                         ..fail!
+                         clauses)))])
+      ([/////synthesis.#I64_Fork //primitive.i64 //runtime.i64::=]
+       [/////synthesis.#F64_Fork //primitive.f64 _.=]
+       [/////synthesis.#Text_Fork //primitive.text _.=])
+
+      (^.with_template [<pm> <flag> <prep>]
+        [(<pm> idx)
+         (///////phase#in (all _.then
+                               (_.set! $temp (|> idx <prep> .int _.int (//runtime.sum::get ..peek (//runtime.flag <flag>))))
+                               (_.if (_.= _.null $temp)
+                                 ..fail!
+                                 (..push_cursor! $temp))))])
+      ([/////synthesis.side/left  false (<|)]
+       [/////synthesis.side/right true  ++])
+
+      (/////synthesis.member/left 0)
+      (///////phase#in (_.item (_.int +1) ..peek))
+
+      (^.with_template [<pm> <getter>]
+        [(<pm> lefts)
+         (///////phase#in (|> ..peek (<getter> (_.int (.int lefts))) ..push_cursor!))])
+      ([/////synthesis.member/left  //runtime.tuple::left]
+       [/////synthesis.member/right //runtime.tuple::right])
+
+      (/////synthesis.path/seq leftP rightP)
+      (do ///////phase.monad
+        [leftO (again leftP)
+         rightO (again rightP)]
+        (in (all _.then
+                 leftO
+                 rightO)))
+
+      (/////synthesis.path/alt leftP rightP)
+      (do [! ///////phase.monad]
+        [leftO (again leftP)
+         rightO (again rightP)]
+        (in (_.try (all _.then
+                        ..save_cursor!
+                        leftO)
+                   {.#None}
+                   {.#Some (..catch (all _.then
+                                         ..restore_cursor!
+                                         rightO))}
+                   {.#None})))
+      )))
+
+(def (pattern_matching expression archive pathP)
+  (Translator Path)
+  (do ///////phase.monad
+    [pattern_matching! (pattern_matching' expression archive pathP)]
+    (in (_.try pattern_matching!
+               {.#None}
+               {.#Some (..catch (_.stop (_.string "Invalid expression for pattern-matching.")))}
+               {.#None}))))
+
+(def .public (when expression archive [valueS pathP])
+  (Translator [Synthesis Path])
+  (do [! ///////phase.monad]
+    [valueO (expression archive valueS)]
+    (<| (at ! each (|>> (all _.then
+                             (_.set! $cursor (_.list (list valueO)))
+                             (_.set! $savepoint (_.list (list))))
+                        _.block))
+        (pattern_matching expression archive pathP))))

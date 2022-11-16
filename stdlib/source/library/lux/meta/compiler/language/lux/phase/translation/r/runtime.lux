@@ -1,0 +1,882 @@
+(.require
+ [library
+  [lux (.except Location ++ i64)
+   [abstract
+    ["[0]" monad (.only do)]]
+   [control
+    ["<>" parser]
+    ["[0]" function]]
+   [data
+    ["[0]" product]
+    ["[0]" text (.use "[1]#[0]" hash)
+     ["%" \\format (.only format)]
+     [encoding
+      ["[0]" utf8]]]
+    [collection
+     ["[0]" list (.use "[1]#[0]" functor)]
+     ["[0]" sequence]]]
+   [math
+    [number (.only hex)
+     ["n" nat]
+     ["i" int (.use "[1]#[0]" interval)]
+     ["[0]" i64]]]
+   ["[0]" meta (.only)
+    ["[0]" code (.only)
+     ["<[1]>" \\parser]]
+    ["[0]" macro (.only)
+     [syntax (.only syntax)]]
+    ["@" target (.only)
+     ["_" r (.only SVar Expression)]]]]]
+ ["[0]" ///
+  ["[1][0]" reference]
+  ["//[1]" ///
+   [analysis (.only Variant)]
+   ["[1][0]" synthesis (.only Synthesis)]
+   ["[1][0]" translation]
+   ["//[1]" /// (.only)
+    ["[1][0]" phase]
+    [reference
+     [variable (.only Register)]]
+    [meta
+     [archive (.only Output Archive)
+      ["[0]" artifact (.only Registry)]]]]]])
+
+(def module_id
+  0)
+
+(with_template [<name> <base>]
+  [(type .public <name>
+     (<base> _.SVar _.Expression _.Expression))]
+
+  [Operation /////translation.Operation]
+  [Phase /////translation.Phase]
+  [Handler /////translation.Handler]
+  [Bundle /////translation.Bundle]
+  )
+
+(type .public (Translator i)
+  (-> Phase Archive i (Operation Expression)))
+
+(def .public unit
+  Expression
+  (_.string /////synthesis.unit))
+
+(def full_32 (hex "FFFFFFFF"))
+(def half_32 (hex "7FFFFFFF"))
+(def post_32 (hex "100000000"))
+
+(def (cap_32 input)
+  (-> Nat Int)
+  (cond (n.> full_32 input)
+        (|> input (i64.and full_32) cap_32)
+        
+        (n.> half_32 input)
+        (|> post_32 (n.- input) .int (i.* -1))
+        
+        ... else
+        (.int input)))
+
+(def .public with_vars
+  (syntax (_ [vars (<code>.tuple (<>.some <code>.local))
+              body <code>.any])
+    (do [! meta.monad]
+      [ids (monad.all ! (list.repeated (list.size vars) meta.seed))]
+      (in (list (` (let [(,* (|> vars
+                                 (list.zipped_2 ids)
+                                 (list#each (function (_ [id var])
+                                              (list (code.local var)
+                                                    (` (_.var (, (code.text (format "v" (%.nat id)))))))))
+                                 list.together))]
+                     (, body))))))))
+
+(def runtime
+  (syntax (_ [declaration (<>.or <code>.local
+                                 (<code>.form (<>.and <code>.local
+                                                      (<>.some <code>.local))))
+              code <code>.any])
+    (do meta.monad
+      [runtime_id meta.seed]
+      (macro.with_symbols [g!_]
+        (let [runtime (code.local (///reference.artifact [..module_id runtime_id]))
+              runtime_name (` (_.var (, (code.text (%.code runtime)))))]
+          (when declaration
+            {.#Left name}
+            (let [g!name (code.local name)]
+              (in (list (` (def .public (, g!name)
+                             _.SVar
+                             (, runtime_name)))
+                        
+                        (` (def (, (code.local (format "@" name)))
+                             _.Expression
+                             (_.set! (, runtime_name) (, code)))))))
+            
+            {.#Right [name inputs]}
+            (let [g!name (code.local name)
+                  inputsC (list#each code.local inputs)
+                  inputs_typesC (list#each (function.constant (` _.Expression))
+                                           inputs)]
+              (in (list (` (def .public ((, g!name) (,* inputsC))
+                             (-> (,* inputs_typesC) _.Expression)
+                             (_.apply (list (,* inputsC)) (, runtime_name))))
+
+                        (` (def (, (code.local (format "@" name)))
+                             _.Expression
+                             (..with_vars [(,* inputsC)]
+                               (_.set! (, runtime_name)
+                                       (_.function (list (,* inputsC))
+                                         (, code)))))))))))))))
+
+(def .public variant_tag_field "luxVT")
+(def .public variant_flag_field "luxVF")
+(def .public variant_value_field "luxVV")
+
+(def .public (flag value)
+  (-> Bit Expression)
+  (if value
+    (_.string "")
+    _.null))
+
+(runtime
+ (adt::variant tag last? value)
+ (_.named_list (list [..variant_tag_field (_.as::integer tag)]
+                     [..variant_flag_field last?]
+                     [..variant_value_field value])))
+
+(def .public (variant tag last? value)
+  (-> Nat Bit Expression Expression)
+  (adt::variant (_.int (.int tag))
+                (flag last?)
+                value))
+
+(def .public none
+  Expression
+  (variant 0 #0 ..unit))
+
+(def .public some
+  (-> Expression Expression)
+  (variant 1 #1))
+
+(def .public left
+  (-> Expression Expression)
+  (variant 0 #0))
+
+(def .public right
+  (-> Expression Expression)
+  (variant 1 #1))
+
+(def high_shift (_.bit_shl (_.int +32)))
+
+(with_template [<name> <power>]
+  [(runtime
+    <name> (|> (_.as::integer (_.int +2)) (_.** (_.as::integer (_.int <power>)))))]
+
+  [f2^32 +32]
+  [f2^63 +63]
+  )
+
+(def (as_double value)
+  (-> Expression Expression)
+  (_.apply (list value) (_.var "as.double")))
+
+(def .public i64_high_field "luxIH")
+(def .public i64_low_field "luxIL")
+
+(runtime
+ (i64::unsigned_low input)
+ (with_vars [low]
+   (all _.then
+        (_.set! low (_.item (_.string ..i64_low_field) input))
+        (_.if (_.< (_.int +0) low)
+          (_.+ f2^32 low)
+          low))))
+
+(runtime
+ (i64::float input)
+ (let [high (|> input
+                (_.item (_.string ..i64_high_field))
+                high_shift)
+       low (|> input
+               i64::unsigned_low)]
+   (|> high (_.+ low) as_double)))
+
+(runtime
+ (i64::new high low)
+ (_.named_list (list [..i64_high_field (_.as::integer high)]
+                     [..i64_low_field (_.as::integer low)])))
+
+(def high_32
+  (-> Nat Nat)
+  (i64.right_shifted 32))
+
+(def low_32
+  (-> Nat Nat)
+  (|>> (i64.and (hex "FFFFFFFF"))))
+
+(def .public (i64 value)
+  (-> Int Expression)
+  (let [value (.nat value)]
+    (i64::new (|> value ..high_32 ..cap_32 _.int)
+              (|> value ..low_32 ..cap_32 _.int))))
+
+(def .public (lux_i64 high low)
+  (-> Int Int Int)
+  (|> high
+      (i64.left_shifted 32)
+      (i64.or low)))
+
+(with_template [<name> <value>]
+  [(runtime
+    <name>
+    (..i64 <value>))]
+
+  [i64::zero +0]
+  [i64::one +1]
+  [i64::min i#bottom]
+  [i64::max i#top]
+  )
+
+(def .public i64_high (_.item (_.string ..i64_high_field)))
+(def .public i64_low (_.item (_.string ..i64_low_field)))
+
+(runtime
+ (i64::not input)
+ (i64::new (|> input i64_high _.bit_not)
+           (|> input i64_low _.bit_not)))
+
+(runtime
+ (i64::+ param subject)
+ (with_vars [sH sL pH pL
+             x00 x16 x32 x48]
+   (all _.then
+        (_.set! sH (|> subject i64_high))
+        (_.set! sL (|> subject i64_low))
+        (_.set! pH (|> param i64_high))
+        (_.set! pL (|> param i64_low))
+        (let [bits16 (_.manual "0xFFFF")
+              move_top_16 (_.bit_shl (_.int +16))
+              top_16 (_.bit_ushr (_.int +16))
+              bottom_16 (_.bit_and bits16)
+              split_16 (function (_ source)
+                         [(|> source top_16)
+                          (|> source bottom_16)])
+              split_int (function (_ high low)
+                          [(split_16 high)
+                           (split_16 low)])
+              
+              [[s48 s32] [s16 s00]] (split_int sH sL)
+              [[p48 p32] [p16 p00]] (split_int pH pL)
+              new_half (function (_ top bottom)
+                         (|> top bottom_16 move_top_16
+                             (_.bit_or (bottom_16 bottom))))]
+          (all _.then
+               (_.set! x00 (|> s00 (_.+ p00)))
+               (_.set! x16 (|> x00 top_16 (_.+ s16) (_.+ p16)))
+               (_.set! x32 (|> x16 top_16 (_.+ s32) (_.+ p32)))
+               (_.set! x48 (|> x32 top_16 (_.+ s48) (_.+ p48)))
+               (i64::new (new_half x48 x32)
+                         (new_half x16 x00)))))))
+
+(runtime
+ (i64::= reference sample)
+ (let [n/a? (function (_ value)
+              (_.apply (list value) (_.var "is.na")))
+       isTRUE? (function (_ value)
+                 (_.apply (list value) (_.var "isTRUE")))
+       comparison (is (-> (-> Expression Expression) Expression)
+                      (function (_ field)
+                        (|> (|> (field sample) (_.= (field reference)))
+                            (_.or (|> (n/a? (field sample))
+                                      (_.and (n/a? (field reference))))))))]
+   (|> (comparison i64_high)
+       (_.and (comparison i64_low))
+       isTRUE?)))
+
+(runtime
+ (i64::opposite input)
+ (_.if (|> input (i64::= i64::min))
+   i64::min
+   (|> input i64::not (i64::+ i64::one))))
+
+(runtime
+ i64::-one
+ (i64::opposite i64::one))
+
+(runtime
+ (i64::- param subject)
+ (i64::+ (i64::opposite param) subject))
+
+(runtime
+ (i64::< reference sample)
+ (with_vars [r_? s_?]
+   (all _.then
+        (_.set! s_? (|> sample ..i64_high (_.< (_.int +0))))
+        (_.set! r_? (|> reference ..i64_high (_.< (_.int +0))))
+        (|> (|> s_? (_.and (_.not r_?)))
+            (_.or (|> (_.not s_?) (_.and r_?) _.not))
+            (_.or (|> sample
+                      (i64::- reference)
+                      ..i64_high
+                      (_.< (_.int +0))))))))
+
+(runtime
+ (i64::of_float input)
+ (_.cond (list [(_.apply (list input) (_.var "is.nan"))
+                i64::zero]
+               [(|> input (_.<= (_.opposite f2^63)))
+                i64::min]
+               [(|> input (_.+ (_.float +1.0)) (_.>= f2^63))
+                i64::max]
+               [(|> input (_.< (_.float +0.0)))
+                (|> input _.opposite i64::of_float i64::opposite)])
+         (i64::new (|> input (_./ f2^32))
+                   (|> input (_.%% f2^32)))))
+
+(runtime
+ (i64::* param subject)
+ (with_vars [sH sL pH pL
+             x00 x16 x32 x48]
+   (all _.then
+        (_.set! sH (|> subject i64_high))
+        (_.set! pH (|> param i64_high))
+        (let [negative_subject? (|> sH (_.< (_.int +0)))
+              negative_param? (|> pH (_.< (_.int +0)))]
+          (_.cond (list [negative_subject?
+                         (_.if negative_param?
+                           (i64::* (i64::opposite param)
+                                   (i64::opposite subject))
+                           (i64::opposite (i64::* param
+                                                  (i64::opposite subject))))]
+
+                        [negative_param?
+                         (i64::opposite (i64::* (i64::opposite param)
+                                                subject))])
+                  (all _.then
+                       (_.set! sL (|> subject i64_low))
+                       (_.set! pL (|> param i64_low))
+                       (let [bits16 (_.manual "0xFFFF")
+                             move_top_16 (_.bit_shl (_.int +16))
+                             top_16 (_.bit_ushr (_.int +16))
+                             bottom_16 (_.bit_and bits16)
+                             split_16 (function (_ source)
+                                        [(|> source top_16)
+                                         (|> source bottom_16)])
+                             split_int (function (_ high low)
+                                         [(split_16 high)
+                                          (split_16 low)])
+                             new_half (function (_ top bottom)
+                                        (|> top bottom_16 move_top_16
+                                            (_.bit_or (bottom_16 bottom))))
+                             x16_top (|> x16 top_16)
+                             x32_top (|> x32 top_16)]
+                         (with_vars [s48 s32 s16 s00
+                                     p48 p32 p16 p00]
+                           (let [[[_s48 _s32] [_s16 _s00]] (split_int sH sL)
+                                 [[_p48 _p32] [_p16 _p00]] (split_int pH pL)
+                                 set_subject_chunks! (all _.then (_.set! s48 _s48) (_.set! s32 _s32) (_.set! s16 _s16) (_.set! s00 _s00))
+                                 set_param_chunks! (all _.then (_.set! p48 _p48) (_.set! p32 _p32) (_.set! p16 _p16) (_.set! p00 _p00))]
+                             (all _.then
+                                  set_subject_chunks!
+                                  set_param_chunks!
+                                  (_.set! x00 (|> s00 (_.* p00)))
+                                  (_.set! x16 (|> x00 top_16 (_.+ (|> s16 (_.* p00)))))
+                                  (_.set! x32 x16_top)
+                                  (_.set! x16 (|> x16 bottom_16 (_.+ (|> s00 (_.* p16)))))
+                                  (_.set! x32 (|> x32 (_.+ x16_top) (_.+ (|> s32 (_.* p00)))))
+                                  (_.set! x48 x32_top)
+                                  (_.set! x32 (|> x32 bottom_16 (_.+ (|> s16 (_.* p16)))))
+                                  (_.set! x48 (|> x48 (_.+ x32_top)))
+                                  (_.set! x32 (|> x32 bottom_16 (_.+ (|> s00 (_.* p32)))))
+                                  (_.set! x48 (|> x48 (_.+ x32_top)
+                                                  (_.+ (|> s48 (_.* p00)))
+                                                  (_.+ (|> s32 (_.* p16)))
+                                                  (_.+ (|> s16 (_.* p32)))
+                                                  (_.+ (|> s00 (_.* p48)))))
+                                  (i64::new (new_half x48 x32)
+                                            (new_half x16 x00)))))
+                         )))))))
+
+(def (limit_shift! shift)
+  (-> SVar Expression)
+  (_.set! shift (|> shift (_.bit_and (_.as::integer (_.int +63))))))
+
+(def (no_shift_clause shift input)
+  (-> SVar SVar [Expression Expression])
+  [(|> shift (_.= (_.int +0)))
+   input])
+
+(runtime
+ (i64::left_shifted shift input)
+ (all _.then
+      (limit_shift! shift)
+      (_.cond (list (no_shift_clause shift input)
+                    [(|> shift (_.< (_.int +32)))
+                     (let [mid (|> (i64_low input) (_.bit_ushr (|> (_.int +32) (_.- shift))))
+                           high (|> (i64_high input)
+                                    (_.bit_shl shift)
+                                    (_.bit_or mid))
+                           low (|> (i64_low input)
+                                   (_.bit_shl shift))]
+                       (i64::new high low))])
+              (let [high (|> (i64_high input)
+                             (_.bit_shl (|> shift (_.- (_.int +32)))))]
+                (i64::new high (_.int +0))))))
+
+(runtime
+ (i64::arithmetic_right_shifted_32 shift input)
+ (let [top_bit (|> input (_.bit_and (_.as::integer (_.int (hex "+80000000")))))]
+   (|> input
+       (_.bit_ushr shift)
+       (_.bit_or top_bit))))
+
+(runtime
+ (i64::arithmetic_right_shifted shift input)
+ (all _.then
+      (limit_shift! shift)
+      (_.cond (list (no_shift_clause shift input)
+                    [(|> shift (_.< (_.int +32)))
+                     (let [mid (|> (i64_high input) (_.bit_shl (|> (_.int +32) (_.- shift))))
+                           high (|> (i64_high input)
+                                    (i64::arithmetic_right_shifted_32 shift))
+                           low (|> (i64_low input)
+                                   (_.bit_ushr shift)
+                                   (_.bit_or mid))]
+                       (i64::new high low))])
+              (let [low (|> (i64_high input)
+                            (i64::arithmetic_right_shifted_32 (|> shift (_.- (_.int +32)))))
+                    high (_.if (_.< (_.int +0)
+                                    (i64_high input))
+                           (_.int -1)
+                           (_.int +0))]
+                (i64::new high low)))))
+
+(runtime
+ (i64::/ param subject)
+ (let [negative? (|>> (i64::< i64::zero))
+       valid_division_check [(|> param (i64::= i64::zero))
+                             (_.stop (_.string "Cannot divide by zero!"))]
+       short_circuit_check [(|> subject (i64::= i64::zero))
+                            i64::zero]]
+   (_.cond (list valid_division_check
+                 short_circuit_check
+
+                 [(|> subject (i64::= i64::min))
+                  (_.cond (list [(|> (|> param (i64::= i64::one))
+                                     (_.or (|> param (i64::= i64::-one))))
+                                 i64::min]
+                                [(|> param (i64::= i64::min))
+                                 i64::one])
+                          (with_vars [approximation]
+                            (all _.then
+                                 (_.set! approximation
+                                         (|> subject
+                                             (i64::arithmetic_right_shifted (_.int +1))
+                                             (i64::/ param)
+                                             (i64::left_shifted (_.int +1))))
+                                 (_.if (|> approximation (i64::= i64::zero))
+                                   (_.if (negative? param)
+                                     i64::one
+                                     i64::-one)
+                                   (let [remainder (i64::- (i64::* param approximation)
+                                                           subject)]
+                                     (|> remainder
+                                         (i64::/ param)
+                                         (i64::+ approximation)))))))]
+                 [(|> param (i64::= i64::min))
+                  i64::zero]
+
+                 [(negative? subject)
+                  (_.if (negative? param)
+                    (|> (i64::opposite subject)
+                        (i64::/ (i64::opposite param)))
+                    (|> (i64::opposite subject)
+                        (i64::/ param)
+                        i64::opposite))]
+
+                 [(negative? param)
+                  (|> param
+                      i64::opposite
+                      (i64::/ subject)
+                      i64::opposite)])
+           (with_vars [result remainder approximate approximate_result log2 approximate_remainder]
+             (all _.then
+                  (_.set! result i64::zero)
+                  (_.set! remainder subject)
+                  (_.while (|> (|> remainder (i64::< param))
+                               (_.or (|> remainder (i64::= param))))
+                           (let [calc_rough_estimate (_.apply (list (|> (i64::float remainder) (_./ (i64::float param))))
+                                                              (_.var "floor"))
+                                 calc_approximate_result (i64::of_float approximate)
+                                 calc_approximate_remainder (|> approximate_result (i64::* param))
+                                 delta (_.if (_.> log2 (_.float +48.0))
+                                         (_.** (|> log2 (_.- (_.float +48.0)))
+                                               (_.float +2.0))
+                                         (_.float +1.0))]
+                             (all _.then
+                                  (_.set! approximate (_.apply (list (_.float +1.0) calc_rough_estimate)
+                                                               (_.var "max")))
+                                  (_.set! log2 (let [log (function (_ input)
+                                                           (_.apply (list input) (_.var "log")))]
+                                                 (_.apply (list (|> (log (_.int +2))
+                                                                    (_./ (log approximate))))
+                                                          (_.var "ceil"))))
+                                  (_.set! approximate_result calc_approximate_result)
+                                  (_.set! approximate_remainder calc_approximate_remainder)
+                                  (_.while (|> (negative? approximate_remainder)
+                                               (_.or (|> approximate_remainder (i64::< remainder))))
+                                           (all _.then
+                                                (_.set! approximate (|> delta (_.- approximate)))
+                                                (_.set! approximate_result calc_approximate_result)
+                                                (_.set! approximate_remainder calc_approximate_remainder)))
+                                  (_.set! result (|> (_.if (|> approximate_result (i64::= i64::zero))
+                                                       i64::one
+                                                       approximate_result)
+                                                     (i64::+ result)))
+                                  (_.set! remainder (|> remainder (i64::- approximate_remainder))))))
+                  result))
+           )))
+
+(runtime
+ (i64::% param subject)
+ (let [flat (|> subject (i64::/ param) (i64::* param))]
+   (|> subject (i64::- flat))))
+
+(runtime
+ (lux::try op)
+ (with_vars [error value]
+   (_.try (all _.then
+               (_.set! value (_.apply (list ..unit) op))
+               (..right value))
+          {.#None}
+          {.#Some (_.function (list error)
+                    (..left (_.item (_.string "message")
+                                    error)))}
+          {.#None})))
+
+(runtime
+ (lux::program_args program_args)
+ (with_vars [inputs value]
+   (all _.then
+        (_.set! inputs ..none)
+        (<| (_.for_in value program_args)
+            (_.set! inputs (..some (_.list (list value inputs)))))
+        inputs)))
+
+(def runtime//lux
+  Expression
+  (all _.then
+       @lux::try
+       @lux::program_args
+       ))
+
+(def current_time_float
+  Expression
+  (let [raw_time (_.apply (list) (_.var "Sys.time"))]
+    (_.apply (list raw_time) (_.var "as.numeric"))))
+
+(runtime
+ (io::current_time! _)
+ (|> current_time_float
+     (_.* (_.float +1,000.0))
+     i64::of_float))
+
+(def runtime//io
+  Expression
+  (all _.then
+       @io::current_time!
+       ))
+
+(def minimum_index_length
+  (-> SVar Expression)
+  (|>> (_.+ (_.int +1))))
+
+(def (product_element product index)
+  (-> Expression Expression Expression)
+  (|> product (_.item (|> index (_.+ (_.int +1))))))
+
+(def (product_tail product)
+  (-> SVar Expression)
+  (|> product (_.item (_.length product))))
+
+(def (updated_index min_length product)
+  (-> Expression Expression Expression)
+  (|> min_length (_.- (_.length product))))
+
+(runtime
+ (tuple::left index product)
+ (let [$index_min_length (_.var "index_min_length")]
+   (all _.then
+        (_.set! $index_min_length (minimum_index_length index))
+        (_.if (|> (_.length product) (_.> $index_min_length))
+          ... No need for recursion
+          (product_element product index)
+          ... Needs recursion
+          (tuple::left (updated_index $index_min_length product)
+                       (product_tail product))))))
+
+(runtime
+ (tuple::right index product)
+ (let [$index_min_length (_.var "index_min_length")]
+   (all _.then
+        (_.set! $index_min_length (minimum_index_length index))
+        (_.cond (list [... Last element.
+                       (|> (_.length product) (_.= $index_min_length))
+                       (product_element product index)]
+                      [... Needs recursion
+                       (|> (_.length product) (_.< $index_min_length))
+                       (tuple::right (updated_index $index_min_length product)
+                                     (product_tail product))])
+                ... Must slice
+                (|> product (_.slice_from index))))))
+
+(runtime
+ (sum::get sum wants_last? wanted_tag)
+ (let [no_match _.null
+       sum_tag (|> sum (_.item (_.string ..variant_tag_field)))
+       sum_flag (|> sum (_.item (_.string ..variant_flag_field)))
+       sum_value (|> sum (_.item (_.string ..variant_value_field)))
+       is_last? (|> sum_flag (_.= (_.string "")))
+       test_recursion (_.if is_last?
+                        ... Must recurse.
+                        (|> wanted_tag
+                            (_.- sum_tag)
+                            (sum::get sum_value wants_last?))
+                        no_match)]
+   (_.cond (list [(_.= sum_tag wanted_tag)
+                  (_.if (_.= wants_last? sum_flag)
+                    sum_value
+                    test_recursion)]
+
+                 [(|> wanted_tag (_.> sum_tag))
+                  test_recursion]
+
+                 [(|> (|> wants_last? (_.= (_.string "")))
+                      (_.and (|> wanted_tag (_.< sum_tag))))
+                  (adt::variant (|> sum_tag (_.- wanted_tag)) sum_flag sum_value)])
+
+           no_match)))
+
+(def runtime//adt
+  Expression
+  (all _.then
+       @tuple::left
+       @tuple::right
+       @sum::get
+       @adt::variant
+       ))
+
+(with_template [<name> <op>]
+  [(runtime
+    (<name> mask input)
+    (i64::new (<op> (i64_high mask)
+                    (i64_high input))
+              (<op> (i64_low mask)
+                    (i64_low input))))]
+
+  [i64::and _.bit_and]
+  [i64::or  _.bit_or]
+  [i64::xor _.bit_xor]
+  )
+
+(runtime
+ (i64::right_shifted shift input)
+ (all _.then
+      (limit_shift! shift)
+      (_.cond (list (no_shift_clause shift input)
+                    [(|> shift (_.< (_.int +32)))
+                     (with_vars [$mid]
+                       (let [mid (|> (i64_high input) (_.bit_shl (|> (_.int +32) (_.- shift))))
+                             high (|> (i64_high input) (_.bit_ushr shift))
+                             low (|> (i64_low input)
+                                     (_.bit_ushr shift)
+                                     (_.bit_or (_.if (_.apply (list $mid) (_.var "is.na"))
+                                                 (_.as::integer (_.int +0))
+                                                 $mid)))]
+                         (all _.then
+                              (_.set! $mid mid)
+                              (i64::new high low))))]
+                    [(|> shift (_.= (_.int +32)))
+                     (let [high (i64_high input)]
+                       (i64::new (_.int +0) high))])
+              (let [low (|> (i64_high input) (_.bit_ushr (|> shift (_.- (_.int +32)))))]
+                (i64::new (_.int +0) low)))))
+
+(def runtime//i64
+  Expression
+  (all _.then
+       @f2^32
+       @f2^63
+       
+       @i64::new
+       @i64::of_float
+       
+       @i64::and
+       @i64::or
+       @i64::xor
+       @i64::not
+       @i64::left_shifted
+       @i64::arithmetic_right_shifted_32
+       @i64::arithmetic_right_shifted
+       @i64::right_shifted
+
+       @i64::zero
+       @i64::one
+       @i64::min
+       @i64::max
+       @i64::=
+       @i64::<
+       @i64::+
+       @i64::-
+       @i64::opposite
+       @i64::-one
+       @i64::unsigned_low
+       @i64::float
+       @i64::*
+       @i64::/
+       @i64::%
+       ))
+
+(runtime
+ (frac::decode input)
+ (with_vars [output]
+   (all _.then
+        (_.set! output (_.apply (list input) (_.var "as.numeric")))
+        (_.if (|> output (_.= _.n/a))
+          ..none
+          (..some output)))))
+
+(def runtime//frac
+  Expression
+  (all _.then
+       @frac::decode
+       ))
+
+(def ++
+  (-> Expression Expression)
+  (|>> (_.+ (_.int +1))))
+
+(def (text_clip start end text)
+  (-> Expression Expression Expression Expression)
+  (_.apply (list text start end)
+           (_.var "substr")))
+
+(def (text_length text)
+  (-> Expression Expression)
+  (_.apply (list text) (_.var "nchar")))
+
+(runtime
+ (text::index subject param start)
+ (with_vars [idx startF subjectL]
+   (all _.then
+        (_.set! startF (i64::float start))
+        (_.set! subjectL (text_length subject))
+        (_.if (_.< subjectL startF)
+          (all _.then
+               (_.set! idx (|> (_.apply_kw (list param (_.if (|> startF (_.= (_.int +0)))
+                                                         subject
+                                                         (text_clip (++ startF)
+                                                                    (++ subjectL)
+                                                                    subject)))
+                                           (list ["fixed" (_.bool #1)])
+                                           (_.var "regexpr"))
+                               (_.item (_.int +1))))
+               (_.if (|> idx (_.= (_.int -1)))
+                 ..none
+                 (..some (i64::of_float (|> idx (_.+ startF))))))
+          ..none))))
+
+(runtime
+ (text::clip text minimum additional)
+ (with_vars [length]
+   (all _.then
+        (_.set! length (_.length text))
+        (_.set! to (_.+ additional minimum))
+        (_.if (_.< length to)
+          (..some (text_clip (++ minimum) (++ to) text))
+          ..none))))
+
+(def (char_at idx text)
+  (-> Expression Expression Expression)
+  (_.apply (list (text_clip idx idx text))
+           (_.var "utf8ToInt")))
+
+(runtime
+ (text::char text idx)
+ (_.if (_.< (_.length text) idx)
+   (all _.then
+        (_.set! idx (++ idx))
+        (..some (i64::of_float (char_at idx text))))
+   ..none))
+
+(def runtime//text
+  Expression
+  (all _.then
+       @text::index
+       @text::clip
+       @text::char
+       ))
+
+(def (check_index_out_of_bounds array idx body)
+  (-> Expression Expression Expression Expression)
+  (_.if (_.> (_.length array) idx)
+    (_.stop (_.string "Array index out of bounds!"))
+    body))
+
+(runtime
+ (array::new size)
+ (with_vars [output]
+   (all _.then
+        (_.set! output (_.list (list)))
+        (_.set_item! (|> size (_.+ (_.int +1)))
+                     _.null
+                     output)
+        output)))
+
+(runtime
+ (array::get array idx)
+ (with_vars [temp]
+   (<| (check_index_out_of_bounds array idx)
+       (all _.then
+            (_.set! temp (|> array (_.item (_.+ (_.int +1) idx))))
+            (_.if (|> temp (_.= _.null))
+              ..none
+              (..some temp))))))
+
+(runtime
+ (array::put array idx value)
+ (<| (check_index_out_of_bounds array idx)
+     (all _.then
+          (_.set_item! (_.+ (_.int +1) idx) value array)
+          array)))
+
+(def runtime//array
+  Expression
+  (all _.then
+       @array::new
+       @array::get
+       @array::put
+       ))
+
+(def full_runtime
+  Expression
+  (all _.then
+       runtime//lux
+       runtime//i64
+       runtime//adt
+       runtime//frac
+       runtime//text
+       runtime//array
+       runtime//io
+       ))
+
+(def .public translate
+  (Operation [Registry Output])
+  (do ///////phase.monad
+    [_ (/////translation.execute! ..full_runtime)
+     _ (/////translation.save! (%.nat ..module_id) ..full_runtime)]
+    (in [(|> artifact.empty
+             artifact.resource
+             product.right)
+         (sequence.sequence [(%.nat ..module_id)
+                             (|> ..full_runtime
+                                 _.code
+                                 (at utf8.codec encoded))])])))

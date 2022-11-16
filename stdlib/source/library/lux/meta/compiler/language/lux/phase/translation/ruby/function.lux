@@ -1,0 +1,123 @@
+(.require
+ [library
+  [lux (.except function)
+   [abstract
+    ["[0]" monad (.only do)]]
+   [data
+    ["[0]" product]
+    [text
+     ["%" \\format (.only format)]]
+    [collection
+     ["[0]" list (.use "[1]#[0]" functor mix)]]]
+   [meta
+    [target
+     ["_" ruby (.only LVar GVar Expression Statement)]]]]]
+ ["[0]" //
+  [runtime (.only Operation Phase Translator Phase! Translator!)]
+  ["[1][0]" reference]
+  ["[1][0]" when]
+  ["[1][0]" loop]
+  ["/[1]" //
+   ["[1][0]" reference]
+   ["//[1]" ///
+    [synthesis (.only Synthesis)]
+    [analysis (.only Environment Abstraction Reification Analysis)]
+    ["[1][0]" translation]
+    ["//[1]" ///
+     [arity (.only Arity)]
+     ["[1][0]" phase]
+     [reference
+      [variable (.only Register Variable)]]
+     [meta
+      ["[0]" cache
+       [dependency
+        ["[1]/[0]" artifact]]]]]]]])
+
+(def .public (apply expression archive [functionS argsS+])
+  (Translator (Reification Synthesis))
+  (do [! ///////phase.monad]
+    [functionO (expression archive functionS)
+     argsO+ (monad.each ! (expression archive) argsS+)]
+    (in (_.apply_lambda argsO+ functionO))))
+
+(def .public capture
+  (-> Register LVar)
+  (|>> (///reference.foreign //reference.system) as_expected))
+
+(def (with_closure inits self function_definition)
+  (-> (List Expression) Text Expression [Statement Expression])
+  (let [@self (_.global self)]
+    (when inits
+      {.#End}
+      [(_.set (list @self) function_definition)
+       @self]
+
+      _
+      [(_.set (list @self) (_.lambda {.#None}
+                                     [(|> (list.enumeration inits)
+                                          (list#each (|>> product.left ..capture)))
+                                      (let [@self (_.local self)]
+                                        (all _.then
+                                             (_.set (list @self) function_definition)
+                                             (_.return @self)))]))
+       (_.apply_lambda inits @self)])))
+
+(def input
+  (|>> ++ //when.register))
+
+(def .public (function statement expression archive [environment arity bodyS])
+  (-> Phase! (Translator (Abstraction Synthesis)))
+  (do [! ///////phase.monad]
+    [dependencies (cache/artifact.dependencies archive bodyS)
+     [[function_module function_artifact] body!] (/////translation.with_new_context archive dependencies
+                                                   (/////translation.with_anchor 1
+                                                     (statement expression archive bodyS)))
+     closureO+ (monad.each ! (expression archive) environment)
+     .let [function_name (///reference.artifact [function_module function_artifact])
+           @curried (_.local "curried")
+           arityO (|> arity .int _.int)
+           limitO (|> arity -- .int _.int)
+           @num_args (_.local "num_args")
+           @self (is _.Location
+                     (when closureO+
+                       {.#End}
+                       (_.global function_name)
+
+                       _
+                       (_.local function_name)))
+           initialize_self! (_.set (list (//when.register 0)) @self)
+           initialize! (list#mix (.function (_ post pre!)
+                                   (all _.then
+                                        pre!
+                                        (_.set (list (..input post)) (_.item (|> post .int _.int) @curried))))
+                                 initialize_self!
+                                 (list.indices arity))
+           [declaration instatiation] (with_closure closureO+ function_name
+                                        (_.lambda {.#None}
+                                                  [(list (_.variadic @curried))
+                                                   (all _.then
+                                                        (_.set (list @num_args) (_.the "length" @curried))
+                                                        (<| (_.if (|> @num_args (_.= arityO))
+                                                              (<| (_.then initialize!)
+                                                                  //loop.with_scope
+                                                                  body!))
+                                                            (_.if (|> @num_args (_.> arityO))
+                                                              (let [slice (.function (_ from to)
+                                                                            (_.array_range from to @curried))
+                                                                    arity_args (_.splat (slice (_.int +0) limitO))
+                                                                    output_func_args (_.splat (slice arityO @num_args))]
+                                                                (_.return (|> @self
+                                                                              (_.apply_lambda (list arity_args))
+                                                                              (_.apply_lambda (list output_func_args))))))
+                                                            ... (|> @num_args (_.< arityO))
+                                                            (let [@missing (_.local "missing")]
+                                                              (_.return (_.lambda {.#None}
+                                                                                  [(list (_.variadic @missing))
+                                                                                   (_.return (|> @self
+                                                                                                 (_.apply_lambda (list (_.splat (|> (_.array (list))
+                                                                                                                                    (_.do "concat" (list @curried) {.#None})
+                                                                                                                                    (_.do "concat" (list @missing) {.#None})))))))]))))
+                                                        )]))]
+     _ (/////translation.execute! declaration)
+     _ (/////translation.save! function_artifact {.#None} declaration)]
+    (in instatiation)))

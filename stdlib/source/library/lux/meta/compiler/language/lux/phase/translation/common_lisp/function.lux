@@ -1,0 +1,104 @@
+(.require
+ [library
+  [lux (.except function)
+   [abstract
+    ["[0]" monad (.only do)]]
+   [control
+    pipe]
+   [data
+    ["[0]" product]
+    [text
+     ["%" \\format (.only format)]]
+    [collection
+     ["[0]" list (.use "[1]#[0]" functor)]]]
+   [meta
+    [target
+     ["_" common_lisp (.only Expression Var/1)]]]]]
+ ["[0]" //
+  ["[1][0]" runtime (.only Operation Phase Translator)]
+  ["[1][0]" reference]
+  ["[1][0]" when]
+  ["/[1]" //
+   ["[1][0]" reference]
+   ["//[1]" ///
+    [analysis (.only Variant Tuple Abstraction Application Analysis)]
+    [synthesis (.only Synthesis)]
+    ["[1][0]" translation (.only Context)]
+    ["//[1]" ///
+     [arity (.only Arity)]
+     ["[1][0]" phase (.use "[1]#[0]" monad)]
+     [reference
+      [variable (.only Register Variable)]]]]]])
+
+(def .public (apply expression archive [functionS argsS+])
+  (Translator (Application Synthesis))
+  (do [! ///////phase.monad]
+    [functionG (expression archive functionS)
+     argsG+ (monad.each ! (expression archive) argsS+)]
+    (in (_.funcall/+ [functionG argsG+]))))
+
+(def capture
+  (-> Register Var/1)
+  (|>> (///reference.foreign //reference.system) as_expected))
+
+(def (with_closure inits function_definition)
+  (-> (List (Expression Any)) (Expression Any) (Operation (Expression Any)))
+  (when inits
+    {.#End}
+    (at ///////phase.monad in function_definition)
+
+    _
+    (do [! ///////phase.monad]
+      [@closure (at ! each _.var (/////translation.symbol "closure"))]
+      (in (_.labels (list [@closure [(|> (list.enumeration inits)
+                                         (list#each (|>> product.left ..capture))
+                                         _.args)
+                                     function_definition]])
+                    (_.funcall/+ [(_.function/1 @closure) inits]))))))
+
+(def input
+  (|>> ++ //when.register))
+
+(def .public (function expression archive [environment arity bodyS])
+  (Translator (Abstraction Synthesis))
+  (do [! ///////phase.monad]
+    [@scope (at ! each (|>> %.nat (format "function_scope") _.tag) /////translation.next)
+     @output (at ! each (|>> %.nat (format "loop_output") _.var) /////translation.next)
+     [function_name bodyG] (/////translation.with_new_context archive
+                             (/////translation.with_anchor [@scope 1]
+                               (expression archive bodyS)))
+     closureG+ (monad.each ! (expression archive) environment)
+     .let [@curried (_.var "curried")
+           @missing (_.var "missing")
+           arityG (|> arity .int _.int)
+           @num_args (_.var "num_args")
+           @self (_.var (///reference.artifact function_name))
+           initialize_self! [(//when.register 0) (_.function/1 @self)]
+           initialize! [(|> (list.indices arity)
+                            (list#each ..input)
+                            _.args)
+                        @curried]]]
+    (with_closure closureG+
+      (_.labels (list [@self [(_.args& (list) @curried)
+                              (_.let (list [@num_args (_.length/1 @curried)])
+                                (list (_.cond (list [(_.=/2 [arityG @num_args])
+                                                     (_.let (list [@output _.nil]
+                                                                  initialize_self!)
+                                                       (list (_.destructuring-bind initialize!
+                                                                                   (list (_.tagbody
+                                                                                          (list @scope
+                                                                                                (_.setq @output bodyG)))
+                                                                                         @output))))]
+
+                                                    [(_.>/2 [arityG @num_args])
+                                                     (let [arity_inputs (_.subseq/3 [@curried (_.int +0) arityG])
+                                                           extra_inputs (_.subseq/3 [@curried arityG @num_args])]
+                                                       (_.apply/2 [(_.apply/2 [(_.function/1 @self)
+                                                                               arity_inputs])
+                                                                   extra_inputs]))])
+                                              ... (|> @num_args (_.< arityG))
+                                              (_.lambda (_.args& (list) @missing)
+                                                        (_.apply/2 [(_.function/1 @self)
+                                                                    (_.append/2 [@curried @missing])])))))]])
+                (_.function/1 @self)))
+    ))

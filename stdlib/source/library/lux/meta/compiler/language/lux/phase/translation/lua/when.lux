@@ -1,0 +1,304 @@
+(.require
+ [library
+  [lux (.except when exec let if)
+   [abstract
+    ["[0]" monad (.only do)]]
+   [data
+    ["[0]" text (.only)
+     ["%" \\format (.only format)]]
+    [collection
+     ["[0]" list (.use "[1]#[0]" functor mix)]
+     ["[0]" set]]]
+   [meta
+    [macro
+     ["^" pattern]]
+    [target
+     ["_" lua (.only Expression Var Statement)]]]]]
+ ["[0]" //
+  ["[1][0]" runtime (.only Operation Phase Phase! Translator Translator!)]
+  ["[1][0]" reference]
+  ["[1][0]" primitive]
+  ["/[1]" //
+   ["[1][0]" reference]
+   ["/[1]" //
+    ["[1][0]" synthesis
+     ["[1]/[0]" when]]
+    ["/[1]" //
+     ["[1][0]" synthesis (.only Synthesis Path)
+      [access
+       ["[0]" member (.only Member)]]]
+     ["[1][0]" translation]
+     ["//[1]" ///
+      [reference
+       ["[1][0]" variable (.only Register)]]
+      ["[1][0]" phase (.use "[1]#[0]" monad)]
+      [meta
+       [archive (.only Archive)]]]]]]])
+
+(def .public register
+  (-> Register Var)
+  (|>> (///reference.local //reference.system) as_expected))
+
+(def .public capture
+  (-> Register Var)
+  (|>> (///reference.foreign //reference.system) as_expected))
+
+(def .public (exec expression archive [this that])
+  (Translator [Synthesis Synthesis])
+  (do ///////phase.monad
+    [this (expression archive this)
+     that (expression archive that)]
+    (in (|> (_.array (list this that))
+            (_.item (_.int +2))))))
+
+(def .public (exec! statement expression archive [this that])
+  (Translator! [Synthesis Synthesis])
+  (do [! ///////phase.monad]
+    [this (expression archive this)
+     that (statement expression archive that)
+     $dummy (at ! each _.var (/////translation.symbol "_exec"))]
+    (in (all _.then
+             (_.set (list $dummy) this)
+             that))))
+
+(def .public (let expression archive [valueS register bodyS])
+  (Translator [Synthesis Register Synthesis])
+  (do ///////phase.monad
+    [valueO (expression archive valueS)
+     bodyO (expression archive bodyS)]
+    ... TODO: Find some way to do 'let' without paying the price of the closure.
+    (in (|> bodyO
+            _.return
+            (_.closure (list (..register register)))
+            (_.apply (list valueO))))))
+
+(def .public (let! statement expression archive [valueS register bodyS])
+  (Translator! [Synthesis Register Synthesis])
+  (do ///////phase.monad
+    [valueO (expression archive valueS)
+     bodyO (statement expression archive bodyS)]
+    (in (all _.then
+             (_.local/1 (..register register) valueO)
+             bodyO))))
+
+(def .public (get expression archive [pathP valueS])
+  (Translator [(List Member) Synthesis])
+  (do ///////phase.monad
+    [valueO (expression archive valueS)]
+    (in (list#mix (function (_ side source)
+                    (.let [method (.if (the member.#right? side)
+                                    (//runtime.tuple//right (_.int (.int (the member.#lefts side))))
+                                    (//runtime.tuple//left (_.int (.int (the member.#lefts side)))))]
+                      (method source)))
+                  valueO
+                  (list.reversed pathP)))))
+
+(def .public (if expression archive [testS thenS elseS])
+  (Translator [Synthesis Synthesis Synthesis])
+  (do ///////phase.monad
+    [testO (expression archive testS)
+     thenO (expression archive thenS)
+     elseO (expression archive elseS)]
+    (in (|> (_.if testO
+              (_.return thenO)
+              (_.return elseO))
+            (_.closure (list))
+            (_.apply (list))))))
+
+(def .public (if! statement expression archive [testS thenS elseS])
+  (Translator! [Synthesis Synthesis Synthesis])
+  (do ///////phase.monad
+    [testO (expression archive testS)
+     thenO (statement expression archive thenS)
+     elseO (statement expression archive elseS)]
+    (in (_.if testO
+          thenO
+          elseO))))
+
+(def @savepoint (_.var "lux_pm_savepoint"))
+(def @cursor (_.var "lux_pm_cursor"))
+(def @temp (_.var "lux_pm_temp"))
+
+(def (push! value)
+  (-> Expression Statement)
+  (_.statement (|> (_.var "table.insert") (_.apply (list @cursor value)))))
+
+(def peek_and_pop
+  Expression
+  (|> (_.var "table.remove") (_.apply (list @cursor))))
+
+(def pop!
+  Statement
+  (_.statement ..peek_and_pop))
+
+(def peek
+  Expression
+  (_.item (_.length @cursor) @cursor))
+
+(def save!
+  Statement
+  (_.statement (|> (_.var "table.insert")
+                   (_.apply (list @savepoint
+                                  (_.apply (list @cursor
+                                                 (_.int +1)
+                                                 (_.length @cursor)
+                                                 (_.int +1)
+                                                 (_.table (list)))
+                                           (_.var "table.move")))))))
+
+(def restore!
+  Statement
+  (_.set (list @cursor) (|> (_.var "table.remove") (_.apply (list @savepoint)))))
+
+(def fail! _.break)
+
+(with_template [<name> <flag>]
+  [(def (<name> simple? idx)
+     (-> Bit Nat Statement)
+     (all _.then
+          (_.set (list @temp) (//runtime.sum//get ..peek <flag>
+                                                  (|> idx .int _.int)))
+          (.if simple?
+            (_.when (_.= _.nil @temp)
+              fail!)
+            (_.if (_.= _.nil @temp)
+              fail!
+              (..push! @temp)))))]
+
+  [left_choice  _.nil]
+  [right_choice //runtime.unit]
+  )
+
+(def (alternation pre! post!)
+  (-> Statement Statement Statement)
+  (all _.then
+       (_.while (_.boolean true)
+                (all _.then
+                     ..save!
+                     pre!))
+       (all _.then
+            ..restore!
+            post!)))
+
+(def (pattern_matching' statement expression archive)
+  (-> Phase! Phase Archive Path (Operation Statement))
+  (function (again pathP)
+    (.when pathP
+      {/////synthesis.#Then bodyS}
+      (statement expression archive bodyS)
+
+      {/////synthesis.#Pop}
+      (///////phase#in ..pop!)
+
+      {/////synthesis.#Bind register}
+      (///////phase#in (_.local/1 (..register register) ..peek))
+
+      {/////synthesis.#Bit_Fork when thenP elseP}
+      (do [! ///////phase.monad]
+        [then! (again thenP)
+         else! (.when elseP
+                 {.#Some elseP}
+                 (again elseP)
+
+                 {.#None}
+                 (in ..fail!))]
+        (in (.if when
+              (_.if ..peek
+                then!
+                else!)
+              (_.if ..peek
+                else!
+                then!))))
+
+      (^.with_template [<tag> <format>]
+        [{<tag> item}
+         (do [! ///////phase.monad]
+           [clauses (monad.each ! (function (_ [match then])
+                                    (do !
+                                      [then! (again then)]
+                                      (in [(_.= (|> match <format>)
+                                                ..peek)
+                                           then!])))
+                                {.#Item item})]
+           (in (list#mix (function (_ [when then!] else!)
+                           (_.if when then! else!))
+                         ..fail!
+                         clauses)))])
+      ([/////synthesis.#I64_Fork (<| _.int .int)]
+       [/////synthesis.#F64_Fork _.float]
+       [/////synthesis.#Text_Fork _.string])
+
+      (^.with_template [<complex> <simple> <choice>]
+        [(<complex> idx)
+         (///////phase#in (<choice> false idx))
+
+         (<simple> idx nextP)
+         (///////phase#each (_.then (<choice> true idx)) (again nextP))])
+      ([/////synthesis.side/left  /////synthesis.simple_left_side  ..left_choice]
+       [/////synthesis.side/right /////synthesis.simple_right_side ..right_choice])
+
+      (/////synthesis.member/left 0)
+      (///////phase#in (|> ..peek (_.item (_.int +1)) ..push!))
+      
+      (^.with_template [<pm> <getter>]
+        [(<pm> lefts)
+         (///////phase#in (|> ..peek (<getter> (_.int (.int lefts))) ..push!))])
+      ([/////synthesis.member/left  //runtime.tuple//left]
+       [/////synthesis.member/right //runtime.tuple//right])
+
+      (/////synthesis.!bind_top register thenP)
+      (do ///////phase.monad
+        [then! (again thenP)]
+        (///////phase#in (all _.then
+                              (_.local/1 (..register register) ..peek_and_pop)
+                              then!)))
+
+      (^.with_template [<tag> <combinator>]
+        [(<tag> preP postP)
+         (do ///////phase.monad
+           [pre! (again preP)
+            post! (again postP)]
+           (in (<combinator> pre! post!)))])
+      ([/////synthesis.path/seq _.then]
+       [/////synthesis.path/alt ..alternation]))))
+
+(def (pattern_matching statement expression archive pathP)
+  (-> Phase! Phase Archive Path (Operation Statement))
+  (do ///////phase.monad
+    [pattern_matching! (pattern_matching' statement expression archive pathP)]
+    (in (all _.then
+             (_.while (_.boolean true)
+                      pattern_matching!)
+             (_.statement (|> (_.var "error") (_.apply (list (_.string ////synthesis/when.pattern_matching_error)))))))))
+
+(def .public dependencies
+  (-> Path (List Var))
+  (|>> ////synthesis/when.storage
+       (the ////synthesis/when.#dependencies)
+       set.list
+       (list#each (function (_ variable)
+                    (.when variable
+                      {///////variable.#Local register}
+                      (..register register)
+                      
+                      {///////variable.#Foreign register}
+                      (..capture register))))))
+
+(def .public (when! statement expression archive [valueS pathP])
+  (Translator! [Synthesis Path])
+  (do ///////phase.monad
+    [stack_init (expression archive valueS)
+     pattern_matching! (pattern_matching statement expression archive pathP)]
+    (in (all _.then
+             (_.local (list @temp))
+             (_.local/1 @cursor (_.array (list stack_init)))
+             (_.local/1 @savepoint (_.array (list)))
+             pattern_matching!))))
+
+(def .public (when statement expression archive [valueS pathP])
+  (-> Phase! (Translator [Synthesis Path]))
+  (|> [valueS pathP]
+      (..when! statement expression archive)
+      (at ///////phase.monad each
+          (|>> (_.closure (list))
+               (_.apply (list))))))

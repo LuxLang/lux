@@ -1,0 +1,146 @@
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]
+    [monoid (.only Monoid)]
+    [equivalence (.only Equivalence)]
+    ["[0]" hash (.only Hash)]]
+   [control
+    ["[0]" try (.only Try)]
+    ["[0]" exception (.only Exception)]]
+   [data
+    [text
+     ["%" \\format]]]
+   [math
+    [number
+     ["n" nat]
+     ["[0]" i64]]]
+   [meta
+    [type
+     ["[0]" primitive]]]]])
+
+(def .public limit
+  Nat
+  256)
+
+(primitive.def .public Value
+  Nat
+
+  (def .public least
+    Value
+    (primitive.abstraction 0))
+
+  (def .public most
+    Value
+    (primitive.abstraction (-- ..limit)))
+
+  (exception.def .public (invalid it)
+    (Exception Nat)
+    (exception.report
+     (list ["Limit" (%.nat ..limit)]
+           ["Value" (%.nat it)])))
+
+  (def .public (value it)
+    (-> Nat
+        (Try Value))
+    (if (n.< ..limit it)
+      {try.#Success (primitive.abstraction it)}
+      (exception.except ..invalid [it])))
+
+  (def .public number
+    (-> Value Nat)
+    (|>> primitive.representation))
+
+  (type .public RGB
+    (Record
+     [#red Value
+      #green Value
+      #blue Value]))
+
+  (def .public (rgb red green blue)
+    (-> Nat Nat Nat
+        (Try RGB))
+    (do try.monad
+      [red (value red)
+       green (value green)
+       blue (value blue)]
+      (in [#red red
+           #green green
+           #blue blue])))
+
+  (def .public equivalence
+    (Equivalence RGB)
+    (implementation
+     (def (= [rR gR bR] [rS gS bS])
+       (and (n.= (primitive.representation rR) (primitive.representation rS))
+            (n.= (primitive.representation gR) (primitive.representation gS))
+            (n.= (primitive.representation bR) (primitive.representation bS))))))
+
+  (def .public hash
+    (Hash RGB)
+    (implementation
+     (def equivalence
+       ..equivalence)
+
+     (def (hash [r g b])
+       (all i64.or
+            (i64.left_shifted 16 (primitive.representation r))
+            (i64.left_shifted 08 (primitive.representation g))
+            (primitive.representation b)))))
+
+  (def (opposite_intensity value)
+    (-> Nat Nat)
+    (|> (primitive.representation ..most)
+        (n.- value)))
+
+  (def .public (complement it)
+    (-> RGB RGB)
+    (`` [(,, (with_template [<slot>]
+               [<slot> (|> it
+                           (the <slot>)
+                           primitive.representation
+                           opposite_intensity
+                           primitive.abstraction)]
+
+               [#red]
+               [#green]
+               [#blue]
+               ))]))
+
+  (def .public black
+    RGB
+    [#red ..least
+     #green ..least
+     #blue ..least])
+
+  (def .public white
+    RGB
+    [#red ..most
+     #green ..most
+     #blue ..most])
+
+  (with_template [<monoid> <identity> <composite> <left> <right>]
+    [(def .public <monoid>
+       (Monoid RGB)
+       (implementation
+        (def identity
+          <identity>)
+
+        (def (composite left right)
+          (let [left (<left> left)
+                right (<right> right)]
+            (`` [(,, (with_template [<slot>]
+                       [<slot> (primitive.abstraction
+                                (<composite> (primitive.representation (the <slot> left))
+                                             (primitive.representation (the <slot> right))))]
+
+                       [#red]
+                       [#green]
+                       [#blue]
+                       ))])))))]
+
+    [addition ..black n.max |> |>]
+    [subtraction ..white n.min ..complement |>]
+    )
+  )

@@ -1,0 +1,680 @@
+(.require
+ [library
+  [lux (.except Type Definition Label Declaration when false true try)
+   [abstract
+    ["[0]" monad (.only do)]
+    ["[0]" enum]]
+   [control
+    ["[0]" try]]
+   [data
+    ["[0]" product]
+    [binary (.only Binary)
+     ["[0]" \\format]]
+    [collection
+     ["[0]" list (.use "[1]#[0]" functor)]
+     ["[0]" sequence]]
+    [text
+     ["%" \\format (.only format)]]]
+   [math
+    [number
+     ["n" nat]
+     ["[0]" i32]
+     ["[0]" i64]]]
+   [meta
+    ["[0]" version]
+    [target
+     ["[0]" jvm
+      ["_" bytecode (.only Label Bytecode)]
+      ["[0]" modifier (.only Modifier) (.use "[1]#[0]" monoid)]
+      ["[0]" field (.only Field)]
+      ["[0]" method (.only Method)]
+      ["[1]/[0]" version]
+      ["[0]" class (.only Class)]
+      ["[0]" constant (.only)
+       [pool (.only Resource)]]
+      [encoding
+       ["[0]" name]]
+      ["[0]" type (.only Type)
+       ["[0]" category (.only Return' Value')]
+       ["[0]" reflection]]]]]]]
+ ["[0]" //
+  ["[1][0]" type]
+  ["[1][0]" value]
+  ["[1][0]" function
+   ["[1]" abstract]
+   [field
+    [constant
+     ["[1]/[0]" arity]]
+    [variable
+     ["[1]/[0]" count]]]]
+  ["//[1]" ///
+   [//
+    ["[0]" synthesis]
+    ["[0]" translation]
+    [///
+     ["[1]" phase]
+     [arity (.only Arity)]
+     [reference
+      [variable (.only Register)]]
+     [meta
+      [io (.only lux_context)]
+      [archive (.only Output Archive)
+       ["[0]" artifact]
+       ["[0]" registry (.only Registry)]
+       ["[0]" unit]]]]]]])
+
+(type .public Byte_Code
+  Binary)
+
+(type .public Definition
+  [Text Byte_Code])
+
+(type .public Anchor
+  [Label Register])
+
+(type .public Value
+  (Bytecode Any))
+
+(type .public Declaration
+  Definition)
+
+(with_template [<name> <base>]
+  [(type .public <name>
+     (<base> Anchor Value Declaration))]
+
+  [Operation translation.Operation]
+  [Phase translation.Phase]
+  [Handler translation.Handler]
+  [Bundle translation.Bundle]
+  [Extender translation.Extender]
+  )
+
+(type .public (Translator i)
+  (-> Phase Archive i (Operation (Bytecode Any))))
+
+(type .public Host
+  (translation.Host (Bytecode Any) Definition))
+
+(def .public (class_name [module id])
+  (-> unit.ID Text)
+  (format lux_context
+          "." (%.nat version.latest)
+          "." (%.nat module)
+          "." (%.nat id)))
+
+(def artifact_id
+  0)
+
+(def .public class
+  (type.class (class_name [0 ..artifact_id]) (list)))
+
+(def procedure
+  (-> Text (Type category.Method) (Bytecode Any))
+  (_.invokestatic ..class))
+
+(def modifier
+  (Modifier Method)
+  (all modifier#composite
+       method.public
+       method.static
+       method.strict
+       ))
+
+(def this
+  (Bytecode Any)
+  _.aload_0)
+
+(def .public (get index)
+  (-> (Bytecode Any) (Bytecode Any))
+  (all _.composite
+       index
+       _.aaload))
+
+(def (set! index value)
+  (-> (Bytecode Any) (Bytecode Any) (Bytecode Any))
+  (all _.composite
+       ... A
+       _.dup ... AA
+       index ... AAI
+       value ... AAIV
+       _.aastore ... A
+       ))
+
+(def .public unit (_.string synthesis.unit))
+
+(def variant::name "variant")
+(def variant::type (type.method [(list) (list //type.lefts //type.right? //type.value) //type.variant (list)]))
+(def .public variant (..procedure ..variant::name ..variant::type))
+
+(def variant_lefts _.iconst_0)
+(def variant_right? _.iconst_1)
+(def variant_value _.iconst_2)
+
+(def variant::method
+  (let [new_variant (all _.composite
+                         _.iconst_3
+                         (_.anewarray //type.value))
+        $lefts (all _.composite
+                    _.iload_0
+                    (//value.wrap type.int))
+        $right? _.aload_1
+        $value _.aload_2]
+    (method.method ..modifier ..variant::name
+      .false ..variant::type
+      (list)
+      {.#Some (all _.composite
+                   new_variant                       ... A[3]
+                   (..set! ..variant_lefts $lefts)   ... A[3]
+                   (..set! ..variant_right? $right?) ... A[3]
+                   (..set! ..variant_value $value)   ... A[3]
+                   _.areturn)})))
+
+(def .public left_right? _.aconst_null)
+(def .public right_right? ..unit)
+
+(def .public left_injection
+  (Bytecode Any)
+  (all _.composite
+       _.iconst_0
+       ..left_right?
+       _.dup2_x1
+       _.pop2
+       ..variant))
+
+(def .public right_injection
+  (Bytecode Any)
+  (all _.composite
+       _.iconst_0
+       ..right_right?
+       _.dup2_x1
+       _.pop2
+       ..variant))
+
+(def .public some_injection ..right_injection)
+
+(def .public none_injection
+  (Bytecode Any)
+  (all _.composite
+       _.iconst_0
+       ..left_right?
+       ..unit
+       ..variant))
+
+(def (risky $unsafe)
+  (-> (Bytecode Any) (Bytecode Any))
+  (do _.monad
+    [@try _.new_label
+     @handler _.new_label]
+    (all _.composite
+         (_.try @try @handler @handler //type.error)
+         (_.set_label @try)
+         $unsafe
+         ..some_injection
+         _.areturn
+         (_.set_label @handler)
+         ..none_injection
+         _.areturn
+         )))
+
+(def decode_frac::name "decode_frac")
+(def decode_frac::type (type.method [(list) (list //type.text) //type.variant (list)]))
+(def .public decode_frac (..procedure ..decode_frac::name ..decode_frac::type))
+
+(def decode_frac::method
+  (method.method ..modifier ..decode_frac::name
+    .false ..decode_frac::type
+    (list)
+    {.#Some
+     (..risky
+      (all _.composite
+           _.aload_0
+           (_.invokestatic //type.frac "parseDouble" (type.method [(list) (list //type.text) type.double (list)]))
+           (//value.wrap type.double)
+           ))}))
+
+(def .public log!
+  (Bytecode Any)
+  (let [^PrintStream (type.class "java.io.PrintStream" (list))
+        ^System (type.class "java.lang.System" (list))
+        out (_.getstatic ^System "out" ^PrintStream)
+        print_type (type.method [(list) (list //type.value) type.void (list)])
+        print! (function (_ method) (_.invokevirtual ^PrintStream method print_type))]
+    (all _.composite
+         out (_.string "LUX LOG: ") (print! "print")
+         out _.swap (print! "println"))))
+
+(def exception_constructor (type.method [(list) (list //type.text) type.void (list)]))
+(def (illegal_state_exception message)
+  (-> Text (Bytecode Any))
+  (let [^IllegalStateException (type.class "java.lang.IllegalStateException" (list))]
+    (all _.composite
+         (_.new ^IllegalStateException)
+         _.dup
+         (_.string message)
+         (_.invokespecial ^IllegalStateException "<init>" ..exception_constructor))))
+
+(def failure::type
+  (type.method [(list) (list) type.void (list)]))
+
+(def (failure name message)
+  (-> Text Text (Resource Method))
+  (method.method ..modifier name
+    .false ..failure::type
+    (list)
+    {.#Some
+     (all _.composite
+          (..illegal_state_exception message)
+          _.athrow)}))
+
+(def pm_failure::name "pm_failure")
+(def .public pm_failure (..procedure ..pm_failure::name ..failure::type))
+
+(def pm_failure::method
+  (..failure ..pm_failure::name "Invalid expression for pattern-matching."))
+
+(def .public stack_head _.iconst_0)
+(def .public stack_tail _.iconst_1)
+
+(def push::name "push")
+(def push::type (type.method [(list) (list //type.stack //type.value) //type.stack (list)]))
+(def .public push (..procedure ..push::name ..push::type))
+
+(def push::method
+  (method.method ..modifier ..push::name
+    .false ..push::type
+    (list)
+    {.#Some
+     (let [new_stack_frame! (all _.composite
+                                 _.iconst_2
+                                 (_.anewarray //type.value))
+           $head _.aload_1
+           $tail _.aload_0]
+       (all _.composite
+            new_stack_frame!
+            (..set! ..stack_head $head)
+            (..set! ..stack_tail $tail)
+            _.areturn))}))
+
+(def when::name "when")
+(def when::type (type.method [(list) (list //type.variant //type.lefts //type.right?) //type.value (list)]))
+(def .public when (..procedure ..when::name ..when::type))
+
+(def when::method
+  (method.method ..modifier ..when::name
+    .false ..when::type
+    (list)
+    {.#Some
+     (do _.monad
+       [@loop _.new_label
+        @perfect_match! _.new_label
+        @lefts_match! _.new_label
+        @maybe_nested _.new_label
+        @mismatch! _.new_label
+        .let [$variant _.aload_0
+              $lefts _.iload_1
+              $right? _.aload_2
+
+              ::lefts (all _.composite
+                           (..get ..variant_lefts)
+                           (//value.unwrap type.int))
+              ::right? (..get ..variant_right?)
+              ::value (..get ..variant_value)
+
+              not_found _.aconst_null
+
+              super_nested_lefts (all _.composite
+                                      _.swap
+                                      _.isub
+                                      (_.int (i32.i32 (.i64 +1)))
+                                      _.isub)
+              super_nested (all _.composite
+                                ... lefts, sumT
+                                super_nested_lefts ... super_lefts
+                                $variant ::right? ... super_lefts, super_right
+                                $variant ::value ... super_lefts, super_right, super_value
+                                ..variant)
+
+              update_$variant (all _.composite
+                                   $variant ::value
+                                   (_.checkcast //type.variant)
+                                   _.astore_0)
+              update_$lefts (all _.composite
+                                 _.isub
+                                 (_.int (i32.i32 (.i64 +1)))
+                                 _.isub)
+              again (is (-> Label (Bytecode Any))
+                        (function (_ @)
+                          (all _.composite
+                               ... lefts, sumT
+                               update_$variant ... lefts, sumT
+                               update_$lefts ... sub_lefts
+                               (_.goto @))))]]
+       (all _.composite
+            $lefts
+            (_.set_label @loop)
+            $variant ::lefts
+            _.dup2 (_.if_icmpeq @lefts_match!)
+            _.dup2 (_.if_icmpgt @maybe_nested)
+            $right? (_.ifnull @mismatch!) ... lefts, sumT
+            super_nested                 ... super_variant
+            _.areturn
+            (_.set_label @lefts_match!) ... lefts, sumT
+            $right?            ... lefts, sumT, wants_right?
+            $variant ::right? ... lefts, sumT, wants_right?, is_right?
+            (_.if_acmpeq @perfect_match!) ... lefts, sumT
+            (_.set_label @mismatch!) ... lefts, sumT
+            ... _.pop2
+            not_found
+            _.areturn
+            (_.set_label @maybe_nested)   ... lefts, sumT
+            $variant ::right?       ... lefts, sumT, right?
+            (_.ifnull @mismatch!)  ... lefts, sumT
+            (again @loop)
+            (_.set_label @perfect_match!) ... lefts, sumT
+            ... _.pop2
+            $variant ::value
+            _.areturn
+            ))}))
+
+(def projection_type (type.method [(list) (list //type.tuple //type.offset) //type.value (list)]))
+
+(def left_projection::name "left")
+(def .public left_projection (..procedure ..left_projection::name ..projection_type))
+
+(def right_projection::name "right")
+(def .public right_projection (..procedure ..right_projection::name ..projection_type))
+
+(def projection::method2
+  [(Resource Method) (Resource Method)]
+  (let [$tuple _.aload_0
+        $tuple::size (all _.composite
+                          $tuple
+                          _.arraylength)
+
+        $lefts _.iload_1
+
+        $last_right (all _.composite
+                         $tuple::size
+                         _.iconst_1
+                         _.isub)
+
+        update_$lefts (all _.composite
+                           $lefts $last_right _.isub
+                           _.istore_1)
+        update_$tuple (all _.composite
+                           $tuple $last_right _.aaload (_.checkcast //type.tuple)
+                           _.astore_0)
+        recur (is (-> Label (Bytecode Any))
+                  (function (_ @loop)
+                    (all _.composite
+                         update_$lefts
+                         update_$tuple
+                         (_.goto @loop))))
+
+        left_projection::method
+        (method.method ..modifier ..left_projection::name
+          .false ..projection_type
+          (list)
+          {.#Some
+           (do _.monad
+             [@loop _.new_label
+              @recursive _.new_label
+              .let [::left (all _.composite
+                                $lefts
+                                _.aaload)]]
+             (all _.composite
+                  (_.set_label @loop)
+                  $lefts $last_right (_.if_icmpge @recursive)
+                  $tuple ::left
+                  _.areturn
+                  (_.set_label @recursive)
+                  ... Recursive
+                  (recur @loop)))})
+
+        right_projection::method
+        (method.method ..modifier ..right_projection::name
+          .false ..projection_type
+          (list)
+          {.#Some
+           (do _.monad
+             [@loop _.new_label
+              @not_tail _.new_label
+              @slice _.new_label
+              .let [$right (all _.composite
+                                $lefts
+                                _.iconst_1
+                                _.iadd)
+                    $::nested (all _.composite
+                                   $tuple
+                                   _.swap
+                                   _.aaload)
+                    super_nested (all _.composite
+                                      $tuple
+                                      $right
+                                      $tuple::size
+                                      (_.invokestatic (type.class "java.util.Arrays" (list)) "copyOfRange"
+                                                      (type.method [(list) (list //type.tuple //type.index //type.index) //type.tuple (list)])))]]
+             (all _.composite
+                  (_.set_label @loop)
+                  $last_right $right
+                  _.dup2 (_.if_icmpne @not_tail)
+                  ... _.pop
+                  $::nested
+                  _.areturn
+                  (_.set_label @not_tail)
+                  (_.if_icmpgt @slice)
+                  ... Must recurse
+                  (recur @loop)
+                  (_.set_label @slice)
+                  super_nested
+                  _.areturn))})]
+    [left_projection::method
+     right_projection::method]))
+
+(def .public apply::name "apply")
+
+(def .public (apply::type arity)
+  (-> Arity (Type category.Method))
+  (type.method [(list) (list.repeated arity //type.value) //type.value (list)]))
+
+(def .public apply
+  (_.invokevirtual //function.class ..apply::name (..apply::type 1)))
+
+(def try::name "try")
+(def try::type (type.method [(list) (list //function.class) //type.variant (list)]))
+(def .public try (..procedure ..try::name ..try::type))
+
+(def throw::name "throw")
+(def throw::type (type.method [(list) (list (type.class "java.lang.Throwable" (list))) type.void (list)]))
+(def .public throw (..procedure ..throw::name ..throw::type))
+
+(def false _.iconst_0)
+(def true _.iconst_1)
+
+(def try::method
+  (method.method ..modifier ..try::name
+    .false ..try::type
+    (list)
+    {.#Some
+     (do _.monad
+       [@try _.new_label
+        @handler _.new_label
+        .let [$unsafe ..this
+
+              ^StringWriter (type.class "java.io.StringWriter" (list))
+              string_writer (all _.composite
+                                 (_.new ^StringWriter)
+                                 _.dup
+                                 (_.invokespecial ^StringWriter "<init>" (type.method [(list) (list) type.void (list)])))
+
+              ^PrintWriter (type.class "java.io.PrintWriter" (list))
+              print_writer (all _.composite
+                                ... WTW
+                                (_.new ^PrintWriter) ... WTWP
+                                _.dup_x1 ... WTPWP
+                                _.swap   ... WTPPW
+                                ..true   ... WTPPWZ
+                                (_.invokespecial ^PrintWriter "<init>" (type.method [(list) (list (type.class "java.io.Writer" (list)) type.boolean) type.void (list)]))
+                                ... WTP
+                                )
+              unsafe_application (all _.composite
+                                      $unsafe
+                                      ..unit
+                                      ..apply)
+              stack_trace (all _.composite
+                               ... T
+                               string_writer          ... TW
+                               _.dup_x1               ... WTW
+                               print_writer           ... WTP
+                               (_.invokevirtual //type.error "printStackTrace" (type.method [(list) (list ^PrintWriter) type.void (list)])) ... W
+                               (_.invokevirtual ^StringWriter "toString" (type.method [(list) (list) //type.text (list)])) ... S
+                               )]]
+       (all _.composite
+            (_.try @try @handler @handler //type.error)
+            (_.set_label @try)
+            unsafe_application
+            ..right_injection
+            _.areturn
+            (_.set_label @handler) ... T
+            stack_trace ... S
+            ..left_injection
+            _.areturn
+            ))}))
+
+(def throw::method
+  (method.method ..modifier ..throw::name
+    .false ..throw::type
+    (list)
+    {.#Some
+     (all _.composite
+          _.aload_0
+          _.athrow
+          )}))
+
+(def reflection
+  (All (_ category)
+    (-> (Type (<| Return' Value' category)) Text))
+  (|>> type.reflection reflection.reflection))
+
+(def ^Object (type.class "java.lang.Object" (list)))
+
+(def translate_runtime
+  (Operation [artifact.ID (Maybe Text) Binary])
+  (let [class (..reflection ..class)
+        modifier (is (Modifier Class)
+                     (all modifier#composite
+                          class.public
+                          class.final))
+        bytecode (<| (\\format.result class.format)
+                     try.trusted
+                     (class.class jvm/version.v6_0
+                       modifier
+                       (name.internal class)
+                       {.#None}
+                       (name.internal (..reflection ^Object)) (list)
+                       (list)
+                       (let [[left_projection::method right_projection::method] projection::method2]
+                         (list ..decode_frac::method
+                               ..variant::method
+
+                               ..pm_failure::method
+
+                               ..push::method
+                               ..when::method
+                               left_projection::method
+                               right_projection::method
+
+                               ..try::method
+                               ..throw::method))
+                       (list)))]
+    (do ////.monad
+      [_ (translation.execute! [class bytecode])
+       _ (translation.save! ..artifact_id {.#None} [class bytecode])]
+      (in [..artifact_id {.#None} bytecode]))))
+
+(def translate_function
+  (Operation Any)
+  (let [apply::method+ (|> (enum.range n.enum
+                                       (++ //function/arity.minimum)
+                                       //function/arity.maximum)
+                           (list#each (function (_ arity)
+                                        (method.method method.public ..apply::name
+                                          .false (..apply::type arity)
+                                          (list)
+                                          {.#Some
+                                           (let [previous_inputs (|> arity
+                                                                     list.indices
+                                                                     (monad.each _.monad _.aload))]
+                                             (all _.composite
+                                                  previous_inputs
+                                                  (_.invokevirtual //function.class ..apply::name (..apply::type (-- arity)))
+                                                  (_.checkcast //function.class)
+                                                  (_.aload arity)
+                                                  (_.invokevirtual //function.class ..apply::name (..apply::type //function/arity.minimum))
+                                                  _.areturn))})))
+                           (list.partial (method.method (modifier#composite method.public method.abstract)
+                                           ..apply::name
+                                           .false (..apply::type //function/arity.minimum)
+                                           (list)
+                                           {.#None})))
+        <init>::method (method.method method.public "<init>"
+                         .false //function.init
+                         (list)
+                         {.#Some
+                          (let [$partials _.iload_1]
+                            (all _.composite
+                                 ..this
+                                 (_.invokespecial ^Object "<init>" (type.method [(list) (list) type.void (list)]))
+                                 ..this
+                                 $partials
+                                 (_.putfield //function.class //function/count.field //function/count.type)
+                                 _.return))})
+        modifier (is (Modifier Class)
+                     (all modifier#composite
+                          class.public
+                          class.abstract))
+        class (..reflection //function.class)
+        partial_count (is (Resource Field)
+                          (field.field (modifier#composite field.public field.final)
+                                       //function/count.field
+                                       .false //function/count.type
+                                       sequence.empty))
+        bytecode (<| (\\format.result class.format)
+                     try.trusted
+                     (class.class jvm/version.v6_0
+                       modifier
+                       (name.internal class)
+                       {.#None}
+                       (name.internal (..reflection ^Object)) (list)
+                       (list partial_count)
+                       (list.partial <init>::method apply::method+)
+                       (list)))]
+    (do ////.monad
+      [_ (translation.execute! [class bytecode])
+       ... _ (translation.save! //function.artifact_id {.#None} [class bytecode])
+       ]
+      (in []))))
+
+(def .public translate
+  (Operation [Registry Output])
+  (do ////.monad
+    [runtime_payload ..translate_runtime
+     ... _ ..translate_function
+     ]
+    (in [(|> registry.empty
+             (registry.resource .true unit.none)
+             product.right
+             ... (registry.resource .true unit.none)
+             ... product.right
+             )
+         (sequence.sequence runtime_payload
+                            ... function_payload
+                            )])))
+
+(def .public forge_label
+  (Operation Label)
+  (let [shift (n./ 4 i64.width)]
+    ... This shift is done to avoid the possibility of forged labels
+    ... to be in the range of the labels that are generated automatically
+    ... during the evaluation of Bytecode expressions.
+    (at ////.monad each (|>> ++ (i64.left_shifted shift)) translation.next)))

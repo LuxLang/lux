@@ -1,0 +1,401 @@
+(.require
+ [library
+  [lux (.except Synthesis #module #counter #host #location symbol)
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["[0]" try (.only Try)]
+    ["[0]" exception (.only Exception)]
+    ["[0]" function]]
+   [data
+    [binary (.only Binary)]
+    ["[0]" product]
+    ["[0]" text (.use "[1]#[0]" equivalence)
+     ["%" \\format (.only format)]]
+    [collection
+     ["[0]" sequence (.only Sequence)]
+     ["[0]" list (.use "[1]#[0]" functor mix)]
+     ["[0]" set (.only Set)]]]
+   [math
+    [number
+     ["n" nat]]]
+   [meta
+    ["[0]" symbol]
+    [macro
+     ["^" pattern]
+     ["[0]" template]]]]]
+ [//
+  [synthesis (.only Synthesis)]
+  [phase
+   ["[0]" extension]]
+  [///
+   ["[0]" phase]
+   [meta
+    ["[0]" archive (.only Archive)
+     ["[0]" registry (.only Registry)]
+     ["[0]" unit]
+     ["[0]" artifact (.only)
+      ["[0]" category]]
+     ["[0]" module (.only)
+      ["[0]" descriptor]]]]]])
+
+(type .public (Buffer declaration)
+  (Sequence [artifact.ID (Maybe Text) declaration]))
+
+(exception.def .public (cannot_interpret error)
+  (Exception Text)
+  (exception.report
+   (list ["Error" error])))
+
+(with_template [<name>]
+  [(exception.def .public (<name> it)
+     (Exception artifact.ID)
+     (exception.report
+      (list ["Artifact ID" (%.nat it)])))]
+
+  [cannot_overwrite_output]
+  [no_buffer_for_saving_code]
+  )
+
+(type .public (Host expression declaration)
+  (Interface
+   (is (-> unit.ID [(Maybe unit.ID) expression] (Try Any))
+       evaluate)
+   (is (-> declaration (Try Any))
+       execute)
+   (is (-> unit.ID (Maybe Text) [(Maybe unit.ID) expression] (Try [Text Any declaration]))
+       define)
+
+   (is (-> unit.ID Binary declaration)
+       ingest)
+   (is (-> unit.ID (Maybe Text) declaration (Try Any))
+       re_learn)
+   (is (-> unit.ID (Maybe Text) declaration (Try Any))
+       re_load)))
+
+(type .public (State anchor expression declaration)
+  (Record
+   [#module descriptor.Module
+    #anchor (Maybe anchor)
+    #host (Host expression declaration)
+    #buffer (Maybe (Buffer declaration))
+    #registry Registry
+    #registry_shift Nat
+    #counter Nat
+    #context (Maybe artifact.ID)
+    #log (Sequence Text)
+    #interim_artifacts (List artifact.ID)]))
+
+(type .public (Operation anchor expression declaration)
+  (phase.Operation (State anchor expression declaration)))
+
+(type .public (Phase anchor expression declaration)
+  (phase.Phase (State anchor expression declaration) Synthesis expression))
+
+(with_template [<special> <general>]
+  [(type .public (<special> anchor expression declaration)
+     (<general> (State anchor expression declaration) Synthesis expression))]
+
+  [Handler   extension.Handler]
+  [Bundle    extension.Bundle]
+  [Extender  extension.Extender]
+  )
+
+(def .public (state host module)
+  (All (_ anchor expression declaration)
+    (-> (Host expression declaration)
+        descriptor.Module
+        (..State anchor expression declaration)))
+  [#module module
+   #anchor {.#None}
+   #host host
+   #buffer {.#None}
+   #registry registry.empty
+   #registry_shift 0
+   #counter 0
+   #context {.#None}
+   #log sequence.empty
+   #interim_artifacts (list)])
+
+(def .public empty_buffer
+  Buffer
+  sequence.empty)
+
+(with_template [<tag>
+                <with_declaration> <with_type> <with_value>
+                <set> <get> <get_type> <exception>]
+  [(exception.def .public <exception>)
+
+   (def .public <with_declaration>
+     (All (_ anchor expression declaration output) <with_type>)
+     (function (_ body)
+       (function (_ state)
+         (when (body (has <tag> {.#Some <with_value>} state))
+           {try.#Success [state' output]}
+           {try.#Success [(has <tag> (the <tag> state) state')
+                          output]}
+
+           {try.#Failure error}
+           {try.#Failure error}))))
+
+   (def .public <get>
+     (All (_ anchor expression declaration)
+       (Operation anchor expression declaration <get_type>))
+     (function (_ state)
+       (when (the <tag> state)
+         {.#Some output}
+         {try.#Success [state output]}
+
+         {.#None}
+         (exception.except <exception> []))))
+
+   (def .public (<set> value)
+     (All (_ anchor expression declaration)
+       (-> <get_type> (Operation anchor expression declaration Any)))
+     (function (_ state)
+       {try.#Success [(has <tag> {.#Some value} state)
+                      []]}))]
+
+  [#anchor
+   (with_anchor anchor)
+   (-> anchor (Operation anchor expression declaration output)
+       (Operation anchor expression declaration output))
+   anchor
+   set_anchor anchor anchor no_anchor]
+
+  [#buffer
+   with_buffer
+   (-> (Operation anchor expression declaration output)
+       (Operation anchor expression declaration output))
+   ..empty_buffer
+   set_buffer buffer (Buffer declaration) no_active_buffer]
+  )
+
+(def .public get_registry
+  (All (_ anchor expression declaration)
+    (Operation anchor expression declaration Registry))
+  (function (_ state)
+    {try.#Success [state (the #registry state)]}))
+
+(def .public (set_registry value)
+  (All (_ anchor expression declaration)
+    (-> Registry (Operation anchor expression declaration Any)))
+  (function (_ state)
+    {try.#Success [(has #registry value state)
+                   []]}))
+
+(def .public next
+  (All (_ anchor expression declaration)
+    (Operation anchor expression declaration Nat))
+  (do phase.monad
+    [count (phase.read (the #counter))
+     _ (phase.update (revised #counter ++))]
+    (in count)))
+
+(def .public (symbol prefix)
+  (All (_ anchor expression declaration)
+    (-> Text (Operation anchor expression declaration Text)))
+  (at phase.monad each (|>> %.nat (format prefix)) ..next))
+
+(def .public (enter_module module)
+  (All (_ anchor expression declaration)
+    (-> descriptor.Module (Operation anchor expression declaration Any)))
+  (phase.update (has #module module)))
+
+(def .public module
+  (All (_ anchor expression declaration)
+    (Operation anchor expression declaration descriptor.Module))
+  (phase.read (the #module)))
+
+(def .public (evaluate! label code)
+  (All (_ anchor expression declaration)
+    (-> unit.ID [(Maybe unit.ID) expression] (Operation anchor expression declaration Any)))
+  (function (_ state)
+    (when (at (the #host state) evaluate label code)
+      {try.#Success output}
+      {try.#Success [state output]}
+
+      {try.#Failure error}
+      (exception.except ..cannot_interpret [error]))))
+
+(def .public (execute! code)
+  (All (_ anchor expression declaration)
+    (-> declaration (Operation anchor expression declaration Any)))
+  (function (_ state)
+    (when (at (the #host state) execute code)
+      {try.#Success output}
+      {try.#Success [state output]}
+
+      {try.#Failure error}
+      (exception.except ..cannot_interpret error))))
+
+(def .public (define! context custom code)
+  (All (_ anchor expression declaration)
+    (-> unit.ID (Maybe Text) [(Maybe unit.ID) expression] (Operation anchor expression declaration [Text Any declaration])))
+  (function (_ state)
+    (when (at (the #host state) define context custom code)
+      {try.#Success output}
+      {try.#Success [state output]}
+
+      {try.#Failure error}
+      (exception.except ..cannot_interpret error))))
+
+(def .public (save! artifact_id custom code)
+  (All (_ anchor expression declaration)
+    (-> artifact.ID (Maybe Text) declaration (Operation anchor expression declaration Any)))
+  (do [! phase.monad]
+    [?buffer (phase.read (the #buffer))]
+    (when ?buffer
+      {.#Some buffer}
+      ... TODO: Optimize by no longer checking for overwrites...
+      (if (sequence.any? (|>> product.left (n.= artifact_id)) buffer)
+        (phase.except ..cannot_overwrite_output [artifact_id])
+        (phase.update (has #buffer {.#Some (sequence.suffix [artifact_id custom code] buffer)})))
+      
+      {.#None}
+      (phase.except ..no_buffer_for_saving_code [artifact_id]))))
+
+(with_template [<type> <mandatory?> <inputs> <input_types> <name> <artifact>]
+  [(`` (def .public (<name> it (,, (template.spliced <inputs>)) dependencies)
+         (All (_ anchor expression declaration)
+           (-> <type> (,, (template.spliced <input_types>)) (Set unit.ID) (Operation anchor expression declaration artifact.ID)))
+         (function (_ state)
+           (let [[id registry'] (<artifact> it <mandatory?> dependencies (the #registry state))]
+             {try.#Success [(has #registry registry' state)
+                            id]}))))]
+
+  [category.Definition mandatory? [mandatory?] [Bit] learn registry.definition]
+  [Text #1 [] [] learn_custom registry.custom]
+  [Text #0 [] [] learn_analyser registry.analyser]
+  [Text #0 [] [] learn_synthesizer registry.synthesizer]
+  [Text #0 [] [] learn_translator registry.translator]
+  [Text #0 [] [] learn_declaration registry.declaration]
+  )
+
+(exception.def .public (unknown_definition [name known_definitions])
+  (Exception [Symbol (List category.Definition)])
+  (exception.report
+   (list ["Definition" (symbol.short name)]
+         ["Module" (symbol.module name)]
+         ["Known Definitions" (exception.listing product.left known_definitions)])))
+
+(def .public (remember archive name)
+  (All (_ anchor expression declaration)
+    (-> Archive Symbol (Operation anchor expression declaration unit.ID)))
+  (function (_ state)
+    (let [[_module _name] name]
+      (do try.monad
+        [@module (archive.id _module archive)
+         registry (if (text#= (the #module state) _module)
+                    {try.#Success (the #registry state)}
+                    (do try.monad
+                      [[_module output registry] (archive.find _module archive)]
+                      {try.#Success registry}))]
+        (when (registry.id _name registry)
+          {.#None}
+          (exception.except ..unknown_definition [name (registry.definitions registry)])
+          
+          {.#Some id}
+          {try.#Success [state [@module id]]})))))
+
+(def .public (definition archive name)
+  (All (_ anchor expression declaration)
+    (-> Archive Symbol (Operation anchor expression declaration [unit.ID (Maybe category.Definition)])))
+  (function (_ state)
+    (let [[_module _name] name]
+      (do try.monad
+        [@module (archive.id _module archive)
+         registry (if (text#= (the #module state) _module)
+                    {try.#Success (the #registry state)}
+                    (do try.monad
+                      [[_module output registry] (archive.find _module archive)]
+                      {try.#Success registry}))]
+        (when (registry.find_definition _name registry)
+          {.#None}
+          (exception.except ..unknown_definition [name (registry.definitions registry)])
+          
+          {.#Some [@artifact def]}
+          {try.#Success [state [[@module @artifact] def]]})))))
+
+(exception.def .public no_context)
+
+(def .public (module_id module archive)
+  (All (_ anchor expression declaration)
+    (-> descriptor.Module Archive (Operation anchor expression declaration module.ID)))
+  (function (_ state)
+    (do try.monad
+      [@module (archive.id module archive)]
+      (in [state @module]))))
+
+(def .public (context archive)
+  (All (_ anchor expression declaration)
+    (-> Archive (Operation anchor expression declaration unit.ID)))
+  (function (_ state)
+    (when (the #context state)
+      {.#None}
+      (exception.except ..no_context [])
+      
+      {.#Some id}
+      (do try.monad
+        [@module (archive.id (the #module state) archive)]
+        (in [state [@module id]])))))
+
+(def .public (with_context @artifact body)
+  (All (_ anchor expression declaration a)
+    (-> artifact.ID
+        (Operation anchor expression declaration a)
+        (Operation anchor expression declaration a)))
+  (function (_ state)
+    (do try.monad
+      [[state' output] (body (has #context {.#Some @artifact} state))]
+      (in [(has #context (the #context state) state')
+           output]))))
+
+(def .public (with_registry_shift shift body)
+  (All (_ anchor expression declaration a)
+    (-> Nat
+        (Operation anchor expression declaration a)
+        (Operation anchor expression declaration a)))
+  (function (_ state)
+    (do try.monad
+      [[state' output] (body (has #registry_shift shift state))]
+      (in [(has #registry_shift (the #registry_shift state) state')
+           output]))))
+
+(def .public (with_new_context archive dependencies body)
+  (All (_ anchor expression declaration a)
+    (-> Archive (Set unit.ID) (Operation anchor expression declaration a)
+        (Operation anchor expression declaration [unit.ID a])))
+  (function (_ state)
+    (let [[@artifact registry'] (registry.resource false dependencies (the #registry state))
+          @artifact (n.+ @artifact (the #registry_shift state))]
+      (do try.monad
+        [[state' output] (body (|> state
+                                   (has #registry registry')
+                                   (has #context {.#Some @artifact})
+                                   (revised #interim_artifacts (|>> {.#Item @artifact}))))
+         @module (archive.id (the #module state) archive)]
+        (in [(has #context (the #context state) state')
+             [[@module @artifact]
+              output]])))))
+
+(def .public (log! message)
+  (All (_ anchor expression declaration a)
+    (-> Text (Operation anchor expression declaration Any)))
+  (function (_ state)
+    {try.#Success [(revised #log (sequence.suffix message) state)
+                   []]}))
+
+(def .public (with_interim_artifacts archive body)
+  (All (_ anchor expression declaration a)
+    (-> Archive (Operation anchor expression declaration a)
+        (Operation anchor expression declaration [(List unit.ID) a])))
+  (do phase.monad
+    [module (phase.read (the #module))]
+    (function (_ state)
+      (do try.monad
+        [@module (archive.id module archive)
+         [state' output] (body state)]
+        (in [(has #interim_artifacts (list) state')
+             [(list#each (|>> [@module]) (the #interim_artifacts state'))
+              output]])))))

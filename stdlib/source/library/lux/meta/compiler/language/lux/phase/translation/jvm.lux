@@ -1,0 +1,128 @@
+(.require
+ [library
+  [lux (.except Synthesis)
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["[0]" try]
+    ["[0]" exception (.only Exception)]]
+   [data
+    ["[0]" text (.use "[1]#[0]" equivalence)
+     ["%" \\format]]]
+   ["[0]" meta (.only)
+    [macro
+     ["^" pattern]]
+    [target
+     [jvm
+      ["_" bytecode (.only Bytecode)]]]
+    [type
+     ["[0]" check]]
+    [compiler
+     [meta
+      ["[0]" archive (.only Archive)]
+      ["[0]" cache
+       [dependency
+        ["[1]/[0]" artifact]]]]]]]]
+ ["[0]" /
+  [runtime (.only Operation Phase Handler)]
+  ["[1][0]" primitive]
+  ["[1][0]" structure]
+  ["[1][0]" reference]
+  ["[1][0]" function]
+  ["[1][0]" when]
+  ["[1][0]" loop]
+  ["//[1]" ///
+   ["[0]" extension]
+   [//
+    ["[0]" synthesis (.only Synthesis)]
+    ["[0]" translation]
+    [///
+     ["[0]" reference]
+     ["[0]" phase (.use "[1]#[0]" monad)]]]]])
+
+(def (with_source_mapping @ it)
+  (All (_ of)
+    (-> Location (Operation (Bytecode of))
+        (Operation (Bytecode of))))
+  (do [! phase.monad]
+    [.let [[expected_module line column] @]
+     actual_module translation.module
+     it it]
+    (in (if (text#= expected_module actual_module)
+          (do _.monad
+            [_ (_.map line)]
+            it)
+          it))))
+
+(def .public (translate extender lux)
+  (-> extension.Extender Lux Phase)
+  (function (phase archive synthesis)
+    (when synthesis
+      (^.with_template [<tag> <translator>]
+        [(<tag> @ value)
+         (with_source_mapping @
+           (phase#in (<translator> value)))])
+      ([synthesis.bit  /primitive.bit]
+       [synthesis.i64  /primitive.i64]
+       [synthesis.f64  /primitive.f64]
+       [synthesis.text /primitive.text])
+
+      (synthesis.variant @ variantS)
+      (with_source_mapping @
+        (/structure.variant phase archive variantS))
+
+      (synthesis.tuple @ members)
+      (with_source_mapping @
+        (/structure.tuple phase archive members))
+
+      [@ {synthesis.#Reference reference}]
+      (with_source_mapping @
+        (when reference
+          {reference.#Variable variable}
+          (/reference.variable archive variable)
+          
+          {reference.#Constant constant}
+          (/reference.constant archive constant)))
+
+      (synthesis.branch/when @ [valueS pathS])
+      (with_source_mapping @
+        (/when.when phase archive [valueS pathS]))
+
+      (synthesis.branch/exec @ [this that])
+      (with_source_mapping @
+        (/when.exec phase archive [this that]))
+
+      (synthesis.branch/let @ [inputS register bodyS])
+      (with_source_mapping @
+        (/when.let phase archive [inputS register bodyS]))
+
+      (synthesis.branch/if @ [conditionS thenS elseS])
+      (with_source_mapping @
+        (/when.if phase archive [conditionS thenS elseS]))
+
+      (synthesis.branch/get @ [path recordS])
+      (with_source_mapping @
+        (/when.get phase archive [path recordS]))
+
+      (synthesis.loop/scope @ scope)
+      (with_source_mapping @
+        (/loop.scope phase archive scope))
+
+      (synthesis.loop/again @ updates)
+      (with_source_mapping @
+        (/loop.again phase archive updates))
+
+      (synthesis.function/abstraction @ abstraction)
+      (with_source_mapping @
+        (/function.abstraction phase archive abstraction))
+
+      (synthesis.function/apply @ application)
+      (with_source_mapping @
+        (/function.apply phase archive application))
+
+      [@ {synthesis.#Extension [name parameters]}]
+      (with_source_mapping @
+        (extension.application extender lux phase archive .Translation false name parameters
+                               (|>>)
+                               (function (_ _) {.#None})))
+      )))

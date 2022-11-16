@@ -1,0 +1,346 @@
+(.require
+ [library
+  [lux (.except when exec let if)
+   [abstract
+    ["[0]" monad (.only do)]]
+   [control
+    ["[0]" maybe]]
+   [data
+    ["[0]" text]
+    [collection
+     ["[0]" list (.use "[1]#[0]" functor mix)]]]
+   [math
+    [number
+     ["n" nat]]]
+   [meta
+    [macro
+     ["^" pattern]]
+    [target
+     ["_" js (.only Expression Computation Var Statement)]]]]]
+ ["[0]" //
+  ["[1][0]" runtime (.only Operation Phase Phase! Translator Translator!)]
+  ["[1][0]" reference]
+  ["[1][0]" primitive]
+  ["/[1]" //
+   ["[1][0]" reference]
+   ["/[1]" //
+    ["[1][0]" synthesis
+     ["[1]/[0]" when]]
+    ["/[1]" //
+     ["[1][0]" synthesis (.only Synthesis Path)
+      [access
+       ["[0]" member (.only Member)]]]
+     ["//[1]" ///
+      [reference
+       [variable (.only Register)]]
+      ["[1][0]" phase (.use "[1]#[0]" monad)]
+      [meta
+       [archive (.only Archive)]]]]]]])
+
+(def .public register
+  (-> Register Var)
+  (|>> (///reference.local //reference.system) as_expected))
+
+(def .public (exec expression archive [this that])
+  (Translator [Synthesis Synthesis])
+  (do ///////phase.monad
+    [this (expression archive this)
+     that (expression archive that)]
+    (in (|> (_.array (list this that))
+            (_.at (_.int +1))))))
+
+(def .public (exec! statement expression archive [this that])
+  (Translator! [Synthesis Synthesis])
+  (do ///////phase.monad
+    [this (expression archive this)
+     that (statement expression archive that)]
+    (in (all _.then
+             (_.statement this)
+             that))))
+
+(def .public (let expression archive [valueS register bodyS])
+  (Translator [Synthesis Register Synthesis])
+  (do ///////phase.monad
+    [valueO (expression archive valueS)
+     bodyO (expression archive bodyS)]
+    ... TODO: Find some way to do 'let' without paying the price of the closure.
+    (in (_.apply (_.closure (list (..register register))
+                            (_.return bodyO))
+                 (list valueO)))))
+
+(def .public (let! statement expression archive [valueS register bodyS])
+  (Translator! [Synthesis Register Synthesis])
+  (do ///////phase.monad
+    [valueO (expression archive valueS)
+     bodyO (statement expression archive bodyS)]
+    (in (all _.then
+             (_.define (..register register) valueO)
+             bodyO))))
+
+(def .public (if expression archive [testS thenS elseS])
+  (Translator [Synthesis Synthesis Synthesis])
+  (do ///////phase.monad
+    [testO (expression archive testS)
+     thenO (expression archive thenS)
+     elseO (expression archive elseS)]
+    (in (_.? testO thenO elseO))))
+
+(def .public (if! statement expression archive [testS thenS elseS])
+  (Translator! [Synthesis Synthesis Synthesis])
+  (do ///////phase.monad
+    [testO (expression archive testS)
+     thenO (statement expression archive thenS)
+     elseO (statement expression archive elseS)]
+    (in (_.if testO
+          thenO
+          elseO))))
+
+(def .public (get expression archive [pathP valueS])
+  (Translator [(List Member) Synthesis])
+  (do ///////phase.monad
+    [valueO (expression archive valueS)]
+    (in (list#mix (function (_ side source)
+                    (.let [method (.if (the member.#right? side)
+                                    (//runtime.tuple//right (_.i32 (.int (the member.#lefts side))))
+                                    (//runtime.tuple//left (_.i32 (.int (the member.#lefts side)))))]
+                      (method source)))
+                  valueO
+                  (list.reversed pathP)))))
+
+(def @savepoint (_.var "lux_pm_cursor_savepoint"))
+(def @cursor (_.var "lux_pm_cursor"))
+(def @temp (_.var "lux_pm_temp"))
+
+(def (push_cursor! value)
+  (-> Expression Statement)
+  (_.statement (|> @cursor (_.do "push" (list value)))))
+
+(def peek_and_pop_cursor
+  Expression
+  (|> @cursor (_.do "pop" (list))))
+
+(def pop_cursor!
+  Statement
+  (_.statement ..peek_and_pop_cursor))
+
+(def length
+  (|>> (_.the "length")))
+
+(def last_index
+  (|>> ..length (_.- (_.i32 +1))))
+
+(def peek_cursor
+  Expression
+  (|> @cursor (_.at (last_index @cursor))))
+
+(def save_cursor!
+  Statement
+  (.let [cursor (|> @cursor (_.do "slice" (list)))]
+    (_.statement (|> @savepoint (_.do "push" (list cursor))))))
+
+(def restore_cursor!
+  Statement
+  (_.statement (_.set @cursor (|> @savepoint (_.do "pop" (list))))))
+
+(def fail_pm! _.break)
+
+(def (multi_pop_cursor! pops)
+  (-> Nat Statement)
+  (.let [popsJS (_.i32 (.int pops))]
+    (_.statement (|> @cursor (_.do "splice" (list (|> @cursor ..length (_.- popsJS))
+                                                  popsJS))))))
+
+(with_template [<name> <flag>]
+  [(def (<name> simple? idx)
+     (-> Bit Nat Statement)
+     (all _.then
+          (_.statement (_.set @temp (//runtime.sum//get ..peek_cursor <flag>
+                                                        (|> idx .int _.i32))))
+          (.if simple?
+            (_.when (_.= _.null @temp)
+              ..fail_pm!)
+            (_.if (_.= _.null @temp)
+              ..fail_pm!
+              (push_cursor! @temp)))))]
+
+  [left_choice  _.null]
+  [right_choice //runtime.unit]
+  )
+
+(def (alternation pre! post!)
+  (-> Statement Statement Statement)
+  (all _.then
+       (_.do_while (_.boolean false)
+                   (all _.then
+                        ..save_cursor!
+                        pre!))
+       (all _.then
+            ..restore_cursor!
+            post!)))
+
+(def (optimized_pattern_matching again pathP)
+  (-> (-> Path (Operation Statement))
+      (-> Path (Operation (Maybe Statement))))
+  (.when pathP
+    (^.with_template [<simple> <choice>]
+      [(<simple> idx nextP)
+       (|> nextP
+           again
+           (at ///////phase.monad each (|>> (_.then (<choice> true idx)) {.#Some})))])
+    ([/////synthesis.simple_left_side  ..left_choice]
+     [/////synthesis.simple_right_side ..right_choice])
+
+    (/////synthesis.member/left 0)
+    (///////phase#in {.#Some (push_cursor! (_.at (_.i32 +0) ..peek_cursor))})
+
+    ... Extra optimization
+    (/////synthesis.path/seq
+     (/////synthesis.member/left 0)
+     (/////synthesis.!bind_top register thenP))
+    (do ///////phase.monad
+      [then! (again thenP)]
+      (in {.#Some (all _.then
+                       (_.define (..register register) (_.at (_.i32 +0) ..peek_cursor))
+                       then!)}))
+
+    ... Extra optimization
+    (^.with_template [<pm> <getter>]
+      [(/////synthesis.path/seq
+        (<pm> lefts)
+        (/////synthesis.!bind_top register thenP))
+       (do ///////phase.monad
+         [then! (again thenP)]
+         (in {.#Some (all _.then
+                          (_.define (..register register) (<getter> (_.i32 (.int lefts)) ..peek_cursor))
+                          then!)}))])
+    ([/////synthesis.member/left  //runtime.tuple//left]
+     [/////synthesis.member/right //runtime.tuple//right])
+
+    (/////synthesis.!bind_top register thenP)
+    (do ///////phase.monad
+      [then! (again thenP)]
+      (in {.#Some (all _.then
+                       (_.define (..register register) ..peek_and_pop_cursor)
+                       then!)}))
+
+    (/////synthesis.!multi_pop nextP)
+    (.let [[extra_pops nextP'] (////synthesis/when.count_pops nextP)]
+      (do ///////phase.monad
+        [next! (again nextP')]
+        (in {.#Some (all _.then
+                         (multi_pop_cursor! (n.+ 2 extra_pops))
+                         next!)})))
+
+    _
+    (///////phase#in {.#None})))
+
+(def (pattern_matching' statement expression archive)
+  (-> Phase! Phase Archive
+      (-> Path (Operation Statement)))
+  (function (again pathP)
+    (do ///////phase.monad
+      [outcome (optimized_pattern_matching again pathP)]
+      (.when outcome
+        {.#Some outcome}
+        (in outcome)
+
+        {.#None}
+        (.when pathP
+          {/////synthesis.#Then bodyS}
+          (statement expression archive bodyS)
+
+          {/////synthesis.#Pop}
+          (///////phase#in pop_cursor!)
+
+          {/////synthesis.#Bind register}
+          (///////phase#in (_.define (..register register) ..peek_cursor))
+
+          {/////synthesis.#Bit_Fork when thenP elseP}
+          (do [! ///////phase.monad]
+            [then! (again thenP)
+             else! (.when elseP
+                     {.#Some elseP}
+                     (again elseP)
+
+                     {.#None}
+                     (in ..fail_pm!))]
+            (in (.if when
+                  (_.if ..peek_cursor
+                    then!
+                    else!)
+                  (_.if ..peek_cursor
+                    else!
+                    then!))))
+
+          {/////synthesis.#I64_Fork item}
+          (do [! ///////phase.monad]
+            [clauses (monad.each ! (function (_ [match then])
+                                     (do !
+                                       [then! (again then)]
+                                       (in [(//runtime.i64::= (//primitive.i64 (.int match))
+                                                              ..peek_cursor)
+                                            then!])))
+                                 {.#Item item})]
+            (in (list#mix (function (_ [when then] else)
+                            (_.if when then else))
+                          ..fail_pm!
+                          clauses)))
+
+          (^.with_template [<tag> <format>]
+            [{<tag> item}
+             (do [! ///////phase.monad]
+               [cases (monad.each ! (function (_ [match then])
+                                      (at ! each (|>> [(list (<format> match))]) (again then)))
+                                  {.#Item item})]
+               (in (_.switch ..peek_cursor
+                             cases
+                             {.#Some ..fail_pm!})))])
+          ([/////synthesis.#F64_Fork //primitive.f64]
+           [/////synthesis.#Text_Fork //primitive.text])
+
+          (^.with_template [<complex> <choice>]
+            [(<complex> idx)
+             (///////phase#in (<choice> false idx))])
+          ([/////synthesis.side/left  ..left_choice]
+           [/////synthesis.side/right ..right_choice])
+
+          (^.with_template [<pm> <getter>]
+            [(<pm> lefts)
+             (///////phase#in (push_cursor! (<getter> (_.i32 (.int lefts)) ..peek_cursor)))])
+          ([/////synthesis.member/left  //runtime.tuple//left]
+           [/////synthesis.member/right //runtime.tuple//right])
+
+          (^.with_template [<tag> <combinator>]
+            [(<tag> leftP rightP)
+             (do ///////phase.monad
+               [left! (again leftP)
+                right! (again rightP)]
+               (in (<combinator> left! right!)))])
+          ([/////synthesis.path/seq _.then]
+           [/////synthesis.path/alt ..alternation]))))))
+
+(def (pattern_matching statement expression archive pathP)
+  (-> Phase! Phase Archive Path (Operation Statement))
+  (do ///////phase.monad
+    [pattern_matching! (pattern_matching' statement expression archive pathP)]
+    (in (all _.then
+             (_.do_while (_.boolean false)
+                         pattern_matching!)
+             (_.throw (_.string ////synthesis/when.pattern_matching_error))))))
+
+(def .public (when! statement expression archive [valueS pathP])
+  (Translator! [Synthesis Path])
+  (do ///////phase.monad
+    [stack_init (expression archive valueS)
+     pattern_matching! (pattern_matching statement expression archive pathP)]
+    (in (all _.then
+             (_.declare @temp)
+             (_.define @cursor (_.array (list stack_init)))
+             (_.define @savepoint (_.array (list)))
+             pattern_matching!))))
+
+(def .public (when statement expression archive [valueS pathP])
+  (-> Phase! (Translator [Synthesis Path]))
+  (do ///////phase.monad
+    [pattern_matching! (..when! statement expression archive [valueS pathP])]
+    (in (_.apply (_.closure (list) pattern_matching!) (list)))))

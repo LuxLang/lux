@@ -2,9 +2,11 @@
  [library
   [lux (.except)
    [abstract
-    [equivalence (.only Equivalence)]
     [monoid (.only Monoid)]
+    ["[0]" equivalence (.only Equivalence)]
     ["[0]" hash (.only Hash)]]
+   [control
+    ["[0]" try]]
    [data
     [collection
      ["[0]" list (.use "[1]#[0]" functor)]]]
@@ -17,10 +19,11 @@
      ["[0]" i64]]]
    [meta
     [type
-     ["[0]" primitive (.except def)]]]]])
+     ["[0]" primitive]]]]]
+ [/
+  ["[0]" rgb (.only RGB)]])
 
-(def rgb_limit 256)
-(def top (-- rgb_limit))
+(def top (-- rgb.limit))
 
 (def rgb_factor
   (|> top .int int.frac))
@@ -32,12 +35,6 @@
 (def up
   (-> Frac Nat)
   (|>> (f.* rgb_factor) f.int .nat))
-
-(type .public RGB
-  (Record
-   [#red Nat
-    #green Nat
-    #blue Nat]))
 
 (type .public HSL
   [Frac Frac Frac])
@@ -55,92 +52,62 @@
 (primitive.def .public Color
   RGB
 
-  (def .public (of_rgb [red green blue])
+  (def .public of_rgb
     (-> RGB Color)
-    (abstraction [#red (n.% ..rgb_limit red)
-                  #green (n.% ..rgb_limit green)
-                  #blue (n.% ..rgb_limit blue)]))
+    (|>> primitive.abstraction))
 
   (def .public rgb
     (-> Color RGB)
-    (|>> representation))
+    (|>> primitive.representation))
 
   (def .public equivalence
     (Equivalence Color)
-    (implementation
-     (def (= reference sample)
-       (let [[rR gR bR] (representation reference)
-             [rS gS bS] (representation sample)]
-         (and (n.= rR rS)
-              (n.= gR gS)
-              (n.= bR bS))))))
+    (at equivalence.functor each ..rgb rgb.equivalence))
 
   (def .public hash
     (Hash Color)
-    (implementation
-     (def equivalence ..equivalence)
+    (at hash.functor each ..rgb rgb.hash))
 
-     (def (hash value)
-       (let [[r g b] (representation value)]
-         (all i64.or
-              (i64.left_shifted 16 r)
-              (i64.left_shifted 8 g)
-              b)))))
+  (with_template [<color> <rgb>]
+    [(def .public <color>
+       Color
+       (primitive.abstraction <rgb>))]
 
-  (def .public black
-    Color
-    (..of_rgb [#red 0
-               #green 0
-               #blue 0]))
+    [black rgb.black]
+    [white rgb.white]
+    )
 
-  (def .public white
-    Color
-    (..of_rgb [#red ..top
-               #green ..top
-               #blue ..top]))
+  (with_template [<color> <rgb>]
+    [(def .public <color>
+       (Monoid Color)
+       (implementation
+        (def identity
+          (primitive.abstraction
+           (at <rgb> identity)))
 
-  (def .public addition
-    (Monoid Color)
-    (implementation
-     (def identity ..black)
+        (def (composite left right)
+          (primitive.abstraction
+           (at <rgb> composite
+               (primitive.representation left)
+               (primitive.representation right))))))]
 
-     (def (composite left right)
-       (let [[lR lG lB] (representation left)
-             [rR rG rB] (representation right)]
-         (abstraction [#red (n.max lR rR)
-                       #green (n.max lG rG)
-                       #blue (n.max lB rB)])))))
+    [addition rgb.addition]
+    [subtraction rgb.subtraction]
+    )
 
-  (def (opposite_intensity value)
-    (-> Nat Nat)
-    (|> ..top (n.- value)))
-
-  (def .public (complement color)
+  (def .public complement
     (-> Color Color)
-    (let [[red green blue] (representation color)]
-      (abstraction [#red (opposite_intensity red)
-                    #green (opposite_intensity green)
-                    #blue (opposite_intensity blue)])))
-
-  (def .public subtraction
-    (Monoid Color)
-    (implementation
-     (def identity ..white)
-
-     (def (composite left right)
-       (let [[lR lG lB] (representation (..complement left))
-             [rR rG rB] (representation right)]
-         (abstraction [#red (n.min lR rR)
-                       #green (n.min lG rG)
-                       #blue (n.min lB rB)])))))
+    (|>> primitive.representation
+         rgb.complement
+         primitive.abstraction))
   )
 
 (def .public (hsl color)
   (-> Color HSL)
   (let [[red green blue] (rgb color)
-        red (..down red)
-        green (..down green)
-        blue (..down blue)
+        red (..down (rgb.number red))
+        green (..down (rgb.number green))
+        blue (..down (rgb.number blue))
         max (all f.max red green blue)
         min (all f.min red green blue)
         luminance (|> (f.+ max min) (f./ +2.0))]
@@ -191,28 +158,28 @@
 
 (def .public (of_hsl [hue saturation luminance])
   (-> HSL Color)
-  (if (f.= +0.0 saturation)
-    ... Achromatic
-    (let [intensity (..up luminance)]
-      (of_rgb [#red intensity
-               #green intensity
-               #blue intensity]))
-    ... Chromatic
-    (let [q (if (f.< +0.5 luminance)
-              (|> saturation (f.+ +1.0) (f.* luminance))
-              (|> luminance (f.+ saturation) (f.- (f.* saturation luminance))))
-          p (|> luminance (f.* +2.0) (f.- q))
-          third (|> +1.0 (f./ +3.0))]
-      (of_rgb [#red (|> hue (f.+ third) (hue_rgb p q))
-               #green (|> hue (hue_rgb p q))
-               #blue (|> hue (f.- third) (hue_rgb p q))]))))
+  (|> (if (f.= +0.0 saturation)
+        ... Achromatic
+        (let [intensity (..up luminance)]
+          (rgb.rgb intensity intensity intensity))
+        ... Chromatic
+        (let [q (if (f.< +0.5 luminance)
+                  (|> saturation (f.+ +1.0) (f.* luminance))
+                  (|> luminance (f.+ saturation) (f.- (f.* saturation luminance))))
+              p (|> luminance (f.* +2.0) (f.- q))
+              third (|> +1.0 (f./ +3.0))]
+          (rgb.rgb (|> hue (f.+ third) (hue_rgb p q))
+                   (|> hue (hue_rgb p q))
+                   (|> hue (f.- third) (hue_rgb p q)))))
+      try.trusted
+      of_rgb))
 
 (def .public (hsb color)
   (-> Color HSB)
   (let [[red green blue] (rgb color)
-        red (..down red)
-        green (..down green)
-        blue (..down blue)
+        red (..down (rgb.number red))
+        green (..down (rgb.number green))
+        blue (..down (rgb.number blue))
         max (all f.max red green blue)
         min (all f.min red green blue)
         brightness max
@@ -252,16 +219,18 @@
         red (when mod 0 v 1 q 2 p 3 p 4 t 5 v _ (undefined))
         green (when mod 0 t 1 v 2 v 3 q 4 p 5 p _ (undefined))
         blue (when mod 0 p 1 p 2 t 3 v 4 v 5 q _ (undefined))]
-    (of_rgb [#red (..up red)
-             #green (..up green)
-             #blue (..up blue)])))
+    (|> (rgb.rgb (..up red)
+                 (..up green)
+                 (..up blue))
+        try.trusted
+        of_rgb)))
 
 (def .public (cmyk color)
   (-> Color CMYK)
   (let [[red green blue] (rgb color)
-        red (..down red)
-        green (..down green)
-        blue (..down blue)
+        red (..down (rgb.number red))
+        green (..down (rgb.number green))
+        blue (..down (rgb.number blue))
         key (|> +1.0 (f.- (all f.max red green blue)))
         f (if (f.< +1.0 key)
             (|> +1.0 (f./ (|> +1.0 (f.- key))))
@@ -277,18 +246,18 @@
 (def .public (of_cmyk [cyan magenta yellow key])
   (-> CMYK Color)
   (if (f.= +1.0 key)
-    (of_rgb [#red 0
-             #green 0
-             #blue 0])
+    ..black
     (let [red (|> (|> +1.0 (f.- cyan))
                   (f.* (|> +1.0 (f.- key))))
           green (|> (|> +1.0 (f.- magenta))
                     (f.* (|> +1.0 (f.- key))))
           blue (|> (|> +1.0 (f.- yellow))
                    (f.* (|> +1.0 (f.- key))))]
-      (of_rgb [#red (..up red)
-               #green (..up green)
-               #blue (..up blue)]))))
+      (|> (rgb.rgb (..up red)
+                   (..up green)
+                   (..up blue))
+          try.trusted
+          of_rgb))))
 
 (def (normal ratio)
   (-> Frac Frac)
@@ -313,9 +282,11 @@
                                 .nat)))
         [redS greenS blueS] (rgb start)
         [redE greenE blueE] (rgb end)]
-    (of_rgb [#red (interpolated' redE redS)
-             #green (interpolated' greenE greenS)
-             #blue (interpolated' blueE blueS)])))
+    (|> (rgb.rgb (interpolated' (rgb.number redE) (rgb.number redS))
+                 (interpolated' (rgb.number greenE) (rgb.number greenS))
+                 (interpolated' (rgb.number blueE) (rgb.number blueS)))
+        try.trusted
+        of_rgb)))
 
 (with_template [<name> <target>]
   [(def .public (<name> ratio color)

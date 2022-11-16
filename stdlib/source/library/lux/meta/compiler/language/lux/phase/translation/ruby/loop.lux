@@ -1,0 +1,96 @@
+(.require
+ [library
+  [lux (.except Scope symbol)
+   [abstract
+    ["[0]" monad (.only do)]]
+   [data
+    ["[0]" product]
+    ["[0]" text (.only)
+     ["%" \\format (.only format)]]
+    [collection
+     ["[0]" list (.use "[1]#[0]" functor mix)]
+     ["[0]" set]]]
+   [math
+    [number
+     ["n" nat]]]
+   [meta
+    [target
+     ["_" ruby (.only Expression LVar Statement)]]]]]
+ ["[0]" //
+  [runtime (.only Operation Phase Translator Phase! Translator!)]
+  ["[1][0]" when]
+  ["/[1]" //
+   ["[1][0]" reference]
+   ["/[1]" //
+    [synthesis
+     ["[0]" when]]
+    ["/[1]" //
+     ["[0]" synthesis (.only Scope Synthesis)]
+     ["[1][0]" translation]
+     ["//[1]" ///
+      ["[1][0]" phase]
+      [reference
+       ["[1][0]" variable (.only Register)]]]]]]])
+
+(def (setup offset bindings body)
+  (-> Register (List Expression) Statement Statement)
+  (let [variables (|> bindings
+                      list.enumeration
+                      (list#each (|>> product.left (n.+ offset) //when.register)))]
+    (all _.then
+         (_.set variables (_.multi bindings))
+         body)))
+
+(def symbol
+  (_.symbol "lux_continue"))
+
+(def .public with_scope
+  (-> Statement Statement)
+  (_.while (_.bool true)))
+
+(def .public (scope! statement expression archive [start initsS+ bodyS])
+  (Translator! (Scope Synthesis))
+  (when initsS+
+    ... function/false/non-independent loop
+    {.#End}
+    (statement expression archive bodyS)
+
+    ... true loop
+    _
+    (do [! ///////phase.monad]
+      [initsO+ (monad.each ! (expression archive) initsS+)
+       body! (/////translation.with_anchor start
+               (statement expression archive bodyS))]
+      (in (<| (..setup start initsO+)
+              ..with_scope
+              body!)))))
+
+(def .public (scope statement expression archive [start initsS+ bodyS])
+  (-> Phase! (Translator (Scope Synthesis)))
+  (when initsS+
+    ... function/false/non-independent loop
+    {.#End}
+    (expression archive bodyS)
+
+    ... true loop
+    _
+    (do [! ///////phase.monad]
+      [body! (scope! statement expression archive [start initsS+ bodyS])]
+      (in (|> body!
+              [(list)] (_.lambda {.#None})
+              (_.apply_lambda (list)))))))
+
+(def .public (again! statement expression archive argsS+)
+  (Translator! (List Synthesis))
+  (do [! ///////phase.monad]
+    [offset /////translation.anchor
+     @temp (//when.symbol "lux_again_values")
+     argsO+ (monad.each ! (expression archive) argsS+)
+     .let [re_binds (|> argsO+
+                        list.enumeration
+                        (list#each (function (_ [idx _])
+                                     (_.item (_.int (.int idx)) @temp))))]]
+    (in (all _.then
+             (_.set (list @temp) (_.array argsO+))
+             (..setup offset re_binds
+                      _.next)))))

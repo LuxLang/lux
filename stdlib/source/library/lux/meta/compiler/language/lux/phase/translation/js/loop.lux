@@ -1,0 +1,116 @@
+(.require
+ [library
+  [lux (.except Scope)
+   [abstract
+    ["[0]" monad (.only do)]]
+   [data
+    ["[0]" product]
+    ["[0]" text (.only)
+     ["%" \\format (.only format)]]
+    [collection
+     ["[0]" list (.use "[1]#[0]" functor mix)]]]
+   [math
+    [number
+     ["n" nat]]]
+   [meta
+    [target
+     ["_" js (.only Computation Var Expression Statement)]]]]]
+ ["[0]" //
+  [runtime (.only Operation Phase Phase! Translator Translator!)]
+  ["[1][0]" when]
+  ["///[1]" ////
+   [synthesis (.only Scope Synthesis)]
+   ["[1][0]" translation]
+   ["//[1]" ///
+    ["[1][0]" phase]
+    [reference
+     [variable (.only Register)]]]]])
+
+(def @scope
+  (-> Nat Text)
+  (|>> %.nat (format "scope")))
+
+(def $iteration
+  (-> Nat Var)
+  (|>> %.nat (format "iteration") _.var))
+
+(def (setup $iteration initial? offset bindings body)
+  (-> Var Bit Register (List Expression) Statement Statement)
+  (when bindings
+    (list)
+    body
+
+    (list binding)
+    (let [$binding (//when.register offset)]
+      (all _.then
+           (if initial?
+             (_.define $binding binding)
+             (_.statement (_.set $binding binding)))
+           body
+           ))
+
+    _
+    (|> bindings
+        list.enumeration
+        (list#each (function (_ [register _])
+                     (let [variable (//when.register (n.+ offset register))]
+                       (if initial?
+                         (_.define variable (_.at (_.i32 (.int register)) $iteration))
+                         (_.statement (_.set variable (_.at (_.i32 (.int register)) $iteration)))))))
+        list.reversed
+        (list#mix _.then body)
+        (_.then (_.define $iteration (_.array bindings))))))
+
+(def .public (scope! statement expression archive [start initsS+ bodyS])
+  (Translator! (Scope Synthesis))
+  (when initsS+
+    ... function/false/non-independent loop
+    {.#End}
+    (statement expression archive bodyS)
+
+    ... true loop
+    _
+    (do [! ///////phase.monad]
+      [@scope (at ! each ..@scope /////translation.next)
+       initsO+ (monad.each ! (expression archive) initsS+)
+       body! (/////translation.with_anchor [start @scope]
+               (statement expression archive bodyS))
+       $iteration (at ! each ..$iteration /////translation.next)]
+      (in (..setup $iteration
+                   true start
+                   initsO+
+                   (_.with_label (_.label @scope)
+                     (_.do_while (_.boolean true)
+                                 body!)))))))
+
+(def .public (scope statement expression archive [start initsS+ bodyS])
+  (-> Phase! (Translator (Scope Synthesis)))
+  (when initsS+
+    ... function/false/non-independent loop
+    {.#End}
+    (expression archive bodyS)
+
+    ... true loop
+    _
+    (do [! ///////phase.monad]
+      [loop! (scope! statement expression archive [start initsS+ bodyS])]
+      (in (_.apply (_.closure (list) loop!) (list))))))
+
+(def @temp
+  (_.var "lux_again_values"))
+
+(def .public (again! statement expression archive argsS+)
+  (Translator! (List Synthesis))
+  (do [! ///////phase.monad]
+    [[offset @scope] /////translation.anchor
+     argsO+ (monad.each ! (expression archive) argsS+)
+     $iteration (at ! each ..$iteration /////translation.next)]
+    (in (all _.then
+             (_.define @temp (_.array argsO+))
+             (..setup $iteration
+                      false offset
+                      (|> argsO+
+                          list.enumeration
+                          (list#each (function (_ [idx _])
+                                       (_.at (_.i32 (.int idx)) @temp))))
+                      (_.continue_at (_.label @scope)))))))

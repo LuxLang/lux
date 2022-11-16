@@ -1,0 +1,137 @@
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    ["[0]" monad (.only do)]]
+   [control
+    ["<>" parser]
+    ["[0]" function]]
+   [data
+    [collection
+     ["[0]" dictionary]
+     ["[0]" list]]
+    [text
+     ["%" \\format (.only format)]]]
+   [meta
+    [target
+     ["_" ruby (.only Var Expression)]]]]]
+ ["[0]" //
+  ["[1][0]" common (.only custom)]
+  ["//[1]" ///
+   ["/" bundle]
+   ["/[1]" //
+    ["[0]" extension]
+    [translation
+     [extension (.only Nullary Unary Binary Trinary
+                       nullary unary binary trinary)]
+     ["[0]" reference]
+     ["//" ruby
+      ["[1][0]" runtime (.only Operation Phase Handler Bundle
+                               with_vars)]]]
+    ["/[1]" //
+     [synthesis
+      ["<s>" \\parser (.only Parser)]]
+     ["//[1]" ///
+      ["[1][0]" phase]]]]]])
+
+(def (array::new [size])
+  (Unary Expression)
+  (_.do "new" (list size) {.#None} (is _.CVar (_.manual "Array"))))
+
+(def array::length
+  (Unary Expression)
+  (_.the "size"))
+
+(def (array::read [indexG arrayG])
+  (Binary Expression)
+  (_.item indexG arrayG))
+
+(def (array::write [indexG valueG arrayG])
+  (Trinary Expression)
+  (//runtime.array//write indexG valueG arrayG))
+
+(def (array::delete [indexG arrayG])
+  (Binary Expression)
+  (//runtime.array//write indexG _.nil arrayG))
+
+(def array
+  Bundle
+  (<| (/.prefix "array")
+      (|> /.empty
+          (/.install "new" (unary array::new))
+          (/.install "length" (unary array::length))
+          (/.install "read" (binary array::read))
+          (/.install "write" (trinary array::write))
+          (/.install "delete" (binary array::delete))
+          )))
+
+(def object::get
+  Handler
+  (custom
+   [(all <>.and <s>.text <s>.any)
+    (function (_ extension phase archive [fieldS objectS])
+      (do ////////phase.monad
+        [objectG (phase archive objectS)]
+        (in (_.the fieldS objectG))))]))
+
+(def object::do
+  Handler
+  (custom
+   [(all <>.and <s>.text <s>.any (<>.some <s>.any))
+    (function (_ extension phase archive [methodS objectS inputsS])
+      (do [! ////////phase.monad]
+        [objectG (phase archive objectS)
+         inputsG (monad.each ! (phase archive) inputsS)]
+        (in (_.do methodS inputsG {.#None} objectG))))]))
+
+(with_template [<!> <?> <unit>]
+  [(def <!> (Nullary Expression) (function.constant <unit>))
+   (def <?> (Unary Expression) (_.= <unit>))]
+
+  [object::nil object::nil? _.nil]
+  )
+
+(def object
+  Bundle
+  (<| (/.prefix "object")
+      (|> /.empty
+          (/.install "get" object::get)
+          (/.install "do" object::do)
+          (/.install "nil" (nullary object::nil))
+          (/.install "nil?" (unary object::nil?))
+          )))
+
+(def ruby::constant
+  (custom
+   [<s>.text
+    (function (_ extension phase archive name)
+      (at ////////phase.monad in (is _.CVar (_.manual name))))]))
+
+(def ruby::apply
+  (custom
+   [(all <>.and <s>.any (<>.some <s>.any))
+    (function (_ extension phase archive [abstractionS inputsS])
+      (do [! ////////phase.monad]
+        [abstractionG (phase archive abstractionS)
+         inputsG (monad.each ! (phase archive) inputsS)]
+        (in (_.apply inputsG {.#None} abstractionG))))]))
+
+(def ruby::import
+  (custom
+   [<s>.text
+    (function (_ extension phase archive module)
+      (at ////////phase.monad in
+          (_.require/1 (_.string module))))]))
+
+(def .public bundle
+  Bundle
+  (<| (/.prefix "ruby")
+      (|> /.empty
+          (dictionary.composite ..array)
+          (dictionary.composite ..object)
+
+          (/.install "constant" ruby::constant)
+          (/.install "apply" ruby::apply)
+          (/.install "import" ruby::import)
+          (/.install "script universe" (nullary (function.constant (_.bool reference.universe))))
+          )))
