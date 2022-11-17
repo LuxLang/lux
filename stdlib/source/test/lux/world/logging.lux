@@ -1,0 +1,119 @@
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["[0]" try]
+    [concurrency
+     ["[0]" async (.only Async) (.use "[1]#[0]" monad)]]]
+   [data
+    ["[0]" text (.use "[1]#[0]" equivalence)
+     ["%" \\format]]]
+   [math
+    ["[0]" random (.only Random)]]
+   [test
+    ["_" property (.only Test)]
+    ["[0]" unit]]]]
+ [\\library
+  ["[0]" / (.only)
+   [//
+    ["[0]" console]]]])
+
+(def mock
+  (console.Mock Text)
+  (implementation
+   (def (on_read _)
+     {try.#Failure ""})
+   (def (on_read_line feed)
+     (when (text.split_by text.\n feed)
+       {.#Some [line rest]}
+       {try.#Success [rest line]}
+
+       {.#None}
+       {try.#Failure ""}))
+   (def (on_write line state)
+     {try.#Success (%.format state line)})
+   (def (on_close _)
+     {try.#Failure ""})))
+
+(def .public test
+  Test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [expected_message (random.upper_cased 3)
+         expected_appendix (random.lower_cased 3)
+         expected_instant random.instant])
+      (_.for [/.Logger])
+      (`` (all _.and
+               (let [console (console.async (console.mock ..mock ""))
+                     it (/.console console)]
+                 (in (do async.monad
+                       [logged? (at it log expected_message)
+                        actual_message (at console read_line [])]
+                       (unit.coverage [/.console /.log]
+                         (when [logged? actual_message]
+                           [{try.#Success _}
+                            {try.#Success actual_message}]
+                           (text#= expected_message actual_message)
+
+                           _
+                           false)))))
+               (,, (with_template [<level>]
+                     [(let [console (console.async (console.mock ..mock ""))
+                            it (/.console console)]
+                        (in (do async.monad
+                              [logged? (<level> expected_message it)
+                               actual_message (at console read_line [])]
+                              (unit.coverage [<level>]
+                                (when [logged? actual_message]
+                                  [{try.#Success _}
+                                   {try.#Success actual_message}]
+                                  (and (not (text#= expected_message actual_message))
+                                       (text.contains? expected_message actual_message))
+
+                                  _
+                                  false)))))]
+
+                     [/.error]
+                     [/.warn]
+                     [/.info]
+                     [/.debug]
+                     ))
+               (let [console (console.async (console.mock ..mock ""))
+                     it (is (/.Logger Async)
+                            (/.with (text.suffix expected_appendix)
+                              (/.console console)))]
+                 (in (do async.monad
+                       [logged? (at it log expected_message)
+                        actual_message (at console read_line [])]
+                       (unit.coverage [/.with]
+                         (when [logged? actual_message]
+                           [{try.#Success _}
+                            {try.#Success actual_message}]
+                           (text#= (text.suffix expected_appendix expected_message)
+                                   actual_message)
+
+                           _
+                           false)))))
+               (let [console (console.async (console.mock ..mock ""))
+                     it (is (/.Logger Async)
+                            (/.timed async.monad
+                                     (function (_ _)
+                                       (async#in expected_instant))
+                                     (/.console console)))]
+                 (in (do async.monad
+                       [logged? (at it log expected_message)
+                        actual_message (at console read_line [])]
+                       (unit.coverage [/.timed]
+                         (when [logged? actual_message]
+                           [{try.#Success _}
+                            {try.#Success actual_message}]
+                           (and (text.contains? expected_message
+                                                actual_message)
+                                (text.contains? (%.instant expected_instant)
+                                                actual_message))
+
+                           _
+                           false)))))
+               ))))

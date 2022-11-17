@@ -15,6 +15,7 @@
 
 # Reference
 
+0. [Lightweight Implementations of Probabilistic Programming Languages Via Transformational Compilation](https://proceedings.mlr.press/v15/wingate11a.html)
 0. [Probabilistic programming with continuations](https://julesh.com/2020/08/15/probabilistic-programming-with-continuations/)
 0. [Foundations of Probabilistic Programming](https://www.cambridge.org/core/books/foundations-of-probabilistic-programming/819623B1B5B33836476618AC0621F0EE)
 0. [An unorthodox path for implementing a probabilistic programming language](http://hyperparameter.space/blog/an-unorthodox-path-for-implementing-a-probabilistic-programming-language/)

@@ -1,10 +1,10 @@
 # Methodology
 
-0. []()
 0. [CUBE CSS](https://cube.fyi/)
 
 # Reference
 
+0. [CSS-Only Type Grinding: Casting Tokens (sm|md|etc) into Useful Values](https://www.bitovi.com/blog/css-only-type-grinding-casting-tokens-into-useful-values)
 0. [CSS Classes considered harmful](https://www.keithcirkel.co.uk/css-classes-considered-harmful/)
 0. [Meet the top layer: a solution to z-index:10000](https://developer.chrome.com/blog/what-is-the-top-layer/)
 0. [Not All Zeros are Equal: And every ‘best practice’ comes with caveats](https://www.oddbird.net/2022/08/04/zero-units/)
