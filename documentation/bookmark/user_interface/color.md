@@ -1,6 +1,11 @@
 # Reference
 
-0. []()
+0. [The Müller Formula (or: Predictable Color Preferences)](https://www.colourlovers.com/blog/2007/09/02/the-muller-formula-or-predictable-color-preferences)
+0. [Mastering Multi-hued Color Scales with Chroma.js](https://www.vis4.net/blog/2013/09/mastering-multi-hued-color-scales/)
+0. [How To Avoid Equidistant HSV Colors ](https://www.vis4.net/blog/2011/12/avoid-equidistant-hsv-colors/)
+0. [The incredibly challenging task of sorting colours](https://www.alanzucconi.com/2015/09/30/colour-sorting/)
+0. [How to find the main colours in an image](https://www.alanzucconi.com/2015/05/24/how-to-find-the-main-colours-in-an-image/)
+0. [The Secrets of Colour Interpolation](https://www.alanzucconi.com/2016/01/06/colour-interpolation/)
 0. [Color Design Hub](https://github.com/delaklo/color-design-hub)
 0. [Color.js: Let's get serious about color](https://colorjs.io/)
 0. [Leonardo](https://leonardocolor.io/#)

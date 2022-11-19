@@ -21,43 +21,44 @@
     [macro
      ["^" pattern]]
     [target
-     ["_" python (.only Expression Statement)]]]]]
- ["[0]" ////
-  ["/" bundle]
-  ["/[1]" //
-   ["[0]" extension]
-   [translation
-    ["[0]" reference]
-    [extension (.only Nullary Unary Binary Trinary
-                      nullary unary binary trinary)]
-    ["//" python
-     ["[1][0]" runtime (.only Operation Phase Phase! Handler Bundle Translator)]
-     ["[1][0]" primitive]
-     ["[1][0]" structure]
-     ["[1][0]" reference]
-     ["[1][0]" function]
-     ["[1][0]" when]
-     ["[1][0]" loop]]]
-   [//
-    [analysis (.only)]
-    ["[0]" translation]
-    ["[0]" synthesis (.only %synthesis)
-     ["<[1]>" \\parser (.only Parser)]]
-    [///
-     ["[1]" phase (.use "[1]#[0]" monad)]]]]])
+     ["_" python (.only Expression Statement)]]
+    [compiler
+     [meta
+      [archive (.only Archive)]]]]]]
+ [/////
+  ["[0]" extension]
+  [translation
+   ["[0]" reference]
+   [extension (.only Nullary Unary Binary Trinary Variadic
+                     nullary unary binary trinary variadic)]
+   ["//" python
+    ["[1][0]" runtime (.only Operation Phase Phase! Handler Bundle Translator)]
+    ["[1][0]" primitive]
+    ["[1][0]" structure]
+    ["[1][0]" reference]
+    ["[1][0]" function]
+    ["[1][0]" when]
+    ["[1][0]" loop]]]
+  [//
+   [analysis (.only)]
+   ["[0]" translation]
+   ["[0]" synthesis (.only %synthesis)
+    ["<[1]>" \\parser (.only Parser)]]
+   [///
+    ["[0]" phase (.use "[1]#[0]" monad)]]]])
 
 (def .public (statement expression archive synthesis)
   Phase!
   (when synthesis
     ... TODO: Get rid of this ASAP
-    {synthesis.#Extension [.prelude "when_char#|translation"] parameters}
-    (do /////.monad
+    [@ {synthesis.#Extension [.prelude "when_char#|translation"] parameters}]
+    (do phase.monad
       [body (expression archive synthesis)]
       (in (as (Statement Any) body)))
     
     (^.with_template [<tag>]
-      [(<tag> value)
-       (/////#each _.return (expression archive synthesis))])
+      [(<tag> @ value)
+       (phase#each _.return (expression archive synthesis))])
     ([synthesis.bit]
      [synthesis.i64]
      [synthesis.f64]
@@ -68,16 +69,16 @@
      [synthesis.function/apply])
 
     (^.with_template [<tag>]
-      [{<tag> value}
-       (/////#each _.return (expression archive synthesis))])
+      [[@ {<tag> value}]
+       (phase#each _.return (expression archive synthesis))])
     ([synthesis.#Reference]
      [synthesis.#Extension])
 
-    (synthesis.branch/when when)
+    (synthesis.branch/when @ when)
     (//when.when! false statement expression archive when)
 
     (^.with_template [<tag> <translator>]
-      [(<tag> value)
+      [(<tag> @ value)
        (<translator> statement expression archive value)])
     ([synthesis.branch/exec //when.exec!]
      [synthesis.branch/let //when.let!]
@@ -85,9 +86,22 @@
      [synthesis.loop/scope //loop.scope!]
      [synthesis.loop/again //loop.again!])
 
-    (synthesis.function/abstraction abstraction)
-    (/////#each _.return (//function.function statement expression archive abstraction))
+    (synthesis.function/abstraction @ abstraction)
+    (phase#each _.return (//function.function statement expression archive abstraction))
     ))
+
+(def .public (custom [parser handler])
+  (All (_ s)
+    (-> [(Parser s)
+         (-> Phase Archive s (Operation (Expression Any)))]
+        Handler))
+  (function (_ phase archive input)
+    (when (<synthesis>.result parser input)
+      {try.#Success input'}
+      (handler phase archive input')
+
+      {try.#Failure error}
+      (phase.failure error))))
 
 ... TODO: Get rid of this ASAP
 (def lux::syntax_char_case!
@@ -97,8 +111,8 @@
                   (<>.some (<synthesis>.tuple (all <>.and
                                                    (<synthesis>.tuple (<>.many <synthesis>.i64))
                                                    <synthesis>.any))))
-             (function (_ extension_name phase archive [input else conditionals])
-               (do [! /////.monad]
+             (function (_ phase archive [input else conditionals])
+               (do [! phase.monad]
                  [inputG (phase archive input)
                   else! (..statement phase archive else)
                   @input (at ! each _.var (translation.symbol "input"))
@@ -144,55 +158,55 @@
                                         else!
                                         conditionals!))))))]))
 
-(def lux_procs
-  Bundle
-  (|> /.empty
-      (/.install "syntax char case!" lux::syntax_char_case!)
-      (/.install "is" (binary (product.uncurried _.is)))
-      (/.install "try" (unary //runtime.lux::try))))
+(def with_basic_extensions
+  (-> Bundle Bundle)
+  (|>> (dictionary.has "when_char#|translation" lux::syntax_char_case!)
+       (dictionary.has "is?#|translation" (binary (product.uncurried _.is)))
+       (dictionary.has "try#|translation" (unary //runtime.lux::try))))
 
 (def (capped operation parameter subject)
   (-> (-> (Expression Any) (Expression Any) (Expression Any))
       (-> (Expression Any) (Expression Any) (Expression Any)))
   (//runtime.i64::64 (operation parameter subject)))
 
-(def i64_procs
-  Bundle
-  (<| (/.prefix "i64")
-      (|> /.empty
-          (/.install "and" (binary (product.uncurried //runtime.i64::and)))
-          (/.install "or" (binary (product.uncurried //runtime.i64::or)))
-          (/.install "xor" (binary (product.uncurried //runtime.i64::xor)))
-          (/.install "left-shift" (binary (product.uncurried //runtime.i64::left_shifted)))
-          (/.install "right-shift" (binary (product.uncurried //runtime.i64::right_shifted)))
+(def with_i64_extensions
+  (-> Bundle Bundle)
+  (|>> (dictionary.has "i64_and#|translation" (binary (product.uncurried //runtime.i64::and)))
+       (dictionary.has "i64_or#|translation" (binary (product.uncurried //runtime.i64::or)))
+       (dictionary.has "i64_xor#|translation" (binary (product.uncurried //runtime.i64::xor)))
+       (dictionary.has "i64_left#|translation" (binary (product.uncurried //runtime.i64::left_shifted)))
+       (dictionary.has "i64_right#|translation" (binary (product.uncurried //runtime.i64::right_shifted)))
 
-          (/.install "<" (binary (product.uncurried _.<)))
-          (/.install "=" (binary (product.uncurried _.=)))
-          (/.install "+" (binary (product.uncurried (..capped _.+))))
-          (/.install "-" (binary (product.uncurried (..capped _.-))))
-          (/.install "*" (binary (product.uncurried (..capped _.*))))
-          (/.install "/" (binary (product.uncurried //runtime.i64#/)))
-          (/.install "%" (binary (product.uncurried //runtime.i64::remainder)))
-          (/.install "f64" (unary _.float/1))
-          (/.install "char" (unary //runtime.i64::char))
-          )))
+       (dictionary.has "i64_=#|translation" (binary (product.uncurried _.=)))
+       (dictionary.has "i64_+#|translation" (binary (product.uncurried (..capped _.+))))
+       (dictionary.has "i64_-#|translation" (binary (product.uncurried (..capped _.-))))
+       ))
 
-(def f64_procs
-  Bundle
-  (<| (/.prefix "f64")
-      (|> /.empty
-          (/.install "+" (binary (product.uncurried _.+)))
-          (/.install "-" (binary (product.uncurried _.-)))
-          (/.install "*" (binary (product.uncurried _.*)))
-          (/.install "/" (binary (product.uncurried //runtime.f64::/)))
-          (/.install "%" (binary (function (_ [parameter subject])
-                                   (|> (_.__import__/1 (_.unicode "math"))
-                                       (_.do "fmod" (list subject parameter))))))
-          (/.install "=" (binary (product.uncurried _.=)))
-          (/.install "<" (binary (product.uncurried _.<)))
-          (/.install "i64" (unary _.int/1))
-          (/.install "encode" (unary _.repr/1))
-          (/.install "decode" (unary //runtime.f64::decode)))))
+(def with_int_extensions
+  (-> Bundle Bundle)
+  (|>> (dictionary.has "int_<#|translation" (binary (product.uncurried _.<)))
+       (dictionary.has "int_*#|translation" (binary (product.uncurried (..capped _.*))))
+       (dictionary.has "int_/#|translation" (binary (product.uncurried //runtime.i64#/)))
+       (dictionary.has "int_%#|translation" (binary (product.uncurried //runtime.i64::remainder)))
+       
+       (dictionary.has "int_f64#|translation" (unary _.float/1))
+       (dictionary.has "int_char#|translation" (unary //runtime.i64::char))
+       ))
+
+(def with_frac_extensions
+  (-> Bundle Bundle)
+  (|>> (dictionary.has "f64_+#|translation" (binary (product.uncurried _.+)))
+       (dictionary.has "f64_-#|translation" (binary (product.uncurried _.-)))
+       (dictionary.has "f64_*#|translation" (binary (product.uncurried _.*)))
+       (dictionary.has "f64_/#|translation" (binary (product.uncurried //runtime.f64::/)))
+       (dictionary.has "f64_%#|translation" (binary (function (_ [parameter subject])
+                                                      (|> (_.__import__/1 (_.unicode "math"))
+                                                          (_.do "fmod" (list subject parameter))))))
+       (dictionary.has "f64_=#|translation" (binary (product.uncurried _.=)))
+       (dictionary.has "f64_<#|translation" (binary (product.uncurried _.<)))
+       (dictionary.has "f64_int#|translation" (unary _.int/1))
+       (dictionary.has "f64_encoded#|translation" (unary _.repr/1))
+       (dictionary.has "f64_decoded#|translation" (unary //runtime.f64::decode))))
 
 (def (text::clip [paramO extraO subjectO])
   (Trinary (Expression Any))
@@ -202,32 +216,41 @@
   (Trinary (Expression Any))
   (//runtime.text::index startO partO textO))
 
-(def text_procs
-  Bundle
-  (<| (/.prefix "text")
-      (|> /.empty
-          (/.install "=" (binary (product.uncurried _.=)))
-          (/.install "<" (binary (product.uncurried _.<)))
-          (/.install "concat" (binary (product.uncurried (function.flipped _.+))))
-          (/.install "index" (trinary ..text::index))
-          (/.install "size" (unary _.len/1))
-          (/.install "char" (binary (product.uncurried //runtime.text::char)))
-          (/.install "clip" (trinary ..text::clip))
-          )))
+(def (text::composite parts)
+  (Variadic (Expression Any))
+  (when parts
+    (list)
+    (_.string "")
 
-(def io_procs
-  Bundle
-  (<| (/.prefix "io")
-      (|> /.empty
-          (/.install "log" (unary //runtime.io::log!))
-          (/.install "error" (unary //runtime.io::throw!)))))
+    (list single)
+    single
+
+    _
+    (_.do "join" (list (_.list parts)) (_.string ""))))
+
+(def with_text_extensions
+  (-> Bundle Bundle)
+  (|>> (dictionary.has "text_=#|translation" (binary (product.uncurried _.=)))
+       (dictionary.has "text_<#|translation" (binary (product.uncurried _.<)))
+       (dictionary.has "text_composite#|translation" (variadic ..text::composite))
+       (dictionary.has "text_index#|translation" (trinary ..text::index))
+       (dictionary.has "text_size#|translation" (unary _.len/1))
+       (dictionary.has "text_char#|translation" (binary (product.uncurried //runtime.text::char)))
+       (dictionary.has "text_clip#|translation" (trinary ..text::clip))
+       ))
+
+(def with_io_extensions
+  (-> Bundle Bundle)
+  (|>> (dictionary.has "log!#|translation" (unary //runtime.io::log!))
+       (dictionary.has "error#|translation" (unary //runtime.io::throw!))))
 
 (def .public bundle
   Bundle
-  (<| (/.prefix "lux")
-      (|> lux_procs
-          (dictionary.composite i64_procs)
-          (dictionary.composite f64_procs)
-          (dictionary.composite text_procs)
-          (dictionary.composite io_procs)
-          )))
+  (|> extension.empty
+      with_basic_extensions
+      with_i64_extensions
+      with_int_extensions
+      with_frac_extensions
+      with_text_extensions
+      with_io_extensions
+      ))

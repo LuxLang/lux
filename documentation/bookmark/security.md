@@ -115,7 +115,7 @@
 
 # Reference
 
-0. []()
+0. [The immutable laws of security](https://learn.microsoft.com/en-us/security/compass/ten-laws-of-security)
 0. [Suricata: the leading independent open source threat detection engine](https://suricata.io/)
 0. [CS 253 Web Security](https://web.stanford.edu/class/cs253/)
 0. [Secure By Design](https://www.amazon.com/Secure-Design-Daniel-Deogun/dp/1617294357)
