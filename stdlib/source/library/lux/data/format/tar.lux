@@ -3,7 +3,8 @@
   [lux (.except Mode #mode and)
    [ffi (.only)]
    [abstract
-    [monad (.only do)]]
+    [monad (.only do)]
+    [codec (.only Codec)]]
    [control
     ["<>" parser]
     ["[0]" pipe]
@@ -13,8 +14,8 @@
     ["[0]" product]
     ["[0]" binary (.only Binary)
      ["[1]!" \\unsafe]
-     ["[0]" \\format (.only Format) (.use "[1]#[0]" monoid)]
-     ["<[1]>" \\parser (.only Parser)]]
+     ["![1]" \\format (.only Format) (.use "[1]#[0]" monoid)]
+     ["?[1]" \\parser (.only Parser)]]
     ["[0]" text (.only)
      [char (.only Char)]
      ["%" \\format]
@@ -100,7 +101,7 @@
               (..octal_padding <size>)
               (text.suffix suffix)
               (at utf8.codec encoded)
-              (\\format.segment padded_size))))
+              (!binary.segment padded_size))))
 
      (def <coercion>
        (-> Nat <type>)
@@ -127,12 +128,12 @@
 (def small_suffix
   (Parser Any)
   (do <>.monad
-    [pre_end <binary>.bits_8
+    [pre_end ?binary.bits_8
      _ (let [expected (`` (char (,, (static ..blank))))]
          (<>.assertion (exception.error ..wrong_character [expected pre_end])
                        (n.= expected pre_end)))
 
-     end <binary>.bits_8
+     end ?binary.bits_8
      _ (let [expected (`` (char (,, (static ..null))))]
          (<>.assertion (exception.error ..wrong_character [expected end])
                        (n.= expected end)))]
@@ -141,10 +142,10 @@
 (def small_parser
   (Parser Small)
   (do <>.monad
-    [digits (<binary>.segment ..small_size)
-     digits (<>.lifted (at utf8.codec decoded digits))
+    [digits (?binary.segment ..small_size)
+     digits (<>.of_try (at utf8.codec decoded digits))
      _ ..small_suffix]
-    (<>.lifted
+    (<>.of_try
      (do [! try.monad]
        [value (at n.octal decoded digits)]
        (..small value)))))
@@ -152,13 +153,13 @@
 (def big_parser
   (Parser Big)
   (do <>.monad
-    [digits (<binary>.segment ..big_size)
-     digits (<>.lifted (at utf8.codec decoded digits))
-     end <binary>.bits_8
+    [digits (?binary.segment ..big_size)
+     digits (<>.of_try (at utf8.codec decoded digits))
+     end ?binary.bits_8
      _ (let [expected (`` (char (,, (static ..blank))))]
          (<>.assertion (exception.error ..wrong_character [expected end])
                        (n.= expected end)))]
-    (<>.lifted
+    (<>.of_try
      (do [! try.monad]
        [value (at n.octal decoded digits)]
        (..big value)))))
@@ -203,15 +204,15 @@
                            ..small_size)]
       (|>> representation
            (at utf8.codec encoded)
-           (\\format.segment padded_size))))
+           (!binary.segment padded_size))))
 
   (def checksum_parser
     (Parser [Nat Checksum])
     (do <>.monad
-      [ascii (<binary>.segment ..small_size)
-       digits (<>.lifted (at utf8.codec decoded ascii))
+      [ascii (?binary.segment ..small_size)
+       digits (<>.of_try (at utf8.codec decoded ascii))
        _ ..small_suffix
-       value (<>.lifted
+       value (<>.of_try
               (at n.octal decoded digits))]
       (in [value
            (abstraction (%.format digits ..checksum_suffix))])))
@@ -288,17 +289,17 @@
          (|>> representation
               (text.suffix suffix)
               (at utf8.codec encoded)
-              (\\format.segment padded_size))))
+              (!binary.segment padded_size))))
 
      (def <parser>
        (Parser <type>)
        (do <>.monad
-         [string (<binary>.segment <size>)
-          end <binary>.bits_8
+         [string (?binary.segment <size>)
+          end ?binary.bits_8
           .let [expected (`` (char (,, (static ..null))))]
           _ (<>.assertion (exception.error ..wrong_character [expected end])
                           (n.= expected end))]
-         (<>.lifted
+         (<>.of_try
           (do [! try.monad]
             [text (at utf8.codec decoded (..un_padded string))]
             (<in> text)))))
@@ -330,17 +331,17 @@
                            ..magic_size)]
       (|>> representation
            (at utf8.codec encoded)
-           (\\format.segment padded_size))))
+           (!binary.segment padded_size))))
 
   (def magic_parser
     (Parser Magic)
     (do <>.monad
-      [string (<binary>.segment ..magic_size)
-       end <binary>.bits_8
+      [string (?binary.segment ..magic_size)
+       end ?binary.bits_8
        .let [expected (`` (char (,, (static ..null))))]
        _ (<>.assertion (exception.error ..wrong_character [expected end])
                        (n.= expected end))]
-      (<>.lifted
+      (<>.of_try
        (at try.monad each (|>> abstraction)
            (at utf8.codec decoded string)))))
   )
@@ -411,7 +412,7 @@
   (def link_flag_format
     (Format Link_Flag)
     (|>> representation
-         \\format.bits_8))
+         !binary.bits_8))
 
   (with_expansions [<options> (these [0 old_normal]
                                      [(char "0") normal]
@@ -438,7 +439,7 @@
     (def link_flag_parser
       (Parser Link_Flag)
       (do <>.monad
-        [it <binary>.bits_8]
+        [it ?binary.bits_8]
         (when (.nat it)
           (^.with_template [<value> <link_flag>]
             [<value>
@@ -446,7 +447,7 @@
           (<options>)
 
           _
-          (<>.lifted
+          (<>.of_try
            (exception.except ..invalid_link_flag [(.nat it)]))))))
   )
 
@@ -528,7 +529,7 @@
         [value (at ! each ..from_small ..small_parser)]
         (if (n.> (representation ..maximum_mode)
                  value)
-          (<>.lifted
+          (<>.of_try
            (exception.except ..invalid_mode [value]))
           (in (abstraction value))))))
   )
@@ -542,11 +543,11 @@
 (primitive.def .public Content
   [Big Binary]
 
-  (def .public (content content)
+  (def .public (content it)
     (-> Binary (Try Content))
     (do try.monad
-      [size (..big (binary!.size content))]
-      (in (abstraction [size content]))))
+      [size (..big (binary!.size it))]
+      (in (abstraction [size it]))))
 
   (def from_content
     (-> Content [Big Binary])
@@ -569,10 +570,20 @@
    [#name Name
     #id ID]))
 
+(def .public no_owner
+  Owner
+  [#name (try.trusted (..name ""))
+   #id ..no_id])
+
 (type .public Ownership
   (Record
    [#user Owner
     #group Owner]))
+
+(def .public no_ownership
+  Ownership
+  [#user ..no_owner
+   #group ..no_owner])
 
 (type .public File
   [Path Instant Mode Ownership Content])
@@ -631,7 +642,7 @@
 
 (def header_format'
   (Format Header)
-  (all \\format.and
+  (all !binary.and
        ..path_format
        ..mode_format
        ..small_format
@@ -652,12 +663,12 @@
   (Format Header)
   (let [checksum (|> header
                      (has #checksum ..dummy_checksum)
-                     (\\format.result ..header_format')
+                     (!binary.result ..header_format')
                      ..checksum_code)]
     (|> header
         (has #checksum checksum)
-        (\\format.result ..header_format')
-        (\\format.segment ..block_size))))
+        (!binary.result ..header_format')
+        (!binary.segment ..block_size))))
 
 (def modification_time
   (-> Instant Big)
@@ -670,9 +681,9 @@
   (-> Link_Flag (Format File))
   (function (_ [path modification_time mode ownership content])
     (let [[size content] (..from_content content)
-          format (all \\format.and
+          format (all !binary.and
                       ..header_format
-                      (\\format.segment (..rounded_content_size size)))]
+                      (!binary.segment (..rounded_content_size size)))]
       (format [[#path path
                 #mode mode
                 #user_id (the [#user #id] ownership)
@@ -749,11 +760,11 @@
   (Format Tar)
   (let [end_of_archive (binary!.empty ..end_of_archive_size)]
     (function (_ tar)
-      (\\format#composite (sequence#mix (function (_ next total)
-                                          (\\format#composite total (..entry_format next)))
-                                        \\format#identity
-                                        tar)
-                          (\\format.segment ..end_of_archive_size end_of_archive)))))
+      (!binary#composite (sequence#mix (function (_ next total)
+                                         (!binary#composite total (..entry_format next)))
+                                       !binary#identity
+                                       tar)
+                         (!binary.segment ..end_of_archive_size end_of_archive)))))
 
 (exception.def .public (wrong_checksum [expected actual])
   (Exception [Nat Nat])
@@ -783,7 +794,7 @@
 (def header_parser
   (Parser Header)
   (do <>.monad
-    [binary_header (<>.speculative (<binary>.segment block_size))
+    [binary_header (<>.speculative (?binary.segment block_size))
      path ..path_parser
      mode ..mode_parser
      user_id ..small_parser
@@ -792,7 +803,7 @@
      modification_time ..big_parser
      [actual checksum_code] ..checksum_parser
      _ (let [expected (expected_checksum checksum_code binary_header)]
-         (<>.lifted
+         (<>.of_try
           (exception.assertion ..wrong_checksum [expected actual]
                                (n.= expected actual))))
      link_flag ..link_flag_parser
@@ -802,7 +813,7 @@
      group_name ..name_parser
      major_device ..small_parser
      minor_device ..small_parser
-     _ (<binary>.segment ..header_padding_size)]
+     _ (?binary.segment ..header_padding_size)]
     (in [#path path
          #mode mode
          #user_id user_id
@@ -823,9 +834,9 @@
   (do <>.monad
     [.let [size (the #size header)
            rounded_size (..rounded_content_size size)]
-     content (<binary>.segment (..from_big size))
-     content (<>.lifted (..content content))
-     _ (<binary>.segment (n.- (..from_big size) rounded_size))]
+     content (?binary.segment (..from_big size))
+     content (<>.of_try (..content content))
+     _ (?binary.segment (n.- (..from_big size) rounded_size))]
     (in [(the #path header)
          (|> header
              (the #modification_time)
@@ -863,9 +874,9 @@
 (def end_of_archive_block_parser
   (Parser Any)
   (do <>.monad
-    [block (<binary>.segment ..block_size)]
+    [block (?binary.segment ..block_size)]
     (let [actual (..checksum block)]
-      (<>.lifted
+      (<>.of_try
        (exception.assertion ..wrong_checksum [0 actual]
                             (n.= 0 actual))))))
 
@@ -875,8 +886,8 @@
   (Parser Any)
   (do <>.monad
     [_ (<>.at_most 2 end_of_archive_block_parser)
-     done? <binary>.end?]
-    (<>.lifted
+     done? ?binary.end?]
+    (<>.of_try
      (exception.assertion ..invalid_end_of_archive []
                           done?))))
 
@@ -885,3 +896,9 @@
   (|> (<>.some ..entry_parser)
       (at <>.monad each sequence.of_list)
       (<>.before ..end_of_archive_parser)))
+
+(def .public codec
+  (Codec Binary Tar)
+  (implementation
+   (def encoded (!binary.result ..format))
+   (def decoded (?binary.result ..parser))))

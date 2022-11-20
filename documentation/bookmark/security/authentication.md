@@ -1,6 +1,6 @@
 # Reference
 
-0. []()
+0. [Rodauth: Ruby's Most Advanced Authentication Framework](https://github.com/jeremyevans/rodauth)
 0. [persona](https://withpersona.com/home-wf)
 0. [Authentication is Difficult](https://blog.jchw.io/authentication-is-difficult/)
 0. [A07:2021 – Identification and Authentication Failures ](https://owasp.org/Top10/A07_2021-Identification_and_Authentication_Failures/)

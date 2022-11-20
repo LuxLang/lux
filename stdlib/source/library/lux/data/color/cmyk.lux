@@ -1,0 +1,133 @@
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    [equivalence (.only Equivalence)]]
+   [control
+    ["[0]" try (.only Try)]
+    ["[0]" exception (.only Exception)]]
+   [data
+    [text
+     ["%" \\format]]]
+   [math
+    [number
+     ["f" frac]
+     ["[0]" int]]]
+   [meta
+    [type
+     ["[0]" primitive]]]]]
+ [//
+  ["[0]" rgb (.only RGB)]])
+
+(with_expansions [<min> +0.0
+                  <max> +1.0]
+  (primitive.def .public Value
+    Frac
+
+    (with_template [<number> <name>]
+      [(def .public <name>
+         Value
+         (primitive.abstraction <number>))]
+
+      [<min> least]
+      [<max> most]
+      )
+
+    (exception.def .public (invalid it)
+      (Exception Frac)
+      (exception.report
+       (list ["Minimum" (%.frac (primitive.representation ..least))]
+             ["Maximum" (%.frac (primitive.representation ..most))]
+             ["Value" (%.frac it)])))
+
+    (def .public (value it)
+      (-> Frac
+          (Try Value))
+      (if (or (f.> (primitive.representation ..most)
+                   it)
+              (f.< (primitive.representation ..least)
+                   it))
+        (exception.except ..invalid [it])
+        {try.#Success (primitive.abstraction it)}))
+
+    (def .public number
+      (-> Value
+          Frac)
+      (|>> primitive.representation))
+
+    (type .public CMYK
+      (Record
+       [#cyan Value
+        #magenta Value
+        #yellow Value
+        #key Value]))
+
+    (def .public equivalence
+      (Equivalence CMYK)
+      (implementation
+       (def (= [cR mR yR kR] [cS mS yS kS])
+         (and (f.= (primitive.representation cR) (primitive.representation cS))
+              (f.= (primitive.representation mR) (primitive.representation mS))
+              (f.= (primitive.representation yR) (primitive.representation yS))
+              (f.= (primitive.representation kR) (primitive.representation kS))))))
+
+    (def top
+      (-- rgb.limit))
+
+    (def rgb_factor
+      (|> top .int int.frac))
+
+    (def down
+      (-> Nat
+          Frac)
+      (|>> .int int.frac (f./ rgb_factor)))
+
+    (def up
+      (-> Frac
+          Nat)
+      (|>> (f.* rgb_factor) f.int .nat))
+
+    (def (opposite it)
+      (-> Frac
+          Frac)
+      (f.- it <max>))
+
+    (def .public (cmyk it)
+      (-> RGB
+          CMYK)
+      (let [red (..down (rgb.number (the rgb.#red it)))
+            green (..down (rgb.number (the rgb.#green it)))
+            blue (..down (rgb.number (the rgb.#blue it)))
+            key (opposite (all f.max red green blue))
+            f (if (f.< <max> key)
+                (f./ (opposite key)
+                     <max>)
+                <min>)
+            cyan (|> <max> (f.- red) (f.- key) (f.* f))
+            magenta (|> <max> (f.- green) (f.- key) (f.* f))
+            yellow (|> <max> (f.- blue) (f.- key) (f.* f))]
+        [#cyan (primitive.abstraction cyan)
+         #magenta (primitive.abstraction magenta)
+         #yellow (primitive.abstraction yellow)
+         #key (primitive.abstraction key)]))
+
+    (def .public (rgb it)
+      (-> CMYK
+          RGB)
+      (when (primitive.representation (the #key it))
+        <max>
+        rgb.black
+        
+        key
+        (let [~key (opposite key)
+              red (f.* ~key
+                       (opposite (primitive.representation (the #cyan it))))
+              green (f.* ~key
+                         (opposite (primitive.representation (the #magenta it))))
+              blue (f.* ~key
+                        (opposite (primitive.representation (the #yellow it))))]
+          (|> (rgb.rgb (..up red)
+                       (..up green)
+                       (..up blue))
+              try.trusted))))
+    ))

@@ -1,5 +1,7 @@
 # Reference
 
+0. [Collective Code Construction Contract](https://rfc.zeromq.org/spec/42/)
+0. [Source Code Is Not Enough: The fine print in FOSS promises](https://fuzzypixelz.com/blog/source-code-is-not-enough/)
 0. [StarTrack](https://github.com/seladb/StarTrack-js)
 0. [1% rule](https://en.wikipedia.org/wiki/1%25_rule)
 0. [Open Source Antidote: critical and alternative views on free and open source software](https://writing.kemitchell.com/lists/Antidote.html)
