@@ -22,7 +22,7 @@
   "(-> Type (Lux (, Text (List Type))))"
   [type]
   (|case type
-    (&/$Primitive payload)
+    (&/$Nominal payload)
     (return payload)
 
     (&/$Var id)
@@ -51,8 +51,8 @@
   "(-> Type Type)"
   [type]
   (|case type
-    (&/$Primitive class params)
-    (&/$Primitive (&host-type/as-obj class) params)
+    (&/$Nominal class params)
+    (&/$Nominal (&host-type/as-obj class) params)
 
     _
     type))
@@ -75,8 +75,8 @@
   "(-> Type Type)"
   [type]
   (|case type
-    (&/$Primitive name params)
-    (&/$Primitive (as-otype name) params)
+    (&/$Nominal name params)
+    (&/$Nominal (as-otype name) params)
 
     _
     type))
@@ -108,7 +108,7 @@
               
               _
               base-type))
-          (&/$Primitive class-name type-args)
+          (&/$Nominal class-name type-args)
           type-args))
 
 ;; [Resources]
@@ -116,7 +116,7 @@
   "(-> Type (List (^ java.lang.reflect.Type)) (^ java.lang.reflect.Type) (Lux Type))"
   [obj-type gvars gtype]
   (|case obj-type
-    (&/$Primitive class targs)
+    (&/$Nominal class targs)
     (if (= (&/|length targs) (&/|length gvars))
       (|let [gtype-env (&/fold2 (fn [m ^TypeVariable g t] (&/$Item (&/T [(.getName g) t]) m))
                                 (&/|table)
@@ -191,18 +191,18 @@
     
     (&/$GenericClass name params)
     (case name
-      "boolean" (return (&/$Primitive "java.lang.Boolean" &/$End))
-      "byte"    (return (&/$Primitive "java.lang.Byte" &/$End))
-      "short"   (return (&/$Primitive "java.lang.Short" &/$End))
-      "int"     (return (&/$Primitive "java.lang.Integer" &/$End))
-      "long"    (return (&/$Primitive "java.lang.Long" &/$End))
-      "float"   (return (&/$Primitive "java.lang.Float" &/$End))
-      "double"  (return (&/$Primitive "java.lang.Double" &/$End))
-      "char"    (return (&/$Primitive "java.lang.Character" &/$End))
+      "boolean" (return (&/$Nominal "java.lang.Boolean" &/$End))
+      "byte"    (return (&/$Nominal "java.lang.Byte" &/$End))
+      "short"   (return (&/$Nominal "java.lang.Short" &/$End))
+      "int"     (return (&/$Nominal "java.lang.Integer" &/$End))
+      "long"    (return (&/$Nominal "java.lang.Long" &/$End))
+      "float"   (return (&/$Nominal "java.lang.Float" &/$End))
+      "double"  (return (&/$Nominal "java.lang.Double" &/$End))
+      "char"    (return (&/$Nominal "java.lang.Character" &/$End))
       "void"    (return &type/Any)
       ;; else
       (|do [=params (&/map% (partial generic-class->type env) params)]
-        (return (&/$Primitive name =params))))
+        (return (&/$Nominal name =params))))
 
     (&/$GenericArray param)
     (|do [=param (generic-class->type env param)]
@@ -268,7 +268,7 @@
   "(-> Analyser ClassDecl (List (, TypeVar Type)) (List SuperClassDecl) MethodSyntax (Lux MethodAnalysis))"
   [analyse class-decl class-env all-supers method]
   (|let [[?cname ?cparams] class-decl
-         class-type (&/$Primitive ?cname (&/|map &/|second class-env))]
+         class-type (&/$Nominal ?cname (&/|map &/|second class-env))]
     (|case method
       (&/$ConstructorMethodSyntax =privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs ?ctor-args ?body)
       (|do [method-env (make-type-env ?gvars)
@@ -393,10 +393,10 @@
     ))
 
 (do-template [<name> <proc> <from-class> <to-class>]
-  (let [output-type (&/$Primitive <to-class> &/$End)]
+  (let [output-type (&/$Nominal <to-class> &/$End)]
     (defn- <name> [analyse exo-type _?value]
       (|do [:let [(&/$Item ?value (&/$End)) _?value]
-            =value (&&/analyse-1 analyse (&/$Primitive <from-class> &/$End) ?value)
+            =value (&&/analyse-1 analyse (&/$Nominal <from-class> &/$End) ?value)
             _ (&type/check exo-type output-type)
             _location &/location]
         (return (&/|list (&&/|meta output-type _location (&&/$proc (&/T ["jvm" <proc>]) (&/|list =value) (&/|list))))))))
@@ -433,11 +433,11 @@
   )
 
 (do-template [<name> <proc> <v1-class> <v2-class> <to-class>]
-  (let [output-type (&/$Primitive <to-class> &/$End)]
+  (let [output-type (&/$Nominal <to-class> &/$End)]
     (defn- <name> [analyse exo-type ?values]
       (|do [:let [(&/$Item ?value1 (&/$Item ?value2 (&/$End))) ?values]
-            =value1 (&&/analyse-1 analyse (&/$Primitive <v1-class> &/$End) ?value1)
-            =value2 (&&/analyse-1 analyse (&/$Primitive <v2-class> &/$End) ?value2)
+            =value1 (&&/analyse-1 analyse (&/$Nominal <v1-class> &/$End) ?value1)
+            =value2 (&&/analyse-1 analyse (&/$Nominal <v2-class> &/$End) ?value2)
             _ (&type/check exo-type output-type)
             _location &/location]
         (return (&/|list (&&/|meta output-type _location (&&/$proc (&/T ["jvm" <proc>]) (&/|list =value1 =value2) (&/|list))))))))
@@ -458,8 +458,8 @@
   )
 
 (do-template [<name> <proc> <input-class> <output-class>]
-  (let [input-type (&/$Primitive <input-class> &/$End)
-        output-type (&/$Primitive <output-class> &/$End)]
+  (let [input-type (&/$Nominal <input-class> &/$End)
+        output-type (&/$Nominal <output-class> &/$End)]
     (defn- <name> [analyse exo-type ?values]
       (|do [:let [(&/$Item x (&/$Item y (&/$End))) ?values]
             =x (&&/analyse-1 analyse input-type x)
@@ -513,8 +513,8 @@
 (let [length-type &type/Nat
       idx-type &type/Nat]
   (do-template [<elem-class> <array-class> <new-name> <new-tag> <load-name> <load-tag> <store-name> <store-tag>]
-    (let [elem-type (&/$Primitive <elem-class> &/$End)
-          array-type (&/$Primitive <array-class> &/$End)]
+    (let [elem-type (&/$Nominal <elem-class> &/$End)
+          array-type (&/$Nominal <array-class> &/$End)]
       (defn- <new-name> [analyse exo-type ?values]
         (|do [:let [(&/$Item length (&/$End)) ?values]
               =length (&&/analyse-1 analyse length-type length)
@@ -582,7 +582,7 @@
           [arr-class arr-params] (ensure-object array-type)
           _ (&/assert! (= &host-type/array-data-tag arr-class) (str "[Analyser Error] Expected array. Instead got: " arr-class))
           :let [(&/$Item mutable_type (&/$End)) arr-params
-                (&/$Primitive "#Mutable" (&/$Item type_variance (&/$End))) mutable_type
+                (&/$Nominal "#Mutable" (&/$Item type_variance (&/$End))) mutable_type
                 (&/$Function write_type read_type) type_variance]
           =idx (&&/analyse-1 analyse idx-type idx)
           _ (&type/check exo-type read_type)
@@ -597,7 +597,7 @@
           [arr-class arr-params] (ensure-object array-type)
           _ (&/assert! (= &host-type/array-data-tag arr-class) (str "[Analyser Error] Expected array. Instead got: " arr-class))
           :let [(&/$Item mutable_type (&/$End)) arr-params
-                (&/$Primitive "#Mutable" (&/$Item type_variance (&/$End))) mutable_type
+                (&/$Nominal "#Mutable" (&/$Item type_variance (&/$End))) mutable_type
                 (&/$Function write_type read_type) type_variance]
           =idx (&&/analyse-1 analyse idx-type idx)
           =elem (&&/analyse-1 analyse write_type elem)
@@ -629,7 +629,7 @@
 
 (defn- analyse-jvm-object-null [analyse exo-type ?values]
   (|do [:let [(&/$End) ?values]
-        :let [output-type (&/$Primitive &host-type/null-data-tag &/$End)]
+        :let [output-type (&/$Nominal &host-type/null-data-tag &/$End)]
         _ (&type/check exo-type output-type)
         _location &/location]
     (return (&/|list (&&/|meta exo-type _location
@@ -647,7 +647,7 @@
 (defn- analyse-jvm-throw [analyse exo-type ?values]
   (|do [:let [(&/$Item ?ex (&/$End)) ?values]
         =ex (&&/analyse-1+ analyse ?ex)
-        _ (&type/check (&/$Primitive "java.lang.Throwable" &/$End) (&&/expr-type* =ex))
+        _ (&type/check (&/$Nominal "java.lang.Throwable" &/$End) (&&/expr-type* =ex))
         [throw-class throw-params] (ensure-object (&&/expr-type* =ex))
         _location &/location
         _ (&type/check exo-type &type/Nothing)]
@@ -734,10 +734,10 @@
 
 (defn- up-cast [class parent-gvars class-loader !class! object-type]
   (|do [[sub-class sub-params] (ensure-object object-type)
-        (&/$Primitive super-class* super-params*) (&host-type/->super-type &type/existential class-loader !class! (if (= sub-class class)
-                                                                                                                    !class!
-                                                                                                                    sub-class)
-                                                                           sub-params)]
+        (&/$Nominal super-class* super-params*) (&host-type/->super-type &type/existential class-loader !class! (if (= sub-class class)
+                                                                                                                  !class!
+                                                                                                                  sub-class)
+                                                                         sub-params)]
     (return (&/fold2 (fn [m ^TypeVariable g t] (&/$Item (&/T [(.getName g) t]) m))
                      (&/|table)
                      parent-gvars
@@ -756,7 +756,7 @@
               (&/fail-with-loc (str "[Analyser Error] Unknown class: " !class!))))]
     (return (&/T [!class! class-loader]))))
 
-(let [dummy-type-param (&/$Primitive "java.lang.Object" &/$End)]
+(let [dummy-type-param (&/$Nominal "java.lang.Object" &/$End)]
   (do-template [<name> <tag> <only-interface?>]
     (defn- <name> [analyse exo-type class method classes ?values]
       (|do [:let [(&/$Item object args) ?values]
@@ -834,7 +834,7 @@
                  (return nil))
             (catch Exception e
               (&/fail-with-loc (str "[Analyser Error] Unknown class: " _class-name))))
-        :let [output-type (&/$Primitive "java.lang.Class" (&/|list (&/$Primitive _class-name (&/|list))))]
+        :let [output-type (&/$Nominal "java.lang.Class" (&/|list (&/$Nominal _class-name (&/|list))))]
         _ (&type/check exo-type output-type)
         _location &/location]
     (return (&/|list (&&/|meta output-type _location
@@ -904,7 +904,7 @@
                   class-decl (&/T [name &/$End])
                   anon-class (str (string/replace module "/" ".") "." name)
                   class-type-decl (&/T [anon-class &/$End])
-                  anon-class-type (&/$Primitive anon-class &/$End)]
+                  anon-class-type (&/$Nominal anon-class &/$End)]
             =ctor-args (&/map% (fn [ctor-arg]
                                  (|let [[arg-type arg-term] ctor-arg]
                                    (|do [=arg-term (&&/analyse-1+ analyse arg-term)]

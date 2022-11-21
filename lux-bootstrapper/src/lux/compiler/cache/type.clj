@@ -23,7 +23,7 @@
   (if (&type/type= &type/Type type)
     "T"
     (|case type
-      (&/$Primitive name params)
+      (&/$Nominal name params)
       (str "^" name stop (serialize-list serialize-type params))
 
       (&/$Product left right)
@@ -123,7 +123,7 @@
   (when (.startsWith input "^")
     (let [[name ^String input*] (.split (.substring input 1) stop 2)]
       (when-let [[params ^String input*] (deserialize-list input*)]
-        [(&/$Primitive name params) input*]))))
+        [(&/$Nominal name params) input*]))))
 
 (defn deserialize-type
   "(-> Text Type)"

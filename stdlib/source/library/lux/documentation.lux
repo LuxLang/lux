@@ -45,7 +45,7 @@
 
 (def |recursion_dummy|
   (template (_)
-    [{.#Primitive "" {.#End}}]))
+    [{.#Nominal "" {.#End}}]))
 
 (.type Fragment
   (Variant
@@ -233,13 +233,13 @@
   (-> Nat Text Bit Text Type
       Text)
   (when type
-    {.#Primitive name params}
+    {.#Nominal name params}
     (|> params
         (list#each (|>> (%type' level type_function_name false module)
                         (format " ")))
         {.#Item (%.text name)}
         text.together
-        (text.enclosed ["(Primitive " ")"]))
+        (text.enclosed ["(Nominal " ")"]))
 
     {.#Sum _}
     (|> type
@@ -339,13 +339,13 @@
 
     _
     (when type
-      {.#Primitive name params}
+      {.#Nominal name params}
       (when params
         {.#End}
-        (format "(Primitive " (%.text name) ")")
+        (format "(Nominal " (%.text name) ")")
 
         _
-        (format "(Primitive " (%.text name) " " (|> params (list#each (type_definition' false level arity type_function_info {.#None} module)) (text.interposed " ")) ")"))
+        (format "(Nominal " (%.text name) " " (|> params (list#each (type_definition' false level arity type_function_info {.#None} module)) (text.interposed " ")) ")"))
 
       {.#Sum _}
       (let [members (type.flat_variant type)]
@@ -503,7 +503,10 @@
       (macro.with_symbols [g!type]
         (in (list (` (all md.then
                           ... Name
-                          (<| (md.heading/3)
+                          (<| md.heading/4
+                              (md.and (md.anchor (, (let [[module short] name]
+                                                      (code.text (format module ":" short))))))
+                              md.text
                               (, (code.text (%.code (let [g!name (|> name product.right code.local)]
                                                       (when parameters
                                                         {.#End}
@@ -603,12 +606,16 @@
                                                            ..#documentation (,* documentation)]}))]
                          ((, g!_) []))))))))))
 
+(def (definition#< left right)
+  (-> Definition Definition
+      Bit)
+  (text#< (symbol.short (the #global right))
+          (symbol.short (the #global left))))
+
 (def definitions_documentation
   (-> (List Definition)
       (Markdown Block))
-  (|>> (list.sorted (function (_ left right)
-                      (text#< (symbol.short (the #global right))
-                              (symbol.short (the #global left)))))
+  (|>> (list.sorted ..definition#<)
        (list#each (the #documentation))
        (list#mix md.then md.empty)))
 
@@ -657,12 +664,13 @@
   (if (set.empty? it)
     md.empty
     (all md.then
-         (md.heading/2 heading)
+         (md.heading/3 (md.text heading))
          (|> (set.list it)
              (list.only (|>> (text#= descriptor.runtime) not))
              (list.sorted text#<)
              (list#each (function (_ it)
-                          [(md.text it) {.#None}]))
+                          [(md.link (md.text it) (%.format "#" it))
+                           {.#None}]))
              md.bullet_list)
          )))
 
@@ -673,7 +681,8 @@
   (let [(open "_[0]") module]
     (all md.then
          ... Name
-         (md.heading/1 (the #module module))
+         (md.heading/2 (md.and (md.anchor (the #module module))
+                               (md.text (the #module module))))
          
          ... Description
          (when (the #description module)
@@ -686,7 +695,7 @@
          (dependencies "Dependers" (|> (dictionary.value (the #module module) dependers)
                                        (maybe.else (set.empty text.hash))))
          
-         (md.heading/2 "Definitions")
+         (md.heading/3 (md.text "Definitions"))
          (|> definitions
              (list.only (|>> (the #global)
                              symbol.short
@@ -704,7 +713,7 @@
 
            missing
            (all md.then
-                (md.heading/2 "Missing documentation")
+                (md.heading/3 (md.text "Missing documentation"))
                 (..listing missing)))
          
          ... Un-expected documentation
@@ -720,7 +729,7 @@
            
            un_expected
            (all md.then
-                (md.heading/2 "Un-expected documentation")
+                (md.heading/3 (md.text "Un-expected documentation"))
                 (..listing un_expected)))
          )))
 
@@ -734,6 +743,25 @@
                         it
                         (set.list (the #dependees module))))
             (dictionary.empty text.hash)))
+
+(def index
+  (-> (List [Module (List Definition)])
+      (Markdown Block))
+  (|>> (list#each (function (_ [module defs])
+                    (all md.then
+                         (md.heading/5 (let [it (the #module module)]
+                                         (md.link (md.text it) (%.format "#" it))))
+                         (|> defs
+                             (list.sorted ..definition#<)
+                             (list#each (function (_ it)
+                                          (let [[module short] (the #global it)]
+                                            [(md.link (md.text short) (%.format "#" module ":" short))
+                                             {.#None}])))
+                             md.bullet_list)
+                         )))
+       (list#mix (function (_ right left)
+                   (md.then left right))
+                 (md.heading/1 (md.text "Index")))))
 
 (def .public (markdown it)
   (-> (List Documentation)
@@ -759,13 +787,18 @@
                       dictionary.entries
                       (list#each (function (_ [name [module definitons]])
                                    [name module]))
-                      ..dependers)]
-    (|> with_definitions
-        dictionary.values
-        (list.sorted (function (_ left right)
-                       (text#< (the #module (product.left right))
-                               (the #module (product.left left)))))
-        (list#each (..module_documentation dependers))
-        (list.interposed md.horizontal_rule)
-        (list#mix md.then (is (Markdown Block) md.empty))
-        md.markdown)))
+                      ..dependers)
+        it (|> with_definitions
+               dictionary.values
+               (list.sorted (function (_ left right)
+                              (text#< (the #module (product.left right))
+                                      (the #module (product.left left))))))]
+    (md.markdown
+     (all md.then
+          (index it)
+          (md.heading/1 (md.text "Documentation"))
+          (|> it
+              (list#each (..module_documentation dependers))
+              (list.interposed md.horizontal_rule)
+              (list#mix md.then (is (Markdown Block) md.empty)))
+          ))))

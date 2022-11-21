@@ -88,7 +88,7 @@
 
 ;; Type
 (defvariant
-  ("Primitive" 2)
+  ("Nominal" 2)
   ("Sum" 2)
   ("Product" 2)
   ("Function" 2)

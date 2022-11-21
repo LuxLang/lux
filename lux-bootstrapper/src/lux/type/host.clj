@@ -15,7 +15,7 @@
                      (and (= ?xmodule ?ymodule)
                           (= ?xname ?yname))
 
-                     [(&/$Primitive xname xparams) (&/$Primitive yname yparams)]
+                     [(&/$Nominal xname xparams) (&/$Nominal yname yparams)]
                      (and (.equals ^Object xname yname)
                           (= (&/|length xparams) (&/|length yparams))
                           (&/fold2 #(and %1 (type= %2 %3)) true xparams yparams))
@@ -67,7 +67,7 @@
 (def mutable-data-tag "#Mutable")
 (def array-data-tag "#Array")
 (defn Array [item]
-  (&/$Primitive array-data-tag (&/|list (&/$Primitive mutable-data-tag (&/|list (&/$Function item item))))))
+  (&/$Nominal array-data-tag (&/|list (&/$Nominal mutable-data-tag (&/|list (&/$Function item item))))))
 
 (def null-data-tag "#Null")
 (def i64-data-tag "#I64")
@@ -133,18 +133,18 @@
     (let [gclass-name (.getName class)]
       (case gclass-name
         ("[Z" "[B" "[S" "[I" "[J" "[F" "[D" "[C")
-        (&/$Primitive gclass-name (&/|list))
+        (&/$Nominal gclass-name (&/|list))
         ;; else
         (if-let [[_ _ arr-obrackets arr-obase simple-base arr-pbrackets arr-pbase] (re-find class-name-re gclass-name)]
           (let [base (or arr-obase simple-base (jprim->lprim arr-pbase))]
             (if (.equals "void" base)
               Any
               (reduce (fn [inner _] (Array inner))
-                      (&/$Primitive base (try (-> (Class/forName base) .getTypeParameters
-                                                  seq count (repeat (&/$Primitive "java.lang.Object" &/$End))
-                                                  &/->list)
-                                           (catch Exception e
-                                             (&/|list))))
+                      (&/$Nominal base (try (-> (Class/forName base) .getTypeParameters
+                                                seq count (repeat (&/$Nominal "java.lang.Object" &/$End))
+                                                &/->list)
+                                         (catch Exception e
+                                           (&/|list))))
                       (range (count (or arr-obrackets arr-pbrackets "")))))
             ))))))
 
@@ -164,8 +164,8 @@
                            .getActualTypeArguments
                            seq &/->list
                            (&/map% (partial instance-param existential matchings)))]
-          (return (&/$Primitive (->> refl-type* ^Class (.getRawType) .getName)
-                                params*)))
+          (return (&/$Nominal (->> refl-type* ^Class (.getRawType) .getName)
+                              params*)))
         
         (instance? TypeVariable refl-type)
         (let [gvar (.getName ^TypeVariable refl-type)]
@@ -187,14 +187,14 @@
           (if (type= Any class-type)
             "V"
             (|case class-type
-              (&/$Primitive "#Array"
-                            (&/$Item (&/$Primitive "#Mutable"
-                                                   (&/$Item (&/$Function _ (&/$Primitive class-name _))
-                                                            (&/$End)))
-                                     (&/$End)))
+              (&/$Nominal "#Array"
+                          (&/$Item (&/$Nominal "#Mutable"
+                                               (&/$Item (&/$Function _ (&/$Nominal class-name _))
+                                                        (&/$End)))
+                                   (&/$End)))
               (str "[" (&host-generics/->type-signature class-name))
 
-              (&/$Primitive class-name _)
+              (&/$Nominal class-name _)
               (&host-generics/->type-signature class-name))))
 
         (instance? GenericArrayType refl-type)
@@ -233,7 +233,7 @@
       (return m-type)
       (|do [params* (&/map% (partial instance-gtype existential matchings)
                             type-params)]
-        (return (&/$Primitive type-name params*))))
+        (return (&/$Nominal type-name params*))))
     
     (&/$GenericTypeVar var-name)
     (if-let [m-type (&/|get var-name matchings)]
@@ -303,7 +303,7 @@
     (if (.isAssignableFrom super-class+ sub-class+)
       (let [lineage (trace-lineage sub-class+ super-class+)]
         (|do [[^Class sub-class* sub-params*] (raise existential lineage sub-class+ sub-params)]
-          (return (&/$Primitive (.getName sub-class*) sub-params*))))
+          (return (&/$Nominal (.getName sub-class*) sub-params*))))
       (&/fail-with-loc (str "[Host Error] Classes do not have a subtyping relationship: " sub-class " </= " super-class)))))
 
 (defn as-obj [class]
@@ -341,7 +341,7 @@
                  (if (= (&/|length e!params) (&/|length a!params))
                    (|do [_ (&/map2% check e!params a!params)]
                      (return fixpoints))
-                   (check-error "" (&/$Primitive e!name e!params) (&/$Primitive a!name a!params)))
+                   (check-error "" (&/$Nominal e!name e!params) (&/$Nominal a!name a!params)))
 
                  (or (lux-type? e!name)
                      (lux-type? a!name))
@@ -350,14 +350,14 @@
                          (and (not (primitive-type? e!name))
                               (= null-data-tag a!name)))
                    (return fixpoints)
-                   (check-error "" (&/$Primitive e!name e!params) (&/$Primitive a!name a!params)))
+                   (check-error "" (&/$Nominal e!name e!params) (&/$Nominal a!name a!params)))
 
                  (not invariant??)
                  (|do [actual* (->super-type existential class-loader e!name a!name a!params)]
-                   (check (&/$Primitive e!name e!params) actual*))
+                   (check (&/$Nominal e!name e!params) actual*))
 
                  :else
-                 (check-error "" (&/$Primitive e!name e!params) (&/$Primitive a!name a!params))))
+                 (check-error "" (&/$Nominal e!name e!params) (&/$Nominal a!name a!params))))
       (catch Exception e
         (throw e)))))
 

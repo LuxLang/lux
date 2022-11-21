@@ -50,31 +50,31 @@
     (if (&type/type= &type/Any *type*)
       (.visitLdcInsn *writer* &/unit-tag)
       (|case *type*
-        (&/$Primitive "boolean" (&/$End))
+        (&/$Nominal "boolean" (&/$End))
         (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name boolean-class) "valueOf" (str "(Z)" (&host-generics/->type-signature boolean-class)))
         
-        (&/$Primitive "byte" (&/$End))
+        (&/$Nominal "byte" (&/$End))
         (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name byte-class) "valueOf" (str "(B)" (&host-generics/->type-signature byte-class)))
 
-        (&/$Primitive "short" (&/$End))
+        (&/$Nominal "short" (&/$End))
         (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name short-class) "valueOf" (str "(S)" (&host-generics/->type-signature short-class)))
 
-        (&/$Primitive "int" (&/$End))
+        (&/$Nominal "int" (&/$End))
         (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name int-class) "valueOf" (str "(I)" (&host-generics/->type-signature int-class)))
 
-        (&/$Primitive "long" (&/$End))
+        (&/$Nominal "long" (&/$End))
         (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name long-class) "valueOf" (str "(J)" (&host-generics/->type-signature long-class)))
 
-        (&/$Primitive "float" (&/$End))
+        (&/$Nominal "float" (&/$End))
         (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name float-class) "valueOf" (str "(F)" (&host-generics/->type-signature float-class)))
 
-        (&/$Primitive "double" (&/$End))
+        (&/$Nominal "double" (&/$End))
         (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name double-class) "valueOf" (str "(D)" (&host-generics/->type-signature double-class)))
 
-        (&/$Primitive "char" (&/$End))
+        (&/$Nominal "char" (&/$End))
         (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name char-class) "valueOf" (str "(C)" (&host-generics/->type-signature char-class)))
         
-        (&/$Primitive _ _)
+        (&/$Nominal _ _)
         nil
 
         (&/$Named ?name ?type)
@@ -782,10 +782,10 @@
               ]
         ^MethodVisitor *writer* &/get-writer
         normal_array_type (&type/normal (&a/expr-type* ?array))
-        :let [(&/$Primitive "#Array" (&/$Item mutable_type (&/$End))) normal_array_type
-              (&/$Primitive "#Mutable" (&/$Item type_variance (&/$End))) mutable_type
+        :let [(&/$Nominal "#Array" (&/$Item mutable_type (&/$End))) normal_array_type
+              (&/$Nominal "#Mutable" (&/$Item type_variance (&/$End))) mutable_type
               (&/$Function write_type read_type) type_variance]
-        array-type (&host/->java-sig (&/$Primitive "#Array" (&/|list read_type)))
+        array-type (&host/->java-sig (&/$Nominal "#Array" (&/|list read_type)))
         _ (compile ?array)
         :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST array-type)]
         _ (compile ?idx)
@@ -801,10 +801,10 @@
               ]
         ^MethodVisitor *writer* &/get-writer
         normal_array_type (&type/normal (&a/expr-type* ?array))
-        :let [(&/$Primitive "#Array" (&/$Item mutable_type (&/$End))) normal_array_type
-              (&/$Primitive "#Mutable" (&/$Item type_variance (&/$End))) mutable_type
+        :let [(&/$Nominal "#Array" (&/$Item mutable_type (&/$End))) normal_array_type
+              (&/$Nominal "#Mutable" (&/$Item type_variance (&/$End))) mutable_type
               (&/$Function write_type read_type) type_variance]
-        array-type (&host/->java-sig (&/$Primitive "#Array" (&/|list write_type)))
+        array-type (&host/->java-sig (&/$Nominal "#Array" (&/|list write_type)))
         _ (compile ?array)
         :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST array-type)]
         :let [_ (.visitInsn *writer* Opcodes/DUP)]
@@ -823,13 +823,13 @@
         ^MethodVisitor *writer* &/get-writer
         normal_array_type (&type/normal (&a/expr-type* ?array))
         array-type (|case normal_array_type
-                     (&/$Primitive ?name (&/$End))
+                     (&/$Nominal ?name (&/$End))
                      (&host/->java-sig normal_array_type)
 
-                     (&/$Primitive "#Array" (&/$Item mutable_type (&/$End)))
-                     (|let [(&/$Primitive "#Mutable" (&/$Item type_variance (&/$End))) mutable_type
+                     (&/$Nominal "#Array" (&/$Item mutable_type (&/$End)))
+                     (|let [(&/$Nominal "#Mutable" (&/$Item type_variance (&/$End))) mutable_type
                             (&/$Function write_type read_type) type_variance]
-                       (&host/->java-sig (&/$Primitive "#Array" (&/|list read_type)))))
+                       (&host/->java-sig (&/$Nominal "#Array" (&/|list read_type)))))
         _ (compile ?array)
         :let [_ (.visitTypeInsn *writer* Opcodes/CHECKCAST array-type)]
         :let [_ (doto *writer*

@@ -370,7 +370,7 @@ Called by `imenu--generic-function'."
 							(type//syntax (altRE "Union" "Or" "Variant"
 												 "Tuple" "And" "Record"
 												 "Rec"
-												 "Primitive" "->"
+												 "Nominal" "->"
 												 "All" "Ex"
 												 "Interface"
 												 "type_literal"))
@@ -587,7 +587,6 @@ This function also returns nil meaning don't specify the indentation."
   ("type" 'defun)
   ("inlined" 'defun)
   ("context" 'defun)
-  ("primitive" 'defun)
   ("method" 'defun)
   
   ("analysis" 'defun)

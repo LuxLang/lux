@@ -19,9 +19,10 @@
      ["[0]" i64]]]
    [meta
     [type
-     ["[0]" primitive]]]]]
+     ["[0]" nominal]]]]]
  [/
-  ["[0]" rgb (.only RGB)]])
+  ["[0]" rgb (.only RGB)]
+  ["[0]" hsl]])
 
 (def top
   (-- rgb.limit))
@@ -37,22 +38,19 @@
   (-> Frac Nat)
   (|>> (f.* rgb_factor) f.int .nat))
 
-(type .public HSL
-  [Frac Frac Frac])
-
 (type .public HSB
   [Frac Frac Frac])
 
-(primitive.def .public Color
+(nominal.def .public Color
   RGB
 
   (def .public of_rgb
     (-> RGB Color)
-    (|>> primitive.abstraction))
+    (|>> nominal.abstraction))
 
   (def .public rgb
     (-> Color RGB)
-    (|>> primitive.representation))
+    (|>> nominal.representation))
 
   (def .public equivalence
     (Equivalence Color)
@@ -65,7 +63,7 @@
   (with_template [<color> <rgb>]
     [(def .public <color>
        Color
-       (primitive.abstraction <rgb>))]
+       (nominal.abstraction <rgb>))]
 
     [black rgb.black]
     [white rgb.white]
@@ -76,14 +74,14 @@
        (Monoid Color)
        (implementation
         (def identity
-          (primitive.abstraction
+          (nominal.abstraction
            (at <rgb> identity)))
 
         (def (composite left right)
-          (primitive.abstraction
+          (nominal.abstraction
            (at <rgb> composite
-               (primitive.representation left)
-               (primitive.representation right))))))]
+               (nominal.representation left)
+               (nominal.representation right))))))]
 
     [addition rgb.addition]
     [subtraction rgb.subtraction]
@@ -91,82 +89,10 @@
 
   (def .public complement
     (-> Color Color)
-    (|>> primitive.representation
+    (|>> nominal.representation
          rgb.complement
-         primitive.abstraction))
+         nominal.abstraction))
   )
-
-(def .public (hsl color)
-  (-> Color HSL)
-  (let [[red green blue] (rgb color)
-        red (..down (rgb.number red))
-        green (..down (rgb.number green))
-        blue (..down (rgb.number blue))
-        max (all f.max red green blue)
-        min (all f.min red green blue)
-        luminance (|> (f.+ max min) (f./ +2.0))]
-    (if (f.= max min)
-      ... Achromatic
-      [+0.0
-       +0.0
-       luminance]
-      ... Chromatic
-      (let [diff (|> max (f.- min))
-            saturation (|> diff
-                           (f./ (if (f.> +0.5 luminance)
-                                  (|> +2.0 (f.- max) (f.- min))
-                                  (|> max (f.+ min)))))
-            hue' (cond (f.= red max)
-                       (|> green (f.- blue) (f./ diff)
-                           (f.+ (if (f.< blue green) +6.0 +0.0)))
-                       
-                       (f.= green max)
-                       (|> blue (f.- red) (f./ diff)
-                           (f.+ +2.0))
-                       
-                       ... (f.= blue max)
-                       (|> red (f.- green) (f./ diff)
-                           (f.+ +4.0)))]
-        [(|> hue' (f./ +6.0))
-         saturation
-         luminance]))))
-
-(def (hue_rgb p q t)
-  (-> Frac Frac Frac Nat)
-  (let [t (cond (f.< +0.0 t) (f.+ +1.0 t)
-                (f.> +1.0 t) (f.- +1.0 t)
-                ... else
-                t)
-        f2/3 (f./ +3.0 +2.0)]
-    (..up (cond (f.< (f./ +6.0 +1.0) t)
-                (|> q (f.- p) (f.* +6.0) (f.* t) (f.+ p))
-                
-                (f.< (f./ +2.0 +1.0) t)
-                q
-                
-                (f.< f2/3 t)
-                (|> q (f.- p) (f.* (|> f2/3 (f.- t))) (f.* +6.0) (f.+ p))
-                
-                ... else
-                p))))
-
-(def .public (of_hsl [hue saturation luminance])
-  (-> HSL Color)
-  (|> (if (f.= +0.0 saturation)
-        ... Achromatic
-        (let [intensity (..up luminance)]
-          (rgb.rgb intensity intensity intensity))
-        ... Chromatic
-        (let [q (if (f.< +0.5 luminance)
-                  (|> saturation (f.+ +1.0) (f.* luminance))
-                  (|> luminance (f.+ saturation) (f.- (f.* saturation luminance))))
-              p (|> luminance (f.* +2.0) (f.- q))
-              third (|> +1.0 (f./ +3.0))]
-          (rgb.rgb (|> hue (f.+ third) (hue_rgb p q))
-                   (|> hue (hue_rgb p q))
-                   (|> hue (f.- third) (hue_rgb p q)))))
-      try.trusted
-      of_rgb))
 
 (def .public (hsb color)
   (-> Color HSB)
@@ -260,12 +186,16 @@
 (with_template [<op> <name>]
   [(def .public (<name> ratio color)
      (-> Frac Color Color)
-     (let [[hue saturation luminance] (hsl color)]
-       (of_hsl [hue
-                (|> saturation
-                    (f.* (|> +1.0 (<op> (..normal ratio))))
-                    (f.min +1.0))
-                luminance])))]
+     (let [color (hsl.of_rgb (rgb color))]
+       (|> (hsl.hsl (hsl.hue color)
+                    (|> color
+                        hsl.saturation
+                        (f.* (|> +1.0 (<op> (..normal ratio))))
+                        (f.min +1.0))
+                    (hsl.luminance color))
+           try.trusted
+           hsl.rgb
+           of_rgb)))]
 
   [f.+ saturated]
   [f.- un_saturated]
@@ -273,22 +203,34 @@
 
 (def .public (gray_scale color)
   (-> Color Color)
-  (let [[_ _ luminance] (hsl color)]
-    (of_hsl [+0.0
-             +0.0
-             luminance])))
+  (let [color (hsl.of_rgb (rgb color))]
+    (|> (hsl.hsl +0.0
+                 +0.0
+                 (hsl.luminance color))
+        try.trusted
+        hsl.rgb
+        of_rgb)))
 
 (with_template [<name> <1> <2>]
   [(`` (def .public (<name> color)
          (-> Color [Color Color Color])
-         (let [[hue saturation luminance] (hsl color)]
+         (let [hsl (hsl.of_rgb (rgb color))
+               hue (hsl.hue hsl)
+               saturation (hsl.saturation hsl)
+               luminance (hsl.luminance hsl)]
            [color
-            (of_hsl [(|> hue (f.+ <1>) ..normal)
-                     saturation
-                     luminance])
-            (of_hsl [(|> hue (f.+ <2>) ..normal)
-                     saturation
-                     luminance])])))]
+            (|> (hsl.hsl (|> hue (f.+ <1>) ..normal)
+                         saturation
+                         luminance)
+                try.trusted
+                hsl.rgb
+                of_rgb)
+            (|> (hsl.hsl (|> hue (f.+ <2>) ..normal)
+                         saturation
+                         luminance)
+                try.trusted
+                hsl.rgb
+                of_rgb)])))]
 
   [triad            (|> +1.0 (f./ +3.0)) (|> +2.0 (f./ +3.0))]
   [clash            (|> +1.0 (f./ +4.0)) (|> +3.0 (f./ +4.0))]
@@ -320,27 +262,27 @@
 (type .public Palette
   (-> Spread Nat Color (List Color)))
 
-(`` (def .public (analogous spread variations color)
-      Palette
-      (let [[hue saturation brightness] (hsb color)
-            spread (..normal spread)]
-        (list#each (function (_ idx)
-                     (of_hsb [(|> idx ++ .int int.frac (f.* spread) (f.+ hue) ..normal)
-                              saturation
-                              brightness]))
-                   (list.indices variations)))))
+(def .public (analogous spread variations color)
+  Palette
+  (let [[hue saturation brightness] (hsb color)
+        spread (..normal spread)]
+    (list#each (function (_ idx)
+                 (of_hsb [(|> idx ++ .int int.frac (f.* spread) (f.+ hue) ..normal)
+                          saturation
+                          brightness]))
+               (list.indices variations))))
 
-(`` (def .public (monochromatic spread variations color)
-      Palette
-      (let [[hue saturation brightness] (hsb color)
-            spread (..normal spread)]
-        (|> (list.indices variations)
-            (list#each (|>> ++ .int int.frac
-                            (f.* spread)
-                            (f.+ brightness)
-                            ..normal
-                            [hue saturation]
-                            of_hsb))))))
+(def .public (monochromatic spread variations color)
+  Palette
+  (let [[hue saturation brightness] (hsb color)
+        spread (..normal spread)]
+    (|> (list.indices variations)
+        (list#each (|>> ++ .int int.frac
+                        (f.* spread)
+                        (f.+ brightness)
+                        ..normal
+                        [hue saturation]
+                        of_hsb)))))
 
 (type .public Alpha
   Rev)

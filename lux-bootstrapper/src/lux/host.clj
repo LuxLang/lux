@@ -45,13 +45,13 @@
   "(-> Type [Nat Type])"
   [type]
   (|case type
-    (&/$Primitive "#Array" (&/$Item (&/$Primitive "#Mutable" (&/$Item (&/$Function _ param)
-                                                                      (&/$End)))
-                                    (&/$End)))
+    (&/$Nominal "#Array" (&/$Item (&/$Nominal "#Mutable" (&/$Item (&/$Function _ param)
+                                                                  (&/$End)))
+                                  (&/$End)))
     (|let [[count inner] (unfold-array param)]
       (&/T [(inc count) inner]))
 
-    (&/$Primitive "#Array" (&/$Item param (&/$End)))
+    (&/$Nominal "#Array" (&/$Item param (&/$End)))
     (|let [[count inner] (unfold-array param)]
       (&/T [(inc count) inner]))
     
@@ -64,11 +64,11 @@
     "(-> Type (Lux Text))"
     [^objects type]
     (|case type
-      (&/$Primitive ?name params)
+      (&/$Nominal ?name params)
       (cond (= &host-type/array-data-tag ?name) (|do [normal_type (&type/normal type)
                                                       :let [[level base] (unfold-array normal_type)]
                                                       base-sig (|case base
-                                                                 (&/$Primitive base-class _)
+                                                                 (&/$Nominal base-class _)
                                                                  (return (&host-generics/->type-signature base-class))
 
                                                                  _

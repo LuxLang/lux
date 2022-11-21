@@ -27,13 +27,13 @@
 
 (def I64 (&/$Named (&/T [&/prelude "I64"])
                    (&/$UnivQ empty-env
-                             (&/$Primitive "#I64" (&/|list (&/$Parameter 1))))))
-(def Bit (&/$Named (&/T [&/prelude "Bit"]) (&/$Primitive "#Bit" &/$End)))
-(def Nat (&/$Named (&/T [&/prelude "Nat"]) (&/$Primitive "#I64" (&/|list (&/$Primitive &&host/nat-data-tag &/$End)))))
-(def Int (&/$Named (&/T [&/prelude "Int"]) (&/$Primitive "#I64" (&/|list (&/$Primitive &&host/int-data-tag &/$End)))))
-(def Rev (&/$Named (&/T [&/prelude "Rev"]) (&/$Primitive "#I64" (&/|list (&/$Primitive &&host/rev-data-tag &/$End)))))
-(def Frac (&/$Named (&/T [&/prelude "Frac"]) (&/$Primitive "#Frac" &/$End)))
-(def Text (&/$Named (&/T [&/prelude "Text"]) (&/$Primitive "#Text" &/$End)))
+                             (&/$Nominal "#I64" (&/|list (&/$Parameter 1))))))
+(def Bit (&/$Named (&/T [&/prelude "Bit"]) (&/$Nominal "#Bit" &/$End)))
+(def Nat (&/$Named (&/T [&/prelude "Nat"]) (&/$Nominal "#I64" (&/|list (&/$Nominal &&host/nat-data-tag &/$End)))))
+(def Int (&/$Named (&/T [&/prelude "Int"]) (&/$Nominal "#I64" (&/|list (&/$Nominal &&host/int-data-tag &/$End)))))
+(def Rev (&/$Named (&/T [&/prelude "Rev"]) (&/$Nominal "#I64" (&/|list (&/$Nominal &&host/rev-data-tag &/$End)))))
+(def Frac (&/$Named (&/T [&/prelude "Frac"]) (&/$Nominal "#Frac" &/$End)))
+(def Text (&/$Named (&/T [&/prelude "Text"]) (&/$Nominal "#Text" &/$End)))
 (def Symbol (&/$Named (&/T [&/prelude "Symbol"]) (&/$Product Text Text)))
 
 (def Array &&host/Array)
@@ -51,8 +51,8 @@
 (def IO
   (&/$Named (&/T [(str &/prelude "/control/io") "IO"])
             (&/$UnivQ empty-env
-                      (&/$Primitive (str &/prelude "/control/io.IO")
-                                    (&/|list (&/$Parameter 1))))))
+                      (&/$Nominal (str &/prelude "/control/io.IO")
+                                  (&/|list (&/$Parameter 1))))))
 
 (def List
   (&/$Named (&/T [&/prelude "List"])
@@ -77,13 +77,13 @@
 
 (def Type
   (&/$Named (&/T [&/prelude "Type"])
-            (let [Type (&/$Apply (&/$Primitive "" &/$End) (&/$Parameter 0))
+            (let [Type (&/$Apply (&/$Nominal "" &/$End) (&/$Parameter 0))
                   TypeList (&/$Apply Type List)
                   TypePair (&/$Product Type Type)]
-              (&/$Apply (&/$Primitive "" &/$End)
+              (&/$Apply (&/$Nominal "" &/$End)
                         (&/$UnivQ empty-env
                                   (&/$Sum
-                                   ;; Primitive
+                                   ;; Nominal
                                    (&/$Product Text TypeList)
                                    (&/$Sum
                                     ;; Sum
@@ -118,15 +118,15 @@
 
 (def Macro
   (&/$Named (&/T [&/prelude "Macro"])
-            (&/$Primitive "#Macro" &/$End)))
+            (&/$Nominal "#Macro" &/$End)))
 
 (def Tag
   (&/$Named (&/T [&/prelude "Tag"])
-            (&/$Primitive "#Tag" &/$End)))
+            (&/$Nominal "#Tag" &/$End)))
 
 (def Slot
   (&/$Named (&/T [&/prelude "Slot"])
-            (&/$Primitive "#Slot" &/$End)))
+            (&/$Nominal "#Slot" &/$End)))
 
 (defn bound? [id]
   (fn [state]
@@ -261,9 +261,9 @@
           (return type)))
       )
 
-    (&/$Primitive ?name ?params)
+    (&/$Nominal ?name ?params)
     (|do [=params (&/map% (partial clean* ?tid) ?params)]
-      (return (&/$Primitive ?name =params)))
+      (return (&/$Nominal ?name =params)))
     
     (&/$Function ?arg ?return)
     (|do [=arg (clean* ?tid ?arg)
@@ -377,13 +377,13 @@
 
 (defn show-type [^objects type]
   (|case type
-    (&/$Primitive name params)
+    (&/$Nominal name params)
     (|case params
       (&/$End)
-      (str "(Primitive " (pr-str name) ")")
+      (str "(Nominal " (pr-str name) ")")
 
       _
-      (str "(Primitive " (pr-str name) " " (->> params (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
+      (str "(Nominal " (pr-str name) " " (->> params (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
 
     (&/$Product _)
     (str "[" (->> (flatten-prod type) (&/|map show-type) (&/|interpose " ") (&/fold str "")) "]")
@@ -429,7 +429,7 @@
                      (and (= ?xmodule ?ymodule)
                           (= ?xname ?yname))
 
-                     [(&/$Primitive xname xparams) (&/$Primitive yname yparams)]
+                     [(&/$Nominal xname xparams) (&/$Nominal yname yparams)]
                      (and (.equals ^Object xname yname)
                           (= (&/|length xparams) (&/|length yparams))
                           (&/fold2 #(and %1 (type= %2 %3)) true xparams yparams))
@@ -513,8 +513,8 @@
 
 (defn beta-reduce [env type]
   (|case type
-    (&/$Primitive ?name ?params)
-    (&/$Primitive ?name (&/|map (partial beta-reduce env) ?params))
+    (&/$Nominal ?name ?params)
+    (&/$Nominal ?name (&/|map (partial beta-reduce env) ?params))
 
     (&/$Sum ?left ?right)
     (&/$Sum (beta-reduce env ?left) (beta-reduce env ?right))
@@ -750,7 +750,7 @@
               actual* (apply-type actual $arg)]
           (check* fixpoints invariant?? expected actual*))
 
-        [(&/$Primitive e!data) (&/$Primitive a!data)]
+        [(&/$Nominal e!data) (&/$Nominal a!data)]
         (|do [? &/jvm?]
           (if ?
               (|do [class-loader &/loader]
@@ -935,9 +935,9 @@
     (&/$Named _ ?it)
     (normal ?it)
 
-    (&/$Primitive ?name ?parameters)
+    (&/$Nominal ?name ?parameters)
     (|do [=parameters (&/map% normal ?parameters)]
-      (return (&/$Primitive ?name =parameters)))
+      (return (&/$Nominal ?name =parameters)))
 
     (&/$Apply ?parameter ?abstraction)
     (|do [reification (apply-type ?abstraction ?parameter)]
