@@ -1,6 +1,6 @@
 # Reference
 
-0. []()
+0. [Don't Wait for Motivation, Act for Momentum](https://salman.io/blog/momentum-motivation/)
 0. [Quality Is Systemic](https://jacobian.org/2022/sep/9/quality-is-systemic/)
 0. [Rockstar Developers Are THE WORST Developers](https://www.youtube.com/watch?v=mVY2rFninp8)
 0. [Let it slide](https://world.hey.com/dhh/let-it-slide-9e40f11a)
