@@ -1776,6 +1776,33 @@
                 (in {#Item y ys}))}
              xs)))
 
+(def' .private (monad#each#meta $ items)
+      (All (_ input output)
+        (-> (-> input
+                ($ Meta output))
+            (-> ($ List input)
+                ($ Meta ($ List output)))))
+      (function' [lux]
+                 ((.is# (All (_ input output)
+                          (-> Lux (-> input ($ Meta output)) ($ List input) ($ List output)
+                              ($ Either Text (And Lux ($ List output)))))
+                        (function' again [lux $ items output]
+                                   ({{#End}
+                                     {#Right [lux (list#reversed output)]}
+                                     
+                                     {#Item head tail}
+                                     ({{#Right [lux head]}
+                                       (again lux $ tail {#Item head output})
+
+                                       {#Left failure}
+                                       {#Left failure}}
+                                      ($ head lux))}
+                                    items)))
+                  lux
+                  $
+                  items
+                  {#End})))
+
 (def' .private (monad#mix m f y xs)
       (All (_ m a b)
         (-> ($ Monad m)
@@ -2172,7 +2199,7 @@
                              |#End|
                              (list#reversed elements))
                   (do meta#monad
-                    [=elements (monad#each meta#monad (untemplated replace? subst) elements)]
+                    [=elements (monad#each#meta (untemplated replace? subst) elements)]
                     (in (untemplated_list =elements))))
          .let' [[_ output'] (with_location ..dummy_location
                               (variant$ (list (symbol$ [..prelude tag]) output)))]]
@@ -2418,6 +2445,42 @@
           (failure (wrong_syntax_error [..prelude "<|"]))}
          (list#reversed tokens))))
 
+(def' .private meta#failure
+      Macro
+      (macro (_ tokens)
+        ({{#Item 'error {#End}}
+          (meta#in (list (` {.#Left (, 'error)})))
+
+          _
+          (failure (..wrong_syntax_error [..prelude "meta#failure"]))}
+         tokens)))
+
+(def' .private meta#return
+      Macro
+      (macro (_ tokens)
+        ({{#Item 'lux {#Item 'term {#End}}}
+          (meta#in (list (` {.#Right [(, 'lux) (, 'term)]})))
+
+          _
+          (failure (..wrong_syntax_error [..prelude "meta#return"]))}
+         tokens)))
+
+(def' .private meta#let
+      Macro
+      (macro (_ tokens)
+        ({{#Item 'lux {#Item [_ {#Tuple {#Item 'binding {#Item 'term {#End}}}}]
+                             {#Item 'body {#End}}}}
+          (meta#in (list (` ({{.#Right [(, 'lux) (, 'binding)]}
+                              (, 'body)
+
+                              {.#Left (, 'lux)}
+                              {.#Left (, 'lux)}}
+                             ((, 'term) (, 'lux))))))
+
+          _
+          (failure (..wrong_syntax_error [..prelude "meta#let"]))}
+         tokens)))
+
 (def' .private (function#composite f g)
       (All (_ a b c)
         (-> (-> b c) (-> a b) (-> a c)))
@@ -2658,26 +2721,24 @@
 
 (def' .private (named_macro full_name)
       (-> Symbol ($ Meta ($ Maybe Macro)))
-      (do meta#monad
-        [current_module current_module_name]
-        (let' [[module name] full_name]
-              (function' [state]
-                         ({[..#info info ..#source source ..#current_module _ ..#modules modules
-                            ..#scopes   scopes   ..#type_context   types   ..#host host
-                            ..#seed   seed ..#expected expected
-                            ..#location location ..#extensions extensions
-                            ..#scope_type_vars scope_type_vars ..#eval _eval]
-                           {#Right state (named_macro' modules current_module module name)}}
-                          state)))))
+      (<| (function' [lux])
+          (meta#let lux [current_module current_module_name])
+          (let' [[module name] full_name
+                 [..#info info ..#source source ..#current_module _ ..#modules modules
+                  ..#scopes   scopes   ..#type_context   types   ..#host host
+                  ..#seed   seed ..#expected expected
+                  ..#location location ..#extensions extensions
+                  ..#scope_type_vars scope_type_vars ..#eval _eval] lux])
+          (meta#return lux (named_macro' modules current_module module name))))
 
 (def' .private (macro? name)
       (-> Symbol ($ Meta Bit))
-      (do meta#monad
-        [name (normal name)
-         output (named_macro name)]
-        (in ({{#Some _} #1
-              {#None}   #0}
-             output))))
+      (<| (function' [lux])
+          (meta#let lux [name (normal name)])
+          (meta#let lux [output (named_macro name)])
+          (meta#return lux ({{#Some _} #1
+                             {#None}   #0}
+                            output))))
 
 (def' .private (list#interposed sep xs)
       (All (_ a)
@@ -2691,125 +2752,6 @@
         {#Item [x xs']}
         (list#partial x sep (list#interposed sep xs'))}
        xs))
-
-(def' .private (single_expansion token)
-      (-> Code ($ Meta ($ List Code)))
-      ({[_ {#Form {#Item [_ {#Symbol name}] args}}]
-        (do meta#monad
-          [name' (normal name)
-           ?macro (named_macro name')]
-          ({{#Some macro}
-            ((.as# Macro' macro) args)
-            
-            {#None}
-            (in (list token))}
-           ?macro))
-
-        _
-        (meta#in (list token))}
-       token))
-
-(def' .private (complete_expansion token)
-      (-> Code ($ Meta ($ List Code)))
-      ({[_ {#Form {#Item [_ {#Symbol name}] args}}]
-        (do meta#monad
-          [name' (normal name)
-           ?macro (named_macro name')]
-          ({{#Some macro}
-            (do meta#monad
-              [top_level_expansion ((.as# Macro' macro) args)
-               recursive_expansion (monad#each meta#monad complete_expansion top_level_expansion)]
-              (in (list#conjoint recursive_expansion)))
-            
-            {#None}
-            (in (list token))}
-           ?macro))
-
-        _
-        (meta#in (list token))}
-       token))
-
-(def' .private (total_expansion' total_expansion @name name args)
-      (-> (-> Code ($ Meta ($ List Code))) Location Symbol ($ List Code) ($ Meta ($ List Code)))
-      (do meta#monad
-        [name' (normal name)
-         ?macro (named_macro name')]
-        ({{#Some macro}
-          (do meta#monad
-            [expansion ((.as# Macro' macro) args)
-             expansion' (monad#each meta#monad total_expansion expansion)]
-            (in (list#conjoint expansion')))
-          
-          {#None}
-          (do meta#monad
-            [args' (monad#each meta#monad total_expansion args)]
-            (in (list (form$ {#Item [@name {#Symbol name}] (list#conjoint args')}))))}
-         ?macro)))
-
-(def' .private (in_module module meta)
-      (All (_ a)
-        (-> Text ($ Meta a) ($ Meta a)))
-      (function' [lux]
-                 ({[..#info info ..#source source
-                    ..#current_module current_module ..#modules modules
-                    ..#scopes scopes ..#type_context type_context
-                    ..#host host ..#seed seed
-                    ..#expected expected ..#location location
-                    ..#extensions extensions ..#scope_type_vars scope_type_vars
-                    ..#eval eval]
-                   ({{#Left error}
-                     {#Left error}
-                     
-                     {#Right [[..#info info' ..#source source'
-                               ..#current_module _ ..#modules modules'
-                               ..#scopes scopes' ..#type_context type_context'
-                               ..#host host' ..#seed seed'
-                               ..#expected expected' ..#location location'
-                               ..#extensions extensions' ..#scope_type_vars scope_type_vars'
-                               ..#eval eval']
-                              output]}
-                     {#Right [[..#info info' ..#source source'
-                               ..#current_module current_module ..#modules modules'
-                               ..#scopes scopes' ..#type_context type_context'
-                               ..#host host' ..#seed seed'
-                               ..#expected expected' ..#location location'
-                               ..#extensions extensions' ..#scope_type_vars scope_type_vars'
-                               ..#eval eval']
-                              output]}}
-                    (meta [..#info info ..#source source
-                           ..#current_module {.#Some module} ..#modules modules
-                           ..#scopes scopes ..#type_context type_context
-                           ..#host host ..#seed seed
-                           ..#expected expected ..#location location
-                           ..#extensions extensions ..#scope_type_vars scope_type_vars
-                           ..#eval eval]))}
-                  lux)))
-
-(def' .private (total_expansion syntax)
-      (-> Code ($ Meta ($ List Code)))
-      ({[_ {#Form {#Item head tail}}]
-        ({[@name {#Symbol name}]
-          (..total_expansion' total_expansion @name name tail)
-
-          _
-          (do meta#monad
-            [members' (monad#each meta#monad total_expansion {#Item head tail})]
-            (in (list (form$ (list#conjoint members')))))}
-         head)
-
-        [_ {#Variant members}]
-        (do meta#monad
-          [members' (monad#each meta#monad total_expansion members)]
-          (in (list (variant$ (list#conjoint members')))))
-
-        [_ {#Tuple members}]
-        (do meta#monad
-          [members' (monad#each meta#monad total_expansion members)]
-          (in (list (tuple$ (list#conjoint members')))))
-
-        _
-        (meta#in (list syntax))}
-       syntax))
 
 (def' .private (text#encoded original)
       (-> Text Text)
@@ -2860,25 +2802,156 @@
                                     (list#mix text#composite "")) "}")}
        code))
 
+(def' .private (single_expansion token)
+      (-> Code ($ Meta ($ List Code)))
+      ({[_ {#Form {#Item [_ {#Symbol name}] args}}]
+        (<| (function' [lux])
+            (meta#let lux [name' (normal name)])
+            (meta#let lux [?macro (named_macro name')])
+            ({{#Some macro}
+              (((.as# Macro' macro) args) lux)
+              
+              {#None}
+              (meta#return lux (list token))}
+             ?macro))
+
+        _
+        (meta#in (list token))}
+       token))
+
+(def' .private (complete_expansion token)
+      (-> Code ($ Meta ($ List Code)))
+      ({[_ {#Form {#Item [_ {#Symbol name}] args}}]
+        (<| (function' [lux])
+            (meta#let lux [name' (normal name)])
+            (meta#let lux [?macro (named_macro name')])
+            ({{#Some macro}
+              (<| (meta#let lux [top_level_expansion ((.as# Macro' macro) args)])
+                  (meta#let lux [recursive_expansion (monad#each#meta complete_expansion top_level_expansion)])
+                  (meta#return lux (list#conjoint recursive_expansion)))
+              
+              {#None}
+              (meta#return lux (list token))}
+             ?macro))
+
+        _
+        (meta#in (list token))}
+       token))
+
+(def' .public exec
+      Macro
+      (macro (_ tokens)
+        ({{#Item value actions}
+          (let' [dummy (local$ "")]
+                (meta#in (list (list#mix (.is# (-> Code Code Code)
+                                               (function' [pre post] (` ({(, dummy) (, post)} (, pre)))))
+                                         value
+                                         actions))))
+
+          _
+          (failure (..wrong_syntax_error (symbol ..exec)))}
+         (list#reversed tokens))))
+
+(def' .private (total_expansion' total_expansion @name name args)
+      (-> (-> Code ($ Meta ($ List Code))) Location Symbol ($ List Code)
+          ($ Meta ($ List Code)))
+      (<| (function' [lux])
+          (meta#let lux [name' (normal name)])
+          (meta#let lux [?macro (named_macro name')])
+          ({{#Some macro}
+            (<| (meta#let lux [expansion ((.as# Macro' macro) args)])
+                (meta#let lux [expansion' (monad#each#meta total_expansion expansion)])
+                (meta#return lux (list#conjoint expansion')))
+            
+            {#None}
+            (<| (meta#let lux [args' (monad#each#meta total_expansion args)])
+                (meta#return lux (list (form$ {#Item [@name {#Symbol name}] (list#conjoint args')}))))}
+           ?macro)))
+
+(def' .private (in_module module meta)
+      (All (_ a)
+        (-> Text ($ Meta a) ($ Meta a)))
+      (function' [lux]
+                 ({[..#info info ..#source source
+                    ..#current_module current_module ..#modules modules
+                    ..#scopes scopes ..#type_context type_context
+                    ..#host host ..#seed seed
+                    ..#expected expected ..#location location
+                    ..#extensions extensions ..#scope_type_vars scope_type_vars
+                    ..#eval eval]
+                   ({{#Left error}
+                     {#Left error}
+                     
+                     {#Right [[..#info info' ..#source source'
+                               ..#current_module _ ..#modules modules'
+                               ..#scopes scopes' ..#type_context type_context'
+                               ..#host host' ..#seed seed'
+                               ..#expected expected' ..#location location'
+                               ..#extensions extensions' ..#scope_type_vars scope_type_vars'
+                               ..#eval eval']
+                              output]}
+                     {#Right [[..#info info' ..#source source'
+                               ..#current_module current_module ..#modules modules'
+                               ..#scopes scopes' ..#type_context type_context'
+                               ..#host host' ..#seed seed'
+                               ..#expected expected' ..#location location'
+                               ..#extensions extensions' ..#scope_type_vars scope_type_vars'
+                               ..#eval eval']
+                              output]}}
+                    (meta [..#info info ..#source source
+                           ..#current_module {.#Some module} ..#modules modules
+                           ..#scopes scopes ..#type_context type_context
+                           ..#host host ..#seed seed
+                           ..#expected expected ..#location location
+                           ..#extensions extensions ..#scope_type_vars scope_type_vars
+                           ..#eval eval]))}
+                  lux)))
+
+(def' .private (total_expansion syntax)
+      (-> Code ($ Meta ($ List Code)))
+      ({[_ {#Form {#Item head tail}}]
+        ({[@name {#Symbol name}]
+          (..total_expansion' total_expansion @name name tail)
+
+          _
+          (<| (function' [lux])
+              (meta#let lux [members' (monad#each#meta total_expansion {#Item head tail})])
+              (meta#return lux (list (form$ (list#conjoint members')))))}
+         head)
+
+        [_ {#Variant members}]
+        (<| (function' [lux])
+            (meta#let lux [members' (monad#each#meta total_expansion members)])
+            (meta#return lux (list (variant$ (list#conjoint members')))))
+
+        [_ {#Tuple members}]
+        (<| (function' [lux])
+            (meta#let lux [members' (monad#each#meta total_expansion members)])
+            (meta#return lux (list (tuple$ (list#conjoint members')))))
+
+        _
+        (meta#in (list syntax))}
+       syntax))
+
 (def' .private (normal_type type)
       (-> Code ($ Meta Code))
       ({[_ {#Variant {#Item [_ {#Symbol symbol}] parts}}]
-        (do meta#monad
-          [parts (monad#each meta#monad normal_type parts)]
-          (in (` {(, (symbol$ symbol)) (,* parts)})))
+        (<| (function' [lux])
+            (meta#let lux [parts (monad#each#meta normal_type parts)])
+            (meta#return lux (` {(, (symbol$ symbol)) (,* parts)})))
 
         [_ {#Tuple members}]
-        (do meta#monad
-          [members (monad#each meta#monad normal_type members)]
-          (in (` (Tuple (,* members)))))
+        (<| (function' [lux])
+            (meta#let lux [members (monad#each#meta normal_type members)])
+            (meta#return lux (` (Tuple (,* members)))))
 
         [_ {#Form {#Item [_ {#Symbol ["library/lux" "in_module#"]}]
                          {#Item [_ {#Text module}]
                                 {#Item type'
                                        {#End}}}}}]
-        (do meta#monad
-          [type' (normal_type type')]
-          (in (` (.in_module# (, (text$ module)) (, type')))))
+        (<| (function' [lux])
+            (meta#let lux [type' (normal_type type')])
+            (meta#return lux (` (.in_module# (, (text$ module)) (, type')))))
 
         [_ {#Form {#Item [_ {#Symbol ["" ","]}] {#Item expression {#End}}}}]
         (meta#in expression)
@@ -2886,33 +2959,33 @@
         [_0 {#Form {#Item [_1 {#Variant {#Item binding {#Item body {#End}}}}]
                           {#Item value
                                  {#End}}}}]
-        (do meta#monad
-          [body (normal_type body)]
-          (in [_0 {#Form {#Item [_1 {#Variant {#Item binding {#Item body {#End}}}}]
-                                {#Item value
-                                       {#End}}}}]))
+        (<| (function' [lux])
+            (meta#let lux [body (normal_type body)])
+            (meta#return lux [_0 {#Form {#Item [_1 {#Variant {#Item binding {#Item body {#End}}}}]
+                                               {#Item value
+                                                      {#End}}}}]))
 
         [_0 {#Form {#Item [_1 {#Symbol ["library/lux" "__adjusted_quantified_type__"]}]
                           {#Item _permission
                                  {#Item _level
                                         {#Item body
                                                {#End}}}}}}]
-        (do meta#monad
-          [body (normal_type body)]
-          (in [_0 {#Form {#Item [_1 {#Symbol [..prelude "__adjusted_quantified_type__"]}]
-                                {#Item _permission
-                                       {#Item _level
-                                              {#Item body
-                                                     {#End}}}}}}]))
+        (<| (function' [lux])
+            (meta#let lux [body (normal_type body)])
+            (meta#return lux [_0 {#Form {#Item [_1 {#Symbol [..prelude "__adjusted_quantified_type__"]}]
+                                               {#Item _permission
+                                                      {#Item _level
+                                                             {#Item body
+                                                                    {#End}}}}}}]))
 
         [_ {#Form {#Item type_fn args}}]
-        (do meta#monad
-          [type_fn (normal_type type_fn)
-           args (monad#each meta#monad normal_type args)]
-          (in (list#mix (.is# (-> Code Code Code)
-                              (function' [arg type_fn] (` {.#Apply (, arg) (, type_fn)})))
-                        type_fn
-                        args)))
+        (<| (function' [lux])
+            (meta#let lux [type_fn (normal_type type_fn)])
+            (meta#let lux [args (monad#each#meta normal_type args)])
+            (meta#return lux (list#mix (.is# (-> Code Code Code)
+                                             (function' [arg type_fn] (` {.#Apply (, arg) (, type_fn)})))
+                                       type_fn
+                                       args)))
 
         _
         (meta#in type)}
@@ -2988,24 +3061,21 @@
       Macro
       (macro (type_literal tokens)
         ({{#Item type {#End}}
-          (do meta#monad
-            [initialized_quantification? (function' [lux] {#Right [lux (initialized_quantification? lux)]})]
-            (if initialized_quantification?
-              (do meta#monad
-                [type+ (total_expansion type)]
-                ({{#Item type' {#End}}
-                  (do meta#monad
-                    [type'' (normal_type type')]
-                    (in (list type'')))
+          (<| (function' [lux])
+              (let' [initialized_quantification? (initialized_quantification? lux)])
+              (if initialized_quantification?
+                (<| (meta#let lux [type+ (total_expansion type)])
+                    ({{#Item type' {#End}}
+                      (<| (meta#let lux [type'' (normal_type type')])
+                          (meta#return lux (list type'')))
 
-                  _
-                  (failure "The expansion of the type-syntax had to yield a single element.")}
-                 type+))
-              (do meta#monad
-                [it (with_quantification'
-                      (one_expansion
-                       (type_literal tokens)))]
-                (in (list (..quantified it))))))
+                      _
+                      (meta#failure "The expansion of the type-syntax had to yield a single element.")}
+                     type+))
+                (<| (meta#let lux [it (with_quantification'
+                                        (one_expansion
+                                         (type_literal tokens)))])
+                    (meta#return lux (list (..quantified it))))))
 
           _
           (failure (..wrong_syntax_error (symbol ..type_literal)))}
@@ -3064,20 +3134,6 @@
                  ..#scope_type_vars scope_type_vars ..#eval _eval]
                 (local$ (all text#composite "__gensym__" prefix (nat#encoded seed)))}}
        state))
-
-(def' .public exec
-      Macro
-      (macro (_ tokens)
-        ({{#Item value actions}
-          (let' [dummy (local$ "")]
-                (meta#in (list (list#mix (.is# (-> Code Code Code)
-                                               (function' [pre post] (` ({(, dummy) (, post)} (, pre)))))
-                                         value
-                                         actions))))
-
-          _
-          (failure (..wrong_syntax_error (symbol ..exec)))}
-         (list#reversed tokens))))
 
 (with_template [<name> <tag>]
   [(def' .private (<name> type)
@@ -3221,17 +3277,17 @@
 
                          [meta {#Form parts}]
                          (do meta#monad
-                           [=parts (monad#each meta#monad (literal only_global?) parts)]
+                           [=parts (monad#each#meta (literal only_global?) parts)]
                            (in [meta {#Form =parts}]))
 
                          [meta {#Variant parts}]
                          (do meta#monad
-                           [=parts (monad#each meta#monad (literal only_global?) parts)]
+                           [=parts (monad#each#meta (literal only_global?) parts)]
                            (in [meta {#Variant =parts}]))
 
                          [meta {#Tuple parts}]
                          (do meta#monad
-                           [=parts (monad#each meta#monad (literal only_global?) parts)]
+                           [=parts (monad#each#meta (literal only_global?) parts)]
                            (in [meta {#Tuple =parts}]))
 
                          _
@@ -3401,8 +3457,10 @@
 (def' .private Parser
       Type
       {#Named [..prelude "Parser"]
-              (..type_literal (All (_ a)
-                                (-> (List Code) (Maybe [(List Code) a]))))})
+              (type_literal
+               (All (_ a)
+                 (-> (List Code)
+                     (Maybe [(List Code) a]))))})
 
 (def' .private (parsed parser tokens)
       (type_literal (All (_ a) (-> (Parser a) (List Code) (Maybe a))))
@@ -3990,7 +4048,7 @@
 (def .public implementation
   (macro (_ tokens)
     (do meta#monad
-      [tokens' (monad#each meta#monad complete_expansion tokens)
+      [tokens' (monad#each#meta complete_expansion tokens)
        implementation_type ..expected_type
        tags+type (record_slots implementation_type)
        tags (is (Meta (List Symbol))
@@ -4007,21 +4065,20 @@
                                            [(product#right tag)
                                             (symbol$ tag)])
                                          tags))]
-       members (monad#each meta#monad
-                           (is (-> Code (Meta (List Code)))
-                               (function (_ token)
-                                 (when token
-                                   [_ {#Form (list [_ {#Symbol [..prelude "def#"]}] [_ {#Symbol ["" slot_name]}] value export_policy)}]
-                                   (when (property#value slot_name tag_mappings)
-                                     {#Some tag}
-                                     (in (list tag value))
+       members (monad#each#meta (is (-> Code (Meta (List Code)))
+                                    (function (_ token)
+                                      (when token
+                                        [_ {#Form (list [_ {#Symbol [..prelude "def#"]}] [_ {#Symbol ["" slot_name]}] value export_policy)}]
+                                        (when (property#value slot_name tag_mappings)
+                                          {#Some tag}
+                                          (in (list tag value))
 
-                                     _
-                                     (failure (text#composite "Unknown implementation member: " slot_name)))
+                                          _
+                                          (failure (text#composite "Unknown implementation member: " slot_name)))
 
-                                   _
-                                   (failure "Invalid implementation member."))))
-                           (list#conjoint tokens'))]
+                                        _
+                                        (failure "Invalid implementation member."))))
+                                (list#conjoint tokens'))]
       (in (list (tuple$ (list#conjoint members)))))))
 
 (def (text#interposed separator parts)
@@ -4392,72 +4449,71 @@
 (def (imports_parser nested? relative_root context imports)
   (-> Bit Text (List Text) (List Code) (Meta (List Importation)))
   (do meta#monad
-    [imports' (monad#each meta#monad
-                          (is (-> Code (Meta (List Importation)))
-                              (function (_ token)
-                                (when token
-                                  ... Nested
-                                  [_ {#Tuple (list#partial [_ {#Symbol ["" module_name]}] extra)}]
-                                  (do meta#monad
-                                    [absolute_module_name (when (normal_parallel_path relative_root module_name)
-                                                            {#Some parallel_path}
-                                                            (in parallel_path)
+    [imports' (monad#each#meta (is (-> Code (Meta (List Importation)))
+                                   (function (_ token)
+                                     (when token
+                                       ... Nested
+                                       [_ {#Tuple (list#partial [_ {#Symbol ["" module_name]}] extra)}]
+                                       (do meta#monad
+                                         [absolute_module_name (when (normal_parallel_path relative_root module_name)
+                                                                 {#Some parallel_path}
+                                                                 (in parallel_path)
 
-                                                            {#None}
-                                                            (..absolute_module_name nested? relative_root module_name))
-                                     extra,referral (when (referrals_parser #0 extra)
-                                                      {#Some extra,referral}
-                                                      (in extra,referral)
+                                                                 {#None}
+                                                                 (..absolute_module_name nested? relative_root module_name))
+                                          extra,referral (when (referrals_parser #0 extra)
+                                                           {#Some extra,referral}
+                                                           (in extra,referral)
 
-                                                      {#None}
-                                                      (failure ""))
-                                     .let [[extra referral] extra,referral]
-                                     sub_imports (imports_parser #1 absolute_module_name context extra)]
-                                    (in (when referral
-                                          {#End}
-                                          sub_imports
-                                          
-                                          _
-                                          (list#partial [#import_name absolute_module_name
-                                                         #import_alias {#None}
-                                                         #import_referrals referral]
-                                                        sub_imports))))
+                                                           {#None}
+                                                           (failure ""))
+                                          .let [[extra referral] extra,referral]
+                                          sub_imports (imports_parser #1 absolute_module_name context extra)]
+                                         (in (when referral
+                                               {#End}
+                                               sub_imports
+                                               
+                                               _
+                                               (list#partial [#import_name absolute_module_name
+                                                              #import_alias {#None}
+                                                              #import_referrals referral]
+                                                             sub_imports))))
 
-                                  [_ {#Tuple (list#partial [_ {#Text alias}] [_ {#Symbol ["" module_name]}] extra)}]
-                                  (do meta#monad
-                                    [absolute_module_name (when (normal_parallel_path relative_root module_name)
-                                                            {#Some parallel_path}
-                                                            (in parallel_path)
+                                       [_ {#Tuple (list#partial [_ {#Text alias}] [_ {#Symbol ["" module_name]}] extra)}]
+                                       (do meta#monad
+                                         [absolute_module_name (when (normal_parallel_path relative_root module_name)
+                                                                 {#Some parallel_path}
+                                                                 (in parallel_path)
 
-                                                            {#None}
-                                                            (..absolute_module_name nested? relative_root module_name))
-                                     extra,referral (when (referrals_parser #1 extra)
-                                                      {#Some extra,referral}
-                                                      (in extra,referral)
+                                                                 {#None}
+                                                                 (..absolute_module_name nested? relative_root module_name))
+                                          extra,referral (when (referrals_parser #1 extra)
+                                                           {#Some extra,referral}
+                                                           (in extra,referral)
 
-                                                      {#None}
-                                                      (failure ""))
-                                     .let [[extra referral] extra,referral]
-                                     .let [module_alias (..module_alias {#Item module_name context} alias)]
-                                     sub_imports (imports_parser #1 absolute_module_name {#Item module_alias context} extra)]
-                                    (in (when referral
-                                          {#End}
-                                          sub_imports
-                                          
-                                          _
-                                          (list#partial [#import_name absolute_module_name
-                                                         #import_alias {#Some module_alias}
-                                                         #import_referrals referral]
-                                                        sub_imports))))
+                                                           {#None}
+                                                           (failure ""))
+                                          .let [[extra referral] extra,referral]
+                                          .let [module_alias (..module_alias {#Item module_name context} alias)]
+                                          sub_imports (imports_parser #1 absolute_module_name {#Item module_alias context} extra)]
+                                         (in (when referral
+                                               {#End}
+                                               sub_imports
+                                               
+                                               _
+                                               (list#partial [#import_name absolute_module_name
+                                                              #import_alias {#Some module_alias}
+                                                              #import_referrals referral]
+                                                             sub_imports))))
 
-                                  ... Unrecognized syntax.
-                                  _
-                                  (do meta#monad
-                                    [current_module current_module_name]
-                                    (failure (all text#composite
-                                                  "Wrong syntax for import @ " current_module
-                                                  \n (code#encoded token)))))))
-                          imports)]
+                                       ... Unrecognized syntax.
+                                       _
+                                       (do meta#monad
+                                         [current_module current_module_name]
+                                         (failure (all text#composite
+                                                       "Wrong syntax for import @ " current_module
+                                                       \n (code#encoded token)))))))
+                               imports)]
     (in (list#conjoint imports'))))
 
 (def (exported_definitions module state)
@@ -4529,13 +4585,12 @@
 
 (def (test_referrals current_module imported_module all_defs referred_defs)
   (-> Text Text (List Text) (List Text) (Meta (List Any)))
-  (monad#each meta#monad
-              (is (-> Text (Meta Any))
-                  (function (_ _def)
-                    (if (is_member? all_defs _def)
-                      (meta#in [])
-                      (failure (all text#composite _def " is not defined in module " imported_module " @ " current_module)))))
-              referred_defs))
+  (monad#each#meta (is (-> Text (Meta Any))
+                       (function (_ _def)
+                         (if (is_member? all_defs _def)
+                           (meta#in [])
+                           (failure (all text#composite _def " is not defined in module " imported_module " @ " current_module)))))
+                   referred_defs))
 
 (def (alias_definition imported_module def)
   (-> Text Text Code)
@@ -4742,16 +4797,15 @@
 (def (open_layer alias [tags members])
   (-> Text Implementation_Interface (Meta [Code (List [Symbol Implementation_Interface])]))
   (do meta#monad
-    [pattern (monad#each meta#monad
-                         (function (_ [slot slot_type])
-                           (do meta#monad
-                             [.let [[_ slot_name] slot
-                                    local ["" (..module_alias (list slot_name) alias)]]
-                              implementation (record_slots slot_type)]
-                             (in [(list (symbol$ slot)
-                                        (symbol$ local))
-                                  [local implementation]])))
-                         (zipped_2 tags members))]
+    [pattern (monad#each#meta (function (_ [slot slot_type])
+                                (do meta#monad
+                                  [.let [[_ slot_name] slot
+                                         local ["" (..module_alias (list slot_name) alias)]]
+                                   implementation (record_slots slot_type)]
+                                  (in [(list (symbol$ slot)
+                                             (symbol$ local))
+                                       [local implementation]])))
+                              (zipped_2 tags members))]
     (in [(|> pattern
              (list#each product#left)
              list#conjoint
@@ -4765,7 +4819,7 @@
 (def (open_layers alias interfaces body)
   (-> Text (List Implementation_Interface) Code (Meta [Code Code]))
   (do meta#monad
-    [layer (monad#each meta#monad (open_layer alias) interfaces)
+    [layer (monad#each#meta (open_layer alias) interfaces)
      .let [pattern (tuple$ (list#each product#left layer))
            next (|> layer
                     (list#each product#right)
@@ -4923,11 +4977,10 @@
     (when output
       {#Some [tags' members']}
       (do meta#monad
-        [decls' (monad#each meta#monad
-                            (is (-> [Nat Symbol Type] (Meta (List Code)))
-                                (function (_ [sub_tag_index sname stype])
-                                  (open_declaration imported_module alias tags' sub_tag_index sname source+ stype)))
-                            (enumeration (zipped_2 tags' members')))]
+        [decls' (monad#each#meta (is (-> [Nat Symbol Type] (Meta (List Code)))
+                                     (function (_ [sub_tag_index sname stype])
+                                       (open_declaration imported_module alias tags' sub_tag_index sname source+ stype)))
+                                 (enumeration (zipped_2 tags' members')))]
         (in (list#conjoint decls')))
 
       _
@@ -4944,10 +4997,10 @@
       {#Some [slots terms]}
       (do meta#monad
         [.let [g!implementation (symbol$ implementation)]
-         declarations (monad#each meta#monad (is (-> [Nat Symbol Type] (Meta (List Code)))
-                                                 (function (_ [index slot_label slot_type])
-                                                   (open_declaration imported_module alias slots index slot_label g!implementation slot_type)))
-                                  (enumeration (zipped_2 slots terms)))]
+         declarations (monad#each#meta (is (-> [Nat Symbol Type] (Meta (List Code)))
+                                           (function (_ [index slot_label slot_type])
+                                             (open_declaration imported_module alias slots index slot_label g!implementation slot_type)))
+                                       (enumeration (zipped_2 slots terms)))]
         (in (list#conjoint declarations)))
 
       _
@@ -4988,7 +5041,7 @@
           (do meta#monad
             [declarations (|> implementations
                               (list#each (localized imported_module))
-                              (monad#each meta#monad (implementation_declarations import_alias alias)))]
+                              (monad#each#meta (implementation_declarations import_alias alias)))]
             (in (list#conjoint declarations)))
           
           {#Right implementations}
@@ -5108,13 +5161,12 @@
 
           {.#Some [lefts right? family]}
           (do meta#monad
-            [pattern' (monad#each meta#monad
-                                  (is (-> [Nat Symbol] (Meta [Symbol Nat Code]))
-                                      (function (_ [r_idx r_slot_name])
-                                        (do meta#monad
-                                          [g!slot (..generated_symbol "")]
-                                          (in [r_slot_name r_idx g!slot]))))
-                                  (enumeration family))
+            [pattern' (monad#each#meta (is (-> [Nat Symbol] (Meta [Symbol Nat Code]))
+                                           (function (_ [r_idx r_slot_name])
+                                             (do meta#monad
+                                               [g!slot (..generated_symbol "")]
+                                               (in [r_slot_name r_idx g!slot]))))
+                                       (enumeration family))
              .let [pattern (|> pattern'
                                (list#each (is (-> [Symbol Nat Code] (List Code))
                                               (function (_ [r_slot_name r_idx r_var])
@@ -5141,10 +5193,9 @@
 
         _
         (do meta#monad
-          [bindings (monad#each meta#monad
-                                (is (-> Code (Meta Code))
-                                    (function (_ _) (..generated_symbol "temp")))
-                                slots)
+          [bindings (monad#each#meta (is (-> Code (Meta Code))
+                                         (function (_ _) (..generated_symbol "temp")))
+                                     slots)
            .let [pairs (zipped_2 slots bindings)
                  update_expr (list#mix (is (-> [Code Code] Code Code)
                                            (function (_ [s b] v)
@@ -5193,13 +5244,12 @@
 
           {.#Some [lefts right? family]}
           (do meta#monad
-            [pattern' (monad#each meta#monad
-                                  (is (-> [Nat Symbol] (Meta [Symbol Nat Code]))
-                                      (function (_ [r_idx r_slot_name])
-                                        (do meta#monad
-                                          [g!slot (..generated_symbol "")]
-                                          (in [r_slot_name r_idx g!slot]))))
-                                  (enumeration family))
+            [pattern' (monad#each#meta (is (-> [Nat Symbol] (Meta [Symbol Nat Code]))
+                                           (function (_ [r_idx r_slot_name])
+                                             (do meta#monad
+                                               [g!slot (..generated_symbol "")]
+                                               (in [r_slot_name r_idx g!slot]))))
+                                       (enumeration family))
              .let [pattern (|> pattern'
                                (list#each (is (-> [Symbol Nat Code] (List Code))
                                               (function (_ [r_slot_name r_idx r_var])
@@ -5357,7 +5407,7 @@
                             (when (monad#each maybe#monad symbol_name inits)
                               {#Some inits'} (meta#in inits')
                               {#None}        (failure (..wrong_syntax_error (symbol ..loop)))))
-                 init_types (monad#each meta#monad type_definition inits')
+                 init_types (monad#each#meta type_definition inits')
                  expected ..expected_type]
                 (meta#in (list (` ((.is# (-> (,* (list#each type_code init_types))
                                              (, (type_code expected)))
@@ -5365,10 +5415,9 @@
                                            (, body)))
                                    (,* inits))))))
               (do meta#monad
-                [aliases (monad#each meta#monad
-                                     (is (-> Code (Meta Code))
-                                         (function (_ _) (..generated_symbol "")))
-                                     inits)]
+                [aliases (monad#each#meta (is (-> Code (Meta Code))
+                                              (function (_ _) (..generated_symbol "")))
+                                          inits)]
                 (meta#in (list (` (..let [(,* (..interleaved aliases inits))]
                                     (..loop ((, name) [(,* (..interleaved vars aliases))])
                                       (, body)))))))))
@@ -5687,7 +5736,7 @@
 (def aggregate_embedded_expansions
   (template (_ embedded_expansions <@> <tag> <*>)
     [(do meta#monad
-       [<*>' (monad#each meta#monad embedded_expansions <*>)]
+       [<*>' (monad#each#meta embedded_expansions <*>)]
        (in [(|> <*>'
                 list#reversed
                 (list#each product#left)
@@ -5779,7 +5828,7 @@
 (def .public Interface
   (macro (_ tokens)
     (do meta#monad
-      [methods' (monad#each meta#monad complete_expansion tokens)]
+      [methods' (monad#each#meta complete_expansion tokens)]
       (when (everyP methodP (list#conjoint methods'))
         {#Some methods}
         (in (list (` (..Tuple (,* (list#each product#right methods))))
