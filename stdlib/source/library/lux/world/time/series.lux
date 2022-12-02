@@ -1,0 +1,124 @@
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    [equivalence (.only Equivalence)]
+    [functor (.only Functor)]
+    [mix (.only Mix)]]
+   [control
+    ["[0]" try (.only Try)]
+    ["[0]" exception (.only Exception)]]
+   [data
+    [text
+     ["%" \\format]]
+    [collection
+     ["[0]" array (.only Array) (.use "[1]#[0]" functor mix)
+      ["/" \\unsafe]]]]
+   [meta
+    [type
+     ["[0]" nominal]]]]]
+ [//
+  ["[0]" instant (.only Instant) (.use "[1]#[0]" order)]])
+
+(type .public (Event of)
+  (Record
+   [#when Instant
+    #what of]))
+
+(def (event_equivalence super)
+  (All (_ of)
+    (-> (Equivalence of)
+        (Equivalence (Event of))))
+  (implementation
+   (def (= reference example)
+     (and (instant#= (the #when reference) (the #when example))
+          (of super = (the #what reference) (the #what example))))))
+
+(nominal.def .public (Series of)
+  (Array (Event of))
+
+  (def .public (equivalence super)
+    (All (_ of)
+      (-> (Equivalence of)
+          (Equivalence (Series of))))
+    (implementation
+     (def (= reference example)
+       (of (array.equivalence (event_equivalence super)) =
+           (nominal.representation reference)
+           (nominal.representation example)))))
+
+  (def .public functor
+    (Functor Series)
+    (implementation
+     (def (each $)
+       (|>> nominal.representation
+            (array#each (revised #what $))
+            nominal.abstraction))))
+
+  (def .public mix
+    (Mix Series)
+    (implementation
+     (def (mix $ init)
+       (|>> nominal.representation
+            (array#mix (function (_ next it)
+                         ($ (the #what next) it))
+                       init)))))
+
+  (exception.def .public (disordered [before after])
+    (Exception [Instant Instant])
+    (exception.report
+     (list ["(Expected) before" (%.instant before)]
+           ["(Expected) after" (%.instant after)])))
+
+  (exception.def .public (duplicated it)
+    (Exception Instant)
+    (exception.report
+     (list ["Time-stamp" (%.instant it)])))
+
+  (def .public (series it)
+    (All (_ of)
+      (-> (List (Event of))
+          (Try (Series of))))
+    (when it
+      {.#Item head tail}
+      (loop (again [previous head
+                    it tail])
+        (when it
+          {.#Item current next}
+          (if (instant#< (the #when current) (the #when previous))
+            (again current next)
+            (if (instant#= (the #when current) (the #when previous))
+              (exception.except ..duplicated [(the #when current)])
+              (exception.except ..disordered [(the #when previous) (the #when current)])))
+          
+          {.#End}
+          {try.#Success (nominal.abstraction
+                         (array.of_list it))}))
+      
+      {.#End}
+      {try.#Success (nominal.abstraction
+                     (array.empty 0))}))
+
+  (def .public size
+    (All (_ of)
+      (-> (Series of)
+          Nat))
+    (|>> nominal.representation
+         /.size))
+
+  (exception.def .public empty)
+  
+  (with_template [<name> <index>]
+    [(def .public (<name> it)
+       (All (_ of)
+         (-> (Series of)
+             (Try (Event of))))
+       (let [it (nominal.representation it)]
+         (when (array.size it)
+           0 (exception.except ..empty [])
+           @ {try.#Success (/.item <index> it)})))]
+
+    [earliest 0]
+    [latest (-- @)]
+    )
+  )

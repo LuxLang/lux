@@ -380,7 +380,7 @@ Called by `imenu--generic-function'."
 							(type//capability (altRE "capability"))
 							;; Data
 							(data//record (altRE "the" "has" "revised"))
-							(data//interface (altRE "use" "implementation" "with" "at"))
+							(data//interface (altRE "use" "implementation" "with" "of"))
 							(data//implicit (altRE "implicitly" "a/an" "a" "an"))
 							(data//collection (altRE "list" "sequence" "tree"))
 							;; Code

@@ -4,130 +4,110 @@
    [abstract
     [equivalence (.only Equivalence)]]
    [control
-    ["[0]" try (.only Try)]
-    ["[0]" exception (.only Exception)]]
+    ["[0]" try]
+    [function
+     [predicate (.only Predicate)]]]
    [data
-    [text
-     ["%" \\format]]]
+    ["[0]" product]]
    [math
     [number
      ["f" frac]
-     ["[0]" int]]]
-   [meta
-    [type
-     ["[0]" nominal]]]]]
+     ["[0]" int]]]]]
  [//
   ["[0]" rgb (.only RGB)]])
 
-(with_expansions [<min> +0.0
-                  <max> +1.0]
-  (nominal.def .public Value
-    Frac
+(def .public Value
+  Frac)
 
-    (with_template [<number> <name>]
-      [(def .public <name>
-         Value
-         (nominal.abstraction <number>))]
+(with_template [<value> <name>]
+  [(def .public <name>
+     Value
+     <value>)]
 
-      [<min> least]
-      [<max> most]
-      )
+  [+0.0 least]
+  [+1.0 most]
+  )
 
-    (exception.def .public (invalid it)
-      (Exception Frac)
-      (exception.report
-       (list ["Minimum" (%.frac (nominal.representation ..least))]
-             ["Maximum" (%.frac (nominal.representation ..most))]
-             ["Value" (%.frac it)])))
+(def .public (value? it)
+  (Predicate Frac)
+  (not (or (f.< ..least it)
+           (f.> ..most it))))
 
-    (def .public (value it)
-      (-> Frac
-          (Try Value))
-      (if (or (f.> (nominal.representation ..most)
-                   it)
-              (f.< (nominal.representation ..least)
-                   it))
-        (exception.except ..invalid [it])
-        {try.#Success (nominal.abstraction it)}))
+(def .public value
+  (-> Frac
+      Value)
+  (|>> (f.max ..least)
+       (f.min ..most)))
 
-    (def .public number
-      (-> Value
-          Frac)
-      (|>> nominal.representation))
+(type .public CMYK
+  (Record
+   [#cyan Value
+    #magenta Value
+    #yellow Value
+    #key Value]))
 
-    (type .public CMYK
-      (Record
-       [#cyan Value
-        #magenta Value
-        #yellow Value
-        #key Value]))
+(def .public equivalence
+  (Equivalence CMYK)
+  (all product.equivalence
+       f.equivalence
+       f.equivalence
+       f.equivalence
+       f.equivalence
+       ))
 
-    (def .public equivalence
-      (Equivalence CMYK)
-      (implementation
-       (def (= [cR mR yR kR] [cS mS yS kS])
-         (and (f.= (nominal.representation cR) (nominal.representation cS))
-              (f.= (nominal.representation mR) (nominal.representation mS))
-              (f.= (nominal.representation yR) (nominal.representation yS))
-              (f.= (nominal.representation kR) (nominal.representation kS))))))
+(def top
+  (-- rgb.limit))
 
-    (def top
-      (-- rgb.limit))
+(def rgb_factor
+  (|> top .int int.frac))
 
-    (def rgb_factor
-      (|> top .int int.frac))
+(def down
+  (-> Nat
+      Frac)
+  (|>> .int int.frac (f./ rgb_factor)))
 
-    (def down
-      (-> Nat
-          Frac)
-      (|>> .int int.frac (f./ rgb_factor)))
+(def up
+  (-> Frac
+      Nat)
+  (|>> (f.* rgb_factor) f.int .nat))
 
-    (def up
-      (-> Frac
-          Nat)
-      (|>> (f.* rgb_factor) f.int .nat))
+(def (opposite it)
+  (-> Frac
+      Frac)
+  (f.- it ..most))
 
-    (def (opposite it)
-      (-> Frac
-          Frac)
-      (f.- it <max>))
+(def .public (cmyk it)
+  (-> RGB
+      CMYK)
+  (let [red (..down (rgb.number (the rgb.#red it)))
+        green (..down (rgb.number (the rgb.#green it)))
+        blue (..down (rgb.number (the rgb.#blue it)))
+        key (opposite (all f.max red green blue))
+        f (if (f.< ..most key)
+            (f./ (opposite key)
+                 ..most)
+            ..least)]
+    [#cyan (|> ..most (f.- red) (f.- key) (f.* f))
+     #magenta (|> ..most (f.- green) (f.- key) (f.* f))
+     #yellow (|> ..most (f.- blue) (f.- key) (f.* f))
+     #key key]))
 
-    (def .public (cmyk it)
-      (-> RGB
-          CMYK)
-      (let [red (..down (rgb.number (the rgb.#red it)))
-            green (..down (rgb.number (the rgb.#green it)))
-            blue (..down (rgb.number (the rgb.#blue it)))
-            key (opposite (all f.max red green blue))
-            f (if (f.< <max> key)
-                (f./ (opposite key)
-                     <max>)
-                <min>)
-            cyan (|> <max> (f.- red) (f.- key) (f.* f))
-            magenta (|> <max> (f.- green) (f.- key) (f.* f))
-            yellow (|> <max> (f.- blue) (f.- key) (f.* f))]
-        [#cyan (nominal.abstraction cyan)
-         #magenta (nominal.abstraction magenta)
-         #yellow (nominal.abstraction yellow)
-         #key (nominal.abstraction key)]))
-
-    (def .public (rgb it)
-      (-> CMYK
-          RGB)
-      (when (nominal.representation (the #key it))
-        <max>
-        rgb.black
-        
-        key
-        (let [~key (opposite key)
-              red (f.* ~key
-                       (opposite (nominal.representation (the #cyan it))))
-              green (f.* ~key
-                         (opposite (nominal.representation (the #magenta it))))
-              blue (f.* ~key
-                        (opposite (nominal.representation (the #yellow it))))]
-          (|> (rgb.rgb (..up red)
-                       (..up green)
-                       (..up blue))
-              try.trusted))))
-    ))
+(def .public (rgb it)
+  (-> CMYK
+      RGB)
+  (when (the #key it)
+    ..most
+    rgb.black
+    
+    key
+    (let [~key (opposite key)
+          red (f.* ~key
+                   (opposite (the #cyan it)))
+          green (f.* ~key
+                     (opposite (the #magenta it)))
+          blue (f.* ~key
+                    (opposite (the #yellow it)))]
+      (|> (rgb.rgb (..up red)
+                   (..up green)
+                   (..up blue))
+          try.trusted))))
