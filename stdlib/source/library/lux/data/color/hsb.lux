@@ -1,0 +1,152 @@
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    [equivalence (.only Equivalence)]]
+   [control
+    ["[0]" try]
+    [function
+     [predicate (.only Predicate)]]]
+   [math
+    [number
+     ["f" frac]
+     ["[0]" int]]]
+   [meta
+    [type
+     ["[0]" nominal]]]]]
+ [//
+  ["[0]" rgb (.only RGB)]])
+
+(type .public Value
+  Frac)
+
+(with_template [<value> <name>]
+  [(def .public <name>
+     Value
+     <value>)]
+
+  [+0.0 least]
+  [+1.0 most]
+  )
+
+(def .public (value? it)
+  (Predicate Frac)
+  (not (or (f.< ..least it)
+           (f.> ..most it))))
+
+(def .public value
+  (-> Frac
+      Value)
+  (|>> (f.max ..least)
+       (f.min ..most)))
+
+(nominal.def .public HSB
+  (Record
+   [#hue Value
+    #saturation Value
+    #brightness Value])
+
+  (def .public equivalence
+    (Equivalence HSB)
+    (implementation
+     (def (= left right)
+       (`` (and (,, (with_template [<slot>]
+                      [(f.= (the <slot> (nominal.representation left))
+                            (the <slot> (nominal.representation right)))]
+
+                      [#hue]
+                      [#saturation]
+                      [#brightness]
+                      )))))))
+
+  (with_template [<name> <slot>]
+    [(def .public <name>
+       (-> HSB
+           Value)
+       (|>> nominal.representation
+            (the <slot>)))]
+
+    [hue #hue]
+    [saturation #saturation]
+    [brightness #brightness]
+    )
+
+  (def .public (hsb hue saturation brightness)
+    (-> Frac Frac Frac
+        HSB)
+    (nominal.abstraction
+     [#hue (..value hue)
+      #saturation (..value saturation)
+      #brightness (..value brightness)]))
+
+  (def top
+    (-- rgb.limit))
+
+  (def rgb_factor
+    (|> top .int int.frac))
+
+  (def down
+    (-> Nat
+        Frac)
+    (|>> .int int.frac (f./ rgb_factor)))
+
+  (def up
+    (-> Frac
+        Nat)
+    (|>> (f.* rgb_factor) f.int .nat))
+
+  (def .public (of_rgb it)
+    (-> RGB
+        HSB)
+    (let [red (..down (rgb.number (the rgb.#red it)))
+          green (..down (rgb.number (the rgb.#green it)))
+          blue (..down (rgb.number (the rgb.#blue it)))
+
+          max (all f.max red green blue)
+          min (all f.min red green blue)
+
+          brightness max
+          diff (|> max (f.- min))
+          saturation (if (f.= +0.0 max)
+                       +0.0
+                       (|> diff (f./ max)))]
+      (nominal.abstraction
+       [#hue (if (f.= max min)
+               ... Achromatic
+               +0.0
+               ... Chromatic
+               (cond (f.= max red)
+                     (|> green (f.- blue) (f./ diff)
+                         (f.+ (if (f.< blue green) +6.0 +0.0)))
+
+                     (f.= max green)
+                     (|> blue (f.- red) (f./ diff)
+                         (f.+ +2.0))
+
+                     ... (f.= max blue)
+                     (|> red (f.- green) (f./ diff)
+                         (f.+ +4.0))))
+        #saturation saturation
+        #brightness brightness])))
+
+  (def .public (rgb it)
+    (-> HSB
+        RGB)
+    (let [[hue saturation brightness] (nominal.representation it)
+          hue (|> hue (f.* +6.0))
+          i (f.floor hue)
+          f (|> hue (f.- i))
+          p (|> +1.0 (f.- saturation) (f.* brightness))
+          q (|> +1.0 (f.- (f.* f saturation)) (f.* brightness))
+          t (|> +1.0 (f.- (|> +1.0 (f.- f) (f.* saturation))) (f.* brightness))
+          v brightness
+          mod (|> i (f.% +6.0) f.int .nat)
+
+          red (when mod 0 v 1 q 2 p 3 p 4 t 5 v _ (undefined))
+          green (when mod 0 t 1 v 2 v 3 q 4 p 5 p _ (undefined))
+          blue (when mod 0 p 1 p 2 t 3 v 4 v 5 q _ (undefined))]
+      (try.trusted
+       (rgb.rgb (..up red)
+                (..up green)
+                (..up blue)))))
+  )
