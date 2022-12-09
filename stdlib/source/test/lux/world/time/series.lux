@@ -15,7 +15,8 @@
     ["[0]" product]
     [collection
      ["[0]" list (.use "[1]#[0]" functor mix)]
-     ["[0]" set]]]
+     ["[0]" set]
+     ["[0]" sequence]]]
    [math
     ["[0]" random (.only Random) (.use "[1]#[0]" functor)]
     [number
@@ -24,129 +25,123 @@
    [world
     [time
      ["[0]" instant (.only Instant) (.use "[1]#[0]" order)]
-     ["[0]" duration]]]
+     ["[0]" duration (.only Duration)]]]
    [test
     ["_" property (.only Test)]]]]
  [\\library
-  ["[0]" /]])
+  ["[0]" /]]
+ ["[0]" /
+  ["[1][0]" average]])
 
-(def .public (event it)
-  (All (_ of)
-    (-> (Random of)
-        (Random (/.Event of))))
-  (do random.monad
-    [when random.instant
-     what it]
-    (in [/.#when when
-         /.#what what])))
-
-(def .public (random size it)
+(def .public (random events it)
   (All (_ of)
     (-> Nat (Random of)
         (Random (/.Series of))))
-  (|> it
-      (random.list size)
-      (random#each (|>> (list#mix (function (_ what [when events])
-                                    [(instant.before duration.milli_second when)
-                                     (list.partial [/.#when when
-                                                    /.#what what]
-                                                   events)])
-                                  [instant.latest (list)])
-                        product.right))
-      (random.one (|>> /.series
-                       try.maybe))))
+  (do [! random.monad]
+    [.let [duration (random.only duration.positive? random.duration)]
+     offset (of ! each (duration.framed (duration.up 100 duration.normal_year))
+                duration)
+     .let [start (instant.after offset instant.epoch)]
+     interval (of ! each (duration.framed duration.week)
+                  duration)
+     data (random.sequence events it)]
+    (in [/.#start start
+         /.#interval interval
+         /.#data data])))
 
-(def (injection when)
-  (-> Instant
+(def (injection start interval)
+  (-> Instant Duration
       (Injection /.Series))
-  (|>> [/.#when when
-        /.#what]
-       list
-       /.series
-       try.trusted))
+  (|>> sequence.sequence
+       [/.#start start
+        /.#interval interval
+        /.#data]))
 
 (def .public test
   Test
   (<| (_.covering /._)
       (do [! random.monad]
-        [before (..event random.nat)
-         after (random.only (|>> (the /.#when)
-                                 (instant#= (the /.#when before))
-                                 not)
-                            (..event random.nat))
-         .let [[before after] (if (instant#< (the /.#when after)
-                                             (the /.#when before))
-                                [before after]
-                                [after before])]
+        [expected_size (of ! each (|>> (n.% 10) ++) random.nat)
+         expected_series (..random expected_size random.nat)
 
-         expected_instant random.instant
-         expected_size (of ! each (n.% 10) random.nat)
-         events (is (Random (List (/.Event Int)))
-                    (|> random.int
-                        (random.set i.hash expected_size)
-                        (of ! each (|>> set.list
-                                        (list.sorted i.<)
-                                        (list#each (function (_ it)
-                                                     [/.#when (instant.of_millis it)
-                                                      /.#what it]))))))])
-      (all _.and
-           (<| (_.for [/.Event
-                       /.#what /.#when])
-               (`` (all _.and
-                        (,, (with_template [<event> <expected>]
-                              [(_.coverage [<event>]
-                                 (|> (do try.monad
-                                       [it (/.series (list before after))
-                                        actual (<event> it)]
-                                       (in (same? <expected> actual)))
-                                     (try.else false)))]
+         before random.nat
+         after random.nat
+         expected_start random.instant
+         expected_interval random.duration
 
-                              [/.earliest before]
-                              [/.latest after]
-                              ))
-                        )))
-           (<| (_.for [/.Series])
-               (`` (all _.and
-                        (_.for [/.equivalence]
-                               (equivalenceS.spec (/.equivalence n.equivalence) (..random expected_size random.nat)))
-                        (_.for [/.mix]
-                               (mixS.spec (..injection expected_instant) /.equivalence /.mix))
-                        (_.for [/.functor]
-                               (functorS.spec (..injection expected_instant) /.equivalence /.functor))
-                        
-                        (_.coverage [/.series /.size]
-                          (|> (do try.monad
-                                [it (/.series events)]
-                                (in (/.size it)))
-                              (try#each (n.= expected_size))
-                              (try.else false)))
-                        (_.coverage [/.empty]
-                          (and (,, (with_template [<event> <expected>]
-                                     [(|> (do try.monad
-                                            [it (/.series (list))]
-                                            (<event> it))
-                                          (|.when
-                                            {try.#Failure error}
-                                            (exception.match? /.empty error)
-                                            
-                                            _
-                                            false))]
+         window_size (of ! each (|>> (n.% expected_size) ++) random.nat)
+         window_offset (of ! each (n.% (++ (n.- window_size expected_size))) random.nat)])
+      (_.for [/.Series
+              /.#start /.#interval /.#data])
+      (`` (all _.and
+               (_.for [/.equivalence]
+                      (equivalenceS.spec (/.equivalence n.equivalence) (..random expected_size random.nat)))
+               (_.for [/.mix]
+                      (mixS.spec (..injection expected_start expected_interval) /.equivalence /.mix))
+               (_.for [/.functor]
+                      (functorS.spec (..injection expected_start expected_interval) /.equivalence /.functor))
+               
+               (_.coverage [/.size]
+                 (n.= expected_size
+                      (/.size expected_series)))
+               (_.coverage [/.start /.end]
+                 (instant#< (/.end expected_series)
+                            (/.start expected_series)))
+               (_.coverage [/.at]
+                 (and (instant#= (/.at 0 expected_series)
+                                 (/.start expected_series))
+                      (instant#< (/.at (-- expected_size) expected_series)
+                                 (/.start expected_series))))
+               (,, (with_template [<event> <expected>]
+                     [(_.coverage [<event>]
+                        (|> (do try.monad
+                              [.let [it [/.#start expected_start
+                                         /.#interval expected_interval
+                                         /.#data (sequence.sequence before after)]]
+                               actual (<event> it)]
+                              (in (same? <expected> actual)))
+                            (try.else false)))]
 
-                                     [/.earliest before]
-                                     [/.latest after]
-                                     ))))
-                        (,, (with_template [<exception> <left> <right>]
-                              [(_.coverage [<exception>]
-                                 (|> (/.series (list <left> <right>))
-                                     (|.when
-                                       {try.#Failure error}
-                                       (exception.match? <exception> error)
-                                       
-                                       _
-                                       false)))]
+                     [/.earliest before]
+                     [/.latest after]
+                     ))
+               (_.coverage [/.empty]
+                 (and (,, (with_template [<event> <expected>]
+                            [(|> (do try.monad
+                                   [.let [it [/.#start expected_start
+                                              /.#interval expected_interval
+                                              /.#data (sequence.sequence)]]]
+                                   (<event> it))
+                                 (|.when
+                                   {try.#Failure error}
+                                   (exception.match? /.empty error)
+                                   
+                                   _
+                                   false))]
 
-                              [/.disordered after before]
-                              [/.duplicated before before]
-                              ))
-                        )))
-           )))
+                            [/.earliest before]
+                            [/.latest after]
+                            ))))
+               (_.coverage [/.window]
+                 (|> (do try.monad
+                       [it (/.window window_offset window_size expected_series)]
+                       (in (n.= window_size (/.size it))))
+                     (try.else false)))
+               (_.coverage [/.window_goes_out_of_bounds]
+                 (and (|> (/.window expected_size window_size expected_series)
+                          (|.when
+                            {try.#Failure error}
+                            (exception.match? /.window_goes_out_of_bounds error)
+                            
+                            _
+                            false))
+                      (|> (/.window (++ window_offset) expected_size expected_series)
+                          (|.when
+                            {try.#Failure error}
+                            (exception.match? /.window_goes_out_of_bounds error)
+                            
+                            _
+                            false))))
+
+               /average.test
+               ))))

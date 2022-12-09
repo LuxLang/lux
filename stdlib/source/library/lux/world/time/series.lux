@@ -4,121 +4,126 @@
    [abstract
     [equivalence (.only Equivalence)]
     [functor (.only Functor)]
-    [mix (.only Mix)]]
+    [mix (.only Mix)]
+    [monad (.only do)]]
    [control
     ["[0]" try (.only Try)]
     ["[0]" exception (.only Exception)]]
    [data
+    ["[0]" product]
     [text
      ["%" \\format]]
     [collection
-     ["[0]" array (.only Array) (.use "[1]#[0]" functor mix)
-      ["/" \\unsafe]]]]
+     ["/" sequence (.use "[1]#[0]" functor mix)]]]
+   [math
+    [number
+     ["n" nat]]]
    [meta
-    [type
-     ["[0]" nominal]]]]]
+    [type (.only sharing)]]]]
  [//
+  ["[0]" duration (.only Duration) (.use "[1]#[0]" equivalence)]
   ["[0]" instant (.only Instant) (.use "[1]#[0]" order)]])
 
-(type .public (Event of)
+(type .public (Series of)
   (Record
-   [#when Instant
-    #what of]))
+   [#start Instant
+    #interval Duration
+    #data (/.Sequence of)]))
 
-(def (event_equivalence super)
+(def .public (equivalence super)
   (All (_ of)
     (-> (Equivalence of)
-        (Equivalence (Event of))))
+        (Equivalence (Series of))))
+  (all product.equivalence
+       instant.equivalence
+       duration.equivalence
+       (/.equivalence super)
+       ))
+
+(def .public functor
+  (Functor Series)
   (implementation
-   (def (= reference example)
-     (and (instant#= (the #when reference) (the #when example))
-          (of super = (the #what reference) (the #what example))))))
+   (def (each $)
+     (|>> (revised #data (/#each $))))))
 
-(nominal.def .public (Series of)
-  (Array (Event of))
+(def .public mix
+  (Mix Series)
+  (implementation
+   (def (mix $ init)
+     (|>> (the #data)
+          (/#mix $ init)))))
 
-  (def .public (equivalence super)
-    (All (_ of)
-      (-> (Equivalence of)
-          (Equivalence (Series of))))
-    (implementation
-     (def (= reference example)
-       (of (array.equivalence (event_equivalence super)) =
-           (nominal.representation reference)
-           (nominal.representation example)))))
+(def .public size
+  (All (_ of)
+    (-> (Series of)
+        Nat))
+  (|>> (the #data)
+       /.size))
 
-  (def .public functor
-    (Functor Series)
-    (implementation
-     (def (each $)
-       (|>> nominal.representation
-            (array#each (revised #what $))
-            nominal.abstraction))))
+(def .public start
+  (All (_ of)
+    (-> (Series of)
+        Instant))
+  (the #start))
 
-  (def .public mix
-    (Mix Series)
-    (implementation
-     (def (mix $ init)
-       (|>> nominal.representation
-            (array#mix (function (_ next it)
-                         ($ (the #what next) it))
-                       init)))))
+(def .public (end it)
+  (All (_ of)
+    (-> (Series of)
+        Instant))
+  (instant.after (duration.up (-- (/.size (the #data it)))
+                              (the #interval it))
+                 (the #start it)))
 
-  (exception.def .public (disordered [before after])
-    (Exception [Instant Instant])
-    (exception.report
-     (list ["(Expected) before" (%.instant before)]
-           ["(Expected) after" (%.instant after)])))
+(def .public (at event it)
+  (All (_ of)
+    (-> Nat (Series of)
+        Instant))
+  (instant.after (duration.up event (the #interval it))
+                 (the #start it)))
 
-  (exception.def .public (duplicated it)
-    (Exception Instant)
-    (exception.report
-     (list ["Time-stamp" (%.instant it)])))
+(exception.def .public empty)
 
-  (def .public (series it)
-    (All (_ of)
-      (-> (List (Event of))
-          (Try (Series of))))
-    (when it
-      {.#Item head tail}
-      (loop (again [previous head
-                    it tail])
-        (when it
-          {.#Item current next}
-          (if (instant#< (the #when current) (the #when previous))
-            (again current next)
-            (if (instant#= (the #when current) (the #when previous))
-              (exception.except ..duplicated [(the #when current)])
-              (exception.except ..disordered [(the #when previous) (the #when current)])))
-          
-          {.#End}
-          {try.#Success (nominal.abstraction
-                         (array.of_list it))}))
-      
-      {.#End}
-      {try.#Success (nominal.abstraction
-                     (array.empty 0))}))
+(with_template [<index> <name>]
+  [(def .public (<name> it)
+     (All (_ of)
+       (-> (Series of)
+           (Try of)))
+     (let [data (the #data it)]
+       (when (/.size data)
+         0 (exception.except ..empty [])
+         @ (/.item <index> data))))]
 
-  (def .public size
-    (All (_ of)
-      (-> (Series of)
-          Nat))
-    (|>> nominal.representation
-         /.size))
-
-  (exception.def .public empty)
-  
-  (with_template [<name> <index>]
-    [(def .public (<name> it)
-       (All (_ of)
-         (-> (Series of)
-             (Try (Event of))))
-       (let [it (nominal.representation it)]
-         (when (array.size it)
-           0 (exception.except ..empty [])
-           @ {try.#Success (/.item <index> it)})))]
-
-    [earliest 0]
-    [latest (-- @)]
-    )
+  [(|> 0) earliest]
+  [(-- @) latest]
   )
+
+(exception.def .public (window_goes_out_of_bounds [offset size max_size])
+  (Exception [Nat Nat Nat])
+  (exception.report
+   (list ["From" (%.nat offset)]
+         ["To" (%.nat (n.+ offset size))]
+         ["Maximum" (%.nat max_size)])))
+
+(def .public (window offset size it)
+  (All (_ of)
+    (-> Nat Nat (Series of)
+        (Try (Series of))))
+  (if (n.< (n.+ offset size)
+           (..size it))
+    (exception.except ..window_goes_out_of_bounds [offset size (..size it)])
+    (let [input (the #data it)]
+      (loop (again [item 0
+                    output (sharing [of]
+                             (is (/.Sequence of)
+                                 input)
+                             (is (/.Sequence of)
+                                 /.empty))])
+        (if (n.< size item)
+          (do try.monad
+            [it (/.item (n.+ offset item) input)]
+            (again (++ item) (/.suffix it output)))
+          {try.#Success (let [interval (the #interval it)]
+                          [#start (instant.after (duration.up offset interval)
+                                                 (the #start it))
+                           #interval interval
+                           #data output])})))))

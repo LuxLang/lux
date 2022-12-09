@@ -1,0 +1,129 @@
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["[0]" try (.only Try)]
+    ["[0]" exception (.only Exception)]]
+   [data
+    ["[0]" product]
+    [text
+     ["%" \\format]]
+    [collection
+     ["[0]" sequence (.only Sequence) (.use "[1]#[0]" mix functor)]]]
+   [math
+    [number
+     ["n" nat]
+     ["f" frac]]]
+   [meta
+    [type (.only sharing)]]]]
+ ["[0]" // (.only Series) (.use "[1]#[0]" mix)])
+
+... https://en.wikipedia.org/wiki/Moving_average#Cumulative_average
+(def .public cumulative
+  (-> (Series Frac)
+      (Series Frac))
+  (revised //.#data
+           (|>> (sequence#mix (function (_ event [[previous_summation previous_period] output])
+                                (let [summation (f.+ previous_summation event)
+                                      average (f./ previous_period summation)]
+                                  [[summation (f.+ +1.0 previous_period)]
+                                   (sequence.suffix average output)]))
+                              [[+0.0 +1.0] (is (Sequence Frac)
+                                               sequence.empty)])
+                product.right)))
+
+(exception.def .public (window_size_is_too_large [maximum actual])
+  (Exception [Nat Nat])
+  (exception.report
+   (list ["Maximum" (%.nat maximum)]
+         ["Actual" (%.nat actual)])))
+
+(def .public (windows size it)
+  (All (_ of)
+    (-> Nat (Series of)
+        (Try (Series (Series of)))))
+  (let [maximum (//.size it)]
+    (if (n.< size maximum)
+      (exception.except ..window_size_is_too_large [maximum size])
+      (let [limit (n.- size maximum)]
+        (loop (again [offset 0
+                      output (sharing [of]
+                               (is (Series of)
+                                   it)
+                               (is (Sequence (Series of))
+                                   sequence.empty))])
+          (if (n.< limit offset)
+            (do try.monad
+              [current (//.window offset size it)]
+              (again (++ offset)
+                     (sequence.suffix current output)))
+            {try.#Success (has //.#data output it)}))))))
+
+(type .public (Average of)
+  (-> (Series of)
+      of))
+
+... https://en.wikipedia.org/wiki/Moving_average
+(def .public (moving average additional it)
+  (All (_ of)
+    (-> (Average of) Nat (Series of)
+        (Try (Series of))))
+  (do try.monad
+    [.let [size (++ additional)]
+     it (windows size it)]
+    (in (|> it
+            (revised //.#data (sequence#each average))
+            (has //.#start (//.at size it))))))
+
+... https://en.wikipedia.org/wiki/Moving_average#Exponential_moving_average
+... https://en.wikipedia.org/wiki/Exponential_smoothing
+(type .public Factor
+  (-> Nat
+      Frac))
+
+(def .public (simple_factor additional)
+  Factor
+  (f./ (n.frac (n.+ 2 additional))
+       +2.0))
+
+(def .public (exponential factor)
+  (-> Factor
+      (Average Frac))
+  (function (_ it)
+    (let [factor (factor (//.size it))
+          ~factor (f.- factor +1.0)]
+      (//#mix (is (-> Frac Frac
+                      Frac)
+                  (function (_ event previous)
+                    (f.+ (f.* ~factor previous)
+                         (f.* factor event))))
+              +0.0
+              it))))
+
+... https://en.wikipedia.org/wiki/Moving_average#Simple_moving_average
+(def .public (simple it)
+  (Average Frac)
+  (|> (the //.#data it)
+      (sequence#mix f.+ +0.0)
+      (f./ (n.frac (//.size it)))))
+
+... https://en.wikipedia.org/wiki/Triangular_number
+(def (summation_up_to maximum)
+  (-> Nat
+      Nat)
+  (|> maximum
+      (n.* (++ maximum))
+      (n./ 2)))
+
+... https://en.wikipedia.org/wiki/Moving_average#Weighted_moving_average
+(def .public (weighted it)
+  (Average Frac)
+  (|> it
+      (//#mix (function (_ sample [weight summation])
+                [(f.+ +1.0 weight)
+                 (|> sample (f.* weight) (f.+ summation))])
+              [+1.0 +0.0])
+      product.right
+      (f./ (n.frac (summation_up_to (-- (//.size it)))))))

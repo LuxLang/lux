@@ -1,0 +1,100 @@
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["[0]" try]
+    ["[0]" exception]]
+   [math
+    ["[0]" random (.only Random)]
+    [number
+     ["n" nat]]]
+   [world
+    [time
+     ["[0]" instant (.use "[1]#[0]" order)]
+     ["[0]" duration (.use "[1]#[0]" equivalence)]]]
+   [test
+    ["_" property (.only Test)]]]]
+ [\\library
+  ["[0]" / (.only)
+   ["/[1]" //]]])
+
+(def (series events)
+  (-> Nat
+      (Random (/.Series Frac)))
+  (do [! random.monad]
+    [.let [duration (random.only duration.positive? random.duration)]
+     offset (of ! each (duration.framed (duration.up 100 duration.normal_year))
+                duration)
+     .let [start (instant.after offset instant.epoch)]
+     interval (of ! each (duration.framed duration.week)
+                  duration)
+     data (random.sequence events random.safe_frac)]
+    (in [//.#start start
+         //.#interval interval
+         //.#data data])))
+
+(def .public test
+  Test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [expected_events (of ! each (|>> (n.% 10) ++) random.nat)
+         input (series expected_events)
+         expected_window_extras (of ! each (n.% expected_events) random.nat)])
+      (all _.and
+           (_.coverage [/.cumulative]
+             (let [output (/.cumulative input)]
+               (and (instant#= (//.start input)
+                               (//.start output))
+                    (n.= (//.size input)
+                         (//.size output)))))
+           (_.coverage [/.windows]
+             (<| (try.else false)
+                 (do try.monad
+                   [output (/.windows expected_window_extras input)]
+                   (in (and (instant#= (//.start input)
+                                       (//.start output))
+                            (n.= (n./ (++ expected_window_extras) (//.size input))
+                                 (//.size output)))))))
+           (_.coverage [/.window_size_is_too_large]
+             (when (/.windows (++ expected_events) input)
+               {try.#Failure error}
+               (exception.match? /.window_size_is_too_large error)
+
+               {try.#Success _}
+               false))
+           (<| (_.for [/.Average /.moving])
+               (all _.and
+                    (_.coverage [/.Factor /.simple_factor /.exponential]
+                      (<| (try.else false)
+                          (do try.monad
+                            [output (/.moving (/.exponential /.simple_factor)
+                                              expected_window_extras
+                                              input)]
+                            (in (and (instant#< (//.start output)
+                                                (//.start input))
+                                     (n.= (n.- expected_window_extras (//.size input))
+                                          (//.size output)))))))
+                    (_.coverage [/.simple]
+                      (<| (try.else false)
+                          (do try.monad
+                            [output (/.moving /.simple
+                                              expected_window_extras
+                                              input)]
+                            (in (and (instant#< (//.start output)
+                                                (//.start input))
+                                     (n.= (n.- expected_window_extras (//.size input))
+                                          (//.size output)))))))
+                    (_.coverage [/.weighted]
+                      (<| (try.else false)
+                          (do try.monad
+                            [output (/.moving /.weighted
+                                              expected_window_extras
+                                              input)]
+                            (in (and (instant#< (//.start output)
+                                                (//.start input))
+                                     (n.= (n.- expected_window_extras (//.size input))
+                                          (//.size output)))))))
+                    ))
+           )))

@@ -7,11 +7,10 @@
     [equivalence (.only Equivalence)]
     ["[0]" hash (.only Hash)]]
    [control
-    ["[0]" try (.only Try)]
-    ["[0]" exception (.only Exception)]]
+    [function
+     [predicate (.only Predicate)]]]
    [data
-    [text
-     ["%" \\format]]]
+    ["[0]" product]]
    [math
     [number
      ["n" nat]
@@ -24,101 +23,103 @@
   Nat
   256)
 
-(nominal.def .public Value
-  Nat
+(type .public Value
+  Nat)
 
-  (def .public least
-    Value
-    (nominal.abstraction 0))
+(with_template [<name> <value>]
+  [(def .public <name>
+     Value
+     <value>)]
 
-  (def .public most
-    Value
-    (nominal.abstraction (-- ..limit)))
+  [least 0]
+  [most (-- limit)]
+  )
 
-  (exception.def .public (invalid it)
-    (Exception Nat)
-    (exception.report
-     (list ["Limit" (%.nat ..limit)]
-           ["Value" (%.nat it)])))
+(def .public (value? it)
+  (Predicate Nat)
+  (not (or (n.< ..least it)
+           (n.> ..most it))))
 
-  (def .public (value it)
-    (-> Nat
-        (Try Value))
-    (if (n.< ..limit it)
-      {try.#Success (nominal.abstraction it)}
-      (exception.except ..invalid [it])))
+(def .public value
+  (-> Nat
+      Value)
+  (|>> (n.max ..least)
+       (n.min ..most)))
 
-  (def .public number
-    (-> Value Nat)
-    (|>> nominal.representation))
-
-  (type .public RGB
-    (Record
-     [#red Value
-      #green Value
-      #blue Value]))
+(nominal.def .public RGB
+  (Record
+   [#red Value
+    #green Value
+    #blue Value])
 
   (def .public (rgb red green blue)
     (-> Nat Nat Nat
-        (Try RGB))
-    (do try.monad
-      [red (value red)
-       green (value green)
-       blue (value blue)]
-      (in [#red red
-           #green green
-           #blue blue])))
+        RGB)
+    (nominal.abstraction
+     [#red (value red)
+      #green (value green)
+      #blue (value blue)]))
 
-  (def .public equivalence
-    (Equivalence RGB)
-    (implementation
-     (def (= [rR gR bR] [rS gS bS])
-       (and (n.= (nominal.representation rR) (nominal.representation rS))
-            (n.= (nominal.representation gR) (nominal.representation gS))
-            (n.= (nominal.representation bR) (nominal.representation bS))))))
+  (with_template [<name> <slot>]
+    [(def .public <name>
+       (-> RGB
+           Value)
+       (|>> nominal.representation
+            (the <slot>)))]
+
+    [red #red]
+    [green #green]
+    [blue #blue]
+    )
 
   (def .public hash
     (Hash RGB)
-    (implementation
-     (def equivalence
-       ..equivalence)
+    (of hash.functor each
+        (|>> nominal.representation)
+        (all product.hash
+             n.hash
+             n.hash
+             n.hash
+             )))
 
-     (def (hash [r g b])
-       (all i64.or
-            (i64.left_shifted 16 (nominal.representation r))
-            (i64.left_shifted 08 (nominal.representation g))
-            (nominal.representation b)))))
+  (def .public equivalence
+    (Equivalence RGB)
+    (of ..hash equivalence))
 
   (def (opposite_intensity value)
-    (-> Nat Nat)
-    (|> (nominal.representation ..most)
+    (-> Nat
+        Nat)
+    (|> ..most
         (n.- value)))
 
   (def .public (complement it)
-    (-> RGB RGB)
-    (`` [(,, (with_template [<slot>]
-               [<slot> (|> it
-                           (the <slot>)
-                           nominal.representation
-                           opposite_intensity
-                           nominal.abstraction)]
+    (-> RGB
+        RGB)
+    (nominal.abstraction
+     (`` [(,, (with_template [<slot>]
+                [<slot> (|> it
+                            nominal.representation
+                            (the <slot>)
+                            opposite_intensity)]
 
-               [#red]
-               [#green]
-               [#blue]
-               ))]))
+                [#red]
+                [#green]
+                [#blue]
+                ))])))
 
   (def .public black
     RGB
-    [#red ..least
-     #green ..least
-     #blue ..least])
+    (nominal.abstraction
+     [#red ..least
+      #green ..least
+      #blue ..least]))
 
   (def .public white
     RGB
-    [#red ..most
-     #green ..most
-     #blue ..most])
+    (nominal.abstraction
+     [#red ..most
+      #green ..most
+      #blue ..most]))
 
   (with_template [<monoid> <identity> <composite> <left> <right>]
     [(def .public <monoid>
@@ -130,15 +131,15 @@
         (def (composite left right)
           (let [left (<left> left)
                 right (<right> right)]
-            (`` [(,, (with_template [<slot>]
-                       [<slot> (nominal.abstraction
-                                (<composite> (nominal.representation (the <slot> left))
-                                             (nominal.representation (the <slot> right))))]
+            (nominal.abstraction
+             (`` [(,, (with_template [<slot>]
+                        [<slot> (<composite> (the <slot> (nominal.representation left))
+                                             (the <slot> (nominal.representation right)))]
 
-                       [#red]
-                       [#green]
-                       [#blue]
-                       ))])))))]
+                        [#red]
+                        [#green]
+                        [#blue]
+                        ))]))))))]
 
     [addition ..black n.max |> |>]
     [subtraction ..white n.min ..complement |>]
