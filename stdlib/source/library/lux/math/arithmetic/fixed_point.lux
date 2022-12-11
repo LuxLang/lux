@@ -1,0 +1,185 @@
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    [equivalence (.only Equivalence)]
+    [order (.only Order)]]
+   [control
+    ["[0]" try (.only Try)]
+    ["[0]" exception (.only Exception)]
+    [function
+     ["[0]" inline]]]
+   [data
+    [text
+     ["%" \\format]]]
+   [math
+    [number
+     ["n" nat]
+     ["i" int]
+     ["[0]" i64]]]
+   [meta
+    [type
+     ["[0]" nominal]]]]]
+ [// (.only Arithmetic)])
+
+(def .public maximum
+  Nat
+  (-- i64.width))
+
+(nominal.def .public (Point @)
+  Nat
+
+  (exception.def .public (point_exceeds_maximum it)
+    (Exception Nat)
+    (exception.report
+     (list ["Candidate" (%.nat it)]
+           ["Maximum" (%.nat maximum)])))
+
+  (def .public (point it)
+    (Ex (_ @)
+      (-> Nat
+          (Try (Point @))))
+    (if (n.> maximum it)
+      (exception.except ..point_exceeds_maximum [it])
+      {try.#Success (nominal.abstraction it)}))
+
+  (def .public location
+    (All (_ @)
+      (-> (Point @)
+          Nat))
+    (|>> nominal.representation))
+  
+  (nominal.def .public (Fixed @)
+    Int
+
+    (def sign
+      (-> Int
+          (I64 Any))
+      (i64.and (i64.bit ..maximum)))
+
+    (def of_units
+      (inline.inlined (_ @ it)
+        (All (_ @)
+          (-> (Point @) Int
+              (I64 Any)))
+        (|> it
+            .i64
+            (i64.left_shifted (nominal.representation Point @))
+            (i64.or (sign it)))))
+
+    (def of_sub_units
+      (inline.inlined (_ @ it)
+        (All (_ @)
+          (-> (Point @) Rev
+              (I64 Any)))
+        (|> it
+            .i64
+            (i.right_shifted (n.- (nominal.representation Point @) i64.width)))))
+
+    (def .public (fixed @ units sub_units)
+      (All (_ @)
+        (-> (Point @) Int Rev
+            (Fixed @)))
+      (nominal.abstraction
+       (.int (i64.or (of_units @ units)
+                     (of_sub_units @ sub_units)))))
+
+    (with_template [<name> <type> <of>]
+      [(def .public (<name> @ it)
+         (All (_ @)
+           (-> (Point @) <type>
+               (Fixed @)))
+         (nominal.abstraction
+          (.int (<of> @ it))))]
+
+      [of_int Int of_units]
+      [of_rev Rev of_sub_units]
+      )
+
+    (def .public (units @)
+      (All (_ @)
+        (-> (Point @) (Fixed @)
+            Int))
+      (|>> nominal.representation
+           (i.right_shifted (nominal.representation Point @))))
+
+    (def .public (sub_units @)
+      (All (_ @)
+        (-> (Point @) (Fixed @)
+            Rev))
+      (|>> nominal.representation
+           (i64.and (i64.mask (nominal.representation Point @)))
+           .rev))
+
+    (with_template [<composite_type> <post_processing> <fp> <int>]
+      [(def .public (<fp> _ parameter subject)
+         (All (_ @)
+           (-> (Point @) (Fixed @) (Fixed @)
+               <composite_type>))
+         (<post_processing>
+          (<int> (nominal.representation parameter)
+                 (nominal.representation subject))))]
+
+      [(Fixed @) nominal.abstraction + i.+]
+      [(Fixed @) nominal.abstraction - i.-]
+      [(Fixed @) nominal.abstraction % i.%]
+
+      [Bit |> = i.=]
+      [Bit |> < i.<]
+      [Bit |> <= i.<=]
+      [Bit |> > i.>]
+      [Bit |> >= i.>=]
+      )
+
+    (with_template [<fp> <u> <s>]
+      [(def .public (<fp> @ parameter subject)
+         (All (_ @)
+           (-> (Point @) (Fixed @) (Fixed @)
+               (Fixed @)))
+         (fixed @
+                (<u> (units @ parameter)
+                     (units @ subject))
+                (.rev (<s> (.nat (sub_units @ parameter))
+                           (.nat (sub_units @ subject))))))]
+
+      [* i.* n.*]
+      [/ i./ n./]
+      )
+    )
+  )
+
+(def .public (equivalence @)
+  (All (_ @)
+    (-> (Point @)
+        (Equivalence (Fixed @))))
+  (implementation
+   (def = (..= @))
+   ))
+
+(def .public (order @)
+  (All (_ @)
+    (-> (Point @)
+        (Order (Fixed @))))
+  (implementation
+   (def equivalence (..equivalence @))
+   (def < (..< @))
+   ))
+
+(def .public (arithmetic @)
+  (All (_ @)
+    (-> (Point @)
+        (Arithmetic (Fixed @))))
+  (implementation
+   (def + (..+ @))
+   (def - (..- @))
+   (def * (..* @))
+   (def / (../ @))
+   (def % (..% @))
+   ))
+
+(def .public (format @ it)
+  (All (_ @)
+    (-> (Point @)
+        (%.Format (Fixed @))))
+  (%.format (%.int (..units @ it))
+            (%.rev (..sub_units @ it))))

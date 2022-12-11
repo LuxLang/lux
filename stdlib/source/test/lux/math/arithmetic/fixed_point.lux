@@ -1,0 +1,119 @@
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]
+    [\\specification
+     ["[0]S" equivalence]
+     ["[0]S" order]]]
+   [control
+    ["[0]" try (.use "[1]#[0]" functor)]
+    ["[0]" exception]]
+   [data
+    ["[0]" bit (.use "[1]#[0]" equivalence)]
+    ["[0]" text (.only)
+     ["%" \\format]]]
+   [math
+    ["[0]" random (.only Random)]
+    [number
+     ["n" nat]]
+    ["[0]" arithmetic
+     ["[1]S" \\specification]]]
+   [test
+    ["_" property (.only Test)]]]]
+ [\\library
+  ["[0]" /]])
+
+(def .public (random @)
+  (All (_ @)
+    (-> (/.Point @)
+        (Random (/.Fixed @))))
+  (do random.monad
+    [units random.int
+     sub_units random.rev]
+    (in (/.fixed @ units sub_units))))
+
+(def .public test
+  Test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [candidate_point random.nat
+         expected_point (of ! each (n.% (++ /.maximum)) random.nat)
+         .let [@ (try.trusted (/.point expected_point))]
+         expected (..random @)
+         parameter (..random @)
+         subject (..random @)])
+      (all _.and
+           (<| (_.for [/.Point])
+               (all _.and
+                    (_.coverage [/.point /.location]
+                      (|> (/.point expected_point)
+                          (try#each (|>> /.location
+                                         (same? expected_point)))
+                          (try.else false)))
+                    (_.coverage [/.maximum /.point_exceeds_maximum]
+                      (when (/.point candidate_point)
+                        {try.#Success it}
+                        (n.<= /.maximum candidate_point)
+                        
+                        {try.#Failure error}
+                        (and (n.> /.maximum candidate_point)
+                             (exception.match? /.point_exceeds_maximum error))))
+                    ))
+           (<| (_.for [/.Fixed])
+               (all _.and
+                    (_.for [/.equivalence /.=]
+                           (equivalenceS.spec (/.equivalence @) (..random @)))
+                    (_.for [/.order /.<]
+                           (orderS.spec (/.order @) (..random @)))
+                    (_.for [/.arithmetic]
+                           (arithmeticS.spec (/.equivalence @) (/.arithmetic @) (..random @)))
+                    
+                    (_.coverage [/.fixed /.units /.sub_units]
+                      (/.= @
+                           expected
+                           (/.fixed @ (/.units @ expected) (/.sub_units @ expected))))
+                    (_.coverage [/.of_int /.of_rev]
+                      (/.= @
+                           expected
+                           (/.+ @
+                                (/.of_int @ (/.units @ expected))
+                                (/.of_rev @ (/.sub_units @ expected)))))
+
+                    (_.coverage [/.>]
+                      (bit#= (/.> @ parameter subject)
+                             (/.< @ subject parameter)))
+                    (_.coverage [/.<= /.>=]
+                      (bit#= (/.<= @ parameter subject)
+                             (/.>= @ subject parameter)))
+                    
+                    (_.coverage [/.-]
+                      (and (/.= @
+                                (/.of_int @ +0)
+                                (/.- @ expected expected))
+                           (/.= @
+                                (/.of_rev @ .0)
+                                (/.- @ expected expected))))
+                    (_.coverage [/.+]
+                      (|> subject
+                          (/.+ @ parameter)
+                          (/.- @ parameter)
+                          (/.= @ subject)))
+                    (_.coverage [/./]
+                      (/.= @
+                           (/.of_int @ +1)
+                           (/./ @ expected expected)))
+                    (_.coverage [/.* /.%]
+                      (let [rem (/.% @ parameter subject)
+                            div (|> subject (/.- @ rem) (/./ @ parameter))]
+                        (/.= @ subject
+                             (|> div (/.* @ parameter) (/.+ @ rem)))))
+
+                    (_.coverage [/.format]
+                      (let [it (/.format @ expected)]
+                        (and (text.contains? (%.int (/.units @ expected))
+                                             it)
+                             (text.contains? (%.rev (/.sub_units @ expected))
+                                             it))))
+                    ))
+           )))
