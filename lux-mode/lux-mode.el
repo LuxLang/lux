@@ -586,7 +586,6 @@ This function also returns nil meaning don't specify the indentation."
   ("def" 'defun)
   ("type" 'defun)
   ("inlined" 'defun)
-  ("context" 'defun)
   ("method" 'defun)
   
   ("analysis" 'defun)
