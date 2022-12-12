@@ -10,10 +10,7 @@
    [math
     [number
      ["i" int]
-     ["f" frac]]]
-   [meta
-    [type
-     ["[0]" nominal]]]]]
+     ["f" frac]]]]]
  [//
   ["[0]" rgb (.only RGB)]])
 
@@ -56,117 +53,170 @@
   (|>> (f.max ..least)
        (f.min ..most)))
 
-(nominal.def .public HSL
+(type .public HSL
   (Record
    [#hue Value
     #saturation Value
-    #luminance Value])
+    #luminance Value]))
 
-  (def .public equivalence
-    (Equivalence HSL)
-    (implementation
-     (def (= left right)
-       (`` (and (,, (with_template [<slot>]
-                      [(f.= (the <slot> (nominal.representation left))
-                            (the <slot> (nominal.representation right)))]
+(def .public equivalence
+  (Equivalence HSL)
+  (implementation
+   (def (= left right)
+     (`` (and (,, (with_template [<slot>]
+                    [(f.= (the <slot> left)
+                          (the <slot> right))]
 
-                      [#hue]
-                      [#saturation]
-                      [#luminance]
-                      )))))))
+                    [#hue]
+                    [#saturation]
+                    [#luminance]
+                    )))))))
 
-  (with_template [<name> <slot>]
-    [(def .public <name>
-       (-> HSL
-           Value)
-       (|>> nominal.representation
-            (the <slot>)))]
+(def .public (hsl hue saturation luminance)
+  (-> Frac Frac Frac
+      HSL)
+  [#hue (..value hue)
+   #saturation (..value saturation)
+   #luminance (..value luminance)])
 
-    [hue #hue]
-    [saturation #saturation]
-    [luminance #luminance]
-    )
+(def .public (of_rgb it)
+  (-> RGB
+      HSL)
+  (let [red (..down (the rgb.#red it))
+        green (..down (the rgb.#green it))
+        blue (..down (the rgb.#blue it))
 
-  (def .public (hsl hue saturation luminance)
-    (-> Frac Frac Frac
-        HSL)
-    (nominal.abstraction
-     [#hue (..value hue)
-      #saturation (..value saturation)
-      #luminance (..value luminance)]))
+        max (all f.max red green blue)
+        min (all f.min red green blue)
+        luminance (|> (f.+ max min) (f./ +2.0))]
+    (if (f.= max min)
+      ... Achromatic
+      [#hue ..least
+       #saturation ..least
+       #luminance luminance]
+      ... Chromatic
+      (let [diff (|> max (f.- min))
+            saturation (|> diff
+                           (f./ (if (f.> +0.5 luminance)
+                                  (|> +2.0 (f.- max) (f.- min))
+                                  (|> max (f.+ min)))))
+            hue' (cond (f.= red max)
+                       (|> green (f.- blue) (f./ diff)
+                           (f.+ (if (f.< blue green) +6.0 +0.0)))
+                       
+                       (f.= green max)
+                       (|> blue (f.- red) (f./ diff)
+                           (f.+ +2.0))
+                       
+                       ... (f.= blue max)
+                       (|> red (f.- green) (f./ diff)
+                           (f.+ +4.0)))]
+        [#hue (|> hue' (f./ +6.0))
+         #saturation saturation
+         #luminance luminance]))))
 
-  (def .public (of_rgb it)
-    (-> RGB
-        HSL)
-    (let [red (..down (rgb.red it))
-          green (..down (rgb.green it))
-          blue (..down (rgb.blue it))
+(def (hue_rgb p q t)
+  (-> Frac Frac Frac
+      Nat)
+  (let [t (cond (f.< +0.0 t) (f.+ +1.0 t)
+                (f.> +1.0 t) (f.- +1.0 t)
+                ... else
+                t)
+        f2/3 (f./ +3.0 +2.0)]
+    (..up (cond (f.< (f./ +6.0 +1.0) t)
+                (|> q (f.- p) (f.* +6.0) (f.* t) (f.+ p))
+                
+                (f.< (f./ +2.0 +1.0) t)
+                q
+                
+                (f.< f2/3 t)
+                (|> q (f.- p) (f.* (|> f2/3 (f.- t))) (f.* +6.0) (f.+ p))
+                
+                ... else
+                p))))
 
-          max (all f.max red green blue)
-          min (all f.min red green blue)
-          luminance (|> (f.+ max min) (f./ +2.0))]
-      (nominal.abstraction
-       (if (f.= max min)
-         ... Achromatic
-         [#hue ..least
-          #saturation ..least
-          #luminance luminance]
-         ... Chromatic
-         (let [diff (|> max (f.- min))
-               saturation (|> diff
-                              (f./ (if (f.> +0.5 luminance)
-                                     (|> +2.0 (f.- max) (f.- min))
-                                     (|> max (f.+ min)))))
-               hue' (cond (f.= red max)
-                          (|> green (f.- blue) (f./ diff)
-                              (f.+ (if (f.< blue green) +6.0 +0.0)))
-                          
-                          (f.= green max)
-                          (|> blue (f.- red) (f./ diff)
-                              (f.+ +2.0))
-                          
-                          ... (f.= blue max)
-                          (|> red (f.- green) (f./ diff)
-                              (f.+ +4.0)))]
-           [#hue (|> hue' (f./ +6.0))
-            #saturation saturation
-            #luminance luminance])))))
+(def .public (rgb (open "/[0]"))
+  (-> HSL
+      RGB)
+  (if (f.= ..least /#saturation)
+    ... Achromatic
+    (let [intensity (..up /#luminance)]
+      (rgb.rgb intensity intensity intensity))
+    ... Chromatic
+    (let [q (if (f.< +0.5 /#luminance)
+              (|> /#saturation (f.+ +1.0) (f.* /#luminance))
+              (|> /#luminance (f.+ /#saturation) (f.- (f.* /#saturation /#luminance))))
+          p (|> /#luminance (f.* +2.0) (f.- q))
+          third (|> +1.0 (f./ +3.0))]
+      (rgb.rgb (|> /#hue (f.+ third) (hue_rgb p q))
+               (|> /#hue (hue_rgb p q))
+               (|> /#hue (f.- third) (hue_rgb p q))))))
 
-  (def (hue_rgb p q t)
-    (-> Frac Frac Frac
-        Nat)
-    (let [t (cond (f.< +0.0 t) (f.+ +1.0 t)
-                  (f.> +1.0 t) (f.- +1.0 t)
-                  ... else
-                  t)
-          f2/3 (f./ +3.0 +2.0)]
-      (..up (cond (f.< (f./ +6.0 +1.0) t)
-                  (|> q (f.- p) (f.* +6.0) (f.* t) (f.+ p))
-                  
-                  (f.< (f./ +2.0 +1.0) t)
-                  q
-                  
-                  (f.< f2/3 t)
-                  (|> q (f.- p) (f.* (|> f2/3 (f.- t))) (f.* +6.0) (f.+ p))
-                  
-                  ... else
-                  p))))
+(def (ratio it)
+  (-> Frac
+      Frac)
+  (cond (f.> +1.0 it)
+        (f.% +1.0 it)
 
-  (def .public (rgb it)
-    (-> HSL
-        RGB)
-    (let [[hue saturation luminance] (nominal.representation it)]
-      (if (f.= ..least saturation)
-        ... Achromatic
-        (let [intensity (..up luminance)]
-          (rgb.rgb intensity intensity intensity))
-        ... Chromatic
-        (let [q (if (f.< +0.5 luminance)
-                  (|> saturation (f.+ +1.0) (f.* luminance))
-                  (|> luminance (f.+ saturation) (f.- (f.* saturation luminance))))
-              p (|> luminance (f.* +2.0) (f.- q))
-              third (|> +1.0 (f./ +3.0))]
-          (rgb.rgb (|> hue (f.+ third) (hue_rgb p q))
-                   (|> hue (hue_rgb p q))
-                   (|> hue (f.- third) (hue_rgb p q)))))))
+        (f.< +0.0 it)
+        (|> it (f.% +1.0) (f.+ +1.0))
+
+        ... else
+        it))
+
+(with_template [<op> <name>]
+  [(def .public (<name> ratio (open "/[0]"))
+     (-> Frac HSL
+         HSL)
+     (..hsl /#hue
+            (|> /#saturation
+                (f.* (|> +1.0 (<op> (..ratio ratio))))
+                (f.min +1.0))
+            /#luminance))]
+
+  [f.+ saturated]
+  [f.- un_saturated]
+  )
+
+(def .public gray_scale
+  (-> HSL
+      HSL)
+  (|>> (the #luminance)
+       (..hsl +0.0
+              +0.0)))
+
+(with_template [<name> <1> <2>]
+  [(`` (def .public (<name> it)
+         (-> HSL
+             [HSL HSL HSL])
+         (let [(open "/[0]") it]
+           [it
+            (..hsl (|> /#hue (f.+ <1>) ..ratio)
+                   /#saturation
+                   /#luminance)
+            (..hsl (|> /#hue (f.+ <2>) ..ratio)
+                   /#saturation
+                   /#luminance)])))]
+
+  [triad            (|> +1.0 (f./ +3.0)) (|> +2.0 (f./ +3.0))]
+  [clash            (|> +1.0 (f./ +4.0)) (|> +3.0 (f./ +4.0))]
+  [split_complement (|> +1.0 (f./ +5.0)) (|> +3.0 (f./ +5.0))]
+  )
+
+(with_template [<name> <1> <2> <3>]
+  [(`` (def .public (<name> it)
+         (-> HSL
+             [HSL HSL HSL HSL])
+         (let [(open "/[0]") it
+               of_hue (is (-> Value
+                              HSL)
+                          (function (_ hue)
+                            (..hsl hue /#saturation /#luminance)))]
+           [it
+            (|> /#hue (f.+ <1>) ..ratio of_hue)
+            (|> /#hue (f.+ <2>) ..ratio of_hue)
+            (|> /#hue (f.+ <3>) ..ratio of_hue)])))]
+
+  [square   (|> +1.0 (f./ +4.0))  (|> +2.0 (f./ +4.0))  (|> +3.0 (f./ +4.0))]
+  [tetradic (|> +2.0 (f./ +12.0)) (|> +6.0 (f./ +12.0)) (|> +8.0 (f./ +12.0))]
   )
