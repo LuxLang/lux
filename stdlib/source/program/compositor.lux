@@ -3,7 +3,7 @@
   [lux (.except Module)
    ["[0]" debug]
    [abstract
-    ["[0]" monad (.only do)]]
+    ["[0]" monad (.only Monad do)]]
    [control
     ["[0]" io (.only IO io)]
     ["[0]" maybe]
@@ -212,22 +212,32 @@
        tar.set_user_id_on_execution
        ))
 
+(type (Action of)
+  (Async (Try of)))
+
+(def monad
+  (is (Monad Action)
+      (as_expected (try.with async.monad))))
+
+(def (cache_tar_entry fs path)
+  (-> (file.System Async) file.Path
+      (Action tar.Entry))
+  (do async.monad
+    [content (of fs read path)]
+    (in (do try.monad
+          [content content
+           path (tar.path path)
+           content (tar.content content)]
+          (in {tar.#Normal [path instant.epoch ..cache_mode tar.no_ownership content]})))))
+
 (def (cache_tar context fs)
   (-> Context (file.System Async)
-      (Async (Try Tar)))
+      (Action Tar))
   (loop (again [root (cache.path fs context)])
-    (do [! (try.with async.monad)]
+    (do [! ..monad]
       [files (of fs directory_files root)
        subs (of fs sub_directories root)
-       files (monad.each ! (function (_ path)
-                             (do !
-                               [content (of fs read path)
-                                [path content] (async#in (do try.monad
-                                                           [path (tar.path path)
-                                                            content (tar.content content)]
-                                                           (in [path content])))]
-                               (in {tar.#Normal [path instant.epoch ..cache_mode tar.no_ownership content]})))
-                         files)
+       files (monad.each ! (cache_tar_entry fs) files)
        subs (monad.each ! again subs)]
       (in (list#mix sequence#composite
                     (sequence.of_list files)

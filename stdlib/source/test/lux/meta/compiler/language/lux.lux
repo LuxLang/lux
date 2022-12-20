@@ -1,0 +1,128 @@
+(.require
+ [library
+  [lux (.except global)
+   [abstract
+    [equivalence (.only Equivalence)]
+    [monad (.only do)]]
+   [control
+    ["[0]" try (.use "[1]#[0]" functor)]]
+   [data
+    ["[0]" sum]
+    ["[0]" product]
+    ["[0]" bit]
+    ["[0]" text (.use "[1]#[0]" equivalence)]
+    ["[0]" binary
+     ["![1]" \\format]
+     ["?[1]" \\parser]]
+    [collection
+     ["[0]" list]]]
+   [math
+    ["[0]" random (.only Random) (.use "[1]#[0]" monad)]
+    [number
+     ["[0]" nat]]]
+   [meta
+    ["[0]" version]
+    ["[0]" type (.only)
+     ["[1]T" \\test]]
+    ["[0]" symbol (.only)
+     ["[1]T" \\test]]
+    [compiler
+     [meta
+      [archive
+       ["[0]" key]
+       ["[0]" signature]]]]]
+   [test
+    ["_" property (.only Test)]]]]
+ [\\library
+  ["[0]" /]])
+
+(def any_equivalence
+  (Equivalence Any)
+  (implementation
+   (def (= _ _)
+     true)))
+
+(def definition_equivalence
+  (Equivalence Definition)
+  (all product.equivalence
+       type.equivalence
+       ..any_equivalence
+       ))
+
+(def definition
+  (Random Definition)
+  (do random.monad
+    [type (typeT.random 1)]
+    (in [type []])))
+
+(def global_equivalence
+  (Equivalence Global)
+  (all sum.equivalence
+       ..definition_equivalence
+       symbol.equivalence
+       ..definition_equivalence
+       ))
+
+(def global
+  (Random Global)
+  (all random.or
+       ..definition
+       (symbolT.random 1 1)
+       ..definition
+       ))
+
+(def module_state_equivalence
+  (Equivalence Module_State)
+  (all sum.equivalence
+       ..any_equivalence
+       ..any_equivalence
+       ..any_equivalence
+       ))
+
+(def module_state
+  (Random Module_State)
+  (all random.or
+       (random#in [])
+       (random#in [])
+       (random#in [])
+       ))
+
+(def module_equivalence
+  (Equivalence Module)
+  (all product.equivalence
+       nat.equivalence
+       (list.equivalence (product.equivalence text.equivalence text.equivalence))
+       (list.equivalence (all product.equivalence text.equivalence bit.equivalence global_equivalence))
+       (list.equivalence text.equivalence)
+       ..module_state_equivalence
+       ))
+
+(def module
+  (Random Module)
+  (all random.and
+       random.nat
+       (random.list 1 (random.and (random.upper_cased 2) (random.upper_cased 3)))
+       (random.list 4 (all random.and (random.upper_cased 5) random.bit ..global))
+       (random.list 6 (random.upper_cased 7))
+       ..module_state
+       ))
+
+(def .public test
+  Test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [expected ..module])
+      (all _.and
+           (_.coverage [/.format /.parser]
+             (|> expected
+                 (!binary.result /.format)
+                 (?binary.result /.parser)
+                 (try#each (of module_equivalence = (has .#module_state {.#Cached} expected)))
+                 (try.else false)))
+           (_.coverage [/.key]
+             (let [it (key.signature /.key)]
+               (and (let [[expected_module _] (symbol /._)
+                          [actual_module actual_short] (the signature.#name it)]
+                      (and (text#= expected_module actual_module)))
+                    (same? version.latest (the signature.#version it)))))
+           )))
