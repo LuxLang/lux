@@ -398,7 +398,8 @@ Called by `imenu--generic-function'."
 							(remember (altRE "remember" "to_do" "fix_me"))
 							(extension (altRE "analysis" "synthesis" "translation" "declaration"))
 							(definition (altRE "\\.require"
-											   "def" "inlined" "type")))
+											   "def" "inlined" "type"
+											   "alias")))
 						(let ((control (altRE control//flow
 											  control//pattern-matching
 											  control//logic
