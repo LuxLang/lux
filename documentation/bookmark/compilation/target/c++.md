@@ -59,11 +59,15 @@
 
 # String
 
-0. []()
 0. [CsString (intro to unicode)](https://www.youtube.com/watch?v=nYzi0-VAXQM)
 0. [CsString (library design)](https://www.youtube.com/watch?v=w_kD-qAkoH0)
 0. [char8_t](https://www.youtube.com/watch?v=vOOLXvu-xtU)
 0. [std::u32string](https://www.cplusplus.com/reference/string/u32string/)
+
+# Integer
+
+0. [Fixed width integer types (since C++11)](https://en.cppreference.com/w/cpp/types/integer)
+0. [Standard library header <cstdint> (C++11)](https://en.cppreference.com/w/cpp/header/cstdint)
 
 # Variadic functions
 
