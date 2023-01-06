@@ -1,6 +1,6 @@
 (.require
  [library
-  [lux (.except Definition Module Declaration #Definition #module comment)
+  [lux (.except Definition Module Declaration #Definition #module comment alias)
    ["[0]" debug]
    [abstract
     [monad (.only do)]
@@ -533,6 +533,24 @@
                                           (` (type_documentation (, g!module) (, g!type))))))))
                      )))))))
 
+(def alias_documentation
+  (syntax (_ [name ..qualified_symbol])
+    (do meta.monad
+      [original (meta.alias name)
+       .let [link (let [[module short] original]
+                    (%.format "#" module ":" short))]]
+      (in (list (` (all md.then
+                        ... Name
+                        (md.heading/4 (md.and (md.anchor (, (let [[module short] name]
+                                                              (code.text (format module ":" short)))))
+                                              (md.text (, (code.text (%.code (|> name product.right code.local)))))))
+                        (md.paragraph
+                         (all md.and
+                              (md.text (, (code.text "Alias for")))
+                              (md.link (md.text (, (code.text (%.symbol original))))
+                                       (, (code.text link))))))
+                   ))))))
+
 (def definition_documentation
   (syntax (_ [[name parameters] ..declaration
               description ..description
@@ -606,6 +624,19 @@
                                                            ..#documentation (,* documentation)]}))]
                          ((, g!_) []))))))))))
 
+(def .public alias
+  (syntax (_ [name ..qualified_symbol])
+    (do meta.monad
+      [documentation (expansion.single (` (..alias_documentation (, (code.symbol name)))))]
+      (macro.with_symbols [g!_]
+        (let [[module short] name]
+          (in (list (` (.let [(, g!_) (.is (.-> .Any
+                                                ..Documentation)
+                                           (.function ((, g!_) (, g!_))
+                                             {#Definition [..#global [(, (code.text module)) (, (code.text short))]
+                                                           ..#documentation (,* documentation)]}))]
+                         ((, g!_) []))))))))))
+
 (def (definition#< left right)
   (-> Definition Definition
       Bit)
@@ -632,20 +663,30 @@
                 _ (format aggregate ..coverage_separator short)))
             ""))
 
+(def (exported_non_default? [name [exported? global]])
+  (-> [Text [Bit Global]]
+      Bit)
+  (when global
+    {.#Default _}
+    false
+
+    _
+    exported?))
+
 (`` (def .public module
       (syntax (_ [[name _] ..qualified_symbol
                   description <code>.any])
-        (do meta.monad
-          [coverage (meta.exports name)
+        (do [! meta.monad]
+          [coverage (|> (meta.globals name)
+                        (of ! each (|>> (list.only exported_non_default?)
+                                        (list#each product.left))))
            dependees (meta.imported_modules name)]
           (in (list (` (is Documentation
                            {#Module [..#module (, (code.text name))
                                      ..#description (, description)
                                      ..#dependees (|> (list (,* (list#each code.text dependees)))
                                                       (set.of_list text.hash))
-                                     ..#coverage (|> (, (code.text (|> coverage
-                                                                       (list#each product.left)
-                                                                       ..coverage_format)))
+                                     ..#coverage (|> (, (code.text (..coverage_format coverage)))
                                                      (text.all_split_by (,, (static ..coverage_separator)))
                                                      (set.of_list text.hash))]}))))))))
 
