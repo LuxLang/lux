@@ -1,13 +1,13 @@
 (.require
  [library
-  [lux (.except Symbol Alias Global Declaration global function type_of undefined alias)
+  [lux (.except Symbol Alias Global Declaration Pattern global function type_of undefined alias)
    [abstract
     ["[0]" monad (.only do)]]
    [control
     ["<>" parser (.use "[1]#[0]" monad)]
     ["[0]" io]
     ["[0]" maybe (.use "[1]#[0]" functor)]
-    ["[0]" try]]
+    ["[0]" try (.only Try)]]
    [data
     ["[0]" product]
     ["[0]" text (.use "[1]#[0]" equivalence)
@@ -15,174 +15,324 @@
     [collection
      ["[0]" list (.use "[1]#[0]" monoid monad mix)]]]
    ["[0]" meta (.only)
+    ["[0]" location]
     ["[0]" code (.only)
      ["<[1]>" \\parser (.only Parser)]]
     ["[0]" macro (.only with_symbols)
      [syntax (.only syntax)]
      ["[0]" template]]
-    [type
+    [type (.only sharing)
      ["[0]" nominal (.except #name def)]]
     ["@" target (.only)
-     ["[0]" js]]]]])
+     ["[0]" js]
+     ["[0]" python]]
+    [compiler
+     [arity (.only Arity)]
+     [reference (.only Reference)
+      [variable (.only Register)]]
+     [language
+      [lux
+       ["[0]" analysis
+        ["[1]/[0]" simple]
+        [complex (.only Complex)]
+        [pattern (.only Pattern)]]
+       ["[0]" synthesis
+        ["[1]/[0]" simple]
+        [access (.only Access)
+         [side (.only Side)]
+         ["[1]/[0]" member]]]]]]]]])
 
-... These extensions must be defined this way because importing any of the modules
-... normally used when writing extensions would introduce a circular dependency
-... because the Archive type depends on Binary, and that module depends on this ffi module.
-(def extension_name
-  (syntax (_ [])
-    (do meta.monad
-      [module meta.current_module_name
-       unique_id meta.seed]
-      (in (list (code.text (%.format module " " (%.nat unique_id))))))))
+(for @.js (these (type (Analysis_Branch of)
+                   [Pattern of])
 
-(def extension_analysis
-  (template (_ <name> <parameter>)
-    [{5 #1 [<name> <parameter>]}]))
+                 (type (Analysis_Match of)
+                   [(Analysis_Branch of) (List (Analysis_Branch of))])
 
-(def text_analysis
-  (template (_ <it>)
-    [{0 #0 {5 #1 <it>}}]))
+                 (type (Environment of)
+                   (List of))
 
-(def analysis
-  (template (_ <name> <bindings> <parser> <inputs> <body>)
-    [("lux def analysis" <name>
-      (.function (_ name phase archive inputs)
-        (.function (_ state)
-          (let [<bindings> [name phase archive state]]
-            (when (<code>.result <parser> inputs)
-              {try.#Failure error}
-              {try.#Failure (%.format "Invalid inputs for extension: " (%.text name)
-                                      text.\n error)}
+                 (type (Extension of)
+                   [.Symbol (List of)])
 
-              {try.#Success <inputs>}
-              <body>)))))]))
+                 (with_expansions [@ ($ (Analysis~' $))]
+                   (type (Analysis~' $)
+                     (Or analysis/simple.Simple
+                         (Complex @)
+                         Reference
+                         [@ (Analysis_Match @)]
+                         [(Environment @) @]
+                         [@ @]
+                         (Extension @))))
 
-(def translation
-  (template (_ <name> <bindings> <inputs> <body>)
-    [("lux def translation" <name>
-      (.function (_ name phase archive inputs)
-        (.function (_ state)
-          (let [<bindings> [name phase archive state]]
-            (when inputs
-              <inputs>
-              <body>
+                 (type Analysis~
+                   (Ann Location
+                        (Analysis~' (Ann Location))))
 
-              _
-              {try.#Failure (%.format "Invalid inputs for extension: " (%.text name))})))))]))
+                 (def extension_analysis
+                   (template (_ <name> <parameter>)
+                     [(is Analysis~
+                          [location.dummy {5 #1 [<name> <parameter>]}])]))
 
-(for @.js (with_expansions [<undefined> (..extension_name)
-                            <undefined?> (..extension_name)
-                            <object> (..extension_name)
-                            <set> (..extension_name)]
-            (these (analysis <undefined>
-                     [name phase archive state]
-                     <code>.end
-                     _
-                     {try.#Success [state (extension_analysis name (list))]})
+                 (def text_analysis
+                   (template (_ <it>)
+                     [(is Analysis~
+                          [location.dummy {0 #0 {5 #1 <it>}}])]))
 
-                   (translation <undefined>
-                     [name phase archive state]
+                 (def analysis
+                   (template (_ <name> <bindings> <parser> <inputs> <body>)
+                     [(def .public <name>
+                        (<| (as .Analysis)
+                            (.function (_ phase archive inputs))
+                            (.function (_ state))
+                            (let [<bindings> [phase archive state]]
+                              (when (<code>.result <parser> inputs)
+                                {try.#Success <inputs>}
+                                <body>
+
+                                {try.#Failure error}
+                                {try.#Failure (%.format "Invalid inputs for extension..."
+                                                        text.\n error)}))))]))
+
+                 (type (Synthesis_Road value next)
+                   [value next])
+
+                 (type (Synthesis_Fork value next)
+                   [(Synthesis_Road value next)
+                    (List (Synthesis_Road value next))])
+
+                 (type (Synthesis_Path s)
+                   (Or Any
+                       Register
+                       Access
+                       [Bit (Synthesis_Path s) (Maybe (Synthesis_Path s))]
+                       (Synthesis_Fork I64 (Synthesis_Path s))
+                       (Synthesis_Fork Frac (Synthesis_Path s))
+                       (Synthesis_Fork Text (Synthesis_Path s))
+                       [(Synthesis_Path s) (Synthesis_Path s)]
+                       [(Synthesis_Path s) (Synthesis_Path s)]
+                       s))
+
+                 (type (Synthesis_Abstraction s)
+                   [(Environment s) Arity s])
+
+                 (type (Synthesis_Apply s)
+                   [s (List s)])
+
+                 (type (Synthesis_Function s)
+                   (Or (Synthesis_Abstraction s)
+                       (Synthesis_Apply s)))
+
+                 (type (Synthesis_Branch s)
+                   (Or [s s]
+                       [s Register s]
+                       [s s s]
+                       [(List synthesis/member.Member) s]
+                       [s (Synthesis_Path s)]))
+
+                 (type (Synthesis_Scope s)
+                   [Register (List s) s])
+
+                 (type (Synthesis_Loop s)
+                   (Or (Synthesis_Scope s)
+                       (List s)))
+
+                 (type (Synthesis_Control s)
+                   (Or (Synthesis_Branch s)
+                       (Synthesis_Loop s)
+                       (Synthesis_Function s)))
+
+                 (with_expansions [@ ($ (Synthesis~' $))]
+                   (type (Synthesis~' $)
+                     (Or synthesis/simple.Simple
+                         (Complex @)
+                         Reference
+                         (Synthesis_Control @)
+                         (Extension @))))
+
+                 (type Synthesis~
+                   (Ann Location
+                        (Synthesis~' (Ann Location))))
+
+                 (def text_synthesis
+                   (template (_ <@> <it>)
+                     [[<@> {0 #0 {2 #1 <it>}}]]))
+
+                 (def translation
+                   (syntax (_ [<name> <code>.any
+                               <bindings> <code>.any
+                               <inputs> (<>.or <code>.local
+                                               <code>.any)
+                               <body> <code>.any])
+                     (with_symbols ['_ 'phase 'archive 'inputs 'state]
+                       (in (list (` (def .public (, <name>)
+                                      (<| (as .Translation)
+                                          (.function ((, '_) (, 'phase) (, 'archive) (, 'inputs)))
+                                          (.function ((, '_) (, 'state)))
+                                          (let [(, <bindings>) [(, 'phase) (, 'archive) (, 'state)]]
+                                            (, (when <inputs>
+                                                 {.#Left <inputs>}
+                                                 (` (when (is (List Synthesis~) (, 'inputs))
+                                                      (, (code.local <inputs>))
+                                                      (, <body>)))
+                                                 
+                                                 {.#Right <inputs>}
+                                                 (` (when (is (List Synthesis~) (, 'inputs))
+                                                      (, <inputs>)
+                                                      (, <body>)
+
+                                                      (, '_)
+                                                      {try.#Failure "Invalid inputs for extension."})))))))))))))
+
+                 (translation undefined?|translation
+                   [phase archive state]
+                   (list it)
+                   (do try.monad
+                     [.let [phase (sharing [archive it state]
+                                    (is [archive it state]
+                                        [archive it state])
+                                    (is (-> archive it state
+                                            (Try [state js.Expression]))
+                                        (as_expected phase)))]
+                      [state it] (phase archive it state)]
+                     (in [state (js.= js.undefined it)])))
+
+                 (analysis undefined?|analysis
+                   [phase archive state]
+                   <code>.any
+                   it
+                   (do try.monad
+                     [.let [phase (sharing [archive state]
+                                    (is [archive state]
+                                        [archive state])
+                                    (is (-> archive Code state
+                                            (Try [state Analysis~]))
+                                        (as_expected phase)))]
+                      [state it] (phase archive (` (.is .Any (, it))) state)]
+                     (in [state (extension_analysis (symbol ..undefined?|translation)
+                                                    (list it))])))
+
+                 (def .public undefined?
+                   (template (undefined? <it>)
+                     [(.as .Bit (.is .Any (undefined?|analysis <it>)))]))
+
+                 (translation undefined|translation
+                   [phase archive state]
+                   (list)
+                   {try.#Success [state js.undefined]})
+
+                 (analysis undefined|analysis
+                   [phase archive state]
+                   <code>.end
+                   _
+                   {try.#Success [state (extension_analysis (symbol ..undefined|translation)
+                                                            (list))]})
+
+                 (def .public undefined
+                   (template (_)
+                     [(.is ..Undefined (undefined|analysis))]))
+
+                 (def (pairs it)
+                   (All (_ a) (-> (List a) (List [a a])))
+                   (when it
+                     (list.partial left right tail)
+                     (list.partial [left right] (pairs tail))
+                     
                      (list)
-                     {try.#Success [state js.undefined]})
+                     (list)
 
-                   (def .public undefined
-                     (template (undefined)
-                       [(.is ..Undefined (<undefined>))]))
+                     _
+                     (.undefined)))
 
-                   (analysis <undefined?>
-                     [name phase archive state]
-                     <code>.any
-                     it
-                     (do try.monad
-                       [[state it] (phase archive (` (.is .Any (, it))) state)]
-                       (in [state (extension_analysis name (list it))])))
+                 (translation object|translation
+                   [phase archive state]
+                   it
+                   (do [! try.monad]
+                     [.let [phase (sharing [archive state]
+                                    (is [archive state]
+                                        [archive state])
+                                    (is (-> archive Synthesis~ state
+                                            (Try [state js.Expression]))
+                                        (as_expected phase)))]
+                      [state output] (monad.mix !
+                                                (sharing [state]
+                                                  (is state
+                                                      state)
+                                                  (is (-> [Synthesis~ Synthesis~] [state (List [Text js.Expression])]
+                                                          (Try [state (List [Text js.Expression])]))
+                                                      (.function (_ [key value] [state output])
+                                                        (when key
+                                                          (text_synthesis @ key)
+                                                          (do try.monad
+                                                            [[state value] (phase archive value state)]
+                                                            (in [state (list.partial [key value] output)]))
+                                                          
+                                                          _
+                                                          (.undefined)))))
+                                                [state (list)]
+                                                (pairs it))]
+                     (in [state (js.object (list.reversed output))])))
 
-                   (translation <undefined?>
-                     [name phase archive state]
-                     (list it)
-                     (do try.monad
-                       [[state it] (phase archive it state)]
-                       (in [state (js.= js.undefined it)])))
+                 (analysis object|analysis
+                   [phase archive state]
+                   (<>.some (<>.and <code>.text <code>.any))
+                   it
+                   (do [! try.monad]
+                     [.let [phase (sharing [archive state]
+                                    (is [archive state]
+                                        [archive state])
+                                    (is (-> archive Code state
+                                            (Try [state Analysis~]))
+                                        (as_expected phase)))]
+                      [state output] (monad.mix ! (.function (_ [key value] [state output])
+                                                    (do !
+                                                      [[state value] (phase archive (` (.is .Any (, value))) state)]
+                                                      (in [state (list.partial value (text_analysis key) output)])))
+                                                [state (list)]
+                                                it)]
+                     (in [state (extension_analysis (symbol ..object|translation)
+                                                    (list.reversed output))])))
 
-                   (def .public undefined?
-                     (template (undefined? <it>)
-                       [(.as .Bit (.is .Any (<undefined?> <it>)))]))
+                 (def .public object
+                   (syntax (_ [it (<>.some <code>.any)])
+                     (in (list (` (.as (..Object .Any)
+                                       (object|analysis (,* it))))))))
 
-                   (analysis <object>
-                     [name phase archive state]
-                     (<>.some (<>.and <code>.text <code>.any))
-                     it
-                     (do [! try.monad]
-                       [[state output] (monad.mix ! (.function (_ [key value] [state output])
-                                                      (do !
-                                                        [[state value] (phase archive (` (.is .Any (, value))) state)]
-                                                        (in [state (list.partial value (text_analysis key) output)])))
-                                                  [state (list)]
-                                                  it)]
-                       (in [state (extension_analysis name (list.reversed output))])))
+                 (translation set|translation
+                   [phase archive state]
+                   (list (text_synthesis @ field) value object)
+                   (do try.monad
+                     [.let [phase (sharing [archive state]
+                                    (is [archive state]
+                                        [archive state])
+                                    (is (-> archive Synthesis~ state
+                                            (Try [state js.Expression]))
+                                        (as_expected phase)))]
+                      [state value] (phase archive value state)
+                      [state object] (phase archive object state)]
+                     (in [state (js.set (js.the field object) value)])))
 
-                   (def text_synthesis
-                     (template (_ <it>)
-                       [{0 #0 {2 #1 <it>}}]))
+                 (analysis set|analysis
+                   [phase archive state]
+                   (all <>.and <code>.text <code>.any <code>.any)
+                   [field value object]
+                   (do try.monad
+                     [.let [phase (sharing [archive state]
+                                    (is [archive state]
+                                        [archive state])
+                                    (is (-> archive Code state
+                                            (Try [state Analysis~]))
+                                        (as_expected phase)))]
+                      [state value] (phase archive (` (.is .Any (, value))) state)
+                      [state object] (phase archive (` (.is (..Object .Any) (, object))) state)]
+                     (in [state (extension_analysis (symbol ..set|translation)
+                                                    (list (text_analysis field) value object))])))
 
-                   (def (pairs it)
-                     (All (_ a) (-> (List a) (List [a a])))
-                     (when it
-                       (list.partial left right tail)
-                       (list.partial [left right] (pairs tail))
-                       
-                       (list)
-                       (list)
-
-                       _
-                       (.undefined)))
-
-                   (translation <object>
-                     [name phase archive state]
-                     (list.partial head_key head_value tail)
-                     (do [! try.monad]
-                       [[state output] (monad.mix !
-                                                  (.function (_ [key value] [state output])
-                                                    (when key
-                                                      (text_synthesis key)
-                                                      (do try.monad
-                                                        [[state value] (phase archive value state)]
-                                                        (in [state (list.partial [key value] output)]))
-                                                      
-                                                      _
-                                                      (.undefined)))
-                                                  [state (list)]
-                                                  (pairs (list.partial head_key head_value tail)))]
-                       (in [state (js.object (list.reversed output))])))
-
-                   (def .public object
-                     (syntax (_ [it (<>.some <code>.any)])
-                       (in (list (` (.as (..Object .Any)
-                                         (<object> (,* it))))))))
-
-                   (analysis <set>
-                     [name phase archive state]
-                     (all <>.and <code>.text <code>.any <code>.any)
-                     [field value object]
-                     (do try.monad
-                       [[state value] (phase archive (` (.is .Any (, value))) state)
-                        [state object] (phase archive (` (.is (..Object .Any) (, object))) state)]
-                       (in [state (extension_analysis name (list (text_analysis field) value object))])))
-
-                   (translation <set>
-                     [name phase archive state]
-                     (list (text_synthesis field) value object)
-                     (do try.monad
-                       [[state value] (phase archive value state)
-                        [state object] (phase archive object state)]
-                       (in [state (js.set (js.the field object) value)])))
-
-                   (def .public set
-                     (syntax (_ [field <code>.any
-                                 value <code>.any
-                                 object <code>.any])
-                       (in (list (` (.as .Any (<set> (, field) (, value) (, object))))))))
-                   ))
+                 (def .public set
+                   (syntax (_ [field <code>.any
+                               value <code>.any
+                               object <code>.any])
+                     (in (list (` (.as .Any (set|analysis (, field) (, value) (, object))))))))
+                 )
      ... else
      (these))
 
@@ -217,7 +367,7 @@
                                   @.python .python_function#
                                   @.lua .lua_function#
                                   (these))]
-  (nominal.def .public (Object brand) Any)
+  (nominal.def .public (Object of) Any)
 
   (with_expansions [<un_common> (for @.js (these [Symbol]
                                                  [Null]
@@ -229,12 +379,12 @@
                                      @.ruby (these [Nil]))
                     <un_common> <un_common>]
     (with_template [<name>]
-      [(with_expansions [<brand> (template.symbol [<name> "'"])]
-         (nominal.def <brand>
+      [(with_expansions [<of> (template.symbol [<name> "'"])]
+         (nominal.def <of>
            Any
            
            (type .public <name>
-             (Object <brand>))))]
+             (Object <of>))))]
 
       [Function]
       <un_common>
@@ -510,7 +660,7 @@
   (def (input_type input :it:)
     (-> Input Code Code)
     (let [:it: (if (the #try? input)
-                 (` (try.Try (, :it:)))
+                 (` (Try (, :it:)))
                  :it:)]
       (if (the #io? input)
         (` (io.IO (, :it:)))
