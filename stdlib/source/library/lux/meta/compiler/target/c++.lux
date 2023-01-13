@@ -1,6 +1,7 @@
 (.require
  [library
-  [lux (.except Code Type Global Declaration int as function template local global type)
+  [lux (.except Code Type Global Declaration Definition
+                int as function template local global type also of)
    [abstract
     [equivalence (.only Equivalence)]]
    [control
@@ -9,7 +10,7 @@
     ["[0]" text (.only \n \t) (.use "[1]#[0]" equivalence)
      ["%" \\format]]
     [collection
-     ["[0]" list (.use "[1]#[0]" functor)]]]
+     ["[0]" list (.use "[1]#[0]" functor monoid)]]]
    [math
     [number
      ["f" frac]]]
@@ -19,9 +20,14 @@
     [type
      ["[0]" nominal]]]]])
 
-(def parameter_separator ", ")
+(def <% nominal.abstraction)
+(def %> nominal.representation)
+
+(def statement_separator ";")
+(def parameter_separator (%.format "," " "))
 (def term_delimiters ["(" ")"])
-(def type_delimiters ["<" ">"])
+(def template_delimiters ["<" ">"])
+(def initialization_delimiters ["{" "}"])
 
 (nominal.def .public (Code of)
   Text
@@ -31,13 +37,13 @@
       (Equivalence (Code of)))
     (implementation
      (def (= refererence it)
-       (text#= (nominal.representation refererence)
-               (nominal.representation it)))))
+       (text#= (%> refererence)
+               (%> it)))))
 
   (def .public code
     (-> (Code Any)
         Text)
-    (|>> nominal.representation))
+    (|>> %>))
 
   (with_template [<super> <type>+]
     [(`` (with_template [<type> <parameter>*']
@@ -57,22 +63,29 @@
       [Expression [of]]
       [Statement [of]]]]
     
+    [Type
+     [[Type_Name []]]]
+
     [Expression
      [[Computation [of]]
       [Reference [of]]]]
 
-    [Type
-     [[Type_Name []]]]
-
     [Computation
-     [[Literal []]]]
+     [[Literal []]
+      [Instantiation []]]]
 
     [Reference
      [[Local []]
       [Global []]]]
 
     [Statement
-     [[Declaration []]]]
+     [[Declaration [of]]]]
+
+    [Declaration
+     [[Definition [of]]]]
+
+    [Definition
+     [[Method []]]]
     )
 
   (def .public bool
@@ -81,7 +94,7 @@
     (|>> (|.when
            .false "false"
            .true "true")
-         nominal.abstraction))
+         <%))
 
   (def .public double
     (-> Frac
@@ -97,7 +110,7 @@
 
                  ... else
                  [%.frac])
-         nominal.abstraction))
+         <%))
 
   (.type .public Namespace
     Text)
@@ -109,7 +122,7 @@
   (def .public local
     (-> Text
         Local)
-    (|>> nominal.abstraction))
+    (|>> <%))
 
   (def instantiation
     (-> (List Type)
@@ -122,62 +135,51 @@
            (|> it
                (list#each ..code)
                (text.interposed ..parameter_separator)
-               (text.enclosed ..type_delimiters)))))
+               (text.enclosed ..template_delimiters)))))
 
   (def .public (global [ns name] parameters)
     (-> [Namespace Text] (List Type)
         Global)
-    (nominal.abstraction
-     (let [instance (%.format name (instantiation parameters))]
-       (when ns
-         "" instance
-         _ (%.format ns "::" instance)))))
+    (<% (let [instance (%.format name (instantiation parameters))]
+          (when ns
+            "" instance
+            _ (%.format ns "::" instance)))))
 
-  (def .public (type name parameters)
-    (-> [Namespace Text] (List Type)
+  (def .public type
+    (-> Reference
         Type)
-    (|> (..global name parameters)
-        nominal.transmutation))
+    (|>> nominal.transmutation))
 
   (def .public type_name
     (-> Text
         Type_Name)
-    (|>> nominal.abstraction))
-
-  (with_template [<ns> <name>]
-    [(def .public <name>
-       Type
-       (..type [<ns> (template.text [<name>])] (list)))]
-
-    ["" void]
-    )
+    (|>> <%))
 
   (def .public *
     (-> Type
         Type)
-    (|>> nominal.representation
+    (|>> %>
          (text.suffix "*")
-         nominal.abstraction))
+         <%))
 
   (def .public deref
     (-> Expression
         Expression)
-    (|>> nominal.representation
+    (|>> %>
          (text.prefix "*")
-         nominal.abstraction))
+         <%))
 
   (def .public (as type term)
     (-> Type Expression
         Computation)
-    (nominal.abstraction
-     (%.format "(" (nominal.representation type) ")"
-               " " (nominal.representation term))))
+    (<% (%.format "(" (%> type) ")"
+                  " " (%> term))))
 
   (def .public int
     (-> Int
         Literal)
     (|>> %.int
-         nominal.abstraction))
+         <%))
 
   (def application
     (-> (List Expression)
@@ -189,67 +191,85 @@
   (def .public (on parameters function)
     (-> (List Expression) Expression
         Expression)
-    (nominal.abstraction
-     (%.format (nominal.representation function)
-               (application parameters))))
+    (<% (%.format (%> function) (application parameters))))
 
-  (def .public (new of parameters)
+  (def .public (of parameters constructor)
+    (-> (List Expression) Type
+        Instantiation)
+    (<% (%.format (%> constructor) (application parameters))))
+
+  (def initialization
+    (-> (List Expression)
+        Text)
+    (|>> (list#each ..code)
+         (text.interposed ..parameter_separator)
+         (text.enclosed ..initialization_delimiters)))
+
+  (def .public (structure name parameters)
     (-> Type (List Expression)
+        Instantiation)
+    (<% (%.format (%> name) (initialization parameters))))
+
+  (def .public (array type arity initials)
+    (-> Type Expression (List Expression)
+        Instantiation)
+    (<% (%.format (%> type) "[" (%> arity) "]" " " (initialization initials))))
+
+  (def .public (new it)
+    (-> Instantiation
         Expression)
-    (nominal.abstraction
-     (%.format "new "
-               (nominal.representation of)
-               (application parameters))))
+    (<% (%.format "new " (%> it))))
 
   (def .public (do method types parameters object)
     (-> Text (List Type) (List Expression) Expression
         Expression)
-    (nominal.abstraction
-     (%.format (nominal.representation object)
-               "." method
-               (instantiation types)
-               (application parameters))))
+    (<% (%.format (%> object) "." method (instantiation types) (application parameters))))
 
   (def .public (<< it to)
     (-> Expression Expression
         Expression)
-    (nominal.abstraction
-     (%.format (nominal.representation to)
-               " << "
-               (nominal.representation it))))
+    (<% (%.format (%> to) " << " (%> it))))
 
   (def .public (include it)
     (-> Text
         Declaration)
-    (nominal.abstraction
-     (%.format "#include <" it ">")))
+    (<% (%.format "#include <" it ">")))
 
-  (def .public (then before after)
-    (All (_ of)
-      (-> (Statement of) (Statement of)
-          (Statement of)))
-    (nominal.abstraction
-     (%.format (nominal.representation before)
-               \n (nominal.representation after))))
+  (with_template [<name> <type>]
+    [(def .public (<name> before after)
+       (-> <type> <type>
+           <type>)
+       (<% (%.format (%> before)
+                     \n (%> after))))]
+
+    [then Statement]
+    [also Declaration]
+    )
 
   (def statement
-    (-> Text
-        Statement)
-    (|>> (text.suffix ";")
-         nominal.abstraction))
+    (All (_ of)
+      (-> Text
+          (Statement of)))
+    (|>> (text.suffix ..statement_separator)
+         <%))
 
   (def .public ;
     (-> Expression
         Statement)
-    (|>> nominal.representation
+    (|>> %>
          ..statement))
 
-  (def .public delete
-    (-> Expression
-        Statement)
-    (|>> nominal.representation
-         (%.format "delete ")
-         ..statement))
+  (with_template [<name> <command>]
+    [(def .public <name>
+       (-> Expression
+           Statement)
+       (|>> %>
+            (%.format <command> " ")
+            ..statement))]
+
+    [delete "delete"]
+    [delete_array "delete[]"]
+    )
 
   (def template
     (-> (List Type_Name)
@@ -261,9 +281,9 @@
            it
            (%.format "template"
                      " " (|> it
-                             (list#each (|>> nominal.representation (%.format "typename ")))
+                             (list#each (|>> %> (%.format "typename ")))
                              (text.interposed ..parameter_separator)
-                             (text.enclosed ..type_delimiters))
+                             (text.enclosed ..template_delimiters))
                      " "))))
 
   (.type Argument
@@ -272,8 +292,7 @@
   (def (argument [type it])
     (-> Argument
         Text)
-    (%.format (nominal.representation type)
-              " " (nominal.representation it)))
+    (%.format (%> type) " " (%> it)))
 
   (def arguments
     (-> (List Argument)
@@ -283,31 +302,27 @@
          (text.enclosed ..term_delimiters)))
 
   (def block
-    (-> Statement
+    (-> Text
         Text)
     (let [\n\t (%.format \n \t)
-          <| (%.format "{" \n)
+          <| (%.format "{" \n\t)
           |> (%.format \n "}")]
-      (|>> nominal.representation
-           (text.replaced \n \n\t)
+      (|>> (text.replaced \n \n\t)
            (text.enclosed [<| |>]))))
 
   (def .public (function name types inputs output body)
     (-> Local (List Type_Name) (List Argument) Type Statement
-        Declaration)
-    (nominal.abstraction
-     (%.format (..template types) (nominal.representation output)
-               " " (nominal.representation name)
-               (..arguments inputs)
-               " " (..block body))))
+        Definition)
+    (<% (%.format (..template types)
+                  (%> output) " " (%> name) (..arguments inputs)
+                  " " (..block (%> body)))))
 
   (def .public (namespace it body)
     (-> Namespace Declaration
         Declaration)
-    (nominal.abstraction
-     (%.format "namespace"
-               " " it
-               " " (..block body))))
+    (<% (%.format "namespace"
+                  " " it
+                  " " (..block (%> body)))))
 
   ... https://en.cppreference.com/w/cpp/types/integer
   (with_template [<name>]
@@ -315,7 +330,7 @@
        (-> Expression
            Expression)
        (..on (list it)
-             (nominal.abstraction (template.text [<name>]))))]
+             (<% (template.text [<name>]))))]
 
     [int64_t]
     )
@@ -340,11 +355,42 @@
                ))))
 
   ... https://en.cppreference.com/w/cpp/string/basic_string
-  (def .public u32string
+  (def .public u32_string
     (-> Text
         Literal)
     (|>> ..safe
          %.text
          (%.format "U")
-         nominal.abstraction))
+         <%))
+
+  (def .public (destructor of body)
+    (-> Local Statement
+        Method)
+    (<% (%.format "~" (%> of) "()"
+                  " " (block (%> body)))))
+
+  (def .public (var_declaration name type)
+    (-> Local Type
+        Declaration)
+    (|> (%.format (%> type) " " (%> name))
+        ..statement))
+
+  (def .public (constant name type value)
+    (-> Local Type Expression
+        Definition)
+    (..statement (%.format (%> type) " const " (%> name) " = " (%> value))))
+
+  (def .public (structure_definition name [fields methods])
+    (-> Local [(List [Local Type]) (List Method)]
+        Definition)
+    (..statement
+     (%.format "struct"
+               " " (%> name)
+               " " (block (|> (all list#composite
+                                   (list#each (.function (_ [name type])
+                                                (%> (var_declaration name type)))
+                                              fields)
+                                   (list#each ..code
+                                              methods))
+                              (text.interposed \n))))))
   )

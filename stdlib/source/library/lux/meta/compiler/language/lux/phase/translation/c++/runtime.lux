@@ -1,16 +1,49 @@
 (.require
  [library
-  [lux (.except)
+  [lux (.except Declaration Translation)
    [data
     [text
-     ["%" \\format]]]
+     ["%" \\format]]
+    [collection
+     ["[0]" list]]]
    ["[0]" meta (.use "[1]#[0]" functor)
     ["[0]" code]
     [macro
      [syntax (.only syntax)]]
     [compiler
      [target
-      ["_" c++]]]]]])
+      ["_" c++ (.only)
+       ["[0]" type]]]]]]]
+ ["[0]" //
+  ["[1][0]" type]]
+ [/////
+  ["[0]" translation]
+  [///
+   [meta
+    [archive (.only Archive)]]]])
+
+(type .public Anchor
+  Any)
+
+(type .public Value
+  _.Expression)
+
+(type .public Declaration
+  _.Statement)
+
+(with_template [<name> <base>]
+  [(type .public <name>
+     (<base> Anchor Value Declaration))]
+
+  [Operation translation.Operation]
+  [Phase translation.Phase]
+  [Handler translation.Handler]
+  [Bundle translation.Bundle]
+  )
+
+(type .public (Translation of)
+  (-> Phase Archive of
+      (Operation Value)))
 
 (def .public (host_value of it)
   (-> _.Type _.Expression
@@ -31,7 +64,51 @@
                         code.text
                         list)))))
 
-(with_expansions [<clean_up> (..name)]
+(with_expansions [<clean_up> (..name)
+
+                  <variant> (..name)
+                  <lefts> (..name)
+                  <right?> (..name)
+                  <choice> (..name)
+
+                  <tuple> (..name)
+                  <arity> (..name)
+                  <values> (..name)
+
+                  <unit> (..name)]
+  (def .public clean_up
+    (-> _.Type
+        _.Expression)
+    (|>> (list)
+         (_.global [..namespace <clean_up>])))
+
+  (def .public (lux_value of it)
+    (-> _.Type _.Expression
+        _.Expression)
+    (_.on (list it (clean_up of))
+          (_.global [_.standard "shared_ptr"] (list type.void))))
+
+  (def .public (simple of it)
+    (-> _.Type _.Expression
+        _.Expression)
+    (lux_value of
+               (_.new (_.of (list it) of))))
+
+  (def .public (variant lefts right? choice)
+    (-> _.Expression _.Expression _.Expression
+        _.Expression)
+    (let [type (_.type (_.global [..namespace <variant>] (list)))]
+      (lux_value type
+                 (_.new (_.structure type (list lefts right? choice))))))
+
+  (def .public (tuple values)
+    (-> (List _.Expression)
+        _.Expression)
+    (let [arity (_.int (.int (list.size values)))
+          type (_.type (_.global [..namespace <tuple>] (list)))]
+      (lux_value type
+                 (_.new (_.structure type (list arity (_.new (_.array type arity values))))))))
+
   (def .public declaration
     _.Declaration
     (let [clean_up (let [of (_.type_name "Of")
@@ -39,26 +116,40 @@
                      (_.function (_.local <clean_up>)
                        (list of)
                        (list [(_.* of) it])
-                       _.void
-                       (_.delete it)))]
-      (all _.then
+                       type.void
+                       (_.delete it)))
+
+          $variant (_.local <variant>)
+          $tuple (_.local <tuple>)
+          $values (_.local <values>)
+
+          :variant (_.type $variant)
+          :tuple (_.type $tuple)]
+      (all _.also
            (_.include "memory")
 
            (<| (_.namespace ..namespace)
-               (all _.then
+               (all _.also
                     clean_up
+
+                    (_.constant (_.local <unit>)
+                                //type.value
+                                (..simple //type.text (_.u32_string "")))
+
+                    (<| (_.structure_definition $variant)
+                        [(list [(_.local <lefts>) //type.lefts]
+                               [(_.local <right?>) //type.right?]
+                               [(_.local <choice>) //type.value])
+                         (list)])
+
+                    (<| (_.structure_definition $tuple)
+                        [(list [(_.local <arity>) //type.arity]
+                               [$values (_.* //type.value)])
+                         (list (<| (_.destructor $tuple)
+                                   (_.delete_array $values)))])
                     )))))
 
-  (def .public clean_up
-    (-> _.Type
-        _.Expression)
-    (|>> (list)
-         (_.global [..namespace <clean_up>])))
+  (def .public unit
+    _.Expression
+    (_.global [..namespace <unit>] (list)))
   )
-
-(def .public (lux_value of it)
-  (-> _.Type _.Expression
-      _.Expression)
-  (_.on (list (_.new of (list it))
-              (clean_up of))
-        (_.global [_.standard "shared_ptr"] (list _.void))))

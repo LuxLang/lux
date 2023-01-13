@@ -9,7 +9,8 @@
    [math
     ["[0]" random (.only Random)]
     [number
-     ["n" nat]]]
+     ["n" nat]
+     ["f" frac]]]
    [world
     [time
      ["[0]" instant (.use "[1]#[0]" order)]
@@ -35,13 +36,27 @@
          //.#interval interval
          //.#data data])))
 
+(def (well_windowed? input additional output)
+  (All (_ input output)
+    (-> (/.Series input) Nat (/.Series output)
+        Bit))
+  (let [correct_start!
+        (instant#< (//.start output)
+                   (//.start input))
+
+        correct_size!
+        (n.= (n.- (++ additional) (//.size input))
+             (//.size output))]
+    (and correct_start!
+         correct_size!)))
+
 (def .public test
   Test
   (<| (_.covering /._)
       (do [! random.monad]
         [expected_events (of ! each (|>> (n.% 10) ++) random.nat)
          input (series expected_events)
-         expected_window_extras (of ! each (n.% expected_events) random.nat)])
+         additional (of ! each (n.% expected_events) random.nat)])
       (all _.and
            (_.coverage [/.cumulative]
              (let [output (/.cumulative input)]
@@ -52,11 +67,8 @@
            (_.coverage [/.windows]
              (<| (try.else false)
                  (do try.monad
-                   [output (/.windows expected_window_extras input)]
-                   (in (and (instant#= (//.start input)
-                                       (//.start output))
-                            (n.= (n./ (++ expected_window_extras) (//.size input))
-                                 (//.size output)))))))
+                   [output (/.windows additional input)]
+                   (in (well_windowed? input additional output)))))
            (_.coverage [/.window_size_is_too_large]
              (when (/.windows (++ expected_events) input)
                {try.#Failure error}
@@ -64,37 +76,36 @@
 
                {try.#Success _}
                false))
-           (<| (_.for [/.Average /.moving])
+           (<| (_.for [/.Average])
                (all _.and
-                    (_.coverage [/.Factor /.simple_factor /.exponential]
+                    (_.coverage [/.exponential /.simple /.weighted
+
+                                 /.Factor /.simple_factor]
+                      (let [exponential (/.exponential /.simple_factor input)
+                            simple (/.simple input)
+                            weighted (/.weighted input)]
+                        (and (not (f.= exponential simple))
+                             (not (f.= exponential weighted))
+                             (not (f.= simple weighted)))))
+                    (_.coverage [/.moving]
                       (<| (try.else false)
                           (do try.monad
-                            [output (/.moving (/.exponential /.simple_factor)
-                                              expected_window_extras
-                                              input)]
-                            (in (and (instant#< (//.start output)
-                                                (//.start input))
-                                     (n.= (n.- expected_window_extras (//.size input))
-                                          (//.size output)))))))
-                    (_.coverage [/.simple]
-                      (<| (try.else false)
-                          (do try.monad
-                            [output (/.moving /.simple
-                                              expected_window_extras
-                                              input)]
-                            (in (and (instant#< (//.start output)
-                                                (//.start input))
-                                     (n.= (n.- expected_window_extras (//.size input))
-                                          (//.size output)))))))
-                    (_.coverage [/.weighted]
-                      (<| (try.else false)
-                          (do try.monad
-                            [output (/.moving /.weighted
-                                              expected_window_extras
-                                              input)]
-                            (in (and (instant#< (//.start output)
-                                                (//.start input))
-                                     (n.= (n.- expected_window_extras (//.size input))
-                                          (//.size output)))))))
+                            [exponential (/.moving (/.exponential /.simple_factor)
+                                                   additional
+                                                   input)
+                             simple (/.moving /.simple
+                                              additional
+                                              input)
+                             weighted (/.moving /.weighted
+                                                additional
+                                                input)
+                             .let [(open "//#[0]") (//.equivalence f.equivalence)]]
+                            (in (and (and (well_windowed? input additional exponential)
+                                          (well_windowed? input additional simple)
+                                          (well_windowed? input additional weighted))
+                                     (and (not (//#= exponential simple))
+                                          (not (//#= exponential weighted))
+                                          (not (//#= simple weighted)))
+                                     )))))
                     ))
            )))
