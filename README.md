@@ -84,6 +84,8 @@ Alternatively, you can use the `syntax` macro, which also offers monadic parsing
 
 ## Is there a community for this?
 
+We have a Discord server: https://discord.com/channels/1063563501450301500/1063563502104621119
+
 Say hi at Gitter: https://gitter.im/LuxProgrammingLanguage/community
 
 Come join the forum: http://luxlang.freeforums.net/
