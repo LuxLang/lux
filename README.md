@@ -20,13 +20,7 @@ Also, support for JavaScript, Python, Lua, and Ruby has been added.
 
 ## What's the license?
 
-[Custom License](license.txt)
-
-Read carefully before using this project, as the license disallows commercial use, and has other conditions which may be undesirable for some.
-
-However, commercial use is allowed for patrons under the terms of the [Patron License](PATRON_LICENSE.md).
-
-You can become a patron by supporting Lux through [Patreon](https://www.patreon.com/lux_programming_language).
+[Mozilla Public License Version 2.0](https://mozilla.org/MPL/2.0/)
 
 ## What's interesting about the language?
 
