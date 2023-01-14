@@ -14,10 +14,12 @@
     ["[0]" maybe (.use "[1]#[0]" monad)]
     ["[0]" try (.only Try)]
     ["[0]" exception (.only Exception)]
-    ["[0]" io (.only IO io)]]
+    ["[0]" io (.only IO io)]
+    [concurrency
+     ["[0]" async (.only Async)]]]
    [data
     ["[0]" product]
-    [text
+    ["[0]" text (.only)
      ["%" \\format (.only format)]
      [encoding
       ["[0]" utf8]]]
@@ -30,7 +32,7 @@
      ["[0]" i64]]]
    ["[0]" world
     ["[0]" file]
-    ["[1]/[0]" environment]]
+    ["[0]" environment]]
    [meta
     [macro
      ["^" pattern]
@@ -55,7 +57,7 @@
           ["[1]" js]]]
         [translation
          ["[0]" reference]
-         [c++
+         ["[0]" c++ (.only)
           ["[0]" runtime]
           ["[0]" type]
           ["[0]" primitive]
@@ -70,46 +72,158 @@
       ["[0]" packager
        ["[1]" script]]]]]]]
  [program
-  ["/" compositor]])
+  ["[0]" compositor]])
 
 (import cppyy
   "[1]::[0]"
   ("static" cppdef [Text] "io" Bit)
   ("static" gbl (ffi.Object Any)))
 
-(def standard_out (_.global [_.standard "cout"] (list)))
-(def \n (_.global [_.standard "endl"] (list)))
+... (def standard_out (_.global [_.standard "cout"] (list)))
+... (def \n (_.global [_.standard "endl"] (list)))
 
-(def (print it)
-  (-> _.Expression
-      _.Statement)
-  (|> standard_out
-      (_.<< it)
-      (_.<< \n)
-      _.;))
+... (def (print it)
+...   (-> _.Expression
+...       _.Statement)
+...   (|> standard_out
+...       (_.<< it)
+...       (_.<< \n)
+...       _.;))
 
-(with_expansions [<say_hello> "say_hello"]
-  (def _
-    (program []
-      (do io.monad
-        [? (cppyy::cppdef [(_.code (all _.then
-                                        runtime.declaration
+... (with_expansions [<say_hello> "say_hello"]
+...   (def _
+...     (program []
+...       (do io.monad
+...         [? (cppyy::cppdef [(_.code (all _.then
+...                                         runtime.declaration
 
-                                        (_.include "iostream")
-                                        (_.function (_.local <say_hello>)
-                                          (list)
-                                          (list)
-                                          :.void
-                                          (all _.then
-                                               (print (_.deref (runtime.host_value type.bit (runtime.simple type.bit (primitive.bit true)))))
-                                               (print (_.deref (runtime.host_value type.i64 (runtime.simple type.i64 (primitive.i64 +123)))))
-                                               (print (_.deref (runtime.host_value type.f64 (runtime.simple type.f64 (primitive.f64 -456.789)))))
-                                               ... (print (_.deref (runtime.host_value type.text (runtime.simple type.text (primitive.text "YOLO")))))
-                                               ))))])
-         .let [_ (debug.log! (%.format "BEFORE " (%.bit ?)))]
-         global (cppyy::gbl)
-         .let [say_hello (as ffi.Function
-                             (.python_object_get# <say_hello> global))
-               _ (debug.log! "AFTER")
-               _ (.python_apply# say_hello [])]]
-        (in (debug.log! "Hello, C++"))))))
+...                                         (_.include "iostream")
+...                                         (_.function (_.local <say_hello>)
+...                                           (list)
+...                                           (list)
+...                                           :.void
+...                                           (all _.then
+...                                                (print (_.deref (runtime.host_value type.bit (runtime.simple type.bit (primitive.bit true)))))
+...                                                (print (_.deref (runtime.host_value type.i64 (runtime.simple type.i64 (primitive.i64 +123)))))
+...                                                (print (_.deref (runtime.host_value type.f64 (runtime.simple type.f64 (primitive.f64 -456.789)))))
+...                                                ... (print (_.deref (runtime.host_value type.text (runtime.simple type.text (primitive.text "YOLO")))))
+...                                                ))))])
+...          .let [_ (debug.log! (%.format "BEFORE " (%.bit ?)))]
+...          global (cppyy::gbl)
+...          .let [say_hello (as ffi.Function
+...                              (.python_object_get# <say_hello> global))
+...                _ (debug.log! "AFTER")
+...                _ (.python_apply# say_hello [])]]
+...         (in (debug.log! "Hello, C++"))))))
+
+(ffi.import (getattr [(ffi.Object Any) Text] Any))
+
+(def host
+  (IO (Host runtime.Value runtime.Declaration))
+  (io (let [\n\t (%.format text.\n text.\t)
+            evaluate! (is (-> unit.ID [(Maybe unit.ID) runtime.Value] (Try Any))
+                          (function (evaluate! context [_ input])
+                            (let [global (reference.artifact context)
+                                  definition (_.constant (_.local global) type.value input)]
+                              (if (io.run! (cppyy::cppdef (_.code definition)))
+                                {try.#Success (getattr (io.run! (cppyy::gbl)) global)}
+                                {try.#Failure "Cannot evaluate!"}))))
+            execute! (is (-> runtime.Declaration
+                             (Try Any))
+                         (function (execute! input)
+                           (if (io.run! (cppyy::cppdef (_.code input)))
+                             {try.#Success []}
+                             {try.#Failure "Cannot execute!"})))]
+        (is (Host runtime.Value runtime.Declaration)
+            (implementation
+             (def evaluate evaluate!)
+             (def execute execute!)
+             (def (define context custom [@def input])
+               (let [global (maybe.else (reference.artifact context)
+                                        custom)
+                     @global (_.local global)]
+                 (do try.monad
+                   [.let [definition (_.constant @global type.value input)]
+                    _ (execute! definition)
+                    value (evaluate! context [@def @global])]
+                   (in [global value definition]))))
+
+             (def (ingest context content)
+               (|> content
+                   (of utf8.codec decoded)
+                   try.trusted
+                   (as runtime.Declaration)))
+
+             (def (re_learn context custom content)
+               (execute! content))
+             
+             (def (re_load context custom content)
+               (do try.monad
+                 [_ (execute! content)]
+                 (evaluate! context [{.#None} (_.local (reference.artifact context))]))))))))
+
+(def (phase_wrapper _)
+  phase.Wrapper
+  (undefined))
+
+(def .public platform
+  (IO [runtime.Host
+       (Platform runtime.Anchor runtime.Value runtime.Declaration)])
+  (do io.monad
+    [host ..host]
+    (in [host
+         [platform.#file_system (file.async file.default)
+          platform.#host host
+
+          platform.#phase c++.translation
+          platform.#runtime runtime.translation
+
+          platform.#phase_wrapper ..phase_wrapper
+          platform.#write (|>> _.code (of utf8.codec encoded))]])))
+
+(def (extender _)
+  Extender
+  (undefined))
+
+(def reference_system
+  (reference.System runtime.Value)
+  (implementation
+   (def constant' _.local)
+   (def variable' _.local)))
+
+(def (expander macro inputs lux)
+  Expander
+  (undefined))
+
+(def (c++_program name it)
+  (Program runtime.Value runtime.Declaration)
+  (undefined))
+
+(def (declare_success! _)
+  (-> Any (Async Any))
+  (async.future (of environment.default exit +0)))
+
+(def _
+  (program [service cli.service]
+    (let [context (context.jvm (cli.target service))]
+      (exec
+        (do async.monad
+          [[host platform] (async.future ..platform)
+           _ (compositor.compiler (|>> (as platform.Custom))
+                                  context
+                                  ..expander
+                                  extension.empty
+                                  (io.io platform)
+                                  extension.empty
+                                  extension.empty
+                                  ..c++_program
+                                  (reference.constant reference_system)
+                                  ..extender
+                                  service
+                                  [(packager.package (is runtime.Declaration (_.manual ""))
+                                                     _.code
+                                                     _.also
+                                                     (_.namespace "lux_program"))
+                                   "program.cpp"])]
+          (..declare_success! []))
+        (io.io [])))))

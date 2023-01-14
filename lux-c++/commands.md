@@ -37,6 +37,10 @@ cd ~/lux/lux-c++/ \
 && conda activate WORK \
 && python3 target/program.py
 
+cd ~/lux/lux-c++/ \
+&& conda activate WORK \
+&& python3 target/program.py build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux --program _
+
 ## Compile Lux's Standard Library's tests using a c++/Node-based compiler.
 cd ~/lux/stdlib/ \
 && lux clean \
