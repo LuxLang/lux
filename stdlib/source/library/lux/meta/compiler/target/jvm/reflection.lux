@@ -93,7 +93,7 @@
   "[1]::[0]"
   ("static" forName [java/lang/String boolean java/lang/ClassLoader] "try" (java/lang/Class java/lang/Object))
   (getName [] java/lang/String)
-  (isAssignableFrom [(java/lang/Class java/lang/Object)] boolean)
+  (isAssignableFrom [(java/lang/Class [? < java/lang/Object])] boolean)
   (getTypeParameters [] [(java/lang/reflect/TypeVariable (java/lang/Class c))])
   (getDeclaredField [java/lang/String] "try" java/lang/reflect/Field)
   (isArray [] boolean)
@@ -108,16 +108,24 @@
   [(exception.def .public (<name> jvm_type)
      (Exception java/lang/reflect/Type)
      (exception.report
-      (list ["Type" (java/lang/reflect/Type::getTypeName jvm_type)]
-            ["Class" (|> jvm_type java/lang/Object::getClass java/lang/Object::toString)])))]
+      (list ["Type" (|> jvm_type
+                        java/lang/reflect/Type::getTypeName
+                        ffi.of_string)]
+            ["Class" (|> jvm_type
+                         java/lang/Object::getClass
+                         java/lang/Object::toString
+                         ffi.of_string)])))]
 
   [not_a_class]
   [cannot_convert_to_a_lux_type]
   )
 
 (def .public (load class_loader name)
-  (-> java/lang/ClassLoader External (Try (java/lang/Class java/lang/Object)))
-  (when (java/lang/Class::forName name false class_loader)
+  (-> java/lang/ClassLoader External
+      (Try (java/lang/Class java/lang/Object)))
+  (when (java/lang/Class::forName (ffi.as_string name)
+                                  (ffi.as_boolean false)
+                                  class_loader)
     {try.#Failure _}
     (exception.except ..unknown_class [name])
 
@@ -125,21 +133,23 @@
     success))
 
 (def .public (sub? class_loader super sub)
-  (-> java/lang/ClassLoader External External (Try Bit))
+  (-> java/lang/ClassLoader External External
+      (Try Bit))
   (do try.monad
     [super (..load class_loader super)
      sub (..load class_loader sub)]
-    (in (java/lang/Class::isAssignableFrom sub super))))
+    (in (ffi.of_boolean (java/lang/Class::isAssignableFrom sub
+                                                           (as java/lang/Class super))))))
 
 (def (class' parameter reflection)
-  (-> (-> java/lang/reflect/Type (Try (/.Type Parameter)))
-      java/lang/reflect/Type
+  (-> (-> java/lang/reflect/Type (Try (/.Type Parameter))) java/lang/reflect/Type
       (Try (/.Type Class)))
   (<| (when (ffi.as java/lang/Class reflection)
         {.#Some class}
         (let [class_name (|> class
                              (as (java/lang/Class java/lang/Object))
-                             java/lang/Class::getName)]
+                             java/lang/Class::getName
+                             ffi.of_string)]
           (`` (if (or (,, (with_template [<reflection>]
                             [(text#= (/reflection.reflection <reflection>)
                                      class_name)]
@@ -157,18 +167,19 @@
                 {try.#Success (/.class class_name (list))})))
         _)
       (when (ffi.as java/lang/reflect/ParameterizedType reflection)
-        {.#Some reflection}
-        (let [raw (java/lang/reflect/ParameterizedType::getRawType reflection)]
+        {.#Some reflection'}
+        (let [raw (java/lang/reflect/ParameterizedType::getRawType reflection')]
           (when (ffi.as java/lang/Class raw)
             {.#Some raw'}
             (let [! try.monad]
-              (|> reflection
+              (|> reflection'
                   java/lang/reflect/ParameterizedType::getActualTypeArguments
                   (array.list {.#None})
                   (monad.each ! parameter)
                   (of ! each (/.class (|> raw'
                                           (as (java/lang/Class java/lang/Object))
-                                          java/lang/Class::getName)))
+                                          java/lang/Class::getName
+                                          ffi.of_string)))
                   (exception.with ..cannot_convert_to_a_lux_type [reflection])))
 
             _
@@ -182,7 +193,7 @@
       (-> java/lang/reflect/Type (Try (/.Type Parameter))))
   (<| (when (ffi.as java/lang/reflect/TypeVariable reflection)
         {.#Some reflection}
-        {try.#Success (/.var (java/lang/reflect/TypeVariable::getName reflection))}
+        {try.#Success (/.var (ffi.of_string (java/lang/reflect/TypeVariable::getName reflection)))}
         _)
       (when (ffi.as java/lang/reflect/WildcardType reflection)
         {.#Some reflection}
@@ -215,22 +226,27 @@
         _)
       (when (ffi.as java/lang/Class reflection)
         {.#Some class}
-        (if (java/lang/Class::isArray class)
-          (|> class
-              java/lang/Class::getComponentType
-              type
-              (try#each /.array))
-          (..class' (parameter type) reflection))
+        (let [class (as (java/lang/Class java/lang/Object)
+                        class)]
+          (if (ffi.of_boolean (java/lang/Class::isArray class))
+            (|> class
+                java/lang/Class::getComponentType
+                (ffi.is java/lang/reflect/Type)
+                type
+                (try#each /.array))
+            (..class' (parameter type) reflection)))
         _)
       (..class' (parameter type) reflection)))
 
 (def .public (type reflection)
-  (-> java/lang/reflect/Type (Try (/.Type Value)))
+  (-> java/lang/reflect/Type
+      (Try (/.Type Value)))
   (<| (when (ffi.as java/lang/Class reflection)
         {.#Some reflection}
         (let [class_name (|> reflection
                              (as (java/lang/Class java/lang/Object))
-                             java/lang/Class::getName)]
+                             java/lang/Class::getName
+                             ffi.of_string)]
           (`` (cond (,, (with_template [<reflection> <type>]
                           [(text#= (/reflection.reflection <reflection>)
                                    class_name)
@@ -257,13 +273,15 @@
   (..class' (..parameter ..type)))
 
 (def .public (return reflection)
-  (-> java/lang/reflect/Type (Try (/.Type Return)))
+  (-> java/lang/reflect/Type
+      (Try (/.Type Return)))
   (with_expansions [<else> (these (..type reflection))]
     (when (ffi.as java/lang/Class reflection)
       {.#Some class}
       (let [class_name (|> reflection
                            (as (java/lang/Class java/lang/Object))
-                           java/lang/Class::getName)]
+                           java/lang/Class::getName
+                           ffi.of_string)]
         (if (text#= (/reflection.reflection /reflection.void)
                     class_name)
           {try.#Success /.void}
@@ -275,7 +293,7 @@
 (exception.def .public (cannot_correspond [class type])
   (Exception [(java/lang/Class java/lang/Object) Type])
   (exception.report
-   (list ["Class" (java/lang/Object::toString class)]
+   (list ["Class" (ffi.of_string (java/lang/Object::toString class))]
          ["Type" (%.type type)])))
 
 (exception.def .public (type_parameter_mismatch [expected actual class type])
@@ -283,7 +301,7 @@
   (exception.report
    (list ["Expected" (%.nat expected)]
          ["Actual" (%.nat actual)]
-         ["Class" (java/lang/Object::toString class)]
+         ["Class" (ffi.of_string (java/lang/Object::toString class))]
          ["Type" (%.type type)])))
 
 (exception.def .public (non_jvm_type type)
@@ -292,23 +310,25 @@
    (list ["Type" (%.type type)])))
 
 (def .public (correspond class type)
-  (-> (java/lang/Class java/lang/Object) Type (Try Mapping))
+  (-> (java/lang/Class java/lang/Object) Type
+      (Try Mapping))
   (when type
     {.#Nominal array.nominal (list :member:)}
-    (if (java/lang/Class::isArray class)
+    (if (ffi.of_boolean (java/lang/Class::isArray class))
       (correspond (java/lang/Class::getComponentType class)
                   :member:)
       (exception.except ..cannot_correspond [class type]))
     
     {.#Nominal name params}
-    (let [class_name (java/lang/Class::getName class)
+    (let [class_name (ffi.of_string (java/lang/Class::getName class))
           class_params (array.list {.#None} (java/lang/Class::getTypeParameters class))
           num_class_params (list.size class_params)
           num_type_params (list.size params)]
       (if (text#= class_name name)
         (if (n.= num_class_params num_type_params)
           (|> params
-              (list.zipped_2 (list#each (|>> java/lang/reflect/TypeVariable::getName)
+              (list.zipped_2 (list#each (|>> java/lang/reflect/TypeVariable::getName
+                                             ffi.of_string)
                                         class_params))
               (list#mix (function (_ [name paramT] mapping)
                           (dictionary.has name paramT mapping))
@@ -334,16 +354,16 @@
 (exception.def .public (mistaken_field_owner [field owner target])
   (Exception [java/lang/reflect/Field (java/lang/Class java/lang/Object) (java/lang/Class java/lang/Object)])
   (exception.report
-   (list ["Field" (java/lang/Object::toString field)]
-         ["Owner" (java/lang/Object::toString owner)]
-         ["Target" (java/lang/Object::toString target)])))
+   (list ["Field" (ffi.of_string (java/lang/Object::toString field))]
+         ["Owner" (ffi.of_string (java/lang/Object::toString owner))]
+         ["Target" (ffi.of_string (java/lang/Object::toString target))])))
 
 (with_template [<name>]
   [(exception.def .public (<name> [field class])
      (Exception [Text (java/lang/Class java/lang/Object)])
      (exception.report
       (list ["Field" (%.text field)]
-            ["Class" (java/lang/Object::toString class)])))]
+            ["Class" (ffi.of_string (java/lang/Object::toString class))])))]
 
   [unknown_field]
   [not_a_static_field]
@@ -351,8 +371,9 @@
   )
 
 (def .public (field field target)
-  (-> Text (java/lang/Class java/lang/Object) (Try java/lang/reflect/Field))
-  (when (java/lang/Class::getDeclaredField field target)
+  (-> Text (java/lang/Class java/lang/Object)
+      (Try java/lang/reflect/Field))
+  (when (java/lang/Class::getDeclaredField (ffi.as_string field) target)
     {try.#Success field}
     (let [owner (java/lang/reflect/Field::getDeclaringClass field)]
       (if (same? owner target)
@@ -363,7 +384,8 @@
     (exception.except ..unknown_field [field target])))
 
 (def .public deprecated?
-  (-> (array.Array java/lang/annotation/Annotation) Bit)
+  (-> (array.Array java/lang/annotation/Annotation)
+      Bit)
   (|>> (array.list {.#None})
        (list.all (|>> (ffi.as java/lang/Deprecated)))
        list.empty?
@@ -371,15 +393,16 @@
 
 (with_template [<name> <exception> <then?> <else?>]
   [(def .public (<name> field class)
-     (-> Text (java/lang/Class java/lang/Object) (Try [Bit Bit (/.Type Value)]))
+     (-> Text (java/lang/Class java/lang/Object)
+         (Try [Bit Bit (/.Type Value)]))
      (do [! try.monad]
        [fieldJ (..field field class)
         .let [modifiers (java/lang/reflect/Field::getModifiers fieldJ)]]
-       (when (java/lang/reflect/Modifier::isStatic modifiers)
+       (when (ffi.of_boolean (java/lang/reflect/Modifier::isStatic modifiers))
          <then?> (|> fieldJ
                      java/lang/reflect/Field::getGenericType
                      ..type
-                     (of ! each (|>> [(java/lang/reflect/Modifier::isFinal modifiers)
+                     (of ! each (|>> [(ffi.of_boolean (java/lang/reflect/Modifier::isFinal modifiers))
                                       (..deprecated? (java/lang/reflect/Field::getDeclaredAnnotations fieldJ))])))
          <else?> (exception.except <exception> [field class]))))]
 

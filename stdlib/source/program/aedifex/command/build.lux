@@ -4,7 +4,7 @@
 (.require
  [library
   [lux (.except Lux)
-   ["[0]" ffi (.only import)]
+   ["[0]" ffi]
    [abstract
     [order (.only Order)]
     [monad (.only do)]]
@@ -242,7 +242,7 @@
   [log_error! fail]
   )
 
-(import java/lang/System
+(ffi.import java/lang/System
   "[1]::[0]"
   ("static" getProperty [java/lang/String] "io" "try" java/lang/String))
 
@@ -279,6 +279,42 @@
                                 "--add-opens" "java.base/java.lang=ALL-UNNAMED"))
              runtime)))
 
+(ffi.import java/io/InputStream
+  "[1]::[0]")
+
+(ffi.import java/io/FileInputStream
+  "[1]::[0]"
+  (new [java/lang/String]))
+
+(ffi.import java/util/jar/Attributes$Name
+  "[1]::[0]"
+  ("static" MAIN_CLASS java/util/jar/Attributes$Name))
+
+(ffi.import java/util/jar/Attributes
+  "[1]::[0]"
+  (getValue [java/util/jar/Attributes$Name] java/lang/String))
+
+(ffi.import java/util/jar/Manifest
+  "[1]::[0]"
+  (getMainAttributes [] java/util/jar/Attributes))
+
+(ffi.import java/util/jar/JarInputStream
+  "[1]::[0]"
+  (new [java/io/InputStream])
+  (getManifest [] java/util/jar/Manifest))
+
+(def jvm_main
+  (-> Path
+      Text)
+  (let [main_class (io.run! (java/util/jar/Attributes$Name::MAIN_CLASS))]
+    (|>> ffi.as_string
+         java/io/FileInputStream::new
+         java/util/jar/JarInputStream::new
+         java/util/jar/JarInputStream::getManifest
+         java/util/jar/Manifest::getMainAttributes
+         (java/util/jar/Attributes::getValue main_class)
+         ffi.of_string)))
+
 (def .public (do! console environment fs shell resolution)
   (-> (Console Async) (Environment Async) (file.System Async) (Shell Async) Resolution (Command [Exit Lux Path]))
   (function (_ profile)
@@ -298,10 +334,11 @@
                    [[command_environment command lux_params] output]
                    (when lux
                      {#JVM dependency}
-                     [(|> (the ///.#java profile)
-                          (has ///runtime.#parameters (list "program._"))
-                          (with_jvm_class_path {.#Item (..path fs home dependency) host_dependencies}))
-                      "program.jar"]
+                     (let [path (..path fs home dependency)]
+                       [(|> (the ///.#java profile)
+                            (has ///runtime.#parameters (list (jvm_main path)))
+                            (with_jvm_class_path {.#Item path host_dependencies}))
+                        "program.jar"])
                      
                      (^.with_template [<tag> <runtime> <program>]
                        [{<tag> dependency}

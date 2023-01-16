@@ -1,0 +1,102 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["[0]" io]
+    ["[0]" try]]
+   [data
+    ["[0]" bit (.use "[1]#[0]" equivalence)]
+    [collection
+     ["[0]" list]]]
+   [math
+    ["[0]" random (.only Random)]
+    [number
+     ["[0]" i64 (.use "[1]#[0]" equivalence)]
+     ["n" nat]]]
+   [meta
+    ["[0]" location]
+    [compiler
+     [language
+      [lux
+       ["[0]" synthesis]]]
+     [meta
+      ["[0]" archive]]]]
+   [test
+    ["_" property (.only Test)]]]]
+ [\\library
+  ["[0]" / (.only)
+   ["[0]" // (.only)
+    ["[0]" host]
+    ["[0]" runtime]
+    [///
+     ["[0]" extension]
+     [//
+      ["[0]" phase]
+      ["[0]" translation]]]]]]
+ [//
+  ["[0]T" complex]])
+
+(def .public test
+  Test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [module (random.lower_cased 1)
+
+         expected_bit random.bit
+         expected_i64 random.i64
+
+         .let [extender (is extension.Extender
+                            (function (_ _)
+                              (undefined)))
+               phase (//.translate extender complexT.lux)
+               @ [module 0 0]
+               $unit [0 0]]
+
+         arity (of ! each (|>> (n.% 16) ++) random.nat)])
+      (all _.and
+           (_.coverage [/.abstraction]
+             (|> (do try.monad
+                   [[_ archive] (archive.reserve "" archive.empty)
+                    [_ archive] (archive.reserve module archive)
+                    .let [[_ host] (io.run! host.host)
+                          state (is runtime.State
+                                    (translation.state host module))]]
+                   (<| (phase.result state)
+                       (do phase.monad
+                         [_ (translation.set_buffer translation.empty_buffer)
+                          _ runtime.translation
+                          it (/.abstraction phase archive
+                                            [(list) 1 (synthesis.i64 @ expected_i64)])]
+                         (in (when (of host evaluate $unit [{.#None} it])
+                               {try.#Success it}
+                               (i64#= expected_i64 ((as (-> [] I64) it) []))
+                               
+                               {try.#Failure error}
+                               false)))))
+                 (try.else false)))
+           (_.coverage [/.apply]
+             (|> (do try.monad
+                   [[_ archive] (archive.reserve "" archive.empty)
+                    [_ archive] (archive.reserve module archive)
+                    .let [[_ host] (io.run! host.host)
+                          state (is runtime.State
+                                    (translation.state host module))]]
+                   (<| (phase.result state)
+                       (do phase.monad
+                         [_ (translation.set_buffer translation.empty_buffer)
+                          it (/.apply phase archive
+                                      [(synthesis.function/abstraction @ [(list) arity (synthesis.i64 @ expected_i64)])
+                                       (list.repeated arity (synthesis.bit @ expected_bit))])]
+                         (in (when (of host evaluate $unit [{.#None} it])
+                               {try.#Success actual_i64}
+                               (i64#= expected_i64 (as I64 actual_i64))
+                               
+                               {try.#Failure error}
+                               false)))))
+                 (try.else false)))
+           )))

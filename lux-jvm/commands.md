@@ -7,6 +7,10 @@ cd ~/lux/lux-jvm/ && lein clean && lein lux auto test
 # Build
 
 ```
+cd ~/lux/lux-jvm/ \
+&& lux clean \
+&& lux auto build
+
 ## Use bootstrapping compiler to build new JVM compiler
 cd ~/lux/lux-jvm/ \
 && lein clean \
