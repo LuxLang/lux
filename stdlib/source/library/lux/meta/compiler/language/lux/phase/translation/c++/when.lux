@@ -37,53 +37,30 @@
     [reference
      [variable (.only Register)]]]]])
 
-(type (If of)
-  (Record
-   [#when of
-    #then of
-    #else of]))
-
 (def .public (if next archive it)
-  (Term If)
+  (Term synthesis.If)
   (do phase.monad
-    [when (next archive (the #when it))
-     then (next archive (the #then it))
-     else (next archive (the #else it))]
+    [when (next archive (the synthesis.#if_when it))
+     then (next archive (the synthesis.#if_then it))
+     else (next archive (the synthesis.#if_else it))]
     (in (_.? when then else))))
 
-(type (Let of)
-  (Record
-   [#input of
-    #register Register
-    #body of]))
-
-(def (sub_bindings body)
-  (-> synthesis.Term
-      [(List [Register synthesis.Term]) synthesis.Term])
-  (.when body
-    (synthesis.branch/let @ [input register body])
-    (.let [[tail body] (sub_bindings body)]
-      [(list.partial [register input] tail) body])
-
-    _
-    [(list) body]))
-
 (def .public (let next archive it)
-  (Term Let)
+  (Term synthesis.Let)
   (do [! phase.monad]
-    [.let [[tail body] (sub_bindings (the #body it))
-           head_binding (the #register it)]
+    [.let [[tail body] (synthesis.flat_let (the synthesis.#expression it))
+           context (the synthesis.#context it)]
      bindings (monad.each ! (function (_ [binding value])
                               (do !
                                 [value (next archive value)]
                                 (in (_.variable (//reference.local binding) //type.value value))))
-                          (list.partial [head_binding (the #input it)]
+                          (list.partial context
                                         tail))
      body (next archive body)]
     (in (_.on (list)
-              (_.lambda (.when head_binding
-                          0 (list)
-                          _ (list _.all_by_value))
+              (_.lambda (.when context
+                          [0 _] (list)
+                          [_ _] (list _.all_by_value))
                         (list)
                         {.#Some //type.value}
                         (list#mix _.then
@@ -91,29 +68,13 @@
                                   (list.reversed bindings))
                         )))))
 
-(type (Exec of)
-  (Record
-   [#before of
-    #after of]))
-
-(def (sub_statements after)
-  (-> synthesis.Term
-      [(List synthesis.Term) synthesis.Term])
-  (.when after
-    (synthesis.branch/exec @ [before after])
-    (.let [[tail after] (sub_statements after)]
-      [(list.partial before tail) after])
-
-    _
-    [(list) after]))
-
 (def .public (exec next archive it)
-  (Term Exec)
+  (Term synthesis.Exec)
   (do [! phase.monad]
-    [.let [[tail after] (sub_statements (the #after it))]
+    [.let [[tail after] (synthesis.flat_exec (the synthesis.#after it))]
      all_before (monad.each ! (|>> (next archive)
                                    (phase#each _.;))
-                            (list.partial (the #before it) tail))
+                            (list.partial (the synthesis.#before it) tail))
      after (next archive after)]
     (in (_.on (list)
               (_.lambda (list _.all_by_value)
