@@ -7,7 +7,6 @@
   [lux (.except)
    [program (.only program)]
    ["[0]" ffi (.only import)]
-   ["[0]" debug]
    [abstract
     [monad (.only do)]]
    [control
@@ -16,7 +15,8 @@
     ["[0]" exception (.only Exception)]
     ["[0]" io (.only IO io)]
     [concurrency
-     ["[0]" async (.only Async)]]]
+     ["[0]" async (.only Async)]
+     ["[0]" atom]]]
    [data
     ["[0]" product]
     ["[0]" text (.only)
@@ -24,7 +24,8 @@
      [encoding
       ["[0]" utf8]]]
     [collection
-     ["[0]" array (.only Array)]]]
+     ["[0]" array
+      ["[1]" \\unsafe (.only Array)]]]]
    [math
     [number
      ["n" nat]
@@ -34,6 +35,7 @@
     ["[0]" file]
     ["[0]" environment]]
    [meta
+    ["[0]" static]
     [macro
      ["^" pattern]
      ["[0]" template]]
@@ -60,7 +62,6 @@
          ["[0]" reference]
          ["/" c++ (.only)
           ["[1][0]" runtime]
-          ["[1][0]" type]
           ["[1][0]" primitive]
           ["[1][0]" reference]]]]]]
      [default
@@ -69,36 +70,148 @@
       ["[0]" cli]
       ["[0]" context]
       [archive (.only Archive)
-       ["[0]" unit]]
+       ["[0]" unit]
+       ["[0]" module]]
       ["[0]" packager
        ["[1]" script]]]]]]]
  [program
   ["[0]" compositor]])
 
+(type Globals
+  Any)
+
 (import cppyy
   "[1]::[0]"
   ("static" cppdef [Text] "io" Bit)
-  ("static" gbl (ffi.Object Any)))
+  ("static" gbl Globals))
 
-(ffi.import (getattr [(ffi.Object Any) Text] Any))
+(ffi.import (getattr [Any Text] Any))
+
+(ffi.import (tuple [(Array Any)] Any))
+
+(ffi.import (str [Any] Text))
 
 (def nested
   (-> Text
       Text)
-  (text.replaced text.\n (%.format text.\n text.\t)))
+  (let [\n\t (%.format text.\n text.\t)]
+    (|>> (text.replaced text.\n \n\t)
+         (%.format text.\t))))
+
+(def module
+  module.ID
+  (-- 0))
+
+(type Runtime
+  Any)
+
+(type Value
+  Any)
+
+(def (runtime globals)
+  (-> Any
+      Runtime)
+  (getattr globals /runtime.namespace))
+
+(with_template [<short> <type>]
+  [(def (<short> @ it)
+     (-> Runtime Any
+         <type>)
+     (let [on (as (-> Any
+                      <type>)
+                  (getattr @ (template.symbol [/runtime._] [<short>])))]
+       (on it)))]
+
+  [object_tag Nat]
+  [lux_bit Bit]
+  [lux_i64 Int]
+  [lux_text Text]
+
+  [variant_lefts Nat]
+  [variant_right? Bit]
+  [variant_choice Value]
+
+  [tuple_arity Nat]
+  )
+
+(def (lux_variant lefts right? choice)
+  (-> Nat Bit Value
+      Any)
+  (|> (array.empty 3)
+      (array.has! 0 lefts)
+      (array.has! 1 (if right?
+                      []
+                      (.python_object_none#)))
+      (array.has! 2 choice)
+      ..tuple))
+
+(def (tuple_member @ member it)
+  (-> Runtime Nat Any
+      Value)
+  (let [on (as (-> Nat Any
+                   Value)
+               (getattr @ /runtime.tuple_member))]
+    (on member it)))
+
+(def (lux_tuple @ lux_value input)
+  (-> Runtime (-> Runtime Any Value) Any
+      Any)
+  (let [arity (tuple_arity @ input)]
+    (loop (next [member 0
+                 output (array.empty arity)])
+      (if (n.< arity member)
+        (next (++ member)
+              (array.has! member (lux_value @ (tuple_member @ member input))
+                          output))
+        output))))
+
+(def (lux_value @ it)
+  (-> Runtime Value
+      Any)
+  (when (object_tag @ it)
+    /runtime.bit_tag
+    (lux_bit @ it)
+    
+    /runtime.i64_tag
+    (lux_i64 @ it)
+    
+    ... /runtime.f64_tag
+
+    /runtime.text_tag
+    (..str (lux_text @ it))
+
+    /runtime.variant_tag
+    (lux_variant (variant_lefts @ it)
+                 (variant_right? @ it)
+                 (lux_value @ (variant_choice @ it)))
+    
+    /runtime.tuple_tag
+    (lux_tuple @ lux_value it)
+    
+    ... /runtime.function_tag
+
+    tag
+    (panic! (when tag
+              2 "F64"
+              6 "FUNCTION"
+              _ "???"))))
 
 (def host
   (IO (Host /runtime.Value /runtime.Declaration))
-  (io (let [\n\t (%.format text.\n text.\t)
-            evaluate! (is (-> unit.ID [(Maybe unit.ID) /runtime.Value] (Try Any))
-                          (function (evaluate! context [_ input])
-                            (let [global (reference.artifact context)
-                                  definition (_.constant (_.local global) /type.value input)]
+  (io (let [id (atom.atom 0)
+            \n\t (%.format text.\n text.\t)
+            evaluate! (is (-> [(Maybe unit.ID) /runtime.Value] (Try Any))
+                          (function (evaluate! [_ input])
+                            (let [[id _] (io.run! (atom.update! ++ id))
+                                  global (reference.artifact [..module id])
+                                  definition (_.constant (_.local global) /runtime.value_type input)]
                               (exec
                                 (.log!# "[evaluate!]")
                                 (.log!# (..nested (_.code definition)))
                                 (if (io.run! (cppyy::cppdef (_.code definition)))
-                                  {try.#Success (getattr (io.run! (cppyy::gbl)) global)}
+                                  {try.#Success (let [globals (io.run! (cppyy::gbl))]
+                                                  (lux_value (..runtime globals)
+                                                             (getattr globals global)))}
                                   {try.#Failure "Cannot evaluate!"})))))
             execute! (is (-> /runtime.Declaration
                              (Try Any))
@@ -118,9 +231,11 @@
                                         custom)
                      @global (_.local global)]
                  (do try.monad
-                   [.let [definition (_.constant @global /type.value input)]
+                   [.let [definition (_.constant @global /runtime.value_type input)]
                     _ (execute! definition)
-                    .let [value (getattr (io.run! (cppyy::gbl)) global)]]
+                    .let [globals (io.run! (cppyy::gbl))
+                          value (lux_value (..runtime globals)
+                                           (getattr globals global))]]
                    (in [global value definition]))))
 
              (def (ingest context content)
@@ -135,7 +250,7 @@
              (def (re_load context custom content)
                (do try.monad
                  [_ (execute! content)]
-                 (evaluate! context [{.#None} (_.local (reference.artifact context))]))))))))
+                 (evaluate! [{.#None} (_.local (reference.artifact context))]))))))))
 
 (def phase_wrapper
   phase.Wrapper

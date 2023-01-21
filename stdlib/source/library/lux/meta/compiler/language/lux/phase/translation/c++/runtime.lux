@@ -3,7 +3,8 @@
 
 (.require
  [library
-  [lux (.except Declaration)
+  [lux (.except Type Declaration
+                Bit I64 F64 Text Variant Tuple)
    [abstract
     ["[0]" monad (.only do)]]
    [data
@@ -33,6 +34,7 @@
    [meta
     [archive (.only Output Archive)
      ["[0]" registry (.only Registry)]
+     ["[0]" artifact]
      ["[0]" unit]]]]])
 
 (type .public Anchor
@@ -61,13 +63,6 @@
   (-> Phase Archive (it synthesis.Term)
       (Operation Value)))
 
-(def .public (host_value of it)
-  (-> _.Type _.Expression
-      _.Expression)
-  (|> it
-      (_.do "get" (list) (list))
-      (_.as (_.* of))))
-
 (def .public namespace
   _.Namespace
   "lux")
@@ -82,104 +77,299 @@
 
 (with_expansions [<clean_up> (..name)
 
-                  <variant> (..name)
+                  <Variant> (..name)
                   <lefts> (..name)
                   <right?> (..name)
                   <choice> (..name)
 
-                  <tuple> (..name)
+                  <Tuple> (..name)
                   <arity> (..name)
                   <values> (..name)
 
-                  <unit> (..name)]
+                  <Type> (..name)
+                  <bit?> (..name)
+                  <i64?> (..name)
+                  <f64?> (..name)
+                  <text?> (..name)
+                  <variant?> (..name)
+                  <tuple?> (..name)
+                  <function?> (..name)
+
+                  <Object> (..name)
+                  <Object/type> (..name)
+                  <Object/value> (..name)
+
+                  <unit> (..name)
+
+                  <object_tag> (..name)
+                  <lux_bit> (..name)
+                  <lux_i64> (..name)
+                  <lux_text> (..name)
+                  
+                  <variant_lefts> (..name)
+                  <variant_right?> (..name)
+                  <variant_choice> (..name)
+
+                  <tuple_arity> (..name)
+                  <tuple_member> (..name)]
+  (with_template [<code> <name>]
+    [(def .public <name>
+       Nat
+       <code>)]
+
+    [0 bit_tag]
+    [1 i64_tag]
+    [2 f64_tag]
+    [3 text_tag]
+    [4 variant_tag]
+    [5 tuple_tag]
+    [6 function_tag]
+    )
+
+  (with_template [<lux> <rt>]
+    [(def .public <lux>
+       .Text
+       <rt>)]
+
+    [object_tag <object_tag>]
+    [lux_bit <lux_bit>]
+    [lux_i64 <lux_i64>]
+    [lux_text <lux_text>]
+
+    [variant_lefts <variant_lefts>]
+    [variant_right? <variant_right?>]
+    [variant_choice <variant_choice>]
+
+    [tuple_arity <tuple_arity>]
+    [tuple_member <tuple_member>]
+    )
+  
+  (def object_type
+    _.Type
+    (_.type (_.global [(list ..namespace) <Object>] (list))))
+
+  (def .public value_type
+    _.Type
+    (type.shared_ptr object_type))
+  
   (def .public clean_up
     (-> _.Type
         _.Expression)
     (|>> (list)
-         (_.global [..namespace <clean_up>])))
+         (_.global [(list ..namespace) <clean_up>])))
 
-  (def .public (lux_value of it)
+  (type .public Type
+    [_.Expression _.Type])
+
+  (def variant_type
+    (_.type (_.global [(list ..namespace) <Variant>] (list))))
+
+  (def tuple_type
+    (_.type (_.global [(list ..namespace) <Tuple>] (list))))
+
+  (with_template [<name> <tag> <type>]
+    [(def .public <name>
+       ..Type
+       [(_.global [(list ..namespace <Type>) <tag>] (list))
+        <type>])]
+
+    [Bit <bit?> //type.bit]
+    [I64 <i64?> //type.i64]
+    [F64 <f64?> //type.f64]
+    [Text <text?> //type.text]
+    [Variant <variant?> ..variant_type]
+    [Tuple <tuple?> ..tuple_type]
+    )
+
+  (def (lux_value [tag of] it)
+    (-> ..Type _.Expression
+        _.Expression)
+    (_.on (list (_.new (_.structure object_type (list tag it)))
+                (clean_up of))
+          (_.global [(list _.standard) "shared_ptr"] (list object_type))))
+
+  (def .public (host_value of it)
     (-> _.Type _.Expression
         _.Expression)
-    (_.on (list it (clean_up of))
-          (_.global [_.standard "shared_ptr"] (list type.void))))
+    (|> it
+        (_.the* <Object/value>)
+        (_.is (_.* of))))
 
-  (def .public (simple of it)
-    (-> _.Type _.Expression
+  (def .public (simple [tag of] it)
+    (-> ..Type _.Expression
         _.Expression)
-    (lux_value of
+    (lux_value [tag of]
                (_.new (_.of (list it) of))))
 
   (def .public (variant lefts right? choice)
     (-> _.Expression _.Expression _.Expression
         _.Expression)
-    (let [type (_.type (_.global [..namespace <variant>] (list)))]
-      (lux_value type
-                 (_.new (_.structure type (list lefts right? choice))))))
+    (|> (list lefts
+              right?
+              choice)
+        (_.structure ..variant_type)
+        _.new
+        (lux_value ..Variant)))
 
   (def .public (tuple values)
     (-> (List _.Expression)
         _.Expression)
-    (let [arity (_.int (.int (list.size values)))
-          type (_.type (_.global [..namespace <tuple>] (list)))]
-      (lux_value type
-                 (_.new (_.structure type (list arity (_.new (_.array //type.value arity values))))))))
+    (let [arity (_.int (.int (list.size values)))]
+      (|> (list arity
+                (_.new (_.array value_type arity values)))
+          (_.structure ..tuple_type)
+          _.new
+          (lux_value ..Tuple))))
 
   (def .public declaration
     _.Declaration
-    (let [clean_up (let [of (_.type_name "Of")
-                         it (_.local "it")]
-                     (_.function (_.local <clean_up>)
-                       (list of)
-                       (list [(_.* of) it])
-                       type.void
-                       (_.delete it)))
-
-          $variant (_.local <variant>)
-          $tuple (_.local <tuple>)
+    (let [$Variant (_.local <Variant>)
+          $Tuple (_.local <Tuple>)
           $values (_.local <values>)
 
-          :variant (_.type $variant)
-          :tuple (_.type $tuple)]
+          $Type (_.local <Type>)
+          $bit? (_.local <bit?>)
+          $i64? (_.local <i64?>)
+          $f64? (_.local <f64?>)
+          $text? (_.local <text?>)
+          $variant? (_.local <variant?>)
+          $tuple? (_.local <tuple?>)
+          $function? (_.local <function?>)
+
+          $Object (_.local <Object>)
+          $value (_.local <Object/value>)
+          :Object (_.type $Object)]
       (all _.also
            (_.include "memory")
+           (_.include "codecvt")
+           (_.include "locale")
 
            (<| (_.namespace ..namespace)
-               (all _.also
-                    clean_up
+               (`` (all _.also
+                        (<| (_.enum_definition $Type)
+                            (list $bit?
+                                  $i64?
+                                  $f64?
+                                  $text?
+                                  $variant?
+                                  $tuple?
+                                  $function?))
 
-                    (_.constant (_.local <unit>)
-                                //type.value
-                                (..simple //type.text (_.u32_string "")))
+                        (<| (_.structure_definition $Object)
+                            [(list [(_.local <Object/type>) (_.type $Type)]
+                                   [(_.local <Object/value>) (_.* type.void)])
+                             (list)])
 
-                    (<| (_.structure_definition $variant)
-                        [(list [(_.local <lefts>) //type.lefts]
-                               [(_.local <right?>) //type.right?]
-                               [(_.local <choice>) //type.value])
-                         (list)])
+                        (<| (_.structure_definition $Variant)
+                            [(list [(_.local <lefts>) //type.lefts]
+                                   [(_.local <right?>) //type.right?]
+                                   [(_.local <choice>) value_type])
+                             (list)])
 
-                    (<| (_.structure_definition $tuple)
-                        [(list [(_.local <arity>) //type.arity]
-                               [$values (_.* //type.value)])
-                         (list (<| (_.destructor $tuple)
-                                   (_.delete_array $values)))])
-                    )))))
+                        (<| (_.structure_definition $Tuple)
+                            [(list [(_.local <arity>) //type.arity]
+                                   [$values (_.* value_type)])
+                             (list (<| (_.destructor $Tuple)
+                                       (_.delete_array $values)))])
+
+                        (let [of (_.type_name "Of")
+                              it (_.local "it")]
+                          (_.function (_.local <clean_up>)
+                            (list of)
+                            (list [(_.* :Object) it])
+                            type.void
+                            (all _.then
+                                 (_.delete (host_value of it))
+                                 (_.delete it)
+                                 )))
+
+                        (_.constant (_.local <unit>)
+                                    value_type
+                                    (..simple ..Text (_.u32_string "")))
+
+                        ... Out functions
+                        (let [it (_.local "it")]
+                          (_.function (_.local <object_tag>)
+                            (list)
+                            (list [..value_type it])
+                            //type.i64
+                            (_.return (_.the* <Object/type> it))))
+
+                        (,, (with_template [<name> <type>]
+                              [(let [it (_.local "it")]
+                                 (_.function (_.local <name>)
+                                   (list)
+                                   (list [..value_type it])
+                                   <type>
+                                   (_.return (_.deref (host_value <type> it)))))]
+
+                              [<lux_bit> //type.bit]
+                              [<lux_i64> //type.i64]
+                              ))
+
+                        (let [it (_.local "it")
+                              converter (_.local "converter")
+                              converter_type (_.type (_.global [(list _.standard) "wstring_convert"]
+                                                               (list (_.type (_.global [(list _.standard) "codecvt_utf8"]
+                                                                                       (list type.char32)))
+                                                                     type.char32)))]
+                          (_.function (_.local <lux_text>)
+                            (list)
+                            (list [..value_type it])
+                            type.string
+                            (all _.then
+                                 (_.var_declaration converter converter_type)
+                                 (_.return (_.do "to_bytes"
+                                             (list)
+                                             (list (_.deref (host_value //type.text it)))
+                                             converter)))))
+
+                        (,, (with_template [<name> <field> <type>]
+                              [(let [it (_.local "it")]
+                                 (_.function (_.local <name>)
+                                   (list)
+                                   (list [..value_type it])
+                                   <type>
+                                   (_.return (_.the* <field> (host_value ..variant_type it)))))]
+
+                              [<variant_lefts> <lefts> //type.i64]
+                              [<variant_right?> <right?> //type.bit]
+                              [<variant_choice> <choice> ..value_type]
+                              ))
+
+                        (let [it (_.local "it")]
+                          (_.function (_.local <tuple_arity>)
+                            (list)
+                            (list [..value_type it])
+                            //type.i64
+                            (_.return (_.the* <arity> (host_value ..tuple_type it)))))
+
+                        (let [item (_.local "item")
+                              it (_.local "it")]
+                          (_.function (_.local <tuple_member>)
+                            (list)
+                            (list [//type.i64 item]
+                                  [..value_type it])
+                            ..value_type
+                            (_.return (_.item item (_.the* <values> (host_value ..tuple_type it))))))
+                        ))))))
 
   (def .public unit
     _.Expression
-    (_.global [..namespace <unit>] (list)))
+    (_.global [(list ..namespace) <unit>] (list)))
   )
 
-(def artifact_id
+(def .public id
+  artifact.ID
   0)
 
 (def .public translation
   (Operation [Registry Output])
   (do phase.monad
     [_ (translation.execute! ..declaration)
-     _ (translation.save! ..artifact_id {.#None} ..declaration)]
+     _ (translation.save! ..id {.#None} ..declaration)]
     (in [(|> registry.empty
              (registry.resource .true unit.none)
              product.right)
-         (sequence.sequence [..artifact_id {.#None}
+         (sequence.sequence [..id {.#None}
                              (of utf8.codec encoded (_.code ..declaration))])])))
