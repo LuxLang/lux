@@ -4,7 +4,7 @@
 (.require
  [library
   [lux (.except Code Type Global Declaration Definition
-                int as function template local global type also of is)
+                int as function template local global type also of is if for alias)
    [abstract
     [equivalence (.only Equivalence)]]
    [control
@@ -73,33 +73,39 @@
 
     [Code
      [[Capture []]
-      [Type [of]]
+      [Parameter [of]]
       [Expression [of]]
       [Statement [of]]]]
+
+    [Parameter
+     [[Type [of]]]]
     
     [Type
      [[Type_Name []]]]
 
     [Expression
-     [[Computation [of]]
-      [Reference [of]]]]
+     [[LValue [of]]
+      [RValue [of]]]]
 
-    [Computation
-     [[Literal []]
-      [Instantiation []]]]
+    [LValue
+     [[Reference [of]]]]
 
     [Reference
      [[Local []]
       [Global []]]]
+
+    [RValue
+     [[Literal []]
+      [Computation [of]]]]
+
+    [Computation
+     [[Instantiation []]]]
 
     [Statement
      [[Declaration [of]]]]
 
     [Declaration
      [[Definition [of]]]]
-
-    [Definition
-     [[Method []]]]
     )
 
   (def .public bool
@@ -139,7 +145,7 @@
     (|>> <%))
 
   (def instantiation
-    (-> (List Type)
+    (-> (List Parameter)
         Text)
     (|>> (|.when
            (list)
@@ -152,7 +158,7 @@
                (text.enclosed ..template_delimiters)))))
 
   (def .public (global [ns/* name] parameters)
-    (-> [(List Namespace) Text] (List Type)
+    (-> [(List Namespace) Text] (List Parameter)
         Global)
     (<% (let [instance (%.format name (instantiation parameters))]
           (when ns/*
@@ -165,6 +171,16 @@
     (-> Reference
         Type)
     (|>> nominal.transmutation))
+
+  (def .public (function_type_parameter arguments return)
+    (-> (List Parameter) Parameter
+        Parameter)
+    (|> arguments
+        (list#each ..code)
+        (text.interposed ..parameter_separator)
+        (text.enclosed ..term_delimiters)
+        (%.format (%> return))
+        <%))
 
   (def .public type_name
     (-> Text
@@ -185,12 +201,17 @@
          (text.prefix "*")
          <%))
 
+  (def term
+    (-> Text
+        Text)
+    (text.enclosed ..term_delimiters))
+
   (def .public (is type term)
     (-> Type Expression
         Computation)
     (<| <%
-        (text.enclosed ..term_delimiters)
-        (%.format "(" (%> type) ")"
+        ..term
+        (%.format (..term (%> type))
                   " " (%> term))))
 
   (def .public int
@@ -388,11 +409,16 @@
          (%.format "U")
          <%))
 
-  (def .public (destructor of body)
-    (-> Local Statement
+  (.type Method
+    (-> Local
+        Definition))
+
+  (def .public (destructor body)
+    (-> Statement
         Method)
-    (<% (%.format "~" (%> of) "()"
-                  " " (block (%> body)))))
+    (.function (_ of)
+      (<% (%.format "~" (%> of) "()"
+                    " " (block (%> body))))))
 
   (def .public (var_declaration name type)
     (-> Local Type
@@ -410,6 +436,11 @@
         Definition)
     (..statement (%.format (%> type) " " (%> name) " = " (%> value))))
 
+  (def .public (:= location value)
+    (-> LValue Expression
+        Statement)
+    (..statement (%.format (%> location) " = " (%> value))))
+
   (def .public (structure_definition name [fields methods])
     (-> Local [(List [Local Type]) (List Method)]
         Definition)
@@ -420,7 +451,8 @@
                                    (list#each (.function (_ [name type])
                                                 (%> (var_declaration name type)))
                                               fields)
-                                   (list#each ..code
+                                   (list#each (.function (_ it)
+                                                (..code (it name)))
                                               methods))
                               (text.interposed \n))))))
 
@@ -450,11 +482,16 @@
     ["&" all_by_reference]
     )
 
+  (def .public (alias name original)
+    (-> Local Local
+        Capture)
+    (<% (%.format (%> name) " = " (%> original))))
+
   (def .public (lambda captures inputs output body)
     (-> (List Capture) (List Argument) (Maybe Type) Statement
         Expression)
     (<| <%
-        (text.enclosed ..term_delimiters)
+        ..term
         (%.format (..captures captures) (..arguments inputs)
                   (|> output
                       (maybe#each (|>> %> (%.format " -> ")))
@@ -465,7 +502,7 @@
     (-> Expression Expression Expression
         Expression)
     (<| <%
-        (text.enclosed ..term_delimiters)
+        ..term
         (%.format (%> when)
                   " ? " (%> then)
                   " : " (%> else))))
@@ -477,6 +514,57 @@
 
   (def .public (item index array)
     (-> Expression Expression
-        Expression)
+        LValue)
     (<% (%.format (%> array) "[" (%> index) "]")))
+
+  (with_template [<name> <operator>]
+    [(def .public (<name> parameter subject)
+       (-> Expression Expression
+           Expression)
+       (|> (%.format (%> subject) <operator> (%> parameter))
+           ..term
+           <%))]
+
+    [+ " + "]
+    [- " - "]
+    ... [* " * "]
+    [/ " / "]
+    [% " % "]
+    
+    [= " == "]
+    [< " < "]
+    [> " > "]
+    [<= " <= "]
+    [>= " >= "]
+    )
+
+  (def .public (if when then else)
+    (-> Expression Statement Statement
+        Statement)
+    (<% (%.format "if" (..term (%> when))
+                  " " (..block (%> then))
+                  " else " (..block (%> else)))))
+
+  (def (for_initialization [type variable value])
+    (-> [Type Local Expression]
+        Text)
+    (%.format (%> type) " " (%> variable) " = " (%> value)))
+
+  (def for_initializations
+    (-> (List [Type Local Expression])
+        Text)
+    (|>> (list#each ..for_initialization)
+         (text.interposed ..parameter_separator)))
+
+  (def .public (for inits when after body)
+    (-> (List [Type Local Expression]) Expression Statement Statement
+        Statement)
+    (let [setup (|> (list (for_initializations inits)
+                          (%> when)
+                          (|> (%> after)
+                              (text.replaced_once ..statement_separator "")))
+                    (text.interposed (%.format ..statement_separator " "))
+                    (text.enclosed ..term_delimiters))]
+      (<% (%.format "for" setup
+                    " " (..block (%> body))))))
   )

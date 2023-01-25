@@ -21,6 +21,8 @@
      ["i" int]
      ["[0]" i64]]]
    [meta
+    ["[0]" macro
+     ["[1]" local]]
     [type
      ["[0]" nominal]]]]]
  [// (.only Arithmetic)])
@@ -126,7 +128,6 @@
 
       [(Fixed @) nominal.abstraction + i.+]
       [(Fixed @) nominal.abstraction - i.-]
-      [(Fixed @) nominal.abstraction % i.%]
 
       [Bit |> = i.=]
       [Bit |> < i.<]
@@ -135,20 +136,95 @@
       [Bit |> >= i.>=]
       )
 
-    (with_template [<fp> <u> <s>]
-      [(def .public (<fp> @ parameter subject)
-         (All (_ @)
-           (-> (Point @) (Fixed @) (Fixed @)
-               (Fixed @)))
-         (fixed @
-                (<u> (units @ parameter)
-                     (units @ subject))
-                (.rev (<s> (.nat (sub_units @ parameter))
-                           (.nat (sub_units @ subject))))))]
+    (with_template [<quarter> <name>]
+      [(def <name>
+         (All (_ of)
+           (-> (I64 of)
+               (I64 of)))
+         (let [left (n.- (n.* (++ <quarter>) 16) i64.width)
+               right (n.+ (n.* <quarter> 16) left)]
+           (|>> (i64.left_shifted left)
+                (i64.right_shifted right))))]
 
-      [* i.* n.*]
-      [/ i./ n./]
+      [0 ll]
+      [1 lh]
+      [2 hl]
+      [3 hh]
       )
+
+    (def low
+      (All (_ of)
+        (-> (I64 of)
+            (I64 of)))
+      (i64.and (i64.mask 32)))
+
+    (def high
+      (All (_ of)
+        (-> (I64 of)
+            (I64 of)))
+      (i64.right_shifted 32))
+
+    (with_template [<shift> <name>]
+      [(def <name>
+         (All (_ of)
+           (-> (I64 of)
+               (I64 of)))
+         (i64.left_shifted <shift>))]
+
+      [16 up/16]
+      [32 up/32]
+      )
+
+    (def .public (* @ parameter subject)
+      (All (_ @)
+        (-> (Point @) (Fixed @) (Fixed @)
+            (Fixed @)))
+      (let [mask (i64.mask (nominal.representation Point @))]
+        (macro.let [units' (template (_ <it>)
+                             [(i.right_shifted (nominal.representation Point @) <it>)])
+                    sub_units' (template (_ <it>)
+                                 [(i64.and mask <it>)])
+                    high_sub_units' (template (_ <it>)
+                                      [(i64.right_shifted (nominal.representation Point @) <it>)])]
+          (let [parameter (nominal.representation parameter)
+                subject (nominal.representation subject)
+
+                s::u (units' subject)
+                s::s (sub_units' subject)
+                
+                p::u (units' parameter)
+                p::s (sub_units' parameter)
+                
+                s*p (i.* s::u p::s)
+                p*s (i.* p::u s::s)
+                
+                x::u (all i.+
+                          (i.* p::u
+                               s::u)
+                          (units' s*p)
+                          (units' p*s)
+                          )
+                x::s (all i.+
+                          (high_sub_units'
+                           (i.* p::s
+                                s::s))
+                          (sub_units' s*p)
+                          (sub_units' p*s)
+                          )]
+            (nominal.abstraction
+             (.int (i64.or (of_units @ x::u)
+                           x::s)))))))
+
+    (def .public (/ @ parameter subject)
+      (All (_ @)
+        (-> (Point @) (Fixed @) (Fixed @)
+            (Fixed @)))
+      (|> subject
+          nominal.representation
+          (i64.left_shifted (nominal.representation Point @))
+          (i./ (nominal.representation parameter))
+          (i.right_shifted (nominal.representation Point @))
+          nominal.abstraction))
     )
   )
 

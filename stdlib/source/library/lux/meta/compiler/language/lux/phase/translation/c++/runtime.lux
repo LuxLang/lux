@@ -4,7 +4,8 @@
 (.require
  [library
   [lux (.except Type Declaration
-                Bit I64 F64 Text Variant Tuple)
+                Bit I64 F64 Text Variant Tuple
+                function)
    [abstract
     ["[0]" monad (.only do)]]
    [data
@@ -70,34 +71,40 @@
 (def name
   (syntax (_ [])
     (|> meta.seed
-        (meta#each (|>> %.nat
-                        (%.format ..namespace)
+        (meta#each (|>> %.nat_16
+                        (%.format "_")
                         code.text
                         list)))))
 
 (with_expansions [<clean_up> (..name)
 
                   <Variant> (..name)
-                  <lefts> (..name)
-                  <right?> (..name)
-                  <choice> (..name)
+                  <Variant#lefts> (..name)
+                  <Variant#right?> (..name)
+                  <Variant#choice> (..name)
 
                   <Tuple> (..name)
-                  <arity> (..name)
-                  <values> (..name)
+                  <Tuple#arity> (..name)
+                  <Tuple#values> (..name)
+
+                  <Function> (..name)
+                  <Function#arity> (..name)
+                  <Function#partiality> (..name)
+                  <Function#partials> (..name)
+                  <Function#closure> (..name)
 
                   <Type> (..name)
-                  <bit?> (..name)
-                  <i64?> (..name)
-                  <f64?> (..name)
-                  <text?> (..name)
-                  <variant?> (..name)
-                  <tuple?> (..name)
-                  <function?> (..name)
+                  <Type#Bit> (..name)
+                  <Type#I64> (..name)
+                  <Type#F64> (..name)
+                  <Type#Text> (..name)
+                  <Type#Variant> (..name)
+                  <Type#Tuple> (..name)
+                  <Type#Function> (..name)
 
                   <Object> (..name)
-                  <Object/type> (..name)
-                  <Object/value> (..name)
+                  <Object#type> (..name)
+                  <Object#value> (..name)
 
                   <unit> (..name)
 
@@ -110,8 +117,10 @@
                   <variant_right?> (..name)
                   <variant_choice> (..name)
 
-                  <tuple_arity> (..name)
-                  <tuple_member> (..name)]
+                  <tuple::arity> (..name)
+                  <tuple::member> (..name)
+
+                  <function::on> (..name)]
   (with_template [<code> <name>]
     [(def .public <name>
        Nat
@@ -140,8 +149,8 @@
     [variant_right? <variant_right?>]
     [variant_choice <variant_choice>]
 
-    [tuple_arity <tuple_arity>]
-    [tuple_member <tuple_member>]
+    [tuple::arity <tuple::arity>]
+    [tuple::member <tuple::member>]
     )
   
   (def object_type
@@ -151,6 +160,10 @@
   (def .public value_type
     _.Type
     (type.shared_ptr object_type))
+
+  (def closure_type
+    _.Type
+    (type.function (list value_type (_.* value_type)) value_type))
   
   (def .public clean_up
     (-> _.Type
@@ -167,18 +180,23 @@
   (def tuple_type
     (_.type (_.global [(list ..namespace) <Tuple>] (list))))
 
+  (def function_type
+    _.Type
+    (_.type (_.global [(list ..namespace) <Function>] (list))))
+
   (with_template [<name> <tag> <type>]
     [(def .public <name>
        ..Type
        [(_.global [(list ..namespace <Type>) <tag>] (list))
         <type>])]
 
-    [Bit <bit?> //type.bit]
-    [I64 <i64?> //type.i64]
-    [F64 <f64?> //type.f64]
-    [Text <text?> //type.text]
-    [Variant <variant?> ..variant_type]
-    [Tuple <tuple?> ..tuple_type]
+    [Bit <Type#Bit> //type.bit]
+    [I64 <Type#I64> //type.i64]
+    [F64 <Type#F64> //type.f64]
+    [Text <Type#Text> //type.text]
+    [Variant <Type#Variant> ..variant_type]
+    [Tuple <Type#Tuple> ..tuple_type]
+    [Function <Type#Function> ..function_type]
     )
 
   (def (lux_value [tag of] it)
@@ -188,11 +206,20 @@
                 (clean_up of))
           (_.global [(list _.standard) "shared_ptr"] (list object_type))))
 
+  (def .public (on arguments abstraction)
+    (-> (List _.Expression) _.Expression
+        _.Expression)
+    (let [arity (|> arguments list.size .int _.int)]
+      (_.on (list arity
+                  (_.new (_.array value_type arity arguments))
+                  abstraction)
+            (_.global [(list ..namespace) <function::on>] (list)))))
+
   (def .public (host_value of it)
     (-> _.Type _.Expression
         _.Expression)
     (|> it
-        (_.the* <Object/value>)
+        (_.the* <Object#value>)
         (_.is (_.* of))))
 
   (def .public (simple [tag of] it)
@@ -221,28 +248,53 @@
           _.new
           (lux_value ..Tuple))))
 
+  (def .public (function' partiality partials arity it)
+    (-> _.Expression _.Expression _.Expression _.Expression
+        _.Expression)
+    (|> (list arity
+              partiality
+              partials
+              it)
+        (_.structure ..function_type)
+        _.new
+        (lux_value ..Function)))
+
+  (def .public (function arity it)
+    (-> _.Expression _.Expression
+        _.Expression)
+    (let [partiality (_.int +0)]
+      (function' partiality
+                 (_.new (_.array value_type partiality (list)))
+                 arity
+                 it)))
+
   (def .public declaration
     _.Declaration
     (let [$Variant (_.local <Variant>)
+          
           $Tuple (_.local <Tuple>)
-          $values (_.local <values>)
+          $values (_.local <Tuple#values>)
+
+          $Function (_.local <Function>)
+          $Function/partials (_.local <Function#partials>)
 
           $Type (_.local <Type>)
-          $bit? (_.local <bit?>)
-          $i64? (_.local <i64?>)
-          $f64? (_.local <f64?>)
-          $text? (_.local <text?>)
-          $variant? (_.local <variant?>)
-          $tuple? (_.local <tuple?>)
-          $function? (_.local <function?>)
+          $bit? (_.local <Type#Bit>)
+          $i64? (_.local <Type#I64>)
+          $f64? (_.local <Type#F64>)
+          $text? (_.local <Type#Text>)
+          $variant? (_.local <Type#Variant>)
+          $tuple? (_.local <Type#Tuple>)
+          $function? (_.local <Type#Function>)
 
           $Object (_.local <Object>)
-          $value (_.local <Object/value>)
+          $value (_.local <Object#value>)
           :Object (_.type $Object)]
       (all _.also
            (_.include "memory")
            (_.include "codecvt")
            (_.include "locale")
+           (_.include "functional")
 
            (<| (_.namespace ..namespace)
                (`` (all _.also
@@ -256,24 +308,32 @@
                                   $function?))
 
                         (<| (_.structure_definition $Object)
-                            [(list [(_.local <Object/type>) (_.type $Type)]
-                                   [(_.local <Object/value>) (_.* type.void)])
+                            [(list [(_.local <Object#type>) (_.type $Type)]
+                                   [(_.local <Object#value>) (_.* type.void)])
                              (list)])
 
                         (<| (_.structure_definition $Variant)
-                            [(list [(_.local <lefts>) //type.lefts]
-                                   [(_.local <right?>) //type.right?]
-                                   [(_.local <choice>) value_type])
+                            [(list [(_.local <Variant#lefts>) //type.lefts]
+                                   [(_.local <Variant#right?>) //type.right?]
+                                   [(_.local <Variant#choice>) value_type])
                              (list)])
 
                         (<| (_.structure_definition $Tuple)
-                            [(list [(_.local <arity>) //type.arity]
+                            [(list [(_.local <Tuple#arity>) //type.arity]
                                    [$values (_.* value_type)])
-                             (list (<| (_.destructor $Tuple)
+                             (list (<| _.destructor
                                        (_.delete_array $values)))])
 
-                        (let [of (_.type_name "Of")
-                              it (_.local "it")]
+                        (<| (_.structure_definition (_.local <Function>))
+                            [(list [(_.local <Function#arity>) //type.arity]
+                                   [(_.local <Function#partiality>) //type.arity]
+                                   [$Function/partials (_.* value_type)]
+                                   [(_.local <Function#closure>) ..closure_type])
+                             (list (<| _.destructor
+                                       (_.delete_array $Function/partials)))])
+
+                        (let [of (_.type_name (..name))
+                              it (_.local (..name))]
                           (_.function (_.local <clean_up>)
                             (list of)
                             (list [(_.* :Object) it])
@@ -288,15 +348,15 @@
                                     (..simple ..Text (_.u32_string "")))
 
                         ... Out functions
-                        (let [it (_.local "it")]
+                        (let [it (_.local (..name))]
                           (_.function (_.local <object_tag>)
                             (list)
                             (list [..value_type it])
                             //type.i64
-                            (_.return (_.the* <Object/type> it))))
+                            (_.return (_.the* <Object#type> it))))
 
                         (,, (with_template [<name> <type>]
-                              [(let [it (_.local "it")]
+                              [(let [it (_.local (..name))]
                                  (_.function (_.local <name>)
                                    (list)
                                    (list [..value_type it])
@@ -307,8 +367,8 @@
                               [<lux_i64> //type.i64]
                               ))
 
-                        (let [it (_.local "it")
-                              converter (_.local "converter")
+                        (let [it (_.local (..name))
+                              converter (_.local (..name))
                               converter_type (_.type (_.global [(list _.standard) "wstring_convert"]
                                                                (list (_.type (_.global [(list _.standard) "codecvt_utf8"]
                                                                                        (list type.char32)))
@@ -325,33 +385,212 @@
                                              converter)))))
 
                         (,, (with_template [<name> <field> <type>]
-                              [(let [it (_.local "it")]
+                              [(let [it (_.local (..name))]
                                  (_.function (_.local <name>)
                                    (list)
                                    (list [..value_type it])
                                    <type>
                                    (_.return (_.the* <field> (host_value ..variant_type it)))))]
 
-                              [<variant_lefts> <lefts> //type.i64]
-                              [<variant_right?> <right?> //type.bit]
-                              [<variant_choice> <choice> ..value_type]
+                              [<variant_lefts> <Variant#lefts> //type.i64]
+                              [<variant_right?> <Variant#right?> //type.bit]
+                              [<variant_choice> <Variant#choice> ..value_type]
                               ))
 
-                        (let [it (_.local "it")]
-                          (_.function (_.local <tuple_arity>)
+                        (let [it (_.local (..name))]
+                          (_.function (_.local <tuple::arity>)
                             (list)
                             (list [..value_type it])
                             //type.i64
-                            (_.return (_.the* <arity> (host_value ..tuple_type it)))))
+                            (_.return (_.the* <Tuple#arity> (host_value ..tuple_type it)))))
 
-                        (let [item (_.local "item")
-                              it (_.local "it")]
-                          (_.function (_.local <tuple_member>)
+                        (let [item (_.local (..name))
+                              it (_.local (..name))]
+                          (_.function (_.local <tuple::member>)
                             (list)
                             (list [//type.i64 item]
                                   [..value_type it])
                             ..value_type
-                            (_.return (_.item item (_.the* <values> (host_value ..tuple_type it))))))
+                            (_.return (_.item item (_.the* <Tuple#values> (host_value ..tuple_type it))))))
+
+                        (let [function::on (_.local <function::on>)
+                              
+                              current_arity (_.local (..name))
+                              arguments (_.local (..name))
+                              it (_.local (..name))
+
+                              partiality (_.local (..name))
+                              expected_arity (_.local (..name))
+                              actual_arity (_.local (..name))
+
+                              partials (is (-> _.Local _.Local _.Local _.Local
+                                               _.Local
+                                               _.Statement)
+                                           (.function (_ old_partiality old_values new_partiality new_values
+                                                         output)
+                                             (let [full_partiality (_.local (..name))
+                                                   item (_.local (..name))]
+                                               (all _.then
+                                                    (_.constant full_partiality
+                                                                //type.arity
+                                                                (_.+ old_partiality new_partiality))
+                                                    (_.constant output
+                                                                (_.* ..value_type)
+                                                                (_.new (_.array value_type full_partiality (list))))
+                                                    (_.for (list [type.int item (_.int +0)])
+                                                           (_.< old_partiality item)
+                                                           (_.:= item (_.+ (_.int +1) item))
+                                                           (_.:= (_.item item output)
+                                                                 (_.item item old_values)))
+                                                    (_.for (list [type.int item (_.int +0)])
+                                                           (_.< new_partiality item)
+                                                           (_.:= item (_.+ (_.int +1) item))
+                                                           (_.:= (_.item (_.+ old_partiality item) output)
+                                                                 (_.item item new_values)))
+                                                    ))))
+                              on#exact (is (-> _.Local _.Local _.Local
+                                               _.Local
+                                               _.Statement)
+                                           (.function (_ current_arity arguments it
+                                                         partiality)
+                                             (let [output (_.local (..name))
+                                                   all_arguments (_.local (..name))
+                                                   old_partials (_.local (..name))]
+                                               (_.if (_.= (_.int +0) partiality)
+                                                 (all _.then
+                                                      (_.constant output
+                                                                  ..value_type
+                                                                  (|> it
+                                                                      (host_value function_type)
+                                                                      (_.the* <Function#closure>)
+                                                                      (_.on (list it arguments))))
+                                                      (_.delete_array arguments)
+                                                      (_.return output)
+                                                      )
+                                                 (all _.then
+                                                      (_.constant old_partials
+                                                                  (_.* ..value_type)
+                                                                  (|> it
+                                                                      (host_value function_type)
+                                                                      (_.the* <Function#partials>)))
+                                                      (partials partiality old_partials current_arity arguments
+                                                                all_arguments)
+                                                      (_.delete_array arguments)
+                                                      (_.constant output
+                                                                  ..value_type
+                                                                  (|> it
+                                                                      (host_value function_type)
+                                                                      (_.the* <Function#closure>)
+                                                                      (_.on (list it all_arguments))))
+                                                      (_.delete_array all_arguments)
+                                                      (_.return output)
+                                                      )))))
+                              on#under (is (-> _.Local _.Local _.Local
+                                               _.Local _.Local _.Local
+                                               _.Statement)
+                                           (.function (_ current_arity arguments it
+                                                         partiality expected_arity actual_arity)
+                                             (let [all_partials (_.local (..name))
+                                                   old_partials (_.local (..name))]
+                                               (all _.then
+                                                    (_.constant old_partials
+                                                                (_.* ..value_type)
+                                                                (|> it
+                                                                    (host_value function_type)
+                                                                    (_.the* <Function#partials>)))
+                                                    (partials partiality old_partials current_arity arguments
+                                                              all_partials)
+                                                    (_.delete_array arguments)
+                                                    (_.return (|> it
+                                                                  (host_value function_type)
+                                                                  (_.the* <Function#closure>)
+                                                                  (function' actual_arity all_partials expected_arity)))
+                                                    ))))
+                              on#over (is (-> _.Local _.Local _.Local
+                                              _.Local _.Local
+                                              _.Statement)
+                                          (.function (_ current_arity arguments it
+                                                        old_partiality expected_arity)
+                                            (let [old_values (_.local (..name))
+                                                  cap_arity (_.local (..name))
+                                                  complete_arguments (_.local (..name))
+                                                  temporary (_.local (..name))
+                                                  new_partiality (_.local (..name))
+                                                  new_partials (_.local (..name))
+                                                  item (_.local (..name))
+
+                                                  assemble_all_arguments!
+                                                  (all _.then
+                                                       (_.constant old_values
+                                                                   (_.* ..value_type)
+                                                                   (|> it
+                                                                       (host_value function_type)
+                                                                       (_.the* <Function#partials>)))
+                                                       (_.constant cap_arity
+                                                                   //type.arity
+                                                                   (_.- old_partiality expected_arity))
+                                                       (partials old_partiality old_values cap_arity arguments
+                                                                 complete_arguments))
+
+                                                  calculate_intermediate_result!
+                                                  (all _.then
+                                                       (_.constant temporary
+                                                                   ..value_type
+                                                                   (|> it
+                                                                       (host_value function_type)
+                                                                       (_.the* <Function#closure>)
+                                                                       (_.on (list it complete_arguments))))
+                                                       (_.delete_array complete_arguments)
+                                                       )
+
+                                                  prepare_next_arguments!
+                                                  (all _.then
+                                                       (_.constant new_partiality
+                                                                   //type.arity
+                                                                   (_.- cap_arity current_arity))
+                                                       (_.constant new_partials
+                                                                   (_.* ..value_type)
+                                                                   (_.new (_.array value_type new_partiality (list))))
+                                                       (_.for (list [type.int item (_.int +0)])
+                                                              (_.< new_partiality item)
+                                                              (_.:= item (_.+ (_.int +1) item))
+                                                              (_.:= (_.item item new_partials)
+                                                                    (_.item (_.+ cap_arity item) arguments)))
+                                                       (_.delete_array arguments)
+                                                       )]
+                                              (all _.then
+                                                   assemble_all_arguments!
+                                                   calculate_intermediate_result!
+                                                   prepare_next_arguments!
+                                                   (_.return (_.on (list new_partiality new_partials temporary)
+                                                                   function::on))
+                                                   ))))]
+                          (_.function function::on
+                            (list)
+                            (list [//type.arity current_arity]
+                                  [(_.* ..value_type) arguments]
+                                  [..value_type it])
+                            ..value_type
+                            (all _.then
+                                 (_.constant partiality
+                                             //type.arity
+                                             (_.the* <Function#partiality> (host_value function_type it)))
+                                 (_.constant expected_arity
+                                             //type.arity
+                                             (_.the* <Function#arity> (host_value function_type it)))
+                                 (_.constant actual_arity
+                                             //type.arity
+                                             (_.+ current_arity partiality))
+                                 (_.if (_.= expected_arity actual_arity)
+                                   (on#exact current_arity arguments it
+                                             partiality)
+                                   (_.if (_.< expected_arity actual_arity)
+                                     (on#under current_arity arguments it
+                                               partiality expected_arity actual_arity)
+                                     (on#over current_arity arguments it
+                                              partiality expected_arity)))
+                                 )
+                            ))
                         ))))))
 
   (def .public unit
