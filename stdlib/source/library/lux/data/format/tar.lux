@@ -35,7 +35,8 @@
      ["[0]" i64]]]
    [meta
     [macro
-     ["^" pattern]]
+     ["^" pattern]
+     ["[0]" template]]
     [type
      ["[0]" nominal (.except def #name)]]]
    [world
@@ -52,7 +53,8 @@
   8)
 
 (def (octal_padding max_size number)
-  (-> Size Text Text)
+  (-> Size Text
+      Text)
   (let [padding_size (n.- (text.size number)
                           max_size)
         padding (|> "0"
@@ -86,13 +88,15 @@
      Nat
 
      (def .public (<in> value)
-       (-> Nat (Try <type>))
+       (-> Nat
+           (Try <type>))
        (if (n.< <limit> value)
          {try.#Success (abstraction value)}
          (exception.except <exception> [value])))
 
      (def .public <out>
-       (-> <type> Nat)
+       (-> <type>
+           Nat)
        (|>> representation))
 
      (def <format>
@@ -107,7 +111,8 @@
               (!binary.segment padded_size))))
 
      (def <coercion>
-       (-> Nat <type>)
+       (-> Nat
+           <type>)
        (|>> (n.% <limit>)
             abstraction))
      )]
@@ -128,50 +133,59 @@
    (list ["Expected" (%.nat expected)]
          ["Actual" (%.nat actual)])))
 
+(def parsed
+  (template (_ <state> <binding> <parser> <body>)
+    [(when (<parser> <state>)
+       {try.#Success [<state> <binding>]}
+       <body>
+
+       {try.#Failure error}
+       {try.#Failure error})]))
+
 (def small_suffix
   (Parser Any)
-  (do <>.monad
-    [pre_end ?binary.bits_8
-     _ (let [expected (`` (char (,, (static ..blank))))]
-         (<>.assertion (exception.error ..wrong_character [expected pre_end])
-                       (n.= expected pre_end)))
-
-     end ?binary.bits_8
-     _ (let [expected (`` (char (,, (static ..null))))]
-         (<>.assertion (exception.error ..wrong_character [expected end])
-                       (n.= expected end)))]
-    (in [])))
+  (<| (function (_ state))
+      (parsed state pre_end ?binary.bits_8)
+      (let [expected (`` (char (,, (static ..blank))))])
+      (if (not (n.= expected pre_end))
+        (exception.except ..wrong_character [expected pre_end]))
+      (parsed state end ?binary.bits_8)
+      (let [expected (`` (char (,, (static ..null))))])
+      (if (not (n.= expected end))
+        (exception.except ..wrong_character [expected end]))
+      {try.#Success [state []]}))
 
 (def small_parser
   (Parser Small)
-  (do <>.monad
-    [digits (?binary.segment ..small_size)
-     digits (<>.of_try (of utf8.codec decoded digits))
-     _ ..small_suffix]
-    (<>.of_try
-     (do [! try.monad]
-       [value (of n.octal decoded digits)]
-       (..small value)))))
+  (<| (function (_ state))
+      (parsed state digits (?binary.segment ..small_size))
+      (parsed state digits (<>.of_try (of utf8.codec decoded digits)))
+      (parsed state _ ..small_suffix)
+      (do [! try.monad]
+        [value (of n.octal decoded digits)
+         value (..small value)]
+        (in [state value]))))
 
 (def big_parser
   (Parser Big)
-  (do <>.monad
-    [digits (?binary.segment ..big_size)
-     digits (<>.of_try (of utf8.codec decoded digits))
-     end ?binary.bits_8
-     _ (let [expected (`` (char (,, (static ..blank))))]
-         (<>.assertion (exception.error ..wrong_character [expected end])
-                       (n.= expected end)))]
-    (<>.of_try
-     (do [! try.monad]
-       [value (of n.octal decoded digits)]
-       (..big value)))))
+  (<| (function (_ state))
+      (parsed state digits (?binary.segment ..big_size))
+      (parsed state digits (<>.of_try (of utf8.codec decoded digits)))
+      (parsed state end ?binary.bits_8)
+      (let [expected (`` (char (,, (static ..blank))))])
+      (if (not (n.= expected end))
+        (exception.except ..wrong_character [expected end]))
+      (do [! try.monad]
+        [value (of n.octal decoded digits)
+         value (..big value)]
+        (in [state value]))))
 
 (nominal.def Checksum
   Text
 
   (def from_checksum
-    (-> Checksum Text)
+    (-> Checksum
+        Text)
     (|>> representation))
 
   (def dummy_checksum
@@ -182,7 +196,8 @@
     (%.format ..blank ..null))
 
   (def checksum
-    (-> Binary Nat)
+    (-> Binary
+        Nat)
     (binary.mix n.+ 0))
 
   (def checksum_checksum
@@ -192,7 +207,8 @@
         ..checksum))
 
   (def checksum_code
-    (-> Binary Checksum)
+    (-> Binary
+        Checksum)
     (|>> ..checksum
          ..as_small
          ..from_small
@@ -211,14 +227,14 @@
 
   (def checksum_parser
     (Parser [Nat Checksum])
-    (do <>.monad
-      [ascii (?binary.segment ..small_size)
-       digits (<>.of_try (of utf8.codec decoded ascii))
-       _ ..small_suffix
-       value (<>.of_try
-              (of n.octal decoded digits))]
-      (in [value
-           (abstraction (%.format digits ..checksum_suffix))])))
+    (<| (function (_ state))
+        (parsed state ascii (?binary.segment ..small_size))
+        (parsed state digits (<>.of_try (of utf8.codec decoded ascii)))
+        (parsed state _ ..small_suffix)
+        (parsed state value (<>.of_try
+                             (of n.octal decoded digits)))
+        {try.#Success [state [value
+                              (abstraction (%.format digits ..checksum_suffix))]]}))
   )
 
 (def last_ascii
@@ -226,7 +242,8 @@
   (number.hex "007F"))
 
 (def ascii?
-  (-> Text Bit)
+  (-> Text
+      Bit)
   (|>> (of utf8.codec encoded)
        (binary.mix (function (_ char verdict)
                      (.and verdict
@@ -242,7 +259,8 @@
 (def .public path_size Size 99)
 
 (def (un_padded string)
-  (-> Binary Binary)
+  (-> Binary
+      Binary)
   (when (binary!.size string)
     0
     string
@@ -271,7 +289,8 @@
               ["Maximum" (%.nat <size>)])))
 
      (def .public (<in> value)
-       (-> <representation> (Try <type>))
+       (-> <representation>
+           (Try <type>))
        (if (..ascii? value)
          (if (|> value
                  (of utf8.codec encoded)
@@ -282,7 +301,8 @@
          (exception.except ..not_ascii [value])))
 
      (def .public <out>
-       (-> <type> <representation>)
+       (-> <type>
+           <representation>)
        (|>> representation))
 
      (def <format>
@@ -296,16 +316,16 @@
 
      (def <parser>
        (Parser <type>)
-       (do <>.monad
-         [string (?binary.segment <size>)
-          end ?binary.bits_8
-          .let [expected (`` (char (,, (static ..null))))]
-          _ (<>.assertion (exception.error ..wrong_character [expected end])
-                          (n.= expected end))]
-         (<>.of_try
-          (do [! try.monad]
-            [text (of utf8.codec decoded (..un_padded string))]
-            (<in> text)))))
+       (<| (function (_ state))
+           (parsed state string (?binary.segment <size>))
+           (parsed state end ?binary.bits_8)
+           (let [expected (`` (char (,, (static ..null))))])
+           (if (not (n.= expected end))
+             (exception.except ..wrong_character [expected end]))
+           (do [! try.monad]
+             [text (of utf8.codec decoded (..un_padded string))
+              it (<in> text)]
+             (in [state it]))))
 
      (def .public <none>
        <type>
@@ -325,7 +345,8 @@
     (abstraction "ustar  "))
 
   (def from_magic
-    (-> Magic Text)
+    (-> Magic
+        Text)
     (|>> representation))
 
   (def magic_format
@@ -338,15 +359,14 @@
 
   (def magic_parser
     (Parser Magic)
-    (do <>.monad
-      [string (?binary.segment ..magic_size)
-       end ?binary.bits_8
-       .let [expected (`` (char (,, (static ..null))))]
-       _ (<>.assertion (exception.error ..wrong_character [expected end])
-                       (n.= expected end))]
-      (<>.of_try
-       (of try.monad each (|>> abstraction)
-           (of utf8.codec decoded string)))))
+    (<| (function (_ state))
+        (parsed state string (?binary.segment ..magic_size))
+        (parsed state end ?binary.bits_8)
+        (let [expected (`` (char (,, (static ..null))))])
+        (if (not (n.= expected end))
+          (exception.except ..wrong_character [expected end]))
+        (of try.monad each (|>> abstraction [state])
+            (of utf8.codec decoded string))))
   )
 
 (def block_size Size 512)
@@ -363,15 +383,18 @@
 (def device_size Size ..small_size)
 
 (def small_number
-  (-> Size Size)
+  (-> Size
+      Size)
   (|>> (all n.+ ..blank_size ..null_size)))
 
 (def big_number
-  (-> Size Size)
+  (-> Size
+      Size)
   (|>> (all n.+ ..blank_size)))
 
 (def string
-  (-> Size Size)
+  (-> Size
+      Size)
   (|>> (all n.+ ..null_size)))
 
 (def header_size
@@ -409,7 +432,8 @@
   Char
 
   (def link_flag
-    (-> Link_Flag Char)
+    (-> Link_Flag
+        Char)
     (|>> representation))
 
   (def link_flag_format
@@ -441,28 +465,30 @@
 
     (def link_flag_parser
       (Parser Link_Flag)
-      (do <>.monad
-        [it ?binary.bits_8]
-        (when (.nat it)
-          (^.with_template [<value> <link_flag>]
-            [<value>
-             (in <link_flag>)])
-          (<options>)
+      (<| (function (_ state))
+          (parsed state it ?binary.bits_8)
+          (when (.nat it)
+            (^.with_template [<value> <link_flag>]
+              [<value>
+               {try.#Success [state <link_flag>]}])
+            (<options>)
 
-          _
-          (<>.of_try
-           (exception.except ..invalid_link_flag [(.nat it)]))))))
+            _
+            (exception.except ..invalid_link_flag [(.nat it)]))))
+    )
   )
 
 (nominal.def .public Mode
   Nat
 
   (def .public mode
-    (-> Mode Nat)
+    (-> Mode
+        Nat)
     (|>> representation))
 
   (def .public (and left right)
-    (-> Mode Mode Mode)
+    (-> Mode Mode
+        Mode)
     (abstraction
      (i64.or (representation left)
              (representation right))))
@@ -526,13 +552,14 @@
 
     (def mode_parser
       (Parser Mode)
-      (do [! <>.monad]
-        [value (of ! each ..from_small ..small_parser)]
-        (if (n.> (representation ..maximum_mode)
-                 value)
-          (<>.of_try
-           (exception.except ..invalid_mode [value]))
-          (in (abstraction value))))))
+      (<| (function (_ state))
+          (parsed state value ..small_parser)
+          (let [value (..from_small value)])
+          (if (n.> (representation ..maximum_mode)
+                   value)
+            (exception.except ..invalid_mode [value])
+            {try.#Success [state (abstraction value)]})))
+    )
   )
 
 (def maximum_content_size
@@ -545,18 +572,22 @@
   [Big Binary]
 
   (def .public (content it)
-    (-> Binary (Try Content))
+    (-> Binary
+        (Try Content))
     (do try.monad
       [size (..big (binary!.size it))]
       (in (abstraction [size it]))))
 
   (def from_content
-    (-> Content [Big Binary])
+    (-> Content
+        [Big Binary])
     (|>> representation))
 
   (def .public data
-    (-> Content Binary)
-    (|>> representation product.right))
+    (-> Content
+        Binary)
+    (|>> representation
+         product.right))
   )
 
 (type .public ID
@@ -639,7 +670,8 @@
     (exception.except ..unknown_file [expected])))
 
 (def (blocks size)
-  (-> Big Nat)
+  (-> Big
+      Nat)
   (n.+ (n./ ..block_size
             (..from_big size))
        (when (n.% ..block_size (..from_big size))
@@ -647,7 +679,8 @@
          _ 1)))
 
 (def rounded_content_size
-  (-> Big Nat)
+  (-> Big
+      Nat)
   (|>> ..blocks
        (n.* ..block_size)))
 
@@ -699,14 +732,16 @@
         (!binary.segment ..block_size))))
 
 (def modification_time
-  (-> Instant Big)
+  (-> Instant
+      Big)
   (|>> instant.relative
        (duration.ticks duration.second)
        .nat
        ..as_big))
 
 (def (file_format link_flag)
-  (-> Link_Flag (Format File))
+  (-> Link_Flag
+      (Format File))
   (function (_ [path modification_time mode ownership content])
     (let [[size content] (..from_content content)
           format (all !binary.and
@@ -810,7 +845,8 @@
 ... To correct for this, it is necessary to calculate the checksum of just the checksum field, subtract that, and then
 ... add-in the checksum of the spaces.
 (def (expected_checksum checksum header)
-  (-> Checksum Binary Nat)
+  (-> Checksum Binary
+      Nat)
   (let [|checksum| (|> checksum
                        ..from_checksum
                        (of utf8.codec encoded)
@@ -821,81 +857,105 @@
 
 (def header_parser
   (Parser Header)
-  (do <>.monad
-    [binary_header (<>.speculative (?binary.segment block_size))
-     path ..path_parser
-     mode ..mode_parser
-     user_id ..small_parser
-     group_id ..small_parser
-     size ..big_parser
-     modification_time ..big_parser
-     [actual checksum_code] ..checksum_parser
-     _ (let [expected (expected_checksum checksum_code binary_header)]
-         (<>.of_try
-          (exception.assertion ..wrong_checksum [expected actual]
-                               (n.= expected actual))))
-     link_flag ..link_flag_parser
-     link_name ..path_parser
-     magic ..magic_parser
-     user_name ..name_parser
-     group_name ..name_parser
-     major_device ..small_parser
-     minor_device ..small_parser
-     _ (?binary.segment ..header_padding_size)]
-    (in [#path path
-         #mode mode
-         #user_id user_id
-         #group_id group_id
-         #size size
-         #modification_time modification_time
-         #checksum checksum_code
-         #link_flag link_flag
-         #link_name link_name
-         #magic magic
-         #user_name user_name
-         #group_name group_name
-         #major_device major_device
-         #minor_device minor_device])))
+  (function (_ state)
+    (`` (<| (,, (with_template [<binding> <parser>]
+                  [(parsed state <binding> <parser>)]
+
+                  [binary_header (<>.speculative (?binary.segment block_size))]
+                  [path ..path_parser]
+                  [mode ..mode_parser]
+                  [user_id ..small_parser]
+                  [group_id ..small_parser]
+                  [size ..big_parser]
+                  [modification_time ..big_parser]
+                  [[actual checksum_code] ..checksum_parser]
+                  ))
+            (let [expected (expected_checksum checksum_code binary_header)])
+            (if (not (n.= expected actual))
+              (exception.except ..wrong_checksum [expected actual]))
+            (,, (with_template [<binding> <parser>]
+                  [(parsed state <binding> <parser>)]
+
+                  [link_flag ..link_flag_parser]
+                  [link_name ..path_parser]
+                  [magic ..magic_parser]
+                  [user_name ..name_parser]
+                  [group_name ..name_parser]
+                  [major_device ..small_parser]
+                  [minor_device ..small_parser]
+                  [_ (?binary.segment ..header_padding_size)]
+                  ))
+            {try.#Success [state [#path path
+                                  #mode mode
+                                  #user_id user_id
+                                  #group_id group_id
+                                  #size size
+                                  #modification_time modification_time
+                                  #checksum checksum_code
+                                  #link_flag link_flag
+                                  #link_name link_name
+                                  #magic magic
+                                  #user_name user_name
+                                  #group_name group_name
+                                  #major_device major_device
+                                  #minor_device minor_device]]}))))
 
 (def (file_parser header)
-  (-> Header (Parser File))
-  (do <>.monad
-    [.let [size (the #size header)
-           rounded_size (..rounded_content_size size)]
-     content (?binary.segment (..from_big size))
-     content (<>.of_try (..content content))
-     _ (?binary.segment (n.- (..from_big size) rounded_size))]
-    (in [(the #path header)
-         (|> header
-             (the #modification_time)
-             ..from_big
-             .int
-             duration.of_millis
-             (duration.up (|> duration.second duration.millis .nat))
-             instant.absolute)
-         (the #mode header)
-         [#user [#name (the #user_name header)
-                 #id (the #user_id header)]
-          #group [#name (the #group_name header)
-                  #id (the #group_id header)]]
-         content])))
+  (-> Header
+      (Parser File))
+  (function (_ state)
+    (`` (<| (let [size (the #size header)
+                  rounded_size (..rounded_content_size size)])
+            (,, (with_template [<binding> <parser>]
+                  [(parsed state <binding> <parser>)]
+
+                  [content (?binary.segment (..from_big size))]
+                  [content (<>.of_try (..content content))]
+                  [_ (?binary.segment (n.- (..from_big size) rounded_size))]
+                  ))
+            {try.#Success [state [(the #path header)
+                                  (|> header
+                                      (the #modification_time)
+                                      ..from_big
+                                      .int
+                                      duration.of_millis
+                                      (duration.up (|> duration.second duration.millis .nat))
+                                      instant.absolute)
+                                  (the #mode header)
+                                  [#user [#name (the #user_name header)
+                                          #id (the #user_id header)]
+                                   #group [#name (the #group_name header)
+                                           #id (the #group_id header)]]
+                                  content]]}))))
 
 (def entry_parser
   (Parser Entry)
-  (do [! <>.monad]
-    [header ..header_parser]
-    (cond (same? ..contiguous (the #link_flag header))
-          (of ! each (|>> {..#Contiguous}) (..file_parser header))
+  (function (_ state)
+    (when (..header_parser state)
+      {try.#Success [state header]}
+      (template.let [(of_file <tag>)
+                     [(when (..file_parser header state)
+                        {try.#Success [state it]}
+                        {try.#Success [state {<tag> it}]}
 
-          (same? ..symbolic_link (the #link_flag header))
-          (in {..#Symbolic_Link (the #link_name header)})
-          
-          (same? ..directory (the #link_flag header))
-          (in {..#Directory (the #path header)})
+                        {try.#Failure error}
+                        {try.#Failure error})]
+                     
+                     (of_other <flag> <tag> <slot>)
+                     [(same? <flag> (the #link_flag header))
+                      {try.#Success [state {<tag> (the <slot> header)}]}]]
+        (`` (cond (or (same? ..normal (the #link_flag header))
+                      (same? ..old_normal (the #link_flag header)))
+                  (,, (of_file ..#Normal))
 
-          ... (or (same? ..normal (the #link_flag header))
-          ...     (same? ..old_normal (the #link_flag header)))
-          (of ! each (|>> {..#Normal}) (..file_parser header)))))
+                  (,, (of_other ..symbolic_link ..#Symbolic_Link #link_name))
+                  (,, (of_other ..directory ..#Directory #path))
+
+                  ... (same? ..contiguous (the #link_flag header))
+                  (,, (of_file ..#Contiguous)))))
+
+      {try.#Failure error}
+      {try.#Failure error})))
 
 ... It's safe to implement the parser this way because the range of values for Nat is 2^64
 ... Whereas the maximum possible value for the checksum of a 512 block is (256 × 512) = 131,072
