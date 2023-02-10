@@ -3,7 +3,7 @@
 
 (.require
  [library
-  [lux (.except Code Type Global Declaration Definition
+  [lux (.except Code Type Global Declaration Definition Label
                 int as function template local global type also of is if for alias)
    [abstract
     [equivalence (.only Equivalence)]]
@@ -35,6 +35,7 @@
 (def template_delimiters ["<" ">"])
 (def initialization_delimiters ["{" "}"])
 (def capture_delimiters ["[" "]"])
+(def array_delimiters ..capture_delimiters)
 
 (nominal.def .public (Code of)
   Text
@@ -75,7 +76,8 @@
      [[Capture []]
       [Parameter [of]]
       [Expression [of]]
-      [Statement [of]]]]
+      [Statement [of]]
+      [Label [of]]]]
 
     [Parameter
      [[Type [of]]]]
@@ -99,10 +101,12 @@
       [Computation [of]]]]
 
     [Computation
-     [[Instantiation []]]]
+     [[Instantiation []]
+      [Initialization []]]]
 
     [Statement
-     [[Declaration [of]]]]
+     [[Declaration [of]]
+      [Block []]]]
 
     [Declaration
      [[Definition [of]]]]
@@ -237,22 +241,26 @@
         Instantiation)
     (<% (%.format (%> constructor) (application parameters))))
 
-  (def initialization
+  (def .public initialization
     (-> (List Expression)
-        Text)
+        Initialization)
     (|>> (list#each ..code)
          (text.interposed ..parameter_separator)
-         (text.enclosed ..initialization_delimiters)))
+         (text.enclosed ..initialization_delimiters)
+         <%))
 
   (def .public (structure name parameters)
     (-> Type (List Expression)
         Instantiation)
-    (<% (%.format (%> name) (initialization parameters))))
+    (<% (%.format (%> name)
+                  (%> (initialization parameters)))))
 
   (def .public (array type arity initials)
     (-> Type Expression (List Expression)
         Instantiation)
-    (<% (%.format (%> type) "[" (%> arity) "]" " " (initialization initials))))
+    (<% (%.format (%> type)
+                  (text.enclosed ..array_delimiters (%> arity))
+                  " " (%> (initialization initials)))))
 
   (def .public (new it)
     (-> Instantiation
@@ -347,28 +355,30 @@
          (text.interposed ..parameter_separator)
          (text.enclosed ..term_delimiters)))
 
-  (def block
-    (-> Text
-        Text)
+  (def .public block
+    (-> Statement
+        Block)
     (let [\n\t (%.format \n \t)
           <| (%.format "{" \n\t)
           |> (%.format \n "}")]
-      (|>> (text.replaced \n \n\t)
-           (text.enclosed [<| |>]))))
+      (|>> %>
+           (text.replaced \n \n\t)
+           (text.enclosed [<| |>])
+           <%)))
 
   (def .public (function name types inputs output body)
     (-> Local (List Type_Name) (List Argument) Type Statement
         Definition)
     (<% (%.format (..template types)
                   (%> output) " " (%> name) (..arguments inputs)
-                  " " (..block (%> body)))))
+                  " " (%> (..block body)))))
 
   (def .public (namespace it body)
     (-> Namespace Declaration
         Declaration)
     (<% (%.format "namespace"
                   " " it
-                  " " (..block (%> body)))))
+                  " " (%> (..block body)))))
 
   ... https://en.cppreference.com/w/cpp/types/integer
   (with_template [<name>]
@@ -418,7 +428,7 @@
         Method)
     (.function (_ of)
       (<% (%.format "~" (%> of) "()"
-                    " " (block (%> body))))))
+                    " " (%> (block body))))))
 
   (def .public (var_declaration name type)
     (-> Local Type
@@ -430,6 +440,13 @@
     (-> Local Type Expression
         Definition)
     (..statement (%.format (%> type) " const " (%> name) " = " (%> value))))
+
+  (def .public (constant_array name type size value)
+    (-> Local Type Literal Expression
+        Definition)
+    (..statement (%.format (%> type) " const " (%> name)
+                           (text.enclosed ..array_delimiters (%> size))
+                           " = " (%> value))))
 
   (def .public (variable name type value)
     (-> Local Type Expression
@@ -447,14 +464,17 @@
     (..statement
      (%.format "struct"
                " " (%> name)
-               " " (block (|> (all list#composite
-                                   (list#each (.function (_ [name type])
-                                                (%> (var_declaration name type)))
-                                              fields)
-                                   (list#each (.function (_ it)
-                                                (..code (it name)))
-                                              methods))
-                              (text.interposed \n))))))
+               " " (|> (all list#composite
+                            (list#each (.function (_ [name type])
+                                         (%> (var_declaration name type)))
+                                       fields)
+                            (list#each (.function (_ it)
+                                         (..code (it name)))
+                                       methods))
+                       (text.interposed \n)
+                       <%
+                       ..block
+                       %>))))
 
   (def .public (enum_definition name options)
     (-> Local (List Local)
@@ -462,9 +482,12 @@
     (..statement
      (%.format "enum"
                " " (%> name)
-               " " (block (|> options
-                              (list#each ..code)
-                              (text.interposed ..parameter_separator))))))
+               " " (|> options
+                       (list#each ..code)
+                       (text.interposed ..parameter_separator)
+                       <%
+                       ..block
+                       %>))))
 
   (def captures
     (-> (List Capture)
@@ -496,7 +519,7 @@
                   (|> output
                       (maybe#each (|>> %> (%.format " -> ")))
                       (maybe.else ""))
-                  " " (..block (%> body)))))
+                  " " (%> (..block body)))))
 
   (def .public (? when then else)
     (-> Expression Expression Expression
@@ -515,7 +538,8 @@
   (def .public (item index array)
     (-> Expression Expression
         LValue)
-    (<% (%.format (%> array) "[" (%> index) "]")))
+    (<% (%.format (%> array)
+                  (text.enclosed ..array_delimiters (%> index)))))
 
   (with_template [<name> <operator>]
     [(def .public (<name> parameter subject)
@@ -542,8 +566,8 @@
     (-> Expression Statement Statement
         Statement)
     (<% (%.format "if" (..term (%> when))
-                  " " (..block (%> then))
-                  " else " (..block (%> else)))))
+                  " " (%> (..block then))
+                  " else " (%> (..block else)))))
 
   (def (for_initialization [type variable value])
     (-> [Type Local Expression]
@@ -566,5 +590,24 @@
                     (text.interposed (%.format ..statement_separator " "))
                     (text.enclosed ..term_delimiters))]
       (<% (%.format "for" setup
-                    " " (..block (%> body))))))
+                    " " (%> (..block body))))))
+
+  (def .public label
+    (-> Text
+        Label)
+    (|>> <%))
+
+  (def .public set_label
+    (-> Label
+        Statement)
+    (|>> %>
+         (text.suffix ":")
+         <%))
+
+  (def .public go_to
+    (-> Label
+        Statement)
+    (|>> %>
+         (%.format "goto ")
+         ..statement))
   )
