@@ -3038,17 +3038,17 @@
         (meta#in (list syntax))}
        syntax))
 
-(def' .private (normal_type type)
-      (-> Code
+(def' .private (normal_type type#literal' type)
+      (-> (-> Code ($ Meta Code)) Code
           ($ Meta Code))
       ({[_ {#Variant {#Item [_ {#Symbol symbol}] parts}}]
         (<| (function' [lux])
-            (meta#let lux [parts (monad#each#meta normal_type parts)])
+            (meta#let lux [parts (monad#each#meta (normal_type type#literal') parts)])
             (meta#return lux (` {(, (symbol$ symbol)) (,* parts)})))
 
         [_ {#Tuple members}]
         (<| (function' [lux])
-            (meta#let lux [members (monad#each#meta normal_type members)])
+            (meta#let lux [members (monad#each#meta (normal_type type#literal') members)])
             (meta#return lux (` (Tuple (,* members)))))
 
         [_ {#Form {#Item [_ {#Symbol ["library/lux" "in_module#"]}]
@@ -3056,7 +3056,7 @@
                                 {#Item type'
                                        {#End}}}}}]
         (<| (function' [lux])
-            (meta#let lux [type' (normal_type type')])
+            (meta#let lux [type' (normal_type type#literal' type')])
             (meta#return lux (` (.in_module# (, (text$ module)) (, type')))))
 
         [_ {#Form {#Item [_ {#Symbol ["" ","]}] {#Item expression {#End}}}}]
@@ -3066,7 +3066,7 @@
                           {#Item value
                                  {#End}}}}]
         (<| (function' [lux])
-            (meta#let lux [body (normal_type body)])
+            (meta#let lux [body (normal_type type#literal' body)])
             (meta#return lux [_0 {#Form {#Item [_1 {#Variant {#Item binding {#Item body {#End}}}}]
                                                {#Item value
                                                       {#End}}}}]))
@@ -3077,17 +3077,25 @@
                                         {#Item body
                                                {#End}}}}}}]
         (<| (function' [lux])
-            (meta#let lux [body (normal_type body)])
+            (meta#let lux [body (normal_type type#literal' body)])
             (meta#return lux [_0 {#Form {#Item [_1 {#Symbol [..prelude "__adjusted_quantified_type__"]}]
                                                {#Item _permission
                                                       {#Item _level
                                                              {#Item body
                                                                     {#End}}}}}}]))
 
+        [_ {#Form {#Item [_ {#Form {#Item [_ {#Symbol ["library/lux" "in_module#"]}]
+                                          {#Item [_ {#Text "library/lux"}]
+                                                 {#Item [_ {#Symbol ["library/lux" "type#literal"]}]
+                                                        {#End}}}}}]
+                         {#Item type'
+                                {#End}}}}]
+        (type#literal' type')
+
         [_ {#Form {#Item type_fn args}}]
         (<| (function' [lux])
-            (meta#let lux [type_fn (normal_type type_fn)])
-            (meta#let lux [args (monad#each#meta normal_type args)])
+            (meta#let lux [type_fn (normal_type type#literal' type_fn)])
+            (meta#let lux [args (monad#each#meta (normal_type type#literal') args)])
             (meta#return lux (list#mix (.is# (-> Code Code Code)
                                              (function' [arg type_fn] (` {.#Apply (, arg) (, type_fn)})))
                                        type_fn
@@ -3164,35 +3172,42 @@
                     ..#scope_type_vars scope_type_vars/pre
                     ..#eval eval/pre]))))
 
-(def' .public type_literal
+(def' .private (type#literal' type)
+      (-> Code
+          ($ Meta Code))
+      (<| (function' [lux])
+          (let' [initialized_quantification? (initialized_quantification? lux)])
+          (if initialized_quantification?
+            (<| (meta#let lux [type+ (total_expansion type)])
+                ({{#Item type' {#End}}
+                  (<| (meta#let lux [type'' (normal_type type#literal' type')])
+                      (meta#return lux type''))
+
+                  _
+                  (meta#failure "The expansion of the type-syntax had to yield a single element.")}
+                 type+))
+            (<| (meta#let lux [it (with_quantification'
+                                    (type#literal' type))])
+                (meta#return lux (..quantified it))))))
+
+(def' .private type#literal
       Macro
-      (macro (type_literal tokens)
+      (macro (type#literal tokens)
         ({{#Item type {#End}}
           (<| (function' [lux])
-              (let' [initialized_quantification? (initialized_quantification? lux)])
-              (if initialized_quantification?
-                (<| (meta#let lux [type+ (total_expansion type)])
-                    ({{#Item type' {#End}}
-                      (<| (meta#let lux [type'' (normal_type type')])
-                          (meta#return lux (list type'')))
-
-                      _
-                      (meta#failure "The expansion of the type-syntax had to yield a single element.")}
-                     type+))
-                (<| (meta#let lux [it (with_quantification'
-                                        (one_expansion
-                                         (type_literal tokens)))])
-                    (meta#return lux (list (..quantified it))))))
+              (meta#let lux [it (type#literal' type)])
+              (meta#return lux (list it)))
 
           _
-          (failure (..wrong_syntax_error (symbol ..type_literal)))}
+          (failure (..wrong_syntax_error (symbol ..type#literal)))}
          tokens)))
 
 (def' .public is
       Macro
       (macro (_ tokens)
         ({{#Item type {#Item value {#End}}}
-          (meta#in (list (` (.is# (..type_literal (, type))
+          (meta#in (list (` (.is# ((.in_module# (, (text$ ..prelude)) ..type#literal)
+                                   (, type))
                                   (, value)))))
 
           _
@@ -3203,7 +3218,8 @@
       Macro
       (macro (_ tokens)
         ({{#Item type {#Item value {#End}}}
-          (meta#in (list (` (.as# (..type_literal (, type))
+          (meta#in (list (` (.as# ((.in_module# (, (text$ ..prelude)) ..type#literal)
+                                   (, type))
                                   (, value)))))
 
           _
@@ -3248,7 +3264,7 @@
 
 (with_template [<name> <tag>]
   [(def' .private (<name> type)
-         (type_literal
+         (type#literal
           (-> Type
               (List Type)))
          ({{<tag> left right}
@@ -3264,7 +3280,7 @@
   )
 
 (def' .private (flat_application type)
-      (type_literal
+      (type#literal
        (-> Type
            [Type (List Type)]))
       ({{#Apply head func'}
@@ -3323,7 +3339,7 @@
        type))
 
 (def' .private (meta#try it)
-      (type_literal
+      (type#literal
        (All (_ of)
          (-> (Meta of)
              (Meta (Either Text of)))))
@@ -3346,7 +3362,7 @@
        it))
 
 (def' .private static'
-      (type_literal
+      (type#literal
        (-> Bit Code
            (Meta Code)))
       (let' [simple_literal (is (-> Symbol
@@ -3446,7 +3462,7 @@
       (.as# Macro' it))
 
 (def' .private (when_expansion#macro when_expansion pattern body branches)
-      (type_literal
+      (type#literal
        (-> (-> (List Code) (Meta (List Code))) Code Code (List Code)
            (Meta (List Code))))
       (do meta#monad
@@ -3456,7 +3472,7 @@
         (in (list#partial pattern body branches))))
 
 (def' .private (when_expansion branches)
-      (type_literal
+      (type#literal
        (-> (List Code)
            (Meta (List Code))))
       ({{#Item [@composite {#Form {#Item [@symbol {#Symbol global}] parameters}}]
@@ -3523,7 +3539,7 @@
            (failure "Wrong syntax for pattern#or")))))
 
 (def' .private (symbol? code)
-      (type_literal
+      (type#literal
        (-> Code
            Bit))
       (when code
@@ -3586,13 +3602,13 @@
 (def' .private Parser
       Type
       {#Named [..prelude "Parser"]
-              (type_literal
+              (type#literal
                (All (_ of)
                  (-> (List Code)
                      (Maybe [(List Code) of]))))})
 
 (def' .private (parsed parser tokens)
-      (type_literal
+      (type#literal
        (All (_ of)
          (-> (Parser of) (List Code)
              (Maybe of))))
@@ -3604,14 +3620,14 @@
         {#None}))
 
 (def' .private (inP it tokens)
-      (type_literal
+      (type#literal
        (All (_ of)
          (-> of
              (Parser of))))
       {#Some [tokens it]})
 
 (def' .private (orP leftP rightP tokens)
-      (type_literal
+      (type#literal
        (All (_ left right)
          (-> (Parser left)
              (Parser right)
@@ -3629,7 +3645,7 @@
           {#None})))
 
 (def' .private (eitherP leftP rightP tokens)
-      (type_literal
+      (type#literal
        (All (_ of)
          (-> (Parser of)
              (Parser of)
@@ -3642,7 +3658,7 @@
         it))
 
 (def' .private (andP leftP rightP tokens)
-      (type_literal
+      (type#literal
        (All (_ left right)
          (-> (Parser left)
              (Parser right)
@@ -3655,7 +3671,7 @@
         (in [tokens [left right]])))
 
 (def' .private (afterP leftP rightP tokens)
-      (type_literal
+      (type#literal
        (All (_ _ of)
          (-> (Parser _)
              (Parser of)
@@ -3666,7 +3682,7 @@
         (rightP tokens)))
 
 (def' .private (someP itP tokens)
-      (type_literal
+      (type#literal
        (All (_ of)
          (-> (Parser of)
              (Parser (List of)))))
@@ -3681,7 +3697,7 @@
         {#Some [tokens (list)]}))
 
 (def' .private (manyP itP tokens)
-      (type_literal
+      (type#literal
        (All (_ of)
          (-> (Parser of)
              (Parser (List of)))))
@@ -3693,7 +3709,7 @@
         (in [tokens (list#partial head tail)])))
 
 (def' .private (maybeP itP tokens)
-      (type_literal
+      (type#literal
        (All (_ of)
          (-> (Parser of)
              (Parser (Maybe of)))))
@@ -3705,7 +3721,7 @@
         {#Some [tokens {#None}]}))
 
 (def' .private (tupleP itP tokens)
-      (type_literal
+      (type#literal
        (All (_ of)
          (-> (Parser of)
              (Parser of))))
@@ -3719,7 +3735,7 @@
         {#None}))
 
 (def' .private (formP itP tokens)
-      (type_literal
+      (type#literal
        (All (_ of)
          (-> (Parser of)
              (Parser of))))
@@ -3733,7 +3749,7 @@
         {#None}))
 
 (def' .private (bindingP tokens)
-      (type_literal
+      (type#literal
        (Parser [Text Code]))
       (when tokens
         (list#partial [_ {#Symbol ["" name]}] value &rest)
@@ -3743,7 +3759,7 @@
         {#None}))
 
 (def' .private (endP tokens)
-      (type_literal
+      (type#literal
        (Parser Any))
       (when tokens
         (list)
@@ -3753,7 +3769,7 @@
         {#None}))
 
 (def' .private (anyP tokens)
-      (type_literal
+      (type#literal
        (Parser Code))
       (when tokens
         (list#partial code tokens')
@@ -3763,7 +3779,7 @@
         {#None}))
 
 (def' .private (localP tokens)
-      (type_literal
+      (type#literal
        (-> (List Code)
            (Maybe [(List Code) Text])))
       (when tokens
@@ -3774,7 +3790,7 @@
         {#None}))
 
 (def' .private (symbolP tokens)
-      (type_literal
+      (type#literal
        (-> (List Code)
            (Maybe [(List Code) Symbol])))
       (when tokens
@@ -3786,7 +3802,7 @@
 
 (with_template [<parser> <item_type> <item_parser>]
   [(def' .private (<parser> tokens)
-         (type_literal
+         (type#literal
           (-> (List Code)
               (Maybe (List <item_type>))))
          (when tokens
@@ -3806,7 +3822,7 @@
 
 (with_template [<parser> <parameter_type> <parameters_parser>]
   [(def' .private (<parser> tokens)
-         (type_literal
+         (type#literal
           (Parser [Text (List <parameter_type>)]))
          (when tokens
            (list#partial [_ {#Form local_declaration}] tokens')
@@ -3827,7 +3843,7 @@
   )
 
 (def' .private (export_policyP tokens)
-      (type_literal
+      (type#literal
        (-> (List Code)
            [(List Code) Code]))
       (when tokens
@@ -3850,7 +3866,7 @@
 
 (with_template [<parser> <parameter_type> <local>]
   [(def' .private (<parser> tokens)
-         (type_literal
+         (type#literal
           (-> (List Code)
               (Maybe [(List Code)
                       [Code Text (List <parameter_type>)]])))
@@ -3865,7 +3881,7 @@
   )
 
 (def' .private (bodyP tokens)
-      (type_literal
+      (type#literal
        (-> (List Code)
            (Maybe [(List Code)
                    [(Maybe Code) Code]])))
@@ -3882,7 +3898,7 @@
         {#None}))
 
 (def' .private (definitionP tokens)
-      (type_literal
+      (type#literal
        (-> (List Code)
            (Maybe [Code
                    Text
@@ -4456,9 +4472,11 @@
                                         (, type)))}))]]
         (when type'
           {#Some type''}
-          (let [typeC (` {.#Named [(, (text$ module_name))
-                                   (, (text$ name))]
-                                  (..type_literal (, type''))})]
+          (do meta#monad
+            [type'' (type#literal' type'')
+             .let [typeC (` {.#Named [(, (text$ module_name))
+                                      (, (text$ name))]
+                                     (, type'')})]]
             (in (when labels??
                   {#Some labels}
                   (list#partial (` (def (, export_policy) (, type_name)

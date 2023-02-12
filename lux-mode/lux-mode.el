@@ -372,8 +372,7 @@ Called by `imenu--generic-function'."
 												 "Rec"
 												 "Nominal" "->"
 												 "All" "Ex"
-												 "Interface"
-												 "type_literal"))
+												 "Interface"))
 							(type//checking (altRE "is" "as" "let" "as_expected" "type_of" "sharing" "by_example" "hole"))
 							(type//poly (altRE "polytypic"))
 							(type//dynamic (altRE "dynamic" "static"))

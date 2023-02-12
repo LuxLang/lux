@@ -246,6 +246,8 @@
 (.type Method_Signature
   (Record
    [#method .Type
+    #inputs (List (Type Value))
+    #output (Type Return)
     #deprecated? Bit
     #throws (List .Type)]))
 
@@ -272,6 +274,15 @@
   [primitives_are_not_objects]
   )
 
+(def (method_signature_format it)
+  (%.Format Method_Signature)
+  (exception.report
+   (list ["Type" (%.type (the #method it))]
+         ["Arguments" (exception.listing jvm.format (the #inputs it))]
+         ["Return" (jvm.format (the #output it))]
+         ["Deprecated?" (%.bit (the #deprecated? it))]
+         ["Throws" (exception.listing %.type (the #throws it))])))
+
 (with_template [<name>]
   [(exception.def .public (<name> [class_variables class method method_variables inputsJT hints])
      (exception.Exception [(List (Type Var))
@@ -286,7 +297,7 @@
             ["Method" method]
             ["Method variables" (exception.listing ..signature method_variables)]
             ["Arguments" (exception.listing ..signature inputsJT)]
-            ["Hints" (exception.listing %.type (list#each product.left hints))])))]
+            ["Hints" (exception.listing ..method_signature_format hints)])))]
 
   [no_candidates]
   [too_many_candidates]
@@ -492,11 +503,11 @@
           (function (_ [@write :write:]))
           (do phase.monad
             [_ (typeA.inference ..int)
-             arrayA (<| (typeA.expecting (.type_literal (array.Array' :read: :write:)))
+             arrayA (<| (typeA.expecting (type.literal (array.Array' :read: :write:)))
                         (analyse archive arrayC))
              :read: (typeA.check (check.clean (list) :read:))
              :write: (typeA.check (check.clean (list) :write:))
-             arrayJT (jvm_array_type (.type_literal (array.Array' :read: :write:)))
+             arrayJT (jvm_array_type (type.literal (array.Array' :read: :write:)))
              @ meta.location]
             (in [@ {analysis.#Extension [.prelude (%.format extension_name "|translation")]
                                         (list (analysis.text @ (..signature arrayJT))
@@ -733,13 +744,13 @@
           (function (_ [@write :write:]))
           (do phase.monad
             [_ (typeA.inference :read:)
-             arrayA (<| (typeA.expecting (.type_literal (array.Array' :read: :write:)))
+             arrayA (<| (typeA.expecting (type.literal (array.Array' :read: :write:)))
                         (analyse archive arrayC))
              idxA (<| (typeA.expecting ..int)
                       (analyse archive idxC))
              :read: (typeA.check (check.clean (list) :read:))
              :write: (typeA.check (check.clean (list) :write:))
-             arrayJT (jvm_array_type (.type_literal (array.Array' :read: :write:)))
+             arrayJT (jvm_array_type (type.literal (array.Array' :read: :write:)))
              @ meta.location]
             (in [@ {analysis.#Extension [.prelude (%.format extension_name "|translation")]
                                         (list (analysis.text @ (..signature arrayJT))
@@ -778,8 +789,8 @@
           typeA.with_var
           (function (_ [@write :write:]))
           (do phase.monad
-            [_ (typeA.inference (.type_literal (array.Array' :read: :write:)))
-             arrayA (<| (typeA.expecting (.type_literal (array.Array' :read: :write:)))
+            [_ (typeA.inference (type.literal (array.Array' :read: :write:)))
+             arrayA (<| (typeA.expecting (type.literal (array.Array' :read: :write:)))
                         (analyse archive arrayC))
              idxA (<| (typeA.expecting ..int)
                       (analyse archive idxC))
@@ -787,7 +798,7 @@
                         (analyse archive valueC))
              :read: (typeA.check (check.clean (list) :read:))
              :write: (typeA.check (check.clean (list) :write:))
-             arrayJT (jvm_array_type (.type_literal (array.Array' :read: :write:)))
+             arrayJT (jvm_array_type (type.literal (array.Array' :read: :write:)))
              @ meta.location]
             (in [@ {analysis.#Extension [.prelude (%.format extension_name "|translation")]
                                         (list (analysis.text @ (..signature arrayJT))
@@ -1239,7 +1250,9 @@
 (def index_parameter
   (-> Nat
       .Type)
-  (|>> (n.* 2) ++ {.#Parameter}))
+  (|>> (n.* 2)
+       ++
+       {.#Parameter}))
 
 (def (jvm_type_var_mapping owner_tvars method_tvars)
   (-> (List Text) (List Text)
@@ -1305,16 +1318,14 @@
                                          ffi.of_string)))
         [owner_tvarsT mapping] (jvm_type_var_mapping owner_tvars method_tvars)]
     (do [! phase.monad]
-      [inputsT (|> (java/lang/reflect/Method::getGenericParameterTypes method)
-                   (array.list {.#None})
-                   (monad.each ! (|>> reflection!.type phase.of_try))
-                   (phase#each (monad.each ! (..reflection_type mapping)))
-                   phase#conjoint)
-       outputT (|> method
-                   ..return_type
-                   phase.of_try
-                   (phase#each (..reflection_return mapping))
-                   phase#conjoint)
+      [inputsT' (|> (java/lang/reflect/Method::getGenericParameterTypes method)
+                    (array.list {.#None})
+                    (monad.each ! (|>> reflection!.type phase.of_try)))
+       inputsT (monad.each ! (..reflection_type mapping) inputsT')
+       outputT' (|> method
+                    ..return_type
+                    phase.of_try)
+       outputT (..reflection_return mapping outputT')
        .let [concrete_exceptions (..concrete_method_exceptions method)]
        concrete_exceptions (monad.each ! (..reflection_type mapping) concrete_exceptions)
        generic_exceptions (|> (java/lang/reflect/Method::getGenericExceptionTypes method)
@@ -1332,11 +1343,13 @@
                                                                    owner_tvarsT}
                                                         inputsT)))
                          outputT)]]
-      (in [methodT
-           (reflection!.deprecated? (java/lang/reflect/Method::getDeclaredAnnotations method))
-           (if (list.empty? generic_exceptions)
-             concrete_exceptions
-             generic_exceptions)]))))
+      (in [#method methodT
+           #inputs inputsT'
+           #output outputT'
+           #deprecated? (reflection!.deprecated? (java/lang/reflect/Method::getDeclaredAnnotations method))
+           #throws (if (list.empty? generic_exceptions)
+                     concrete_exceptions
+                     generic_exceptions)]))))
 
 (def (constructor_signature constructor)
   (-> (java/lang/reflect/Constructor java/lang/Object)
@@ -1352,11 +1365,10 @@
                                          ffi.of_string)))
         [owner_tvarsT mapping] (jvm_type_var_mapping owner_tvars method_tvars)]
     (do [! phase.monad]
-      [inputsT (|> (java/lang/reflect/Constructor::getGenericParameterTypes constructor)
-                   (array.list {.#None})
-                   (monad.each ! (|>> reflection!.type phase.of_try))
-                   (phase#each (monad.each ! (reflection_type mapping)))
-                   phase#conjoint)
+      [inputsT' (|> (java/lang/reflect/Constructor::getGenericParameterTypes constructor)
+                    (array.list {.#None})
+                    (monad.each ! (|>> reflection!.type phase.of_try)))
+       inputsT (monad.each ! (reflection_type mapping) inputsT')
        .let [concrete_exceptions (..concrete_constructor_exceptions constructor)]
        concrete_exceptions (monad.each ! (..reflection_type mapping) concrete_exceptions)
        generic_exceptions (|> (java/lang/reflect/Constructor::getGenericExceptionTypes constructor)
@@ -1369,11 +1381,13 @@
              constructorT (<| (type.univ_q (dictionary.size mapping))
                               (type.function inputsT)
                               objectT)]]
-      (in [constructorT
-           (reflection!.deprecated? (java/lang/reflect/Constructor::getDeclaredAnnotations constructor))
-           (if (list.empty? generic_exceptions)
-             concrete_exceptions
-             generic_exceptions)]))))
+      (in [#method constructorT
+           #inputs inputsT'
+           #output jvm.void
+           #deprecated? (reflection!.deprecated? (java/lang/reflect/Constructor::getDeclaredAnnotations constructor))
+           #throws (if (list.empty? generic_exceptions)
+                     concrete_exceptions
+                     generic_exceptions)]))))
 
 (.type Evaluation
   (Variant
@@ -1554,10 +1568,11 @@
       (do phase.monad
         [_ (..ensure_fresh_class! class_loader class)
          .let [argsT (list#each product.left argsTC)]
-         [methodT deprecated? exceptionsT] (..method_candidate false class_loader class_tvars class method_tvars method {#Static} argsT)
-         _ (phase.assertion ..deprecated_method [class method methodT]
-                            (not deprecated?))
-         [outputT argsA] (inference.general archive analyse methodT (list#each product.right argsTC))
+         method_candidate (..method_candidate false class_loader class_tvars class method_tvars method {#Static} argsT)
+         .let [method_type (the #method method_candidate)]
+         _ (phase.assertion ..deprecated_method [class method method_type]
+                            (not (the #deprecated? method_candidate)))
+         [outputT argsA] (inference.general archive analyse method_type (list#each product.right argsTC))
          outputJT (check_return outputT)
          @ meta.location]
         (in [@ {analysis.#Extension [.prelude (%.format extension_name "|translation")]
@@ -1575,10 +1590,11 @@
       (do phase.monad
         [_ (..ensure_fresh_class! class_loader class)
          .let [argsT (list#each product.left argsTC)]
-         [methodT deprecated? exceptionsT] (..method_candidate true class_loader class_tvars class method_tvars method {#Virtual} argsT)
-         _ (phase.assertion ..deprecated_method [class method methodT]
-                            (not deprecated?))
-         [outputT allA] (inference.general archive analyse methodT (list.partial objectC (list#each product.right argsTC)))
+         method_candidate (..method_candidate true class_loader class_tvars class method_tvars method {#Virtual} argsT)
+         .let [method_type (the #method method_candidate)]
+         _ (phase.assertion ..deprecated_method [class method method_type]
+                            (not (the #deprecated? method_candidate)))
+         [outputT allA] (inference.general archive analyse method_type (list.partial objectC (list#each product.right argsTC)))
          .let [[objectA argsA] (when allA
                                  {.#Item objectA argsA}
                                  [objectA argsA]
@@ -1603,10 +1619,11 @@
       (do phase.monad
         [_ (..ensure_fresh_class! class_loader class)
          .let [argsT (list#each product.left argsTC)]
-         [methodT deprecated? exceptionsT] (..method_candidate false class_loader class_tvars class method_tvars method {#Special} argsT)
-         _ (phase.assertion ..deprecated_method [class method methodT]
-                            (not deprecated?))
-         [outputT allA] (inference.general archive analyse methodT (list.partial objectC (list#each product.right argsTC)))
+         method_candidate (..method_candidate false class_loader class_tvars class method_tvars method {#Special} argsT)
+         .let [method_type (the #method method_candidate)]
+         _ (phase.assertion ..deprecated_method [class method method_type]
+                            (not (the #deprecated? method_candidate)))
+         [outputT allA] (inference.general archive analyse method_type (list.partial objectC (list#each product.right argsTC)))
          .let [[objectA argsA] (when allA
                                  {.#Item objectA argsA}
                                  [objectA argsA]
@@ -1634,10 +1651,11 @@
          class (phase.of_try (reflection!.load class_loader class_name))
          _ (phase.assertion non_interface class_name
                             (ffi.of_boolean (java/lang/reflect/Modifier::isInterface (java/lang/Class::getModifiers class))))
-         [methodT deprecated? exceptionsT] (..method_candidate true class_loader class_tvars class_name method_tvars method {#Interface} argsT)
-         _ (phase.assertion ..deprecated_method [class_name method methodT]
-                            (not deprecated?))
-         [outputT allA] (inference.general archive analyse methodT (list.partial objectC (list#each product.right argsTC)))
+         method_candidate (..method_candidate true class_loader class_tvars class_name method_tvars method {#Interface} argsT)
+         .let [method_type (the #method method_candidate)]
+         _ (phase.assertion ..deprecated_method [class_name method method_type]
+                            (not (the #deprecated? method_candidate)))
+         [outputT allA] (inference.general archive analyse method_type (list.partial objectC (list#each product.right argsTC)))
          .let [[objectA argsA] (when allA
                                  {.#Item objectA argsA}
                                  [objectA argsA]
@@ -1662,10 +1680,11 @@
       (do phase.monad
         [_ (..ensure_fresh_class! class_loader class)
          .let [argsT (list#each product.left argsTC)]
-         [methodT deprecated? exceptionsT] (..constructor_candidate class_loader class_tvars class method_tvars argsT)
-         _ (phase.assertion ..deprecated_method [class ..constructor_method methodT]
-                            (not deprecated?))
-         [outputT argsA] (inference.general archive analyse methodT (list#each product.right argsTC))
+         method_candidate (..constructor_candidate class_loader class_tvars class method_tvars argsT)
+         .let [method_type (the #method method_candidate)]
+         _ (phase.assertion ..deprecated_method [class ..constructor_method method_type]
+                            (not (the #deprecated? method_candidate)))
+         [outputT argsA] (inference.general archive analyse method_type (list#each product.right argsTC))
          @ meta.location]
         (in [@ {analysis.#Extension [.prelude (%.format extension_name "|translation")]
                                     (list.partial (analysis.text @ (..signature (jvm.class class (list))))
