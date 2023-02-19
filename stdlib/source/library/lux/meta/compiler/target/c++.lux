@@ -4,7 +4,7 @@
 (.require
  [library
   [lux (.except Code Type Global Declaration Definition Label
-                int as function template local global type also of is if for alias)
+                int as function template local global type also of is if for alias , the)
    [abstract
     [equivalence (.only Equivalence)]]
    [control
@@ -33,7 +33,7 @@
 
 (def term_delimiters ["(" ")"])
 (def template_delimiters ["<" ">"])
-(def initialization_delimiters ["{" "}"])
+(def initializer_list_delimiters ["{" "}"])
 (def capture_delimiters ["[" "]"])
 (def array_delimiters ..capture_delimiters)
 
@@ -102,7 +102,7 @@
 
     [Computation
      [[Instantiation []]
-      [Initialization []]]]
+      [Initializer_List []]]]
 
     [Statement
      [[Declaration [of]]
@@ -176,29 +176,12 @@
         Type)
     (|>> nominal.transmutation))
 
-  (def .public (function_type_parameter arguments return)
-    (-> (List Parameter) Parameter
-        Parameter)
-    (|> arguments
-        (list#each ..code)
-        (text.interposed ..parameter_separator)
-        (text.enclosed ..term_delimiters)
-        (%.format (%> return))
-        <%))
-
   (def .public type_name
     (-> Text
         Type_Name)
     (|>> <%))
 
-  (def .public *
-    (-> Type
-        Type)
-    (|>> %>
-         (text.suffix "*")
-         <%))
-
-  (def .public deref
+  (def .public at
     (-> Expression
         Expression)
     (|>> %>
@@ -241,26 +224,26 @@
         Instantiation)
     (<% (%.format (%> constructor) (application parameters))))
 
-  (def .public initialization
+  (def .public initializer_list
     (-> (List Expression)
-        Initialization)
+        Initializer_List)
     (|>> (list#each ..code)
          (text.interposed ..parameter_separator)
-         (text.enclosed ..initialization_delimiters)
+         (text.enclosed ..initializer_list_delimiters)
          <%))
 
   (def .public (structure name parameters)
     (-> Type (List Expression)
         Instantiation)
     (<% (%.format (%> name)
-                  (%> (initialization parameters)))))
+                  (%> (initializer_list parameters)))))
 
   (def .public (array type arity initials)
     (-> Type Expression (List Expression)
         Instantiation)
     (<% (%.format (%> type)
                   (text.enclosed ..array_delimiters (%> arity))
-                  " " (%> (initialization initials)))))
+                  " " (%> (initializer_list initials)))))
 
   (def .public (new it)
     (-> Instantiation
@@ -292,6 +275,15 @@
     [then Statement]
     [also Declaration]
     )
+
+  (def .public (, before after)
+    (-> Expression Expression
+        Expression)
+    (<| <%
+        (text.enclosed ..term_delimiters)
+        (%.format (%> before)
+                  ..parameter_separator
+                  (%> after))))
 
   (def statement
     (All (_ of)
@@ -341,9 +333,9 @@
                      " "))))
 
   (.type Argument
-    [Type Local])
+    [Local Type])
 
-  (def (argument [type it])
+  (def (argument [it type])
     (-> Argument
         Text)
     (%.format (%> type) " " (%> it)))
@@ -530,10 +522,15 @@
                   " ? " (%> then)
                   " : " (%> else))))
 
-  (def .public (the* field owner)
-    (-> Text Expression
-        Expression)
-    (<% (%.format (%> owner) "->" field)))
+  (with_template [<separator> <name>]
+    [(def .public (<name> field owner)
+       (-> Text Expression
+           Expression)
+       (<% (%.format (%> owner) <separator> field)))]
+
+    ["." the]
+    ["->" the*]
+    )
 
   (def .public (item index array)
     (-> Expression Expression
@@ -563,25 +560,30 @@
     )
 
   (def .public (if when then else)
-    (-> Expression Statement Statement
+    (-> Expression Statement (Maybe Statement)
         Statement)
     (<% (%.format "if" (..term (%> when))
                   " " (%> (..block then))
-                  " else " (%> (..block else)))))
+                  (.when else
+                    {.#Some else}
+                    (%.format " else " (%> (..block else)))
+                    
+                    {.#None}
+                    ""))))
 
-  (def (for_initialization [type variable value])
-    (-> [Type Local Expression]
+  (def (for_initialization [variable type value])
+    (-> [Local Type Expression]
         Text)
     (%.format (%> type) " " (%> variable) " = " (%> value)))
 
   (def for_initializations
-    (-> (List [Type Local Expression])
+    (-> (List [Local Type Expression])
         Text)
     (|>> (list#each ..for_initialization)
          (text.interposed ..parameter_separator)))
 
   (def .public (for inits when after body)
-    (-> (List [Type Local Expression]) Expression Statement Statement
+    (-> (List [Local Type Expression]) Expression Statement Statement
         Statement)
     (let [setup (|> (list (for_initializations inits)
                           (%> when)
@@ -591,6 +593,12 @@
                     (text.enclosed ..term_delimiters))]
       (<% (%.format "for" setup
                     " " (%> (..block body))))))
+
+  (def .public (for_each it of body)
+    (-> Local Expression Statement
+        Statement)
+    (<% (%.format "for(auto " (%> it) " : " (%> of) ")"
+                  " " (%> (..block body)))))
 
   (def .public label
     (-> Text
