@@ -33,7 +33,9 @@ cd ~/lux/lux-c++/ \
 # Try
 
 ```
-cd ~/lux/lux-c++/ \
+cd ~/lux/stdlib/ \
+&& lux clean \
+&& cd ~/lux/lux-c++/ \
 && conda activate WORK \
 && python3 target/program.py build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux --program _
 

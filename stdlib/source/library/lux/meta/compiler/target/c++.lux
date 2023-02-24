@@ -4,12 +4,14 @@
 (.require
  [library
   [lux (.except Code Type Global Declaration Definition Label
-                int as function template local global type also of is if for alias , the)
+                int as function template local global type also of is if for alias , the not)
    [abstract
     [equivalence (.only Equivalence)]]
    [control
     ["|"  pipe]
-    ["[0]" maybe (.use "[1]#[0]" functor)]]
+    ["[0]" maybe (.use "[1]#[0]" functor)]
+    [function
+     [predicate (.only Predicate)]]]
    [data
     ["[0]" text (.only \n \t) (.use "[1]#[0]" equivalence)
      ["%" \\format]]
@@ -75,7 +77,7 @@
     [Code
      [[Capture []]
       [Parameter [of]]
-      [Expression [of]]
+      [Value [of]]
       [Statement [of]]
       [Label [of]]]]
 
@@ -85,23 +87,17 @@
     [Type
      [[Type_Name []]]]
 
-    [Expression
+    [Value
      [[LValue [of]]
       [RValue [of]]]]
 
     [LValue
-     [[Reference [of]]]]
-
-    [Reference
      [[Local []]
       [Global []]]]
 
     [RValue
-     [[Literal []]
-      [Computation [of]]]]
-
-    [Computation
-     [[Instantiation []]
+     [[PRValue []]
+      [Instantiation []]
       [Initializer_List []]]]
 
     [Statement
@@ -112,9 +108,29 @@
      [[Definition [of]]]]
     )
 
+  (def .public Expression
+    Value)
+
+  (def .public Address
+    LValue)
+
+  (def .public Computation
+    RValue)
+
+  (def .public Pure
+    PRValue)
+
+  (def .public null
+    Pure
+    (<% "nullptr"))
+
+  (def .public this
+    Pure
+    (<% "this"))
+
   (def .public bool
     (-> Bit
-        Literal)
+        Pure)
     (|>> (|.when
            .false "false"
            .true "true")
@@ -122,7 +138,7 @@
 
   (def .public double
     (-> Frac
-        Literal)
+        Pure)
     (|>> (|.cond [(f.= f.positive_infinity)]
                  [(|.new "(+1.0/0.0)" [])]
                  
@@ -172,7 +188,7 @@
                         instance)))))
 
   (def .public type
-    (-> Reference
+    (-> Address
         Type)
     (|>> nominal.transmutation))
 
@@ -181,17 +197,27 @@
         Type_Name)
     (|>> <%))
 
-  (def .public at
-    (-> Expression
-        Expression)
-    (|>> %>
-         (text.prefix "*")
-         <%))
+  (with_template [<prefix> <type> <name>]
+    [(def .public <name>
+       (-> Expression
+           <type>)
+       (|>> %>
+            (text.prefix <prefix>)
+            <%))]
+
+    ["*" Address at]
+    ["&" Pure address]
+    )
 
   (def term
     (-> Text
         Text)
     (text.enclosed ..term_delimiters))
+
+  (def term?
+    (Predicate Expression)
+    (|>> %>
+         (text.enclosed? ..term_delimiters)))
 
   (def .public (is type term)
     (-> Type Expression
@@ -203,7 +229,7 @@
 
   (def .public int
     (-> Int
-        Literal)
+        Pure)
     (|>> %.int
          <%))
 
@@ -317,21 +343,6 @@
     [delete_array "delete[]"]
     )
 
-  (def template
-    (-> (List Type_Name)
-        Text)
-    (|>> (|.when
-           (list)
-           ""
-           
-           it
-           (%.format "template"
-                     " " (|> it
-                             (list#each (|>> %> (%.format "typename ")))
-                             (text.interposed ..parameter_separator)
-                             (text.enclosed ..template_delimiters))
-                     " "))))
-
   (.type Argument
     [Local Type])
 
@@ -358,6 +369,21 @@
            (text.enclosed [<| |>])
            <%)))
 
+  (def template
+    (-> (List Type_Name)
+        Text)
+    (|>> (|.when
+           (list)
+           ""
+           
+           it
+           (%.format "template"
+                     " " (|> it
+                             (list#each (|>> %> (%.format "typename ")))
+                             (text.interposed ..parameter_separator)
+                             (text.enclosed ..template_delimiters))
+                     " "))))
+
   (def .public (function name types inputs output body)
     (-> Local (List Type_Name) (List Argument) Type Statement
         Definition)
@@ -366,13 +392,17 @@
                   " " (%> (..block body)))))
 
   (def .public (namespace it body)
-    (-> Namespace Declaration
+    (-> (Maybe Namespace) Declaration
         Declaration)
     (<% (%.format "namespace"
-                  " " it
+                  (when it
+                    {.#Some it}
+                    (%.format " " it)
+
+                    _
+                    "")
                   " " (%> (..block body)))))
 
-  ... https://en.cppreference.com/w/cpp/types/integer
   (with_template [<name>]
     [(def .public (<name> it)
        (-> Expression
@@ -402,14 +432,19 @@
                      ))
                ))))
 
-  ... https://en.cppreference.com/w/cpp/string/basic_string
-  (def .public u32_string
-    (-> Text
-        Literal)
-    (|>> ..safe
-         %.text
-         (%.format "U")
-         <%))
+  (with_template [<name> <prefix>]
+    [(def .public <name>
+       (-> Text
+           Address)
+       (|>> ..safe
+            %.text
+            <prefix>
+            <%))]
+
+    [u32_string (%.format "U")]
+    [u16_string (%.format "u")]
+    [string <|]
+    )
 
   (.type Method
     (-> Local
@@ -434,7 +469,7 @@
     (..statement (%.format (%> type) " const " (%> name) " = " (%> value))))
 
   (def .public (constant_array name type size value)
-    (-> Local Type Literal Expression
+    (-> Local Type Pure Expression
         Definition)
     (..statement (%.format (%> type) " const " (%> name)
                            (text.enclosed ..array_delimiters (%> size))
@@ -446,15 +481,15 @@
     (..statement (%.format (%> type) " " (%> name) " = " (%> value))))
 
   (def .public (:= location value)
-    (-> LValue Expression
-        Statement)
-    (..statement (%.format (%> location) " = " (%> value))))
+    (-> Address Expression
+        Address)
+    (<% (%.format (%> location) " = " (%> value))))
 
-  (def .public (structure_definition name [fields methods])
-    (-> Local [(List [Local Type]) (List Method)]
+  (def .public (structure_definition name types [fields methods])
+    (-> Local (List Type_Name) [(List [Local Type]) (List Method)]
         Definition)
     (..statement
-     (%.format "struct"
+     (%.format (..template types) "struct"
                " " (%> name)
                " " (|> (all list#composite
                             (list#each (.function (_ [name type])
@@ -534,14 +569,14 @@
 
   (def .public (item index array)
     (-> Expression Expression
-        LValue)
+        Address)
     (<% (%.format (%> array)
                   (text.enclosed ..array_delimiters (%> index)))))
 
   (with_template [<name> <operator>]
     [(def .public (<name> parameter subject)
        (-> Expression Expression
-           Expression)
+           Pure)
        (|> (%.format (%> subject) <operator> (%> parameter))
            ..term
            <%))]
@@ -559,10 +594,20 @@
     [>= " >= "]
     )
 
+  (def .public not
+    (-> Expression
+        Expression)
+    (|>> %>
+         (%.format "!")
+         ..term
+         <%))
+
   (def .public (if when then else)
     (-> Expression Statement (Maybe Statement)
         Statement)
-    (<% (%.format "if" (..term (%> when))
+    (<% (%.format "if" (.if (term? when)
+                         (%> when)
+                         (..term (%> when)))
                   " " (%> (..block then))
                   (.when else
                     {.#Some else}
@@ -616,6 +661,19 @@
     (-> Label
         Statement)
     (|>> %>
-         (%.format "goto ")
+         (text.prefix "goto ")
          ..statement))
+
+  (def .public throw
+    (-> Expression
+        Statement)
+    (|>> %>
+         (text.prefix "throw ")
+         ..statement))
+
+  (def .public (while when then)
+    (-> Expression Statement
+        Statement)
+    (<% (%.format "while" (..term (%> when))
+                  " " (%> (..block then)))))
   )

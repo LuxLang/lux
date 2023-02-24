@@ -3,14 +3,15 @@
 
 (.require
  [library
-  [lux (.except Type Label if let exec when int)
+  [lux (.except Type Label if let exec when int local the)
    [abstract
     ["[0]" monad (.only do)]]
    [control
     ["[0]" function]]
    [data
     [collection
-     ["[0]" list (.use "[1]#[0]" mix)]]
+     ["[0]" list (.use "[1]#[0]" mix)]
+     ["[0]" set]]
     ["[0]" text (.use "[1]#[0]" equivalence)
      ["%" \\format (.only format)]]]
    [math
@@ -22,37 +23,46 @@
      ["^" pattern]]
     [compiler
      [target
-      ["_" c++]]]]]]
+      ["_" c++ (.only)
+       ["[0]" type]]]]]]]
  ["[0]" //
-  ["[1][0]" reference]
-  ["[1][0]" runtime (.only Operation Phase Term)]
+  ["[1][0]" type]
+  ["[0]" runtime (.only Operation Phase Term)]
+  ["[0]" primitive]
+  ["[0]" reference]
   [////
-   ["[0]" phase (.use "[1]#[0]" functor)]
    ["[0]" translation]
    ["[0]" synthesis (.only Path Fork)
     [access
      ["[0]" member (.only Member)]]]
+   ["[0]" phase (.use "[1]#[0]" monad)
+    ["[0]" synthesis
+     ["[1]/[0]" when]]]
    [///
     [reference
-     [variable (.only Register)]]]]])
+     [variable (.only Register)]]
+    [meta
+     [archive (.only Archive)]]]]])
 
 (def .public (if next archive it)
   (Term synthesis.If)
   (do phase.monad
-    [when (next archive (the synthesis.#if_when it))
-     then (next archive (the synthesis.#if_then it))
-     else (next archive (the synthesis.#if_else it))]
+    [when (next archive (.the synthesis.#if_when it))
+     then (next archive (.the synthesis.#if_then it))
+     else (next archive (.the synthesis.#if_else it))]
     (in (_.? when then else))))
 
 (def .public (let next archive it)
   (Term synthesis.Let)
   (do [! phase.monad]
-    [.let [[tail body] (synthesis.flat_let (the synthesis.#expression it))
-           context (the synthesis.#context it)]
+    [.let [[tail body] (synthesis.flat_let (.the synthesis.#expression it))
+           context (.the synthesis.#context it)]
      bindings (monad.each ! (function (_ [binding value])
                               (do !
                                 [value (next archive value)]
-                                (in (_.variable (//reference.local binding) //runtime.value_type value))))
+                                (in (_.variable (reference.local binding)
+                                                runtime.value_type
+                                                value))))
                           (list.partial context
                                         tail))
      body (next archive body)]
@@ -61,7 +71,7 @@
                           [0 _] (list)
                           [_ _] (list _.all_by_value))
                         (list)
-                        {.#Some //runtime.value_type}
+                        {.#Some runtime.value_type}
                         (list#mix _.then
                                   (_.return body)
                                   (list.reversed bindings))
@@ -71,7 +81,273 @@
 (def .public (exec next archive it)
   (Term synthesis.Exec)
   (do [! phase.monad]
-    [before (next archive (the synthesis.#before it))
-     after (next archive (the synthesis.#after it))]
+    [before (next archive (.the synthesis.#before it))
+     after (next archive (.the synthesis.#after it))]
     (in (_., before
              after))))
+
+(def .public (the next archive it)
+  (Term synthesis.The)
+  (do phase.monad
+    [source (next archive (.the synthesis.#source it))]
+    (in (list#mix (function (_ side source)
+                    (.let [method (.if (.the member.#right? side)
+                                    (runtime.right (_.int (.int (.the member.#lefts side))))
+                                    (runtime.left (_.int (.int (.the member.#lefts side)))))]
+                      (method source)))
+                  source
+                  (.the synthesis.#path it)))))
+
+(def failure
+  (-> _.Label
+      _.Statement)
+  _.go_to)
+
+(def (push! value road)
+  (-> _.Expression _.Local
+      _.Statement)
+  (_.; (_.:= road (runtime.push runtime.value_type value road))))
+
+(def (pop! road)
+  (-> _.Local
+      _.Statement)
+  (_.; (_.:= road (runtime.pop road))))
+
+(with_template [<flag> <name>]
+  [(def (<name> temporary road @failure simple? lefts)
+     (-> _.Local _.Local _.Label Bit Nat
+         _.Statement)
+     (all _.then
+          (_.; (_.:= temporary (runtime.choice lefts <flag> (runtime.peek road))))
+          (_.if (_.= runtime.null temporary)
+            (..failure @failure)
+            (.if simple?
+              {.#None}
+              {.#Some (push! temporary road)}))))]
+
+  [#0 left_choice]
+  [#1 right_choice]
+  )
+
+(def (optimized_pattern_matching temporary road @failure next it)
+  (-> _.Local _.Local _.Label
+      (-> (-> Path (Operation _.Statement))
+          (-> Path (Operation (Maybe _.Statement)))))
+  (.when it
+    (^.with_template [<simple> <choice>]
+      [(<simple> idx nextP)
+       (|> nextP
+           next
+           (of phase.monad each (|>> (_.then (<choice> temporary road @failure true idx))
+                                     {.#Some})))])
+    ([synthesis.simple_left_side  ..left_choice]
+     [synthesis.simple_right_side ..right_choice])
+
+    (synthesis.member/left 0)
+    (phase#in {.#Some (push! (|> (runtime.peek road)
+                                 runtime.tuple_values
+                                 (_.item (_.int +0)))
+                             road)})
+
+    ... Extra optimization
+    (synthesis.path/seq
+     (synthesis.member/left 0)
+     (synthesis.!bind_top register then))
+    (do phase.monad
+      [then! (next then)]
+      (in {.#Some (all _.then
+                       (_.constant (reference.local register)
+                                   runtime.value_type
+                                   (|> (runtime.peek road)
+                                       runtime.tuple_values
+                                       (_.item (_.int +0))))
+                       then!)}))
+
+    ... Extra optimization
+    (^.with_template [<pm> <getter>]
+      [(synthesis.path/seq
+        (<pm> lefts)
+        (synthesis.!bind_top register then))
+       (do phase.monad
+         [then! (next then)]
+         (in {.#Some (all _.then
+                          (_.constant (reference.local register)
+                                      runtime.value_type
+                                      (|> (runtime.peek road)
+                                          (runtime.host_value runtime.tuple_type)
+                                          _.at
+                                          (<getter> (_.int (.int lefts)))))
+                          then!)}))])
+    ([synthesis.member/left  runtime.left]
+     [synthesis.member/right runtime.right])
+
+    (synthesis.!bind_top register then)
+    (do phase.monad
+      [then! (next then)]
+      (in {.#Some (all _.then
+                       (_.constant (reference.local register)
+                                   runtime.value_type
+                                   (runtime.peek road))
+                       (..pop! road)
+                       then!)}))
+
+    _
+    (phase#in {.#None})))
+
+(def local
+  (Operation _.Local)
+  (phase#each (|>> %.nat_16 (%.format "__") _.local)
+              translation.next))
+
+(def label
+  (Operation _.Label)
+  (phase#each (|>> %.nat_16 (%.format "___") _.label)
+              translation.next))
+
+(def (save! road fork)
+  (-> _.Local _.Local
+      _.Statement)
+  (_.; (_.:= fork (runtime.push (type.address runtime.road) road fork))))
+
+(def (restore! road fork)
+  (-> _.Local _.Local
+      _.Statement)
+  (all _.then
+       (_.; (_.:= road (runtime.peek fork)))
+       (pop! fork)
+       ))
+
+(def (alternation @else road fork pre! post!)
+  (-> _.Label _.Local _.Local _.Statement _.Statement
+      _.Statement)
+  (all _.then
+       (save! road fork)
+       pre!
+
+       (_.set_label @else)
+       (restore! road fork)
+       post!))
+
+(def (pattern_matching expression archive temporary road fork)
+  (-> Phase Archive _.Local _.Local _.Local _.Label Path
+      (Operation _.Statement))
+  (function (next @failure it)
+    (do [! phase.monad]
+      [outcome (optimized_pattern_matching temporary road @failure (next @failure) it)]
+      (.when outcome
+        {.#Some outcome}
+        (in outcome)
+
+        {.#None}
+        (.when it
+          {synthesis.#Then body}
+          (|> body
+              (expression archive)
+              (of ! each _.return))
+
+          {synthesis.#Pop}
+          (in (..pop! road))
+
+          {synthesis.#Bind register}
+          (in (_.constant (reference.local register)
+                          runtime.value_type
+                          (runtime.peek road)))
+
+          {synthesis.#Bit_Fork when then else}
+          (do !
+            [then! (next @failure then)
+             else! (.when else
+                     {.#Some else}
+                     (next @failure else)
+
+                     {.#None}
+                     (in (..failure @failure)))
+             .let [[then! else!] (.if when
+                                   [then! else!]
+                                   [else! then!])]]
+            (in (_.if (|> (runtime.peek road)
+                          (runtime.host_value //type.bit)
+                          _.at)
+                  then!
+                  {.#Some else!})))
+
+          (^.with_template [<tag> <format> <type> <=>]
+            [{<tag> item}
+             (do !
+               [it ..local
+                clauses (monad.each ! (function (_ [match then])
+                                        (of ! each
+                                            (|>> [(<=> (<format> match) it)])
+                                            (next @failure then)))
+                                    {.#Item item})]
+               (in (_.block
+                    (all _.then
+                         (_.constant it <type> (|> (runtime.peek road)
+                                                   (runtime.host_value <type>)
+                                                   _.at))
+                         (list#mix (function (_ [when then] else)
+                                     (_.if when then {.#Some else}))
+                                   (..failure @failure)
+                                   clauses)))))])
+          ([synthesis.#I64_Fork primitive.i64' //type.i64 _.=]
+           [synthesis.#F64_Fork primitive.f64' //type.f64 _.=]
+           [synthesis.#Text_Fork primitive.text' runtime.text_type runtime.text_=])
+
+          (^.with_template [<complex> <choice>]
+            [(<complex> idx)
+             (in (<choice> temporary road @failure false idx))])
+          ([synthesis.side/left  ..left_choice]
+           [synthesis.side/right ..right_choice])
+
+          (^.with_template [<pm> <getter>]
+            [(<pm> lefts)
+             (in (push! (|> (runtime.peek road)
+                            (runtime.host_value runtime.tuple_type)
+                            _.at
+                            (<getter> (_.int (.int lefts))))
+                        road))])
+          ([synthesis.member/left  runtime.left]
+           [synthesis.member/right runtime.right])
+
+          (synthesis.path/seq left right)
+          (do phase.monad
+            [left (next @failure left)
+             right (next @failure right)]
+            (in (_.then left right)))
+
+          (synthesis.path/alt left right)
+          (do phase.monad
+            [@else ..label
+             left (next @else left)
+             right (next @failure right)]
+            (in (..alternation @else road fork left right))))))))
+
+(def .public (when next archive it)
+  (Term synthesis.When)
+  (do [! phase.monad]
+    [input (next archive (.the synthesis.#input it))
+     temporary ..local
+     road ..local
+     fork ..local
+     @failure ..label
+     output (pattern_matching next archive temporary road fork @failure (.the synthesis.#output it))
+     .let [storage (synthesis/when.storage (.the synthesis.#output it))]]
+    (in (_.on (list)
+              (_.lambda (.if (set.member? (.the synthesis/when.#bindings storage)
+                                          0)
+                          (list)
+                          (list _.all_by_value))
+                        (list)
+                        {.#Some runtime.value_type}
+                        (all _.then
+                             (_.variable road
+                                         (type.address runtime.road)
+                                         (runtime.push runtime.value_type input _.null))
+                             (_.variable fork
+                                         (type.address runtime.fork)
+                                         _.null)
+                             output
+                             
+                             (_.set_label @failure)
+                             (_.throw (_.string synthesis/when.pattern_matching_error)))
+                        )))))

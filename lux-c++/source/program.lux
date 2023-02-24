@@ -81,7 +81,8 @@
 
 (import cppyy
   "[1]::[0]"
-  ("static" cppdef [Text] "io" Bit)
+  ("static" cppdef [Text] "io" "try" Bit)
+  ("static" cppexec [Text] "io" "try" Bit)
   ("static" gbl Globals))
 
 (ffi.import (getattr [Any Text] Any))
@@ -203,24 +204,25 @@
                           (function (evaluate! [_ input])
                             (let [[id _] (io.run! (atom.update! ++ id))
                                   global (reference.artifact [..module id])
-                                  definition (_.constant (_.local global) /runtime.value_type input)]
+                                  definition (_.variable (_.local global) /runtime.value_type input)]
                               (exec
                                 (.log!# "[evaluate!]")
                                 (.log!# (..nested (_.code definition)))
-                                (if (io.run! (cppyy::cppdef (_.code definition)))
-                                  {try.#Success (let [globals (io.run! (cppyy::gbl))]
-                                                  (lux_value (..runtime globals)
-                                                             (getattr globals global)))}
-                                  {try.#Failure "Cannot evaluate!"})))))
+                                (io.run!
+                                 (do (try.with io.monad)
+                                   [_ (cppyy::cppdef (_.code definition))
+                                    .let [globals (io.run! (cppyy::gbl))
+                                          it (lux_value (..runtime globals)
+                                                        (getattr globals global))]
+                                    _ (cppyy::cppexec (_.code (_.; (_.:= (_.local global) /runtime.unit))))]
+                                   (in it)))))))
             execute! (is (-> /runtime.Declaration
                              (Try Any))
                          (function (execute! input)
                            (exec
                              (.log!# "[execute!]")
                              (.log!# (..nested (_.code input)))
-                             (if (io.run! (cppyy::cppdef (_.code input)))
-                               {try.#Success []}
-                               {try.#Failure "Cannot execute!"}))))]
+                             (io.run! (cppyy::cppdef (_.code input))))))]
         (is (Host /runtime.Value /runtime.Declaration)
             (implementation
              (def evaluate evaluate!)
@@ -230,7 +232,9 @@
                                         custom)
                      @global (_.local global)]
                  (do try.monad
-                   [.let [definition (_.constant @global /runtime.value_type input)]
+                   [.let [definition (<| (_.namespace {.#None})
+                                         (_.constant @global /runtime.value_type)
+                                         input)]
                     _ (execute! definition)
                     .let [globals (io.run! (cppyy::gbl))
                           value (lux_value (..runtime globals)
@@ -307,7 +311,7 @@
                                   [(packager.package (is /runtime.Declaration (_.manual ""))
                                                      _.code
                                                      _.also
-                                                     (_.namespace "lux_program"))
+                                                     (|>>))
                                    "program.cpp"])]
           (..declare_success! []))
         (io.io [])))))
