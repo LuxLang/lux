@@ -125,10 +125,11 @@
           (analyse-ast optimize eval! compile-module compilers &type/Type ?value))
 
         (&/$Identifier "library/lux" "in_module#")
-        (|let [(&/$Item [_ (&/$Text ?module)] (&/$Item ?expr (&/$End))) parameters]
+        (|let [(&/$Item ?module (&/$Item ?expr (&/$End))) parameters]
           (&/with-location location
-            (&/with-module ?module
-              (analyse exo-type ?expr))))
+            (|do [module (&&lux/eval analyse optimize eval! &type/Text ?module)]
+              (&/with-module module
+                (analyse exo-type ?expr)))))
 
         (&/$Identifier "library/lux" extension)
         (if (&&common/uses_new_format? extension)
