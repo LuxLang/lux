@@ -1,0 +1,112 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    ["[0]" monad (.only do)]]
+   [data
+    [text
+     ["%" \\format]]
+    [collection
+     ["[0]" list (.use "[1]#[0]" functor mix)]]]
+   [math
+    [number
+     ["n" nat]]]
+   [meta
+    [compiler
+     [target
+      ["_" c++]]]]]]
+ [///
+  ["[0]" runtime]
+  ["[0]" reference]
+  [////
+   ["[0]" phase]
+   ["[0]" synthesis]
+   ["[0]" translation]
+   [///
+    [reference
+     [variable (.only Register)]]]]])
+
+(def @scope
+  (-> Nat
+      _.Label)
+  (|>> %.nat
+       (%.format "scope")
+       _.label))
+
+(def $iteration_parameters
+  (-> Nat
+      _.Local)
+  (|>> %.nat
+       (%.format "iteration_parameters")
+       _.local))
+
+(def (setup $iteration_parameters initial? offset bindings body)
+  (-> _.Local Bit Register (List _.Expression) _.Statement
+      _.Statement)
+  (when bindings
+    (list)
+    body
+
+    (list binding)
+    (let [$binding (reference.local offset)]
+      (_.block
+       (all _.then
+            (if initial?
+              (_.variable $binding runtime.value_type binding)
+              (_.; (_.:= $binding binding)))
+            body
+            )))
+
+    _
+    (|> bindings
+        list.enumeration
+        (list#each (is (-> [Register _.Expression]
+                           _.Statement)
+                       (function (_ [register _])
+                         (let [variable (reference.local (n.+ offset register))
+                               value (_.item (_.int (.int register)) $iteration_parameters)]
+                           (if initial?
+                             (_.variable variable runtime.value_type value)
+                             (_.; (_.:= variable value)))))))
+        list.reversed
+        (list#mix _.then body)
+        (_.then (_.constant_array $iteration_parameters
+                                  runtime.value_type
+                                  (_.int (.int (list.size bindings)))
+                                  (_.initializer_list bindings)))
+        _.block)))
+
+(def .public (scope statement expression archive [start initialization body])
+  (runtime.Statement synthesis.Scope)
+  (when initialization
+    ... function/false/non-independent loop
+    {.#End}
+    (statement expression archive body)
+
+    ... true loop
+    _
+    (do [! phase.monad]
+      [@scope (of ! each ..@scope translation.next)
+       initialization (monad.each ! (expression archive) initialization)
+       body (translation.with_anchor [start @scope]
+              (statement expression archive body))
+       $iteration_parameters (of ! each ..$iteration_parameters translation.next)]
+      (in (..setup $iteration_parameters
+                   true start
+                   initialization
+                   (all _.then
+                        (_.set_label @scope)
+                        body))))))
+
+... (def .public (iteration statement expression archive it)
+...   (runtime.Expression List)
+...   (do [! phase.monad]
+...     [[offset @scope] translation.anchor
+...      it (monad.each ! (expression archive) it)
+...      $iteration_parameters (of ! each ..$iteration_parameters translation.next)]
+...     (in (..setup $iteration_parameters
+...                  false offset it
+...                  (_.go_to @scope)))))

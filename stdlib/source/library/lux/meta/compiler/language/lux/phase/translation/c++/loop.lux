@@ -3,117 +3,36 @@
 
 (.require
  [library
-  [lux (.except Scope)
+  [lux (.except)
    [abstract
-    ["[0]" monad (.only do)]]
-   [data
-    ["[0]" product]
-    ["[0]" text (.only)
-     ["%" \\format (.only format)]]
-    [collection
-     ["[0]" list (.use "[1]#[0]" functor mix)]]]
-   [math
-    [number
-     ["n" nat]]]
+    [monad (.only do)]]
    [meta
     [compiler
      [target
       ["_" c++]]]]]]
  [//
-  ["[0]" runtime (.only Operation Phase)]
-  ["[0]" reference]
+  ["[0]" runtime]
+  [statement
+   ["/" loop]]
   [////
-   ["[0]" phase]
-   ["[0]" synthesis (.only Scope)]
-   ["[0]" translation]
-   [///
-    [reference
-     [variable (.only Register)]]]]])
+   ["[0]" phase (.use "[1]#[0]" functor)]
+   ["[0]" synthesis]]])
 
-(def @scope
-  (-> Nat
-      _.Label)
-  (|>> %.nat
-       (format "scope")
-       _.label))
-
-(def $iteration_parameters
-  (-> Nat
-      _.Local)
-  (|>> %.nat
-       (format "iteration_parameters")
-       _.local))
-
-(def (setup $iteration_parameters initial? offset bindings body)
-  (-> _.Local Bit Register (List _.Expression) _.Statement
-      _.Statement)
-  (when bindings
-    (list)
-    body
-
-    (list binding)
-    (let [$binding (reference.local offset)]
-      (_.block
-       (all _.then
-            (if initial?
-              (_.variable $binding runtime.value_type binding)
-              (_.; (_.:= $binding binding)))
-            body
-            )))
-
-    _
-    (|> bindings
-        list.enumeration
-        (list#each (is (-> [Register _.Expression]
-                           _.Statement)
-                       (function (_ [register _])
-                         (let [variable (reference.local (n.+ offset register))
-                               value (_.item (_.int (.int register)) $iteration_parameters)]
-                           (if initial?
-                             (_.variable variable runtime.value_type value)
-                             (_.; (_.:= variable value)))))))
-        list.reversed
-        (list#mix _.then body)
-        (_.then (_.constant_array $iteration_parameters
-                                  runtime.value_type
-                                  (_.int (.int (list.size bindings)))
-                                  (_.initializer_list bindings)))
-        _.block)))
-
-(def .public (scope next archive [start initialization body])
-  (runtime.Term Scope)
+(def .public (scope statement expression archive [start initialization body])
+  (-> runtime.Phase'
+      (runtime.Expression synthesis.Scope))
   (when initialization
     ... function/false/non-independent loop
     {.#End}
-    (next archive body)
+    (expression archive body)
 
     ... true loop
     _
-    (do [! phase.monad]
-      [@scope (of ! each ..@scope translation.next)
-       initialization (monad.each ! (next archive) initialization)
-       body (translation.with_anchor [start @scope]
-              (next archive body))
-       $iteration_parameters (of ! each ..$iteration_parameters translation.next)]
-      (in (|> (..setup $iteration_parameters
-                       true start
-                       initialization
-                       (all _.then
-                            (_.set_label @scope)
-                            (_.return body)))
-              (_.lambda (when start
-                          0 (list)
-                          _ (list _.all_by_value))
-                        (list)
-                        {.#Some runtime.value_type})
-              (_.on (list)))))))
-
-... (def .public (iteration statement expression archive it)
-...   (runtime.Term List)
-...   (do [! phase.monad]
-...     [[offset @scope] translation.anchor
-...      it (monad.each ! (expression archive) it)
-...      $iteration_parameters (of ! each ..$iteration_parameters translation.next)]
-...     (in (..setup $iteration_parameters
-...                  false offset it
-...                  (_.go_to @scope)))))
+    (|> [start initialization body]
+        (/.scope statement expression archive)
+        (phase#each (|>> (_.lambda (when start
+                                     0 (list)
+                                     _ (list _.all_by_value))
+                                   (list)
+                                   {.#Some runtime.value_type})
+                         (_.on (list)))))))

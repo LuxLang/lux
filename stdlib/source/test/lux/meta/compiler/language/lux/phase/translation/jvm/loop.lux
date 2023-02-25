@@ -1,0 +1,126 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["[0]" io]
+    ["[0]" try (.use "[1]#[0]" functor)]
+    ["[0]" function]]
+   [data
+    ["[0]" bit (.use "[1]#[0]" equivalence)]
+    [collection
+     ["[0]" list]]]
+   [math
+    ["[0]" random (.only Random)]
+    [number
+     ["[0]" i64 (.use "[1]#[0]" equivalence)]
+     ["n" nat]]]
+   [meta
+    ["[0]" location]
+    [compiler
+     [meta
+      ["[0]" archive]]]]
+   [test
+    ["_" property (.only Test)]]]]
+ [\\library
+  ["[0]" / (.only)
+   ["/[1]" // (.only)
+    ["[0]" host]
+    ["[0]" runtime]
+    [///
+     ["[0]" extension]
+     [//
+      ["[0]" phase]
+      ["[0]" synthesis]
+      ["[0]" translation]]]]]]
+ [//
+  ["[0]T" complex]])
+
+(def .public test
+  Test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [module (random.lower_cased 1)
+
+         expected_i64 random.i64
+         dummy_i64 (random.only (|>> (i64#= expected_i64) not) random.i64)
+
+         .let [extender (is extension.Extender
+                            (function (_ _)
+                              (undefined)))
+               next (//.translate extender complexT.lux)
+               @ [module 0 0]]])
+      (all _.and
+           (_.coverage [/.scope]
+             (let [no_bindings!
+                   (|> (do try.monad
+                         [[_ archive] (archive.reserve "" archive.empty)
+                          [_ archive] (archive.reserve module archive)
+                          .let [[_ host] (io.run! host.host)
+                                state (is runtime.State
+                                          (translation.state host module))]]
+                         (<| (phase.result state)
+                             (do phase.monad
+                               [_ (translation.set_buffer translation.empty_buffer)
+                                it (/.scope next archive
+                                            [0 (list) (synthesis.i64 @ expected_i64)])]
+                               (in (|> it
+                                       [{.#None}]
+                                       (of host evaluate)
+                                       (try#each (|>> (as I64)
+                                                      (i64#= expected_i64)))
+                                       (try.else false))))))
+                       (try.else false))
+
+                   with_bindings!
+                   (|> (do try.monad
+                         [[_ archive] (archive.reserve "" archive.empty)
+                          [_ archive] (archive.reserve module archive)
+                          .let [[_ host] (io.run! host.host)
+                                state (is runtime.State
+                                          (translation.state host module))]]
+                         (<| (phase.result state)
+                             (do phase.monad
+                               [_ (translation.set_buffer translation.empty_buffer)
+                                it (/.scope next archive
+                                            [0 (list (synthesis.i64 @ expected_i64)) (synthesis.variable/local @ 0)])]
+                               (in (|> it
+                                       [{.#None}]
+                                       (of host evaluate)
+                                       (try#each (|>> (as I64)
+                                                      (i64#= expected_i64)))
+                                       (try.else false))))))
+                       (try.else false))]
+               (and no_bindings!
+                    with_bindings!)))
+           (_.coverage [/.again]
+             (|> (do try.monad
+                   [[_ archive] (archive.reserve "" archive.empty)
+                    [_ archive] (archive.reserve module archive)
+                    .let [[_ host] (io.run! host.host)
+                          state (is runtime.State
+                                    (translation.state host module))]]
+                   (<| (phase.result state)
+                       (do phase.monad
+                         [_ (translation.set_buffer translation.empty_buffer)
+                          it (/.scope next archive
+                                      [0 (list (synthesis.i64 @ dummy_i64))
+                                       (<| (synthesis.branch/when @)
+                                           [synthesis.#input (synthesis.variable/local @ 0)
+                                            synthesis.#output {synthesis.#Alt
+                                                               {synthesis.#I64_Fork [[synthesis.#when dummy_i64
+                                                                                      synthesis.#then {synthesis.#Then (synthesis.loop/again @ (list (synthesis.i64 @ expected_i64)))}]
+                                                                                     (list)]}
+                                                               {synthesis.#Then (synthesis.variable/local @ 0)}}])])]
+                         (in (|> it
+                                 [{.#None}]
+                                 (of host evaluate)
+                                 (try#each (|>> (as I64)
+                                                (i64#= expected_i64)))
+                                 (try.else false))))))
+                 (try.else false)))
+           )))
