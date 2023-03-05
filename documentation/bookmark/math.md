@@ -75,7 +75,7 @@
 
 # Number Theory
 
-0. []()
+0. [Fast constant-time gcd computation and modular inversion](https://gcd.cr.yp.to/safegcd-20190413.pdf)
 0. [Introduction to number theory (Berkeley Math 115)](https://www.youtube.com/playlist?list=PL8yHsr3EFj53L8sMbzIhhXSAOpuZ1Fov8)
 0. https://twitter.com/johncarlosbaez/status/1184492139897507840
 0. https://en.wikipedia.org/wiki/Division_algebra

@@ -1,5 +1,6 @@
 # Reference
 
+0. [Colormoods.co is a different kind of color generator — it suggests pairs of colors based on the amount of stimulation](https://colormoods.co/)
 0. [The Müller Formula (or: Predictable Color Preferences)](https://www.colourlovers.com/blog/2007/09/02/the-muller-formula-or-predictable-color-preferences)
 0. [Mastering Multi-hued Color Scales with Chroma.js](https://www.vis4.net/blog/2013/09/mastering-multi-hued-color-scales/)
 0. [How To Avoid Equidistant HSV Colors ](https://www.vis4.net/blog/2011/12/avoid-equidistant-hsv-colors/)
