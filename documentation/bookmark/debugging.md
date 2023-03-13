@@ -20,6 +20,9 @@
 
 # Reference
 
+0. [A debugging manifesto](https://jvns.ca/blog/2022/12/08/a-debugging-manifesto/)
+0. [Debug Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/)
+0. [Finding Java Thread Leaks With JDK Flight Recorder and a Bit Of SQL](https://www.morling.dev/blog/finding-java-thread-leaks-with-jdk-flight-recorder-and-bit-of-sql/)
 0. [Traces vs. Snapshots: Print Statements and Debuggers](https://www.scott-a-s.com/traces-vs-snapshots/)
 0. [Unobtrusive runtime warnings for libraries](https://www.pointfree.co/blog/posts/70-unobtrusive-runtime-warnings-for-libraries)
 0. [Debugging in Clojure](https://blog.davemartin.me/posts/debugging-in-clojure/)

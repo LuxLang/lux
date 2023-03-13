@@ -194,7 +194,10 @@
 
 ## General
 
-0. []()
+0. [Text Editor E01 - How to use ANSI Escape Codes & Call Native APIs with Java](https://www.youtube.com/watch?v=kT4JYQi9w4w)
+	0. [Text Editor E02 - Keypresses & Implementing Scrolling](https://www.youtube.com/watch?v=HwPjeb2xnEo)
+	0. [Text Editor E03 - Advanced Keyboard Navigation & Windows/macOS Compatibility](https://www.youtube.com/watch?v=72Dt_U9DQh4)
+0. [Using Layouts for Personal Automation](https://zellij.dev/tutorials/layouts/)
 0. [JSON Hero](https://jsonhero.io/)
 0. https://texteditors.org/cgi-bin/wiki.pl?EditorIndex
 0. [Slate: A completely customizable framework for building rich text editors.](https://github.com/ianstormtaylor/slate)

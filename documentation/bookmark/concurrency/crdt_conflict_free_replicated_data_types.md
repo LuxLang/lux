@@ -1,5 +1,6 @@
 # Reference
 
+0. [You might not need a CRDT](https://driftingin.space/posts/you-might-not-need-a-crdt)
 0. [CRDT: Fractional Indexing](https://madebyevan.com/algos/crdt-fractional-indexing/)
 0. [CRDT: Mutable Tree Hierarchy](https://madebyevan.com/algos/crdt-mutable-tree-hierarchy/)
 0. [Katara: Synthesize CRDTs from classic data types with verified lifting!](https://github.com/hydro-project/katara)
