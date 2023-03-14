@@ -1,5 +1,6 @@
 # Reference
 
+0. [Auth.js: Authentication for the Web.](https://authjs.dev/)
 0. [Single Sign-On vs. Single Logout](https://fusionauth.io/blog/2022/12/08/single-sign-on-vs-single-log-out)
 0. [Rodauth: Ruby's Most Advanced Authentication Framework](https://github.com/jeremyevans/rodauth)
 0. [persona](https://withpersona.com/home-wf)

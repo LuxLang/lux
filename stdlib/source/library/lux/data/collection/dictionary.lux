@@ -64,29 +64,29 @@
 
 ... Nodes for the tree data-structure that organizes the data inside
 ... Dictionaries.
-(type (Node k v)
+(type (Node key value)
   (Variant
-   {#Hierarchy Nat (Array (Node k v))}
+   {#Hierarchy Nat (Array (Node key value))}
    {#Base Bit_Map
-          (Array (Either (Node k v)
-                         [k v]))}
-   {#Collisions Hash_Code (Array [k v])}))
+          (Array (Either (Node key value)
+                         [key value]))}
+   {#Collisions Hash_Code (Array [key value])}))
 
 ... #Hierarchy nodes are meant to point down only to lower-level nodes.
-(type (Hierarchy k v)
-  [Nat (Array (Node k v))])
+(type (Hierarchy key value)
+  [Nat (Array (Node key value))])
 
 ... #Base nodes may point down to other nodes, but also to leaves,
 ... which are KV-pairs.
-(type (Base k v)
-  (Array (Either (Node k v)
-                 [k v])))
+(type (Base key value)
+  (Array (Either (Node key value)
+                 [key value])))
 
 ... #Collisions are collections of KV-pairs for which the key is
 ... different on each case, but their hashes are all the same (thus
 ... causing a collision).
-(type (Collisions k v)
-  (Array [k v]))
+(type (Collisions key value)
+  (Array [key value]))
 
 ... That bitmap for an empty #Base is 0.
 ... Which is the same as 0000 0000 0000 0000 0000 0000 0000 0000.
@@ -140,7 +140,9 @@
 ... Expands a copy of the array, to have 1 extra slot, which is used
 ... for storing the value.
 (def (array#has idx value old_array)
-  (All (_ a) (-> Index a (Array a) (Array a)))
+  (All (_ of)
+    (-> Index of (Array of)
+        (Array of)))
   (let [old_size (array.size old_array)]
     (|> (array.empty (++ old_size))
         (array.copy! idx 0 old_array 0)
@@ -149,19 +151,27 @@
 
 ... Creates a copy of an array with an index set to a particular value.
 (def (array#revised idx value array)
-  (All (_ a) (-> Index a (Array a) (Array a)))
-  (|> array array.clone (array.has! idx value)))
+  (All (_ of)
+    (-> Index of (Array of)
+        (Array of)))
+  (|> array
+      array.clone
+      (array.has! idx value)))
 
 ... Creates a clone of the array, with an empty position at index.
 (def (array#clear idx array)
-  (All (_ a) (-> Index (Array a) (Array a)))
+  (All (_ of)
+    (-> Index (Array of)
+        (Array of)))
   (|> array
       array.clone
       (array.lacks! idx)))
 
 ... Shrinks a copy of the array by removing the space at index.
 (def (array#lacks idx array)
-  (All (_ a) (-> Index (Array a) (Array a)))
+  (All (_ of)
+    (-> Index (Array of)
+        (Array of)))
   (let [new_size (-- (array.size array))]
     (|> (array.empty new_size)
         (array.copy! idx 0 array 0)
@@ -170,7 +180,8 @@
 ... Increases the level-shift by the branching-exponent, to explore
 ... levels further down the tree.
 (def level_up
-  (-> Level Level)
+  (-> Level
+      Level)
   (n.+ branching_exponent))
 
 (def hierarchy_mask
@@ -180,22 +191,26 @@
 ... Gets the branching-factor sized section of the hash corresponding
 ... to a particular level, and uses that as an index into the array.
 (def (level_index level hash)
-  (-> Level Hash_Code Index)
+  (-> Level Hash_Code
+      Index)
   (i64.and ..hierarchy_mask
            (i64.right_shifted level hash)))
 
 ... A mechanism to go from indices to bit-positions.
 (def (to_bit_position index)
-  (-> Index Bit_Position)
+  (-> Index
+      Bit_Position)
   (i64.left_shifted index 1))
 
 ... The bit-position within a base that a given hash-code would have.
 (def (level_bit_position level hash)
-  (-> Level Hash_Code Bit_Position)
+  (-> Level Hash_Code
+      Bit_Position)
   (to_bit_position (level_index level hash)))
 
 (def (with_bit_position? bit bitmap)
-  (-> Bit_Position Bit_Map Bit)
+  (-> Bit_Position Bit_Map
+      Bit)
   (|> bitmap
       (i64.and bit)
       (n.= clean_bitmap)
@@ -203,39 +218,47 @@
 
 ... Figures out whether a bitmap only contains a single bit-position.
 (def only_bit_position?
-  (-> Bit_Position Bit_Map Bit)
+  (-> Bit_Position Bit_Map
+      Bit)
   n.=)
 
 (def (with_bit_position bit bitmap)
-  (-> Bit_Position Bit_Map Bit_Map)
+  (-> Bit_Position Bit_Map
+      Bit_Map)
   (i64.or bit bitmap))
 
 (def without_bit_position
-  (-> Bit_Position Bit_Map Bit_Map)
+  (-> Bit_Position Bit_Map
+      Bit_Map)
   i64.xor)
 
 ... Figures out the size of a bitmap-indexed array by counting all the
 ... 1s within the bitmap.
 (def bitmap_size
-  (-> Bit_Map Nat)
+  (-> Bit_Map
+      Nat)
   i64.ones)
 
 ... A mask that, for a given bit position, only allows all the 1s prior
 ... to it, which would indicate the bitmap-size (and, thus, index)
 ... associated with it.
 (def bit_position_mask
-  (-> Bit_Position Bit_Map)
+  (-> Bit_Position
+      Bit_Map)
   --)
 
 ... The index on the base array, based on its bit-position.
 (def (base_index bit_position bitmap)
-  (-> Bit_Position Bit_Map Index)
+  (-> Bit_Position Bit_Map
+      Index)
   (bitmap_size (i64.and (bit_position_mask bit_position)
                         bitmap)))
 
 ... Produces the index of a KV-pair within a #Collisions node.
 (def (collision_index key_hash key colls)
-  (All (_ k v) (-> (Hash k) k (Collisions k v) (Maybe Index)))
+  (All (_ key value)
+    (-> (Hash key) key (Collisions key value)
+        (Maybe Index)))
   (of maybe.monad each product.left
       (array.example' (function (_ idx [key' val'])
                         (of key_hash = key key'))
@@ -244,7 +267,9 @@
 ... When #Hierarchy nodes grow too small, they're demoted to #Base
 ... nodes to save space.
 (def (demotion except_idx [h_size h_array])
-  (All (_ k v) (-> Index (Hierarchy k v) [Bit_Map (Base k v)]))
+  (All (_ key value)
+    (-> Index (Hierarchy key value)
+        [Bit_Map (Base key value)]))
   (product.right (list#mix (function (_ idx [insertion_idx node])
                              (let [[bitmap base] node]
                                (if (array.lacks? idx h_array)
@@ -265,11 +290,10 @@
   (list.indices hierarchy_nodes_size))
 
 (def (promotion node#has key_hash level bitmap base)
-  (All (_ k v)
-    (-> (-> Level Hash_Code k v (Hash k) (Node k v) (Node k v))
-        (Hash k) Level
-        Bit_Map (Base k v)
-        (Array (Node k v))))
+  (All (_ key value)
+    (-> (-> Level Hash_Code key value (Hash key) (Node key value) (Node key value))
+        (Hash key) Level Bit_Map (Base key value)
+        (Array (Node key value))))
   (product.right (list#mix (function (_ hierarchy_idx (^.let default [base_idx h_array]))
                              (if (with_bit_position? (to_bit_position hierarchy_idx)
                                    bitmap)
@@ -291,7 +315,9 @@
 ... used).
 ... So, this test is introduced to detect them.
 (def (node#empty? node)
-  (All (_ k v) (-> (Node k v) Bit))
+  (All (_ key value)
+    (-> (Node key value)
+        Bit))
   (when node
     {#Base ..clean_bitmap _}
     true
@@ -300,7 +326,9 @@
     false))
 
 (def (node#has level hash key val key_hash node)
-  (All (_ k v) (-> Level Hash_Code k v (Hash k) (Node k v) (Node k v)))
+  (All (_ key value)
+    (-> Level Hash_Code key value (Hash key) (Node key value)
+        (Node key value)))
   (when node
     ... For #Hierarchy nodes, check whether one can add the element to
     ... a sub-node. If impossible, introduce a new singleton sub-node.
@@ -392,7 +420,9 @@
     ))
 
 (def (node#lacks level hash key key_hash node)
-  (All (_ k v) (-> Level Hash_Code k (Hash k) (Node k v) (Node k v)))
+  (All (_ key value)
+    (-> Level Hash_Code key (Hash key) (Node key value)
+        (Node key value)))
   (when node
     ... For #Hierarchy nodes, find out if there's a valid sub-node for
     ... the Hash-Code.
@@ -479,7 +509,9 @@
     ))
 
 (def (node#value level hash key key_hash node)
-  (All (_ k v) (-> Level Hash_Code k (Hash k) (Node k v) (Maybe v)))
+  (All (_ key value)
+    (-> Level Hash_Code key (Hash key) (Node key value)
+        (Maybe value)))
   (when node
     ... For #Hierarchy nodes, just look-up the key on its children.
     {#Hierarchy _size hierarchy}
@@ -510,7 +542,9 @@
     ))
 
 (def (node#size node)
-  (All (_ k v) (-> (Node k v) Nat))
+  (All (_ key value)
+    (-> (Node key value)
+        Nat))
   (when node
     {#Hierarchy _size hierarchy}
     (array.mix (function (_ _ item total)
@@ -533,7 +567,9 @@
     ))
 
 (def (node#mix f init node)
-  (All (_ k v a) (-> (-> [k v] a a) a (Node k v) a))
+  (All (_ key value of)
+    (-> (-> [key value] of of) of (Node key value)
+        of))
   (when node
     {#Hierarchy _size hierarchy}
     (array.mix (function (_ _ sub_node current)
@@ -559,42 +595,56 @@
                colls)))
 
 (def node#entries
-  (All (_ k v) (-> (Node k v) (List [k v])))
+  (All (_ key value)
+    (-> (Node key value)
+        (List [key value])))
   (node#mix (function (_ head tail)
               {.#Item head tail})
             {.#End}))
 
-(type .public (Dictionary k v)
+(type .public (Dictionary key value)
   (Record
-   [#hash (Hash k)
-    #root (Node k v)]))
+   [#hash (Hash key)
+    #root (Node key value)]))
 
 (def .public key_hash
-  (All (_ k v) (-> (Dictionary k v) (Hash k)))
+  (All (_ key value)
+    (-> (Dictionary key value)
+        (Hash key)))
   (the ..#hash))
 
 (def .public (empty key_hash)
-  (All (_ k v) (-> (Hash k) (Dictionary k v)))
+  (All (_ key value)
+    (-> (Hash key)
+        (Dictionary key value)))
   [#hash key_hash
    #root ..empty_node])
 
 (def .public (has key val dict)
-  (All (_ k v) (-> k v (Dictionary k v) (Dictionary k v)))
+  (All (_ key value)
+    (-> key value (Dictionary key value)
+        (Dictionary key value)))
   (let [[key_hash node] dict]
     [key_hash (node#has root_level (of key_hash hash key) key val key_hash node)]))
 
 (def .public (lacks key dict)
-  (All (_ k v) (-> k (Dictionary k v) (Dictionary k v)))
+  (All (_ key value)
+    (-> key (Dictionary key value)
+        (Dictionary key value)))
   (let [[key_hash node] dict]
     [key_hash (node#lacks root_level (of key_hash hash key) key key_hash node)]))
 
 (def .public (value key dict)
-  (All (_ k v) (-> k (Dictionary k v) (Maybe v)))
+  (All (_ key value)
+    (-> key (Dictionary key value)
+        (Maybe value)))
   (let [[key_hash node] dict]
     (node#value root_level (of key_hash hash key) key key_hash node)))
 
 (def .public (key? dict key)
-  (All (_ k v) (-> (Dictionary k v) k Bit))
+  (All (_ key value)
+    (-> (Dictionary key value) key
+        Bit))
   (when (value key dict)
     {.#None}
     false
@@ -605,13 +655,17 @@
 (exception.def .public key_already_exists)
 
 (def .public (has' key val dict)
-  (All (_ k v) (-> k v (Dictionary k v) (Try (Dictionary k v))))
+  (All (_ key value)
+    (-> key value (Dictionary key value)
+        (Try (Dictionary key value))))
   (when (value key dict)
     {.#None}   {try.#Success (has key val dict)}
     {.#Some _} (exception.except ..key_already_exists [])))
 
 (def .public (revised key f dict)
-  (All (_ k v) (-> k (-> v v) (Dictionary k v) (Dictionary k v)))
+  (All (_ key value)
+    (-> key (-> value value) (Dictionary key value)
+        (Dictionary key value)))
   (when (value key dict)
     {.#None}
     dict
@@ -620,26 +674,38 @@
     (has key (f val) dict)))
 
 (def .public (revised' key default f dict)
-  (All (_ k v) (-> k v (-> v v) (Dictionary k v) (Dictionary k v)))
+  (All (_ key value)
+    (-> key value (-> value value) (Dictionary key value)
+        (Dictionary key value)))
   (..has key
          (f (maybe.else default
                         (..value key dict)))
          dict))
 
 (def .public size
-  (All (_ k v) (-> (Dictionary k v) Nat))
+  (All (_ key value)
+    (-> (Dictionary key value)
+        Nat))
   (|>> (the #root) ..node#size))
 
 (def .public empty?
-  (All (_ k v) (-> (Dictionary k v) Bit))
-  (|>> size (n.= 0)))
+  (All (_ key value)
+    (-> (Dictionary key value)
+        Bit))
+  (|>> size
+       (n.= 0)))
 
 (def .public entries
-  (All (_ k v) (-> (Dictionary k v) (List [k v])))
-  (|>> (the #root) ..node#entries))
+  (All (_ key value)
+    (-> (Dictionary key value)
+        (List [key value])))
+  (|>> (the #root)
+       ..node#entries))
 
 (def .public (of_list key_hash kvs)
-  (All (_ k v) (-> (Hash k) (List [k v]) (Dictionary k v)))
+  (All (_ key value)
+    (-> (Hash key) (List [key value])
+        (Dictionary key value)))
   (list#mix (function (_ [k v] dict)
               (..has k v dict))
             (empty key_hash)
@@ -647,25 +713,31 @@
 
 (with_template [<side> <name>]
   [(def .public <name>
-     (All (_ k v) (-> (Dictionary k v) (List <side>)))
+     (All (_ key value)
+       (-> (Dictionary key value)
+           (List <side>)))
      (|>> (the #root)
-          (node#mix (function (_ [k v] bundle)
+          (node#mix (function (_ [key value] bundle)
                       {.#Item <side> bundle})
                     {.#End})))]
 
-  [k keys]
-  [v values]
+  [key   keys]
+  [value values]
   )
 
 (def .public (composite dict2 dict1)
-  (All (_ k v) (-> (Dictionary k v) (Dictionary k v) (Dictionary k v)))
+  (All (_ key value)
+    (-> (Dictionary key value) (Dictionary key value)
+        (Dictionary key value)))
   (node#mix (function (_ [key val] dict)
               (has key val dict))
             dict1
             (the #root dict2)))
 
 (def .public (composite_with f dict2 dict1)
-  (All (_ k v) (-> (-> v v v) (Dictionary k v) (Dictionary k v) (Dictionary k v)))
+  (All (_ key value)
+    (-> (-> value value value) (Dictionary key value) (Dictionary key value)
+        (Dictionary key value)))
   (node#mix (function (_ [key val2] dict)
               (when (value key dict)
                 {.#None}
@@ -677,7 +749,9 @@
             (the #root dict2)))
 
 (def .public (re_bound from_key to_key dict)
-  (All (_ k v) (-> k k (Dictionary k v) (Dictionary k v)))
+  (All (_ key value)
+    (-> key key (Dictionary key value)
+        (Dictionary key value)))
   (when (value from_key dict)
     {.#None}
     dict
@@ -688,7 +762,9 @@
         (has to_key val))))
 
 (def .public (sub keys dict)
-  (All (_ k v) (-> (List k) (Dictionary k v) (Dictionary k v)))
+  (All (_ key value)
+    (-> (List key) (Dictionary key value)
+        (Dictionary key value)))
   (let [[key_hash _] dict]
     (list#mix (function (_ key new_dict)
                 (when (value key dict)
@@ -698,7 +774,9 @@
               keys)))
 
 (def .public (equivalence (open ",#[0]"))
-  (All (_ k v) (-> (Equivalence v) (Equivalence (Dictionary k v))))
+  (All (_ key value)
+    (-> (Equivalence value)
+        (Equivalence (Dictionary key value))))
   (implementation
    (def (= reference subject)
      (and (n.= (..size reference)
@@ -713,7 +791,8 @@
                        (..entries reference))))))
 
 (def node_functor
-  (All (_ k) (Functor (Node k)))
+  (All (_ key)
+    (Functor (Node key)))
   (implementation
    (def (each f fa)
      (when fa
@@ -736,13 +815,16 @@
                                      collisions)}))))
 
 (def .public functor
-  (All (_ k) (Functor (Dictionary k)))
+  (All (_ key)
+    (Functor (Dictionary key)))
   (implementation
    (def (each f fa)
      (.revised #root (of ..node_functor each f) fa))))
 
 (def .public (monoid hash)
-  (All (_ k v) (-> (Hash k) (Monoid (Dictionary k v))))
+  (All (_ key value)
+    (-> (Hash key)
+        (Monoid (Dictionary key value))))
   (implementation
    (def identity (..empty hash))
    (def composite ..composite)))
