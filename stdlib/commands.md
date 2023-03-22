@@ -32,6 +32,7 @@ cd ~/lux/stdlib/ \
 
 ```
 cd ~/lux/stdlib/ \
+&& lux clean \
 && lux install
 
 cd ~/lux/stdlib/ \
