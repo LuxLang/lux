@@ -11,14 +11,17 @@
     ["[0]" pipe]
     ["[0]" io (.only IO)]
     ["[0]" maybe (.use "[1]#[0]" functor)]
-    ["[0]" try (.only Try)]
+    ["[0]" try (.only Try) (.use "[1]#[0]" functor)]
     [concurrency
      ["[0]" async (.only Async)]]]
    [data
     ["[0]" binary (.only Binary)]
     ["[0]" text]
     [collection
-     ["[0]" dictionary]]]
+     ["[0]" dictionary]
+     ["[0]" list (.use "[1]#[0]" mix)]
+     ["[0]" array
+      ["[1]" \\unsafe (.only Array)]]]]
    [math
     [number
      ["n" nat]
@@ -34,7 +37,8 @@
  ["[0]" // (.only)
   [response (.only Response)]
   ["[0]" header (.only Headers)]
-  [// (.only URL)]])
+  [// (.only URL)
+   [uri (.only URI)]]])
 
 (type .public (Client !)
   (Interface
@@ -73,8 +77,23 @@
   [0 (binary.empty 0)])
 
 (def (body_of data)
-  (-> Binary [Nat Binary])
+  (-> Binary
+      [Nat Binary])
   [(binary.size data) data])
+
+(def method_name
+  (-> //.Method
+      Text)
+  (|>> (pipe.when
+         {//.#Post} "POST"
+         {//.#Get} "GET"
+         {//.#Put} "PUT"
+         {//.#Patch} "PATCH"
+         {//.#Delete} "DELETE"
+         {//.#Head} "HEAD"
+         {//.#Connect} "CONNECT"
+         {//.#Options} "OPTIONS"
+         {//.#Trace} "TRACE")))
 
 (with_expansions [<jvm> (these (ffi.import java/lang/String
                                  "[1]::[0]")
@@ -115,21 +134,9 @@
                                  (new [java/io/InputStream])
                                  (read [[byte] int int] "io" "try" int))
 
-                               (def jvm_method
-                                 (-> //.Method Text)
-                                 (|>> (pipe.when
-                                        {//.#Post} "POST"
-                                        {//.#Get} "GET"
-                                        {//.#Put} "PUT"
-                                        {//.#Patch} "PATCH"
-                                        {//.#Delete} "DELETE"
-                                        {//.#Head} "HEAD"
-                                        {//.#Connect} "CONNECT"
-                                        {//.#Options} "OPTIONS"
-                                        {//.#Trace} "TRACE")))
-
                                (def (default_body input)
-                                 (-> java/io/BufferedInputStream (//.Body IO))
+                                 (-> java/io/BufferedInputStream
+                                     (//.Body IO))
                                  (|>> (maybe#each (|>> [true]))
                                       (maybe.else [false ..default_buffer_size])
                                       (pipe.when
@@ -179,7 +186,8 @@
                                                              output))))))))))
 
                                (def (default_headers connection)
-                                 (-> java/net/HttpURLConnection (IO (Try Headers)))
+                                 (-> java/net/HttpURLConnection
+                                     (IO (Try Headers)))
                                  (loop (again [index +0
                                                headers header.empty])
                                    (do [! (try.with io.monad)]
@@ -202,7 +210,7 @@
                                         (do [! (try.with io.monad)]
                                           [connection (|> url ffi.as_string java/net/URL::new java/net/URL::openConnection)
                                            .let [connection (as java/net/HttpURLConnection connection)]
-                                           _ (java/net/HttpURLConnection::setRequestMethod (ffi.as_string (..jvm_method method)) connection)
+                                           _ (java/net/HttpURLConnection::setRequestMethod (ffi.as_string (..method_name method)) connection)
                                            _ (monad.each ! (function (_ [name value])
                                                              (java/net/URLConnection::setRequestProperty (ffi.as_string name) (ffi.as_string value) connection))
                                                          (dictionary.entries headers))
@@ -228,6 +236,82 @@
                                                 //.#body (..default_body input)]])))))))]
   (for @.old (these <jvm>)
        @.jvm (these <jvm>)
+       @.python (these (ffi.import Dict
+                         "[1]#[0]"
+                         (setdefault [Text Text] Text))
+
+                       (ffi.import (dict [] Dict))
+
+                       (def headers_input
+                         (-> Headers
+                             Dict)
+                         (|>> dictionary.entries
+                              (list#mix (function (_ [header value] it)
+                                          (exec
+                                            (Dict#setdefault header value it)
+                                            it))
+                                        (..dict []))))
+
+                       (def headers_output
+                         (-> (Array (Array Text))
+                             Headers)
+                         (|>> (array.mix (function (_ _ header,value it)
+                                           (dictionary.has (array.item 0 header,value)
+                                                           (array.item 1 header,value)
+                                                           it))
+                                         header.empty)))
+
+                       (ffi.import http/client/HTTPResponse
+                         "[1]#[0]"
+                         (status Nat)
+                         (read ["?" Nat] "io" "try" Binary)
+                         (getheaders [] "io" "try" (Array (Array Text))))
+
+                       (ffi.import urllib/request/Request
+                         "[1]#[0]")
+
+                       (ffi.import urllib/request
+                         "[1]#[0]"
+                         ("static" Request [URL "?" Binary Dict "?" Any Bit Text] urllib/request/Request)
+                         ("static" urlopen [urllib/request/Request] "io" "try" http/client/HTTPResponse))
+
+                       (def (default_body input)
+                         (-> http/client/HTTPResponse
+                             (//.Body IO))
+                         (let [! (try.with io.monad)]
+                           (|>> (maybe#each (|>> [true]))
+                                (maybe.else [false ..default_buffer_size])
+                                (pipe.when
+                                  [_ 0]
+                                  (of ! in ..empty_body)
+
+                                  [partial? buffer_size]
+                                  (do !
+                                    [it (if partial?
+                                          (http/client/HTTPResponse#read {.#Some buffer_size} input)
+                                          (http/client/HTTPResponse#read {.#None} input))]
+                                    (in (body_of it)))))))
+
+                       (def .public default
+                         (Client IO)
+                         (implementation
+                          (def (request method url headers data)
+                            (is (IO (Try (Response IO)))
+                                (do [! (try.with io.monad)]
+                                  [.let [request (urllib/request#Request url
+                                                                         data
+                                                                         (..headers_input headers)
+                                                                         {.#None}
+                                                                         false
+                                                                         (..method_name method))]
+                                   response (urllib/request#urlopen request)
+                                   .let [status (http/client/HTTPResponse#status response)]
+                                   headers (of ! each ..headers_output
+                                               (http/client/HTTPResponse#getheaders response))]
+                                  (in [status
+                                       [//.#headers headers
+                                        //.#body (..default_body response)]])))
+                            ))))
        (these)))
 
 (def .public (async client)
@@ -238,16 +322,13 @@
      (|> (of client request method url headers data)
          async.future
          (of async.monad each
-             (|>> (pipe.when
-                    {try.#Success [status message]}
-                    {try.#Success [status (revised //.#body (is (-> (//.Body IO) (//.Body Async))
-                                                                (function (_ body)
-                                                                  (|>> body async.future)))
-                                                   message)]}
-                    
-                    {try.#Failure error}
-                    {try.#Failure error})))))))
+             (try#each (function (_ [status message])
+                         [status (revised //.#body (is (-> (//.Body IO) (//.Body Async))
+                                                       (function (_ body)
+                                                         (|>> body async.future)))
+                                          message)])))))))
 
 (def .public headers
-  (-> (List [Text Text]) Headers)
+  (-> (List [Text Text])
+      Headers)
   (dictionary.of_list text.hash))

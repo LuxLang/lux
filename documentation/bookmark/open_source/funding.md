@@ -1,6 +1,6 @@
 # Reference
 
-0. []()
+0. [The Reality of Depending on True Fans](https://kk.org/thetechnium/the-reality-of/)
 0. [OpenFare](https://github.com/openfare/openfare)
 0. [Openpod: Investable Tokens for Open Source Projects](https://www.openpod.io/)
 0. [The NEO way to finance collaborative and FOSS projects](https://medium.com/@meriteconomy/the-neo-way-to-finance-collaborative-and-foss-projects-7966dfeac0ce)

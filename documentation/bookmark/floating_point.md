@@ -46,7 +46,7 @@
 
 # Reference
 
-0. []()
+0. [Arbitrary-Precision Floating-Point Library](https://crates.io/crates/arpfloat)
 0. [How Java’s Floating-Point Hurts Everyone Everywhere](https://people.eecs.berkeley.edu/~wkahan/JAVAhurt.pdf)
 0. [What aspect of portable floating point did Java back down on?](https://retrocomputing.stackexchange.com/questions/18143/what-aspect-of-portable-floating-point-did-java-back-down-on)
 
