@@ -131,6 +131,10 @@
               (&/with-module module
                 (analyse exo-type ?expr)))))
 
+        (&/$Identifier "library/lux" "universe#")
+        (|do [_ (&type/check exo-type &type/Nat)]
+          (return (&/|list (&&/|meta exo-type location (&&/$nat 0)))))
+
         (&/$Identifier "library/lux" extension)
         (if (&&common/uses_new_format? extension)
           (&/with-analysis-meta location exo-type
