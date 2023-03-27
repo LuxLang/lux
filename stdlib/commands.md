@@ -1,3 +1,7 @@
+```
+cd ~/lux && grep -r "" --include *.lux | sort
+```
+
 # Standard Library
 
 ## Test
