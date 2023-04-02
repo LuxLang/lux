@@ -1,7 +1,8 @@
 # Reference
 
-1. [Calendarific: Worldwide Holidays and Observances RESTful API](https://calendarific.com/)
-1. [UTC with Smoothed Leap Seconds (UTC-SLS)](https://www.cl.cam.ac.uk/~mgk25/time/utc-sls/)
-1. [Hashed and Hierarchical Timing Wheels](https://paulcavallaro.com/blog/hashed-and-hierarchical-timing-wheels/)
-1. [Storing UTC is not a silver bullet](https://codeblog.jonskeet.uk/2019/03/27/storing-utc-is-not-a-silver-bullet/)
+0. [2022-12-04 – An update on leap seconds](https://dotat.at/@/2022-12-04-leap-seconds.html)
+0. [Calendarific: Worldwide Holidays and Observances RESTful API](https://calendarific.com/)
+0. [UTC with Smoothed Leap Seconds (UTC-SLS)](https://www.cl.cam.ac.uk/~mgk25/time/utc-sls/)
+0. [Hashed and Hierarchical Timing Wheels](https://paulcavallaro.com/blog/hashed-and-hierarchical-timing-wheels/)
+0. [Storing UTC is not a silver bullet](https://codeblog.jonskeet.uk/2019/03/27/storing-utc-is-not-a-silver-bullet/)
 

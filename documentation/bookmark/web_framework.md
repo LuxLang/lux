@@ -1,6 +1,5 @@
 # State
 
-0. []()
 0. [Jotai: Primitive and flexible state management for React](https://jotai.org/)
 
 # Virtual DOM
@@ -17,6 +16,7 @@
 
 # Reference
 
+0. [useSignal() is the Future of Web Frameworks](https://www.builder.io/blog/usesignal-is-the-future-of-web-frameworks)
 0. [JavaScript APIs You Don’t Know About](https://www.smashingmagazine.com/2022/09/javascript-api-guide/)
 0. [JavaScript Hydration Is a Workaround, Not a Solution](https://thenewstack.io/javascript-hydration-is-a-workaround-not-a-solution/)
 0. [Functional UI](https://take.surf/2022/07/04/functional-ui)

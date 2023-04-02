@@ -184,7 +184,6 @@
 
 # Collaborative editing
 
-0. []()
 0. https://github.com/gsilvamartin/RTCode
 0. https://hackernoon.com/building-conclave-a-decentralized-real-time-collaborative-text-editor-a6ab438fe79f
 0. https://github.com/xi-editor/xi-editor/issues/1187
@@ -194,6 +193,7 @@
 
 ## General
 
+0. [Bridging the Gap between Textual and Projectional Editors](https://tomassetti.me/textual-and-projectional-editors-a-gap/)
 0. [Text Editor E01 - How to use ANSI Escape Codes & Call Native APIs with Java](https://www.youtube.com/watch?v=kT4JYQi9w4w)
 	0. [Text Editor E02 - Keypresses & Implementing Scrolling](https://www.youtube.com/watch?v=HwPjeb2xnEo)
 	0. [Text Editor E03 - Advanced Keyboard Navigation & Windows/macOS Compatibility](https://www.youtube.com/watch?v=72Dt_U9DQh4)

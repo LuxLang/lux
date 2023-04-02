@@ -10,7 +10,7 @@
 
 # Reference
 
-0. []()
+0. [Opusmodus: Music Composition System](https://opusmodus.com/)
 0. [Why 12 notes?](https://github.com/aguaviva/articles/blob/main/why_12_notes.ipynb)
 0. [Open Music Theory](http://openmusictheory.com/)
 

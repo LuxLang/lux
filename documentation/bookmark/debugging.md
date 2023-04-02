@@ -20,6 +20,7 @@
 
 # Reference
 
+0. [Wolverine: Give your python scripts regenerative healing abilities!](https://github.com/biobootloader/wolverine)
 0. [A debugging manifesto](https://jvns.ca/blog/2022/12/08/a-debugging-manifesto/)
 0. [Debug Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/)
 0. [Finding Java Thread Leaks With JDK Flight Recorder and a Bit Of SQL](https://www.morling.dev/blog/finding-java-thread-leaks-with-jdk-flight-recorder-and-bit-of-sql/)
