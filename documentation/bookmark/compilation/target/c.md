@@ -1,6 +1,6 @@
 # Reference
 
-0. []()
+0. [Portability and the C Language](https://en.wikibooks.org/wiki/Portability_and_the_C_Language)
 0. [Cosmopolitan: build-once run-anywhere c library](https://github.com/jart/cosmopolitan)
 0. [](https://github.com/MichaelMiR01/tcc4tcl)
 	0. [](https://github.com/tcllab/tcc4tcl)

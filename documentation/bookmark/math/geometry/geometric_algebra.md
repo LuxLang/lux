@@ -1,5 +1,6 @@
 # Reference
 
+0. [Conformal Geometric Algebra](http://conformalgeometricalgebra.org/wiki/index.php?title=Main_Page)
 0. [Geometric algebra and classical mechanics](https://www.awanderingmind.blog/posts/2022-12-25-introduction-to-geometric-algebra.html)
 0. [Projective Geometric Algebra Done Right](http://terathon.com/blog/projective-geometric-algebra-done-right/)
 	0. [Symmetries in Projective Geometric Algebra](http://terathon.com/blog/symmetries-in-projective-geometric-algebra/)
