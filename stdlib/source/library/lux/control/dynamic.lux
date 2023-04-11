@@ -1,0 +1,92 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.require
+ [library
+  [lux (.except Bindings def let)
+   ["[0]" debug]
+   [abstract
+    ["[0]" monad (.only do)]]
+   [control
+    [reader (.only Reader)]
+    ["?" parser]
+    ["[0]" function]
+    ["[0]" maybe]]
+   [data
+    [collection
+     ["[0]" dictionary (.only Dictionary)]
+     ["[0]" list (.use "[1]#[0]" mix)]]]
+   ["[0]" meta (.only)
+    ["[0]" symbol]
+    ["[0]" code (.only)
+     ["?[1]" \\parser]]
+    ["[0]" macro (.only)
+     [syntax (.only syntax)
+      ["[0]" export]]]
+    [type
+     ["[0]" nominal]]]]])
+
+(nominal.def Bindings
+  (Dictionary Symbol Any)
+
+  ... https://en.wikipedia.org/wiki/Scope_(computer_science)#Dynamic_scope
+  (type .public Dynamic
+    (Reader Bindings))
+
+  (.def .public value
+    (All (_ of)
+      (-> (Dynamic of)
+          of))
+    (function.on (<| nominal.abstraction
+                     (dictionary.empty symbol.hash))))
+
+  (.def of_bindings
+    (-> Bindings
+        (Dictionary Symbol Any))
+    (|>> nominal.representation))
+
+  (.def .public def
+    (syntax (_ [[policy name] (export.with ?code.local)
+                type ?code.any
+                term ?code.any])
+      (do meta.monad
+        [here meta.current_module_name
+         macro.with_symbols ['default 'token]]
+        (in (list (` (.def (, policy) (, (code.local name))
+                       (Dynamic (, type))
+                       (.let [(, 'default) (, term)
+                              (, 'token) (is Symbol
+                                             [(, (code.text here)) (, (code.text name))])]
+                         (|>> ((debug.private ..of_bindings))
+                              (dictionary.value (, 'token))
+                              (as (Maybe (, type)))
+                              (maybe.else (, 'default)))))))))))
+  
+  (.def (let' name value _ term)
+    (All (_ of term)
+      (-> Symbol of (Dynamic of) (Dynamic term)
+          (Dynamic term)))
+    (|>> nominal.representation
+         (dictionary.has name value)
+         nominal.abstraction
+         term))
+
+  (.def .public let
+    (syntax (_ [bindings (?code.tuple (?.some (?.and ?code.symbol ?code.any)))
+                term ?code.any])
+      (do [! meta.monad]
+        [bindings (monad.each ! (function (_ [name value])
+                                  (do !
+                                    [name (meta.normal name)]
+                                    (in [name value])))
+                              bindings)]
+        (in (list (list#mix (function (_ [name value] term)
+                              (.let ['name (code.symbol name)]
+                                (` ((debug.private ..let')
+                                    (symbol (, 'name))
+                                    (, value)
+                                    (, 'name)
+                                    (, term)))))
+                            term
+                            (list.reversed bindings)))))))
+  )

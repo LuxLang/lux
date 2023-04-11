@@ -1,6 +1,6 @@
 # Reference
 
-0. []()
+0. [Design Graveyard](https://gwern.net/design-graveyard)
 0. https://modalzmodalzmodalz.com/
 0. [The Power of Defaults](https://www.nngroup.com/articles/the-power-of-defaults/)
 0. [Human Interface Guidelines](https://developer.apple.com/design/human-interface-guidelines/guidelines/overview/)

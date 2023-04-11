@@ -378,7 +378,7 @@ Called by `imenu--generic-function'."
 							(type//dynamic (altRE "dynamic" "static"))
 							(type//capability (altRE "capability"))
 							;; Data
-							(data//record (altRE "the" "has" "revised"))
+							(data//record (altRE "its" "has" "revised"))
 							(data//interface (altRE "use" "implementation" "with" "of"))
 							(data//implicit (altRE "implicitly" "a/an" "a" "an"))
 							(data//collection (altRE "list" "sequence" "tree"))

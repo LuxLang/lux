@@ -15,7 +15,7 @@
 
 # Reference
 
-0. []()
+0. [Rethinking Prolog](https://okmij.org/ftp/kakuritu/rethinking.pdf)
 0. [Symbolic artificial intelligence at Pipedrive](https://medium.com/pipedrive-engineering/symbolic-artificial-intelligence-at-pipedrive-a9bd36d06b9e)
 0. [PrologHub](https://prologhub.com/)
 0. https://book.simply-logical.space/

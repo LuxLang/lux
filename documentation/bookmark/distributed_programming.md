@@ -1,6 +1,5 @@
 # Microservices
 
-0. []()
 0. [The seven deceptions of microservices](https://scottrogowski.com/the-seven-deceptions-of-microservices.html)
 
 # Synchronization
@@ -11,7 +10,8 @@
 
 # Reference
 
-0. []()
+0. [FlexiRaft: Flexible Quorums with Raft](https://www.cidrdb.org/cidr2023/papers/p83-yadav.pdf)
+0. [Mitogen: Mitogen is a Python library for writing distributed self-replicating programs.](https://mitogen.networkgenomics.com/)
 0. [The Art of Immutable Architecture](https://www.immutablearchitecture.com/)
 0. [No more DSLs: Implement and deploy a distributed system with a single program](http://catern.com/integration.html)
 0. [Ambients: Peer-to-Peer Programs and Data](https://ipfs.io/ipfs/QmPhPJE55GvqSz7Pwvkc8n9dbKmqGw6tUGTE1MgfNQvzsf)

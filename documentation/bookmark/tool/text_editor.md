@@ -193,6 +193,7 @@
 
 ## General
 
+0. [Stack graphs: Name resolution at scale](https://dcreager.net/publications/016-stack-graphs/stack-graphs.pdf)
 0. [Combobulate: Structured Movement and Editing with Tree-Sitter](https://www.masteringemacs.org/article/combobulate-structured-movement-editing-treesitter)
 0. [Bridging the Gap between Textual and Projectional Editors](https://tomassetti.me/textual-and-projectional-editors-a-gap/)
 0. [Text Editor E01 - How to use ANSI Escape Codes & Call Native APIs with Java](https://www.youtube.com/watch?v=kT4JYQi9w4w)

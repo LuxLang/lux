@@ -1,0 +1,114 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.require
+ [library
+  [lux (.except Bindings
+                def let)
+   ["[0]" debug]
+   [abstract
+    ["[0]" monad (.only do)]]
+   [control
+    [reader (.only Reader)]
+    ["?" parser]
+    ["[0]" maybe (.use "[1]#[0]" functor)]]
+   [data
+    [collection
+     ["[0]" dictionary (.only Dictionary)]
+     ["[0]" list (.use "[1]#[0]" mix)]]]
+   ["[0]" meta (.only)
+    ["[0]" symbol]
+    ["[0]" type (.only)
+     ["[0]" nominal]]
+    ["[0]" code (.only)
+     ["?[1]" \\parser]]
+    ["[0]" macro (.only)
+     [syntax (.only syntax)
+      ["[0]" export]]]]]]
+ ["[0]" /// (.only)
+  ["[0]" mixin (.only Mixin)]])
+
+... https://en.wikipedia.org/wiki/Subject-oriented_programming
+(nominal.def Bindings
+  (Dictionary Symbol (Ex (_ input output)
+                       (Mixin input output)))
+
+  (type .public Value
+    (Reader Bindings))
+
+  (.def .public value
+    (All (_ of)
+      (-> (Value of)
+          of))
+    (///.on (is Bindings
+                (nominal.abstraction
+                 (dictionary.empty symbol.hash)))))
+
+  (type .public (Method input output)
+    (-> input
+        (Value output)))
+
+  (.def (method token default)
+    (All (_ input output)
+      (-> Symbol (Mixin input output)
+          (Method input output)))
+    (function (_ input)
+      (|>> (nominal.representation Bindings)
+           (dictionary.value token)
+           as_expected
+           (is (Maybe (Mixin input output)))
+           (type.sharing [input output]
+             (is (Mixin input output)
+                 default))
+           (maybe#each (///.flipped mixin.mixed default))
+           (maybe.else default)
+           mixin.fixed
+           (///.on input))))
+
+  (.def (let' name value _ term)
+    (All (_ input output term)
+      (-> Symbol (Mixin input output) (Method input output) (Value term)
+          (Value term)))
+    (|>> (nominal.representation Bindings)
+         (dictionary.revised' name mixin.nothing
+                              (function (_ old)
+                                (if (same? mixin.nothing old)
+                                  (as_expected value)
+                                  (mixin.mixed (as_expected value) old))))
+         (nominal.abstraction Bindings)
+         term))
+
+  (.def .public let
+    (syntax (_ [bindings (?code.tuple (?.some (?.and ?code.symbol ?code.any)))
+                term ?code.any])
+      (do [! meta.monad]
+        [bindings (monad.each ! (function (_ [name value])
+                                  (do !
+                                    [name (meta.normal name)]
+                                    (in [name value])))
+                              bindings)]
+        (in (list (list#mix (function (_ [name value] term)
+                              (.let ['name (code.symbol name)]
+                                (` ((debug.private ..let')
+                                    (symbol (, 'name))
+                                    (, value)
+                                    (, 'name)
+                                    (, term)))))
+                            term
+                            (list.reversed bindings)))))))
+
+  (.def .public def
+    (syntax (_ [[policy name input] (export.with (?code.form (?.and ?code.local ?code.any)))
+                type ?code.any
+                term ?code.any])
+      (do meta.monad
+        [here meta.current_module_name
+         macro.with_symbols ['_ 'next]
+         .let ['name (code.local name)]]
+        (in (list (` (.def (, policy) (, 'name)
+                       (, type)
+                       ((debug.private ..method)
+                        [(, (code.text here)) (, (code.text name))]
+                        (function ((, '_) (, 'next) (, 'name) (, input))
+                          (, term))))))))))
+  )

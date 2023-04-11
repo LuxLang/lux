@@ -1,5 +1,7 @@
 # Reference
 
+0. [Geometric Algebra for Electrical Engineers.](http://peeterjoot.com/writing/geometric-algebra-for-electrical-engineers/)
+0. [Practical Projective Geometric Algebra](https://terathon.com/gdc23_lengyel.pdf)
 0. [Conformal Geometric Algebra](http://conformalgeometricalgebra.org/wiki/index.php?title=Main_Page)
 0. [Geometric algebra and classical mechanics](https://www.awanderingmind.blog/posts/2022-12-25-introduction-to-geometric-algebra.html)
 0. [Projective Geometric Algebra Done Right](http://terathon.com/blog/projective-geometric-algebra-done-right/)
