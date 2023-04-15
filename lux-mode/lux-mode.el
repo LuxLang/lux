@@ -372,7 +372,8 @@ Called by `imenu--generic-function'."
 												 "Rec"
 												 "Nominal" "->"
 												 "All" "Ex"
-												 "Interface"))
+												 "Interface"
+												 "type"))
 							(type//checking (altRE "is" "as" "let" "as_expected" "type_of" "sharing" "by_example" "hole"))
 							(type//poly (altRE "polytypic"))
 							(type//dynamic (altRE "dynamic" "static"))
@@ -397,7 +398,7 @@ Called by `imenu--generic-function'."
 							(remember (altRE "remember" "to_do" "fix_me"))
 							(extension (altRE "analysis" "synthesis" "translation" "declaration"))
 							(definition (altRE "\\.require"
-											   "def" "inlined" "type"
+											   "def" "inlined" "every"
 											   "alias")))
 						(let ((control (altRE control//flow
 											  control//pattern-matching
@@ -584,7 +585,7 @@ This function also returns nil meaning don't specify the indentation."
   ("program" 'defun)
 
   ("def" 'defun)
-  ("type" 'defun)
+  ("every" 'defun)
   ("inlined" 'defun)
   ("method" 'defun)
   

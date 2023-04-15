@@ -6,10 +6,10 @@
   [lux (.except function as let)
    [abstract
     [equivalence (.only Equivalence)]
-    [monad (.only Monad do)]
-    [codec (.only Codec)]]
+    [codec (.only Codec)]
+    ["[0]" monad (.only Monad do)]]
    [control
-    ["<>" parser]
+    ["?" parser (.use "[1]#[0]" monad)]
     ["[0]" function]
     ["[0]" maybe]]
    [data
@@ -25,7 +25,7 @@
     ["[0]" location]
     ["[0]" symbol (.use "[1]#[0]" equivalence)]
     ["[0]" code (.only)
-     ["<[1]>" \\parser (.only Parser)]]
+     ["?[1]" \\parser (.only Parser)]]
     ["[0]" macro (.only)
      [syntax (.only syntax)]
      ["[0]" expansion]]
@@ -453,9 +453,9 @@
   (`` (symbol (,, (new_secret_marker)))))
 
 (def .public log!
-  (syntax (_ [input (<>.or (<>.and <code>.symbol
-                                   (<>.maybe (<>.after (<code>.this_symbol ..secret_marker) <code>.any)))
-                           <code>.any)])
+  (syntax (_ [input (?.or (?.and ?code.symbol
+                                 (?.maybe (?.after (?code.this_symbol ..secret_marker) ?code.any)))
+                          ?code.any)])
     (when input
       {.#Left [valueN valueC]}
       (do meta.monad
@@ -481,13 +481,13 @@
 
 (def type_parameters
   (Parser (List Text))
-  (<code>.tuple (<>.some <code>.local)))
+  (?code.tuple (?.some ?code.local)))
 
 (def .public as
   (syntax (_ [type_vars type_parameters
-              input <code>.any
-              output <code>.any
-              value (<>.maybe <code>.any)])
+              input ?code.any
+              output ?code.any
+              value (?.maybe ?code.any)])
     (macro.with_symbols [g!_]
       (.let [casterC (` (is (All ((, g!_) (,* (list#each code.local type_vars)))
                               (-> (, input) (, output)))
@@ -499,7 +499,7 @@
           {.#Some value}
           (in (list (` ((, casterC) (, value))))))))))
 
-(type Typed
+(every Typed
   (Record
    [#type Code
     #expression Code]))
@@ -507,13 +507,13 @@
 (def (typed lux)
   (-> Lux
       (Parser Typed))
-  (do <>.monad
-    [it <code>.any
-     type_check (<>.of_try (meta.result lux (expansion.complete it)))]
-    (<| (<code>.locally type_check)
-        <code>.form
-        (<>.after (<code>.this (` .is#)))
-        (<>.and <code>.any <code>.any))))
+  (do ?.monad
+    [it ?code.any
+     type_check (?.of_try (meta.value lux (expansion.complete it)))]
+    (<| (?code.locally type_check)
+        ?code.form
+        (?.after (?code.this (` .is#)))
+        (?.and ?code.any ?code.any))))
 
 ... TODO: Make sure the generated code always gets optimized away.
 (def .public sharing
@@ -532,7 +532,7 @@
 (def .public by_example
   (syntax (_ lux [type_vars ..type_parameters
                   exemplar (..typed lux)
-                  extraction <code>.any])
+                  extraction ?code.any])
     (in (list (` (.type_of (..sharing [(,* (list#each code.local type_vars))]
                              (is (, (its #type exemplar))
                                  (, (its #expression exemplar)))
@@ -577,16 +577,59 @@
             )))))
 
 (def .public let
-  (syntax (_ [bindings (<code>.tuple (<>.some (<>.and <code>.any <code>.any)))
-              bodyT <code>.any])
+  (syntax (_ [bindings (?code.tuple (?.some (?.and ?code.any ?code.any)))
+              bodyT ?code.any])
     (in (list (` (..with_expansions [(,* (|> bindings
                                              (list#each (.function (_ [localT valueT])
                                                           (list localT (` (.these (, valueT))))))
                                              list#conjoint))]
                    (, bodyT)))))))
 
-(def .public literal
-  (syntax (_ [it <code>.any])
-    (do meta.monad
-      [it ((.in_module# .prelude .type#literal') it)]
-      (in (list it)))))
+(def .public member
+  (syntax (_ [[label parameters] (all ?.either
+                                      (?code.form (?.and ?code.symbol (?.some ?code.any)))
+                                      (?.and ?code.global (?#in (list)))
+                                      )])
+    (do [! meta.monad]
+      [full_label (meta.normal label)
+       label (meta.or (meta.tag full_label)
+                      (meta.slot full_label))
+       parameters (monad.each ! (|>> (meta.eval Type)
+                                     (of ! each (|>> (.as Type))))
+                              parameters)
+       .let [[flat context it] (when label
+                                 {.#Left [context it]}
+                                 [..flat_variant context it]
+                                 
+                                 {.#Right [context it]}
+                                 [..flat_tuple context it])]
+       here meta.current_module_name
+       it (when (..applied parameters it)
+            {.#Some it}
+            (in it)
+
+            {.#None}
+            (meta.failure (all text#composite "Cannot apply type "
+                               (relative_format here it)
+                               " to parameters: "
+                               (|> parameters
+                                   (list#each (relative_format here))
+                                   (text.interposed ", ")))))
+       it (when context
+            {.#None}
+            (in it)
+
+            {.#Some [lefts right? _]}
+            (when (list.item (if right?
+                               (++ lefts)
+                               lefts)
+                             (flat it))
+              {.#Some it}
+              (in it)
+
+              {.#None}
+              (meta.failure (all text#composite "Invalid label "
+                                 (of (symbol.relative here) encoded full_label)
+                                 " for type "
+                                 (relative_format here it)))))]
+      (in (list (..code it))))))
