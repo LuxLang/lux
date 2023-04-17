@@ -38,41 +38,43 @@
     ["[1][0]" scope]
     ["[1][0]" coverage (.only Coverage)]]]])
 
-(exception.def .public (mismatch [type pattern])
-  (Exception [Type Code])
+(exception.the .public (mismatch [module type pattern])
+  (Exception [Text Type Code])
   (exception.report
    (list ["Type" (%.type type)]
-         ["Pattern" (%.code pattern)])))
+         ["Pattern" (code.relative module pattern)])))
 
-(exception.def .public (sum_has_no_case [case type])
+(exception.the .public (sum_has_no_case [case type])
   (Exception [Nat Type])
   (exception.report
    (list ["Case" (%.nat case)]
          ["Type" (%.type type)])))
 
-(exception.def .public (invalid it)
-  (Exception Code)
+(exception.the .public (invalid [module it])
+  (Exception [Text Code])
   (exception.report
-   (list ["Pattern" (%.code it)])))
+   (list ["Pattern" (code.relative module it)])))
 
-(exception.def .public (non_tuple type)
+(exception.the .public (non_tuple type)
   (Exception Type)
   (exception.report
    (list ["Type" (%.type type)])))
 
-(exception.def .public (non_exhaustive [input branches coverage])
-  (Exception [Code (List [Code Code]) Coverage])
+(exception.the .public (non_exhaustive [module input branches coverage])
+  (Exception [Text Code (List [Code Code]) Coverage])
   (exception.report
-   (list ["Input" (%.code input)]
-         ["Branches" (%.code (code.tuple (|> branches
-                                             (list#each (function (_ [slot value])
-                                                          (list slot value)))
-                                             list#conjoint)))]
+   (list ["Input" (code.relative module input)]
+         ["Branches" (|> branches
+                         (list#each (function (_ [slot value])
+                                      (list slot value)))
+                         list#conjoint
+                         code.tuple
+                         (code.relative module))]
          ["Coverage" (/coverage.format coverage)])))
 
-(exception.def .public empty_branches)
+(exception.the .public empty_branches)
 
-(def (quantified envs baseT)
+(the (quantified envs baseT)
   (-> (List (List Type)) Type Type)
   (.when envs
     {.#End}
@@ -88,7 +90,7 @@
 ... type-variables or quantifications.
 ... This function makes it easier for "when" analysis to properly
 ... type-check the input with respect to the patterns.
-(def .public (tuple :it:)
+(the .public (tuple :it:)
   (-> Type (Check [(List check.Var) Type]))
   (loop (again [envs (is (List (List Type))
                          (list))
@@ -150,7 +152,7 @@
       _
       (of check.monad in [(list) (..quantified envs :it:)]))))
 
-(def (simple_pattern_analysis type :input: location output next)
+(the (simple_pattern_analysis type :input: location output next)
   (All (_ a) (-> Type Type Location Pattern (Operation a) (Operation [Pattern a])))
   (/.with_location location
     (do phase.monad
@@ -158,7 +160,7 @@
        outputA next]
       (in [output outputA]))))
 
-(def (tuple_pattern_analysis pattern_analysis :input: sub_patterns next)
+(the (tuple_pattern_analysis pattern_analysis :input: sub_patterns next)
   (All (_ a)
     (-> (-> Type Code (Operation a) (Operation [Pattern a]))
         Type (List Code) (Operation a) (Operation [Pattern a])))
@@ -207,7 +209,9 @@
                thenA])))
 
       _
-      (/.except ..mismatch [:input:' (code.tuple sub_patterns)]))))
+      (do !
+        [here meta.current_module_name]
+        (/.except ..mismatch [here :input:' (code.tuple sub_patterns)])))))
 
 ... This function handles several concerns at once, but it must be that
 ... way because those concerns are interleaved when doing
@@ -225,7 +229,7 @@
 ... body expressions.
 ... That is why the body must be analysed in the context of the
 ... pattern, and not separately.
-(def (pattern_analysis :input: pattern next)
+(the (pattern_analysis :input: pattern next)
   (All (_ a) (-> Type Code (Operation a) (Operation [Pattern a])))
   (.when pattern
     [location {.#Symbol ["" name]}]
@@ -286,7 +290,7 @@
 
     [location {.#Variant (list.partial [_ {.#Nat lefts}] [_ {.#Bit right?}] values)}]
     (/.with_location location
-      (do phase.monad
+      (do [! phase.monad]
         [[@ex_var+ :input:'] (/type.check (..tuple :input:))]
         (.when :input:'
           {.#Sum _}
@@ -296,7 +300,7 @@
             (.when (list.item idx flat_sum)
               (^.multi {.#Some caseT}
                        (n.< size_sum idx))
-              (do phase.monad
+              (do !
                 [[testP nextA] (if (and (n.> size_sum size_sum)
                                         (n.= (-- size_sum) idx))
                                  (pattern_analysis (type.variant (list.after (-- size_sum) flat_sum))
@@ -311,7 +315,7 @@
               (/.except ..sum_has_no_case [idx :input:])))
 
           {.#UnivQ _}
-          (do phase.monad
+          (do !
             [[ex_id exT] (/type.check check.existential)
              it (pattern_analysis (maybe.trusted (type.applied (list exT) :input:'))
                                   pattern
@@ -320,7 +324,9 @@
             (in it))
           
           _
-          (/.except ..mismatch [:input:' pattern]))))
+          (do !
+            [here meta.current_module_name]
+            (/.except ..mismatch [here :input:' pattern])))))
 
     [location {.#Variant (list.partial [_ {.#Symbol tag}] values)}]
     (/.with_location location
@@ -337,10 +343,12 @@
         (pattern_analysis :input: (` {(, (code.nat lefts)) (, (code.bit right?)) (,* values)}) next)))
 
     _
-    (/.except ..invalid [pattern])
+    (do phase.monad
+      [here meta.current_module_name]
+      (/.except ..invalid [here pattern]))
     ))
 
-(def .public (when analyse branches archive inputC)
+(the .public (when analyse branches archive inputC)
   (-> Phase (List [Code Code]) Phase)
   (.when branches
     {.#Item [patternH bodyH] branchesT}
@@ -356,8 +364,10 @@
        outputTC (monad.each ! (|>> product.left /coverage.coverage /.of_try) outputT)
        _ (.when (monad.mix try.monad /coverage.composite outputHC outputTC)
            {try.#Success coverage}
-           (phase.assertion ..non_exhaustive [inputC branches coverage]
-                            (/coverage.exhaustive? coverage))
+           (do !
+             [here meta.current_module_name]
+             (phase.assertion ..non_exhaustive [here inputC branches coverage]
+                              (/coverage.exhaustive? coverage)))
 
            {try.#Failure error}
            (/.failure error))

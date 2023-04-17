@@ -4,7 +4,6 @@
 (.require
  [library
   [lux (.except)
-   ["[0]" meta]
    [abstract
     [monad (.only do)]]
    [control
@@ -12,46 +11,57 @@
     ["[0]" exception (.only Exception)]]
    [data
     ["[0]" text
-     ["%" \\format (.only format)]]]]]
+     ["%" \\format (.only format)]]]
+   ["[0]" meta (.only)
+    ["[0]" code]]]]
  [///
   ["[0]" phase]])
 
-(exception.def .public (expansion_failed [macro inputs error])
-  (Exception [Symbol (List Code) Text])
+(exception.the .public (expansion_failed [module macro inputs error])
+  (Exception [Text Symbol (List Code) Text])
   (exception.report
    (list ["Macro" (%.symbol macro)]
-         ["Inputs" (exception.listing %.code inputs)]
+         ["Inputs" (exception.listing (code.relative module) inputs)]
          ["Error" error])))
 
-(exception.def .public (must_have_single_expansion [macro inputs outputs])
-  (Exception [Symbol (List Code) (List Code)])
+(exception.the .public (must_have_single_expansion [module macro inputs outputs])
+  (Exception [Text Symbol (List Code) (List Code)])
   (exception.report
    (list ["Macro" (%.symbol macro)]
-         ["Inputs" (exception.listing %.code inputs)]
-         ["Outputs" (exception.listing %.code outputs)])))
+         ["Inputs" (exception.listing (code.relative module) inputs)]
+         ["Outputs" (exception.listing (code.relative module) outputs)])))
 
 (every .public Expander
-  (-> Macro (List Code) Lux (Try (Try [Lux (List Code)]))))
+  (-> Macro (List Code) Lux
+      (Try (Try [Lux (List Code)]))))
 
-(def .public (expansion expander name macro inputs)
-  (-> Expander Symbol Macro (List Code) (Meta (List Code)))
+(the .public (expansion expander name macro inputs)
+  (-> Expander Symbol Macro (List Code)
+      (Meta (List Code)))
   (function (_ state)
     (do try.monad
       [output (expander macro inputs state)]
       (when output
         {try.#Failure error}
-        ((meta.failure (exception.error ..expansion_failed [name inputs error])) state)
+        ((is (Meta (List Code))
+             (do meta.monad
+               [here meta.current_module_name]
+               (meta.failure (exception.error ..expansion_failed [here name inputs error]))))
+         state)
 
         _
         output))))
 
-(def .public (single_expansion expander name macro inputs)
-  (-> Expander Symbol Macro (List Code) (Meta Code))
-  (do meta.monad
+(the .public (single_expansion expander name macro inputs)
+  (-> Expander Symbol Macro (List Code)
+      (Meta Code))
+  (do [! meta.monad]
     [expansion (..expansion expander name macro inputs)]
     (when expansion
       (list single)
       (in single)
 
       _
-      (meta.failure (exception.error ..must_have_single_expansion [name inputs expansion])))))
+      (do !
+        [here meta.current_module_name]
+        (meta.failure (exception.error ..must_have_single_expansion [here name inputs expansion]))))))

@@ -39,45 +39,45 @@
     [meta
      [archive (.only Archive)]]]]])
 
-(exception.def .public (not_a_quantified_type type)
+(exception.the .public (not_a_quantified_type type)
   (Exception Type)
   (exception.report
    (list ["Type" (%.type type)])))
 
 (with_template [<name>]
-  [(exception.def .public (<name> [type members])
-     (Exception [Type (List Code)])
+  [(exception.the .public (<name> [module type members])
+     (Exception [Text Type (List Code)])
      (exception.report
       (list ["Type" (%.type type)]
-            ["Expression" (%.code (` [(,* members)]))])))]
+            ["Expression" (code.relative module (` [(,* members)]))])))]
 
   [invalid_tuple_type]
   [cannot_analyse_tuple]
   )
 
 (with_template [<name>]
-  [(exception.def .public (<name> [type lefts right? code])
-     (Exception [Type Nat Bit Code])
+  [(exception.the .public (<name> [module type lefts right? code])
+     (Exception [Text Type Nat Bit Code])
      (exception.report
       (list ["Type" (%.type type)]
             ["Lefts" (%.nat lefts)]
             ["Right?" (%.bit right?)]
-            ["Expression" (%.code code)])))]
+            ["Expression" (code.relative module code)])))]
 
   [invalid_variant_type]
   [cannot_analyse_sum]
   [cannot_infer_sum]
   )
 
-(exception.def .public (cannot_analyse_variant [type tag code])
-  (Exception [Type Symbol Code])
+(exception.the .public (cannot_analyse_variant [module type tag code])
+  (Exception [Text Type Symbol Code])
   (exception.report
    (list ["Type" (%.type type)]
          ["Tag" (%.symbol tag)]
-         ["Expression" (%.code code)])))
+         ["Expression" (code.relative module code)])))
 
-(exception.def .public (cannot_order_record [@ code])
-  (Exception [Code (List [Symbol Code])])
+(exception.the .public (cannot_order_record [module @ code])
+  (Exception [Text Code (List [Symbol Code])])
   (exception.report
    (list ["@" (%.code @)]
          ["Expression" (|> code
@@ -85,44 +85,18 @@
                                         (list (code.symbol slot) value)))
                            list#conjoint
                            code.tuple
-                           %.code)])))
+                           (code.relative module))])))
 
-(exception.def .public (cannot_repeat_slot [key record])
-  (Exception [Symbol (List [Symbol Code])])
-  (exception.report
-   (list ["Slot" (%.code (code.symbol key))]
-         ["Record" (%.code (code.tuple (|> record
-                                           (list#each (function (_ [keyI valC])
-                                                        (list (code.symbol keyI) valC)))
-                                           list#conjoint)))])))
-
-(exception.def .public (slot_does_not_belong_to_record [key type])
-  (Exception [Symbol Type])
-  (exception.report
-   (list ["Slot" (%.code (code.symbol key))]
-         ["Type" (%.type type)])))
-
-(exception.def .public (record_size_mismatch [expected actual type record])
-  (Exception [Nat Nat Type (List [Symbol Code])])
-  (exception.report
-   (list ["Expected" (%.nat expected)]
-         ["Actual" (%.nat actual)]
-         ["Type" (%.type type)]
-         ["Expression" (%.code (|> record
-                                   (list#each (function (_ [keyI valueC])
-                                                (list (code.symbol keyI) valueC)))
-                                   list#conjoint
-                                   code.tuple))])))
-
-(def .public (sum analyse lefts right? archive)
+(the .public (sum analyse lefts right? archive)
   (-> Phase Nat Bit Phase)
   (let [tag (/complex.tag right? lefts)]
     (function (again valueC)
       (do [! phase.monad]
         [expectedT meta.expected_type
          expectedT' (/type.check (check.clean (list) expectedT))
-         @ meta.location]
-        (/.with_exception ..cannot_analyse_sum [expectedT' lefts right? valueC]
+         @ meta.location
+         here meta.current_module_name]
+        (/.with_exception ..cannot_analyse_sum [here expectedT' lefts right? valueC]
           (when expectedT
             {.#Sum _}
             (|> (analyse archive valueC)
@@ -148,7 +122,7 @@
                 ... This is because there is no way of knowing how many
                 ... cases the inferred sum type would have.
                 _
-                (/.except ..cannot_infer_sum [expectedT lefts right? valueC])))
+                (/.except ..cannot_infer_sum [here expectedT lefts right? valueC])))
 
             {.#UnivQ _}
             (do !
@@ -172,7 +146,7 @@
                       (again valueC))
 
                   _
-                  (/.except ..invalid_variant_type [expectedT lefts right? valueC])))
+                  (/.except ..invalid_variant_type [here expectedT lefts right? valueC])))
 
               _
               (when (type.applied (list inputT) funT)
@@ -184,9 +158,9 @@
                 (/.except ..not_a_quantified_type [funT])))
             
             _
-            (/.except ..invalid_variant_type [expectedT lefts right? valueC])))))))
+            (/.except ..invalid_variant_type [here expectedT lefts right? valueC])))))))
 
-(def .public (variant analyse tag archive valueC)
+(the .public (variant analyse tag archive valueC)
   (-> Phase Symbol
       Phase)
   (do [! phase.monad]
@@ -208,10 +182,12 @@
         (in (/.variant @ [lefts right? (|> valueA+ list.head maybe.trusted)])))
 
       _
-      (/.with_exception ..cannot_analyse_variant [expectedT tag valueC]
-        (..sum analyse lefts right? archive valueC)))))
+      (do !
+        [here meta.current_module_name]
+        (/.with_exception ..cannot_analyse_variant [here expectedT tag valueC]
+          (..sum analyse lefts right? archive valueC))))))
 
-(def (typed_product analyse expectedT archive members)
+(the (typed_product analyse expectedT archive members)
   (-> Phase Type Archive (List Code)
       (Operation /.Term))
   (<| (do [! phase.monad]
@@ -242,14 +218,17 @@
             (in {.#Item memberA memberA+}))
           
           _
-          (/.except ..cannot_analyse_tuple [expectedT members])))))
+          (do !
+            [here meta.current_module_name]
+            (/.except ..cannot_analyse_tuple [here expectedT members]))))))
 
-(def .public (product analyse archive membersC)
+(the .public (product analyse archive membersC)
   (-> Phase Archive (List Code)
       (Operation /.Term))
   (do [! phase.monad]
-    [expectedT meta.expected_type]
-    (/.with_exception ..cannot_analyse_tuple [expectedT membersC]
+    [expectedT meta.expected_type
+     here meta.current_module_name]
+    (/.with_exception ..cannot_analyse_tuple [here expectedT membersC]
       (when expectedT
         {.#Product _}
         (..typed_product analyse expectedT archive membersC)
@@ -298,7 +277,7 @@
                   (product analyse archive membersC))
 
               _
-              (/.except ..invalid_tuple_type [expectedT membersC])))
+              (/.except ..invalid_tuple_type [here expectedT membersC])))
 
           _
           (when (type.applied (list inputT) funT)
@@ -307,17 +286,17 @@
                 (product analyse archive membersC))
 
             {.#None}
-            (/.except ..not_a_quantified_type funT)))
+            (/.except ..not_a_quantified_type [funT])))
         
         _
-        (/.except ..invalid_tuple_type [expectedT membersC])
+        (/.except ..invalid_tuple_type [here expectedT membersC])
         ))))
 
 ... There cannot be any ambiguity or improper syntax when analysing
 ... records, so they must be normalized for further analysis.
 ... Normalization just means that all the tags get resolved to their
 ... canonical form (with their corresponding module identified).
-(def .public (normal pattern_matching? record)
+(the .public (normal pattern_matching? record)
   (-> Bit (List Code)
       (Operation (Maybe (List [Symbol Code]))))
   (loop (again [input record
@@ -342,26 +321,26 @@
       _
       (phase#in {.#None}))))
 
-(def (local_binding? name)
+(the (local_binding? name)
   (-> Text
       (Meta Bit))
   (of meta.monad each
       (list.any? (list.any? (|>> product.left (text#= name))))
       meta.locals))
 
-(def (slot it)
+(the (slot it)
   (-> Symbol
       (Meta Label))
   (do meta.monad
     [it (meta.normal it)]
     (meta.slot it)))
 
-(def (slot_type [[_ it] _])
+(the (slot_type [[_ it] _])
   (-> [Label Code]
       Type)
   it)
 
-(def (same_record? it)
+(the (same_record? it)
   (-> (List [Label Code])
       Bit)
   (when it
@@ -372,7 +351,7 @@
     (list)
     false))
 
-(def (complete_record? it)
+(the (complete_record? it)
   (-> (List [Label Code])
       Bit)
   (loop (again [expected_lefts 0
@@ -391,7 +370,7 @@
       _
       false)))
 
-(def sorted_record
+(the sorted_record
   (-> (List [Label Code])
       (List [Label Code]))
   (list.sorted (function (_ left right)
@@ -408,7 +387,7 @@
 ... Lux already possesses the means to analyse tuples, so
 ... re-implementing the same functionality for records makes no sense.
 ... Records, thus, get transformed into tuples by ordering the elements.
-(def (order' head_k original_record)
+(the (order' head_k original_record)
   (-> Symbol (List [Symbol Code])
       (Operation (Maybe [Nat (List Code) Type])))
   (do [! phase.monad]
@@ -422,9 +401,10 @@
       {try.#Success record}
       (do !
         [.let [record (sorted_record record)]
-         _ (phase.assertion ..cannot_order_record [(` same_record?) original_record]
+         here meta.current_module_name
+         _ (phase.assertion ..cannot_order_record [here (` same_record?) original_record]
                             (same_record? record))
-         _ (phase.assertion ..cannot_order_record [(` complete_record?) original_record]
+         _ (phase.assertion ..cannot_order_record [here (` complete_record?) original_record]
                             (complete_record? record))]
         (in (do maybe.monad
               [[[_ :record:] _] (list.head record)]
@@ -435,7 +415,7 @@
       {try.#Failure error}
       (in {.#None}))))
 
-(def .public (order pattern_matching? record)
+(the .public (order pattern_matching? record)
   (-> Bit (List [Symbol Code])
       (Operation (Maybe [Nat (List Code) Type])))
   (when record
@@ -457,7 +437,7 @@
       _
       (order' head_k record))))
 
-(def .public (record analyse archive members)
+(the .public (record analyse archive members)
   (-> Phase Archive (List Code)
       (Operation /.Term))
   (when members

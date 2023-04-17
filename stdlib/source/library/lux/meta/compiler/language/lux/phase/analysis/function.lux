@@ -20,6 +20,7 @@
     [number
      ["n" nat]]]
    ["[0]" meta (.only)
+    ["[0]" code]
     ["[0]" type (.only)
      ["[0]" check]]]]]
  [////
@@ -32,32 +33,33 @@
    [reference (.only)
     [variable (.only)]]]])
 
-(exception.def .public (cannot_analyse [expected function argument body])
-  (Exception [Type Text Text Code])
+(exception.the .public (cannot_analyse [module expected function argument body])
+  (Exception [Text Type Text Text Code])
   (exception.report
    (list ["Type" (%.type expected)]
          ["Function" function]
          ["Argument" argument]
-         ["Body" (%.code body)])))
+         ["Body" (code.relative module body)])))
 
-(exception.def .public (cannot_apply [:function: functionC arguments])
-  (Exception [Type Code (List Code)])
+(exception.the .public (cannot_apply [module :function: functionC arguments])
+  (Exception [Text Type Code (List Code)])
   (exception.report
    (list ["Function type" (%.type :function:)]
-         ["Function" (%.code functionC)]
+         ["Function" (code.relative module functionC)]
          ["Arguments" (|> arguments
                           list.enumeration
                           (list#each (.function (_ [idx argC])
-                                       (format (%.nat idx) " " (%.code argC))))
+                                       (format (%.nat idx) " " (code.relative module argC))))
                           (text.interposed text.new_line))])))
 
-(def .public (function analyse function_name arg_name archive body)
+(the .public (function analyse function_name arg_name archive body)
   (-> Phase Text Text
       Phase)
   (do [! phase.monad]
-    [expectedT meta.expected_type]
+    [expectedT meta.expected_type
+     here meta.current_module_name]
     (loop (again [expectedT expectedT])
-      (/.with_exception ..cannot_analyse [expectedT function_name arg_name body]
+      (/.with_exception ..cannot_analyse [here expectedT function_name arg_name body]
         (when expectedT
           {.#Function :input: :output:}
           (<| (do !
@@ -83,7 +85,7 @@
             (again value)
 
             {.#None}
-            (/.failure (exception.error ..cannot_analyse [expectedT function_name arg_name body])))
+            (/.failure (exception.error ..cannot_analyse [here expectedT function_name arg_name body])))
 
           {.#UnivQ _}
           (do !
@@ -135,9 +137,11 @@
           (/.failure "")
           )))))
 
-(def .public (apply analyse argsC+ :function: functionA archive functionC)
+(the .public (apply analyse argsC+ :function: functionA archive functionC)
   (-> Phase (List Code) Type /.Term
       Phase)
-  (|> (/inference.general archive analyse :function: argsC+)
-      (phase#each (|>> product.right [functionA] /.reified))
-      (/.with_exception ..cannot_apply [:function: functionC argsC+])))
+  (do phase.monad
+    [here meta.current_module_name]
+    (|> (/inference.general archive analyse :function: argsC+)
+        (phase#each (|>> product.right [functionA] /.reified))
+        (/.with_exception ..cannot_apply [here :function: functionC argsC+]))))
