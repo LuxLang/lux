@@ -1,5 +1,6 @@
 # Reference
 
+0. [Types of Ego In The Workplace That Gotta Go](https://collato.com/blog/types-of-ego-at-work)
 0. [Kenny Baas-Schwegler — Autonomy, is that what we really want?](https://www.youtube.com/watch?v=ijKATZCQZL4)
 0. [How I structure my teams for growth](https://medium.com/@smnbss/how-i-structure-my-teams-for-growth-3272e4c3fc28)
 0. [Capacity Plan](https://fev.al/posts/capacity-plan/)
