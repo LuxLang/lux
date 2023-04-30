@@ -1,0 +1,219 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.require
+ [library
+  [lux (.except)]])
+
+(every (Catch of)
+  (-> Text
+      (/.Cont of of)))
+
+(every (Throw of)
+  (-> Text
+      (/.Cont Nothing of)))
+
+(the (throw catch @)
+  (All (_ of)
+    (-> (Catch of) (/.Context of of)
+        (Throw of)))
+  (function (_ error)
+    (function (_ after_error)
+      (|> (catch error)
+          (/.continued @)))))
+
+(every (Pure of)
+  of)
+
+(every (Try kind of)
+  (-> (Throw (kind of))
+      (/.Cont of (kind of))))
+
+(the (catch when_error to_try)
+  (All (_ of)
+    (-> (Catch of) (Try Pure of)
+        (/.Cont of)))
+  (/.context
+   (/.exit (|>> (throw when_error)
+                to_try))))
+
+(the example
+  (/.Cont Nat)
+  (|> (function (_ throw)
+        (do /.monad
+          [left (in 123)
+           right (in 456)
+           _ (throw "yolo")]
+          (in (n.+ left right))))
+      (catch (function (_ error)
+               (of /.monad in (-- 0))))))
+
+(the (try it)
+  (All (_ of)
+    (-> (-> (Try (Either Text) of))
+        (/.Cont (Either Text of))))
+  (|> (function (_ throw)
+        (do /.monad
+          [it (it throw)]
+          (in {.#Right it})))
+      (catch (function (_ error)
+               (of /.monad in {.#Left error})))))
+
+(use "/#[0]" /.monad)
+
+(every (Yield of)
+  (All (_ final_return)
+    (-> of
+        (/.Cont Any final_return))))
+
+(every Stop
+  (All (_ final_return)
+    (/.Cont Any final_return)))
+
+(every (Generator of)
+  (All (_ final_return)
+    (-> [(Yield of final_return) (Stop final_return)]
+        (/.Cont Any final_return))))
+
+(the (one_of it)
+  (All (_ of)
+    (-> (Generator of)
+        (/.Cont (Maybe of))))
+  (<| /.context
+      (do /.monad
+        [_ (it [(function (_ it)
+                  (/.exit
+                   (function (yield after)
+                     (/#in {.#Some it}))))
+                (/.exit
+                 (function (stop after)
+                   (/#in {.#None})))])]
+        (in {.#None}))))
+
+(the (all_of it)
+  (All (_ of)
+    (-> (Generator of)
+        (/.Cont (List of))))
+  (<| /.context
+      (do /.monad
+        [_ (it [(function (_ it)
+                  (/.exit
+                   (function (yield after)
+                     (/#in (list.partial it (after []))))))
+                (/.exit
+                 (function (stop after)
+                   (/#in (list))))])]
+        (in (list)))))
+
+(every Prompt
+  (Rec it
+    (-> it
+        (/.Cont it))))
+
+(the pause_example
+  (/.Cont Nat Nat)
+  (do /.monad
+    [prompt (/.call/cc
+             (function (_ after)
+               (after after)))]
+    (in 123)))
+
+(the continuation
+  (All (_ final_return)
+    (Rec it
+      (/.Cont it final_return)))
+  (function (it after)
+    (after it)))
+
+(the continuation'
+  ... (Sequence [])
+  (All (_ final_return)
+    ... (Sequence [] final_return))
+    (Rec sequence
+      (/.Cont (Maybe [[] sequence]) final_return)))
+  (function (it after)
+    (after {.#Some [[] it]})))
+
+(every (Sequence of final_return)
+  (/.Cont (Maybe [of (Sequence of)])
+          ... final_return
+          (Maybe [of (Sequence of)])))
+
+(the (paused it)
+  (All (_ of final_return)
+    (-> of
+        ... (Sequence of final_return)
+        (Rec sequence
+          (/.Cont (Maybe [of sequence])
+                  (Maybe [of sequence])))))
+  (function (resumption after)
+    {.#Some [it (function (_ _)
+                  (after (resumption after)))]}))
+
+(the (each_of it)
+  (All (_ of)
+    (-> (Generator of)
+        (Sequence of)))
+  (do [! /.monad]
+    [_ (it [(function (yield it)
+              (exec
+                (.log!# "[!] each_of yield")
+                (paused it)))
+            (/.exit
+             (function (stop after)
+               (exec
+                 (.log!# "[!] each_of stop")
+                 (/#in {.#None}))))])]
+    (in {.#None})))
+
+(the (some_of limit it)
+  (All (_ of)
+    (-> Nat (Generator of)
+        (/.Cont (List of))))
+  (do [! /.monad]
+    [.let [_ (.log!# "[!] some_of 0")]
+     chunk (/.context (each_of it))
+     .let [_ (.log!# "[!] some_of 1")]]
+    (loop (next [limit limit
+                 chunk chunk
+                 output (sharing [of]
+                          (is (Generator of)
+                              it)
+                          (is (List of)
+                              (list)))])
+      (if (n.> 0 limit)
+        (when chunk
+          {.#Some [piece each_of']}
+          (do !
+            [.let [_ (.log!# "[!] some_of 2")]
+             chunk (/.context each_of')
+             .let [_ (.log!# "[!] some_of 3")]]
+            (next (-- limit)
+                  chunk
+                  (list#composite output (list piece))))
+          
+          {.#None}
+          (exec
+            (.log!# "[!] some_of 4")
+            (in output)))
+        (exec
+          (.log!# "[!] some_of 4")
+          (in output))))))
+
+(the (less_than limit [yield stop])
+  (-> Nat
+      (Generator Nat))
+  (loop (next [it 0])
+    (if (n.< limit it)
+      (do /.monad
+        [.let [_ (.log!# "[!] less_than 0")]
+         _ (yield it)
+         .let [_ (.log!# "[!] less_than 1")]]
+        (next (++ it)))
+      stop)))
+
+(the less_than'
+  (when (/.value (is (/.Cont (List Nat))
+                     (some_of 5 (less_than 10))))
+    it
+    (.log!# (%.format "[!] " (%.list %.nat it)))))
