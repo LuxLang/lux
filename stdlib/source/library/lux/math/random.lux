@@ -3,12 +3,16 @@
 
 (.require
  [library
-  [lux (.except or and list i64 nat int rev char only)
+  [lux (.except #seed
+                or and list i64 nat int rev char only)
    [abstract
     [hash (.only Hash)]
     [functor (.only Functor)]
     [apply (.only Apply)]
     ["[0]" monad (.only Monad do)]]
+   [control
+    ["[0]" state (.only State)]
+    ["[0]" object (.only Object)]]
    [data
     ["[0]" text (.use "[1]#[0]" monoid)
      [char (.only Char)]
@@ -44,47 +48,34 @@
      ["[0]" day (.only Day)]]]]])
 
 (every .public PRNG
-  (Rec PRNG
-    (-> Any [PRNG I64])))
+  (object.Class (class state)
+    [#number (object.Method Any [(Object class state) I64])]))
 
-(every .public (Random a)
-  (-> PRNG [PRNG a]))
+(every .public (Random of)
+  (All (_ seed)
+    (State (Object PRNG seed) of)))
+
+(the Implementation
+  (template (_ ,interface)
+    [(All (_ prng)
+       (,interface (All (_ of) (Random of prng))))]))
 
 (the .public functor
-  (Functor Random)
-  (implementation
-   (the (each f fa)
-     (function (_ state)
-       (let [[state' a] (fa state)]
-         [state' (f a)])))))
+  (Implementation Functor)
+  state.functor)
 
 (the .public apply
-  (Apply Random)
-  (implementation
-   (the functor ..functor)
-
-   (the (on fa ff)
-     (function (_ state)
-       (let [[state' f] (ff state)
-             [state'' a] (fa state')]
-         [state'' (f a)])))))
+  (Implementation Apply)
+  state.apply)
 
 (the .public monad
-  (Monad Random)
-  (implementation
-   (the functor ..functor)
-
-   (the (in a)
-     (function (_ state)
-       [state a]))
-
-   (the (conjoint ffa)
-     (function (_ state)
-       (let [[state' fa] (ffa state)]
-         (fa state'))))))
+  (Implementation Monad)
+  state.monad)
 
 (the .public (only pred gen)
-  (All (_ a) (-> (-> a Bit) (Random a) (Random a)))
+  (All (_ of)
+    (-> (-> of Bit) (Random of)
+        (Random of)))
   (do ..monad
     [sample gen]
     (if (pred sample)
@@ -92,8 +83,9 @@
       (only pred gen))))
 
 (the .public (one check random)
-  (All (_ a b)
-    (-> (-> a (Maybe b)) (Random a) (Random b)))
+  (All (_ input output)
+    (-> (-> input (Maybe output)) (Random input)
+        (Random output)))
   (do ..monad
     [sample random]
     (when (check sample)
@@ -104,7 +96,9 @@
       (one check random))))
 
 (the .public (refined refiner gen)
-  (All (_ t r) (-> (Refiner t r) (Random t) (Random (Refined t r))))
+  (All (_ of %)
+    (-> (Refiner of %) (Random of)
+        (Random (Refined of %))))
   (do ..monad
     [sample gen]
     (when (refiner sample)
@@ -117,14 +111,16 @@
 (the .public bit
   (Random Bit)
   (function (_ prng)
-    (let [[prng output] (prng [])]
-      [prng (|> output (i64.and 1) (n.= 1))])))
+    (let [[prng output] (object.on ..#number [] prng)]
+      [prng (|> output
+                (i64.and 1)
+                (n.= 1))])))
 
 (the .public i64
   (Random I64)
   (function (_ prng)
-    (let [[prng left] (prng [])
-          [prng right] (prng [])]
+    (let [[prng left] (object.on ..#number [] prng)
+          [prng right] (object.on ..#number [] prng)]
       [prng (|> left
                 (i64.left_shifted 32)
                 (.i64_+# right))])))
@@ -141,7 +137,10 @@
 
 (the .public frac
   (Random Frac)
-  (of ..functor each (|>> .i64 f.of_bits) ..nat))
+  (of ..functor each
+      (|>> .i64
+           f.of_bits)
+      ..nat))
 
 (the .public safe_frac
   (Random Frac)
@@ -154,7 +153,8 @@
         ..int)))
 
 (the .public (char set)
-  (-> unicode.Set (Random Char))
+  (-> unicode.Set
+      (Random Char))
   (let [start (unicode.start set)
         end (unicode.end set)
         size (n.- start end)
@@ -165,7 +165,8 @@
         (..only (unicode.member? set)))))
 
 (the .public (text char_gen size)
-  (-> (Random Char) Nat (Random Text))
+  (-> (Random Char) Nat
+      (Random Text))
   (if (n.= 0 size)
     (of ..monad in "")
     (do ..monad
@@ -175,7 +176,8 @@
 
 (with_template [<name> <set>]
   [(the .public <name>
-     (-> Nat (Random Text))
+     (-> Nat
+         (Random Text))
      (..text (..char <set>)))]
 
   [unicode       unicode.character]
@@ -200,14 +202,18 @@
   )
 
 (the .public (and left right)
-  (All (_ a b) (-> (Random a) (Random b) (Random [a b])))
+  (All (_ left right)
+    (-> (Random left) (Random right)
+        (Random (And left right))))
   (function (_ prng)
     (let [[prng left] (left prng)
           [prng right] (right prng)]
       [prng [left right]])))
 
 (the .public (or left right)
-  (All (_ a b) (-> (Random a) (Random b) (Random (Or a b))))
+  (All (_ left right)
+    (-> (Random left) (Random right)
+        (Random (Or left right))))
   (function (_ prng)
     (let [[prng ?] (..bit prng)]
       (if ?
@@ -217,7 +223,9 @@
           [prng {0 #1 right}])))))
 
 (the .public (either left right)
-  (All (_ a) (-> (Random a) (Random a) (Random a)))
+  (All (_ of)
+    (-> (Random of) (Random of)
+        (Random of)))
   (function (_ prng)
     (let [[prng ?] (..bit prng)]
       (if ?
@@ -225,13 +233,17 @@
         (right prng)))))
 
 (the .public (rec gen)
-  (All (_ a) (-> (-> (Random a) (Random a)) (Random a)))
+  (All (_ of)
+    (-> (-> (Random of) (Random of))
+        (Random of)))
   (function (_ state)
     (let [gen' (gen (rec gen))]
       (gen' state))))
 
 (the .public (maybe value_gen)
-  (All (_ a) (-> (Random a) (Random (Maybe a))))
+  (All (_ of)
+    (-> (Random of)
+        (Random (Maybe of))))
   (do [! ..monad]
     [some? bit]
     (if some?
@@ -241,7 +253,9 @@
       (in {.#None}))))
 
 (the .public (list size value_gen)
-  (All (_ a) (-> Nat (Random a) (Random (List a))))
+  (All (_ of)
+    (-> Nat (Random of)
+        (Random (List of))))
   (if (n.> 0 size)
     (do ..monad
       [x value_gen
@@ -250,7 +264,9 @@
     (of ..monad in (.list))))
 
 (the .public (sequence size value_gen)
-  (All (_ a) (-> Nat (Random a) (Random (Sequence a))))
+  (All (_ of)
+    (-> Nat (Random of)
+        (Random (Sequence of))))
   (if (n.> 0 size)
     (do ..monad
       [x value_gen
@@ -260,7 +276,9 @@
 
 (with_template [<name> <type> <ctor>]
   [(the .public (<name> size value_gen)
-     (All (_ a) (-> Nat (Random a) (Random (<type> a))))
+     (All (_ of)
+       (-> Nat (Random of)
+           (Random (<type> of))))
      (do ..monad
        [values (list size value_gen)]
        (in (|> values <ctor>))))]
@@ -271,7 +289,9 @@
   )
 
 (the .public (set hash size value_gen)
-  (All (_ a) (-> (Hash a) Nat (Random a) (Random (Set a))))
+  (All (_ of)
+    (-> (Hash of) Nat (Random of)
+        (Random (Set of))))
   (if (n.> 0 size)
     (do [! ..monad]
       [xs (set hash (-- size) value_gen)]
@@ -285,7 +305,9 @@
     (of ..monad in (set.empty hash))))
 
 (the .public (dictionary hash size key_gen value_gen)
-  (All (_ k v) (-> (Hash k) Nat (Random k) (Random v) (Random (Dictionary k v))))
+  (All (_ key value)
+    (-> (Hash key) Nat (Random key) (Random value)
+        (Random (Dictionary key value))))
   (if (n.> 0 size)
     (do [! ..monad]
       [kv (dictionary hash (-- size) key_gen value_gen)]
@@ -317,70 +339,92 @@
 
 (the .public month
   (Random Month)
-  (let [(open "_#[0]") ..monad]
-    (..either (..either (..either (_#in {month.#January})
-                                  (..either (_#in {month.#February})
-                                            (_#in {month.#March})))
-                        (..either (_#in {month.#April})
-                                  (..either (_#in {month.#May})
-                                            (_#in {month.#June}))))
-              (..either (..either (_#in {month.#July})
-                                  (..either (_#in {month.#August})
-                                            (_#in {month.#September})))
-                        (..either (_#in {month.#October})
-                                  (..either (_#in {month.#November})
-                                            (_#in {month.#December})))))))
+  (let [(open "/#[0]") ..monad]
+    (..either (..either (..either (/#in {month.#January})
+                                  (..either (/#in {month.#February})
+                                            (/#in {month.#March})))
+                        (..either (/#in {month.#April})
+                                  (..either (/#in {month.#May})
+                                            (/#in {month.#June}))))
+              (..either (..either (/#in {month.#July})
+                                  (..either (/#in {month.#August})
+                                            (/#in {month.#September})))
+                        (..either (/#in {month.#October})
+                                  (..either (/#in {month.#November})
+                                            (/#in {month.#December})))))))
 
 (the .public day
   (Random Day)
-  (let [(open "_#[0]") ..monad]
-    (..either (..either (_#in {day.#Sunday})
-                        (..either (_#in {day.#Monday})
-                                  (_#in {day.#Tuesday})))
-              (..either (..either (_#in {day.#Wednesday})
-                                  (_#in {day.#Thursday}))
-                        (..either (_#in {day.#Friday})
-                                  (_#in {day.#Saturday}))))))
+  (let [(open "/#[0]") ..monad]
+    (..either (..either (/#in {day.#Sunday})
+                        (..either (/#in {day.#Monday})
+                                  (/#in {day.#Tuesday})))
+              (..either (..either (/#in {day.#Wednesday})
+                                  (/#in {day.#Thursday}))
+                        (..either (/#in {day.#Friday})
+                                  (/#in {day.#Saturday}))))))
 
-(the .public (value prng calc)
-  (All (_ a) (-> PRNG (Random a) [PRNG a]))
-  (calc prng))
+(the .public (value prng seed it)
+  (All (_ seed of)
+    (-> (PRNG seed) seed (Random of seed)
+        [(Object PRNG seed) of]))
+  (state.value (object.new prng seed)
+               it))
 
 (the .public (prng update return)
-  (All (_ a) (-> (-> a a) (-> a I64) (-> a PRNG)))
-  (function (again state)
-    (function (_ _)
-      [(again (update state))
-       (return state)])))
+  (All (_ seed)
+    (-> (-> seed seed) (-> seed I64)
+        (PRNG seed)))
+  [#number (object.method
+             (function (_ next again [this _])
+               (let [seed (object.state this)]
+                 [(object.new (prng update return) (update seed))
+                  (return seed)])))])
 
-(the .public (pcg_32 [increase seed])
-  (-> [(I64 Any) (I64 Any)] PRNG)
+(every .public PCG_32
+  (Record
+   [#increase (I64 Any)
+    #seed (I64 Any)]))
+
+(the .public pcg_32
+  (PRNG PCG_32)
   (let [magic 6364136223846793005]
-    (function (_ _)
-      [(|> seed .nat (n.* magic) (.i64_+# increase) [increase] pcg_32)
-       (let [rot (|> seed .nat (i64.right_shifted 59))]
-         (|> seed
-             (i64.right_shifted 18)
-             (i64.xor seed)
-             (i64.right_shifted 27)
-             (i64.right_rotated rot)
-             .i64))])))
+    (..prng (function (_ [increase seed])
+              (|> seed .nat (n.* magic) (.i64_+# increase) [increase]))
+            (function (_ [increase seed])
+              (let [rot (|> seed .nat (i64.right_shifted 59))]
+                (|> seed
+                    (i64.right_shifted 18)
+                    (i64.xor seed)
+                    (i64.right_shifted 27)
+                    (i64.right_rotated rot)
+                    .i64))))))
 
-(the .public (xoroshiro_128+ [s0 s1])
-  (-> [(I64 Any) (I64 Any)] PRNG)
-  (function (_ _)
-    [(let [s01 (i64.xor s0 s1)]
-       (xoroshiro_128+ [(|> s0
-                            (i64.left_rotated 55)
-                            (i64.xor s01)
-                            (i64.xor (i64.left_shifted 14 s01)))
-                        (i64.left_rotated 36 s01)]))
-     (.i64_+# s0 s1)]))
+(every .public Xoroshiro_128+
+  (Record
+   [#seed_0 (I64 Any)
+    #seed_1 (I64 Any)]))
+
+(the .public xoroshiro_128+
+  (PRNG Xoroshiro_128+)
+  (..prng (function (_ [s0 s1])
+            (let [s01 (i64.xor s0 s1)]
+              [(|> s0
+                   (i64.left_rotated 55)
+                   (i64.xor s01)
+                   (i64.xor (i64.left_shifted 14 s01)))
+               (i64.left_rotated 36 s01)]))
+          (function (_ [s0 s1])
+            (.i64_+# s0 s1))))
 
 ... https://en.wikipedia.org/wiki/Xorshift#Initialization
 ... http://xorshift.di.unimi.it/splitmix64.c
+... [Andrew Clifton - Don't generate, hash! (Or, how I learned to stop worrying and love SplitMix64)](https://www.youtube.com/watch?v=e4b--cyXEsM)
+(every .public Split_Mix_64
+  Nat)
+
 (the .public split_mix_64
-  (-> Nat PRNG)
+  (PRNG Split_Mix_64)
   (let [twist (is (-> Nat Nat Nat)
                   (function (_ shift value)
                     (i64.xor (i64.right_shifted shift value)

@@ -13,6 +13,7 @@
     ["[0]" try]
     ["[0]" exception (.only Exception)]
     ["[0]" io]
+    ["[0]" state]
     [concurrency
      ["[0]" atom (.only Atom)]
      ["[0]" async (.only Async) (.use "[1]#[0]" monad)]]]
@@ -50,50 +51,61 @@
   ["[0]" tally (.only Tally)]])
 
 (every .public Test
-  (Random //.Test))
+  (Random //.Test random.PCG_32))
 
+... The PRNG is not updated by the branches in order to ensure that adding new test cases
+... in one branch does not alter the random generation in another branch.
 (the .public (and left right)
-  (-> Test Test Test)
-  (do [! random.monad]
-    [left left]
-    (of ! each (//.and left) right)))
+  (-> Test Test
+      Test)
+  (function (_ prng)
+    (let [[_ left] (left prng)
+          [_ right] (right prng)]
+      [prng (//.and left right)])))
 
 (the .public context
-  (-> Text Test Test)
+  (-> Text Test
+      Test)
   (|>> //.context
        random#each))
 
 (the .public failure
-  (-> Text Test)
+  (-> Text
+      Test)
   (|>> //.failure
        random#in))
 
 (the .public success
-  (-> Text Test)
+  (-> Text
+      Test)
   (|>> //.success
        random#in))
 
 (the .public (test message condition)
-  (-> Text Bit Test)
+  (-> Text Bit
+      Test)
   (random#in (//.test message condition)))
 
 (the .public (lifted message random)
-  (-> Text (Random Bit) Test)
+  (-> Text (Random Bit)
+      Test)
   (do random.monad
     [it random]
     (test message it)))
 
 (the pcg_32_magic_inc
-  Nat
   (hex "FEDCBA9876543210"))
 
 (every .public Seed
   Nat)
 
 (the .public (seed value test)
-  (-> Seed Test Test)
+  (-> Seed Test
+      Test)
   (function (_ prng)
-    (let [[_ value] (random.value (random.pcg_32 [..pcg_32_magic_inc value])
+    (let [[_ value] (random.value random.pcg_32
+                                  [random.#increase ..pcg_32_magic_inc
+                                   random.#seed value]
                                   test)]
       [prng value])))
 
@@ -101,7 +113,8 @@
   text.new_line)
 
 (the (times_failure seed documentation)
-  (-> Seed Text Text)
+  (-> Seed Text
+      Text)
   (format documentation ..separator ..separator
           "Failed with this seed: " (%.nat seed)))
 
@@ -110,22 +123,27 @@
 (every .public Success_Policy
   Bit)
 
-(the .public ignore_success
-  Success_Policy
-  #0)
+(with_template [<policy> <name>]
+  [(the .public <name>
+     Success_Policy
+     <policy>)]
 
-(the .public announce_success
-  Success_Policy
-  #1)
+  [#0 ignore_success]
+  [#1 announce_success]
+  )
 
 (the .public (times amount announce_success? test)
-  (-> Nat Success_Policy Test Test)
+  (-> Nat Success_Policy Test
+      Test)
   (when amount
     0 (..failure (exception.error ..must_try_test_at_least_once []))
     _ (do random.monad
         [seed random.nat]
         (function (again prng)
-          (let [[prng' instance] (random.value (random.pcg_32 [..pcg_32_magic_inc seed]) test)]
+          (let [[prng' instance] (random.value random.pcg_32
+                                               [random.#increase ..pcg_32_magic_inc
+                                                random.#seed seed]
+                                               test)]
             [prng' (do [! async.monad]
                      [[tally documentation] instance]
                      (if (tally.failed? tally)
@@ -138,11 +156,12 @@
                            1 instance
                            _ (|> test
                                  (times (-- amount) announce_success?)
-                                 (random.value prng')
+                                 (state.value prng')
                                  product.right)))))])))))
 
 (the (description duration tally)
-  (-> Duration Tally Text)
+  (-> Duration Tally
+      Text)
   (let [successes (its tally.#successes tally)
         failures (its tally.#failures tally)
         missing (set.difference (its tally.#actual tally)
@@ -198,12 +217,16 @@
 (the success_exit_code +0)
 
 (the .public (run! test)
-  (-> Test (Async Nothing))
+  (-> Test
+      (Async Nothing))
   (do async.monad
     [pre (async.future instant.now)
-     .let [seed (instant.millis pre)
-           prng (random.pcg_32 [..pcg_32_magic_inc seed])]
-     [tally documentation] (|> test (random.value prng) product.right)
+     .let [seed (instant.millis pre)]
+     [tally documentation] (|> test
+                               (random.value random.pcg_32
+                                             [random.#increase ..pcg_32_magic_inc
+                                              random.#seed seed])
+                               product.right)
      post (async.future instant.now)
      .let [duration (instant.span pre post)
            report (format documentation
@@ -250,7 +273,8 @@
    (list ["Error" (%.text error)])))
 
 (the .public (in_parallel tests)
-  (-> (List Test) Test)
+  (-> (List Test)
+      Test)
   (when (list.size tests)
     0
     (random#in (async#in [tally.empty ""]))
@@ -258,9 +282,11 @@
     expected_tests
     (do random.monad
       [seed random.nat
-       .let [prng (random.pcg_32 [..pcg_32_magic_inc seed])
-             run! (is (-> Test //.Test)
-                      (|>> (random.value prng)
+       .let [run! (is (-> Test
+                          //.Test)
+                      (|>> (random.value random.pcg_32
+                                         [random.#increase ..pcg_32_magic_inc
+                                          random.#seed seed])
                            product.right
                            try
                            (pipe.when

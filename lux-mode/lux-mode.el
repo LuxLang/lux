@@ -374,6 +374,7 @@ Called by `imenu--generic-function'."
 												 "Nominal" "->"
 												 "All" "Ex"
 												 "Interface"
+												 "Class"
 												 "type"))
 							(type//checking (altRE "is" "as" "let" "as_expected" "type_of" "sharing" "by_example" "hole"))
 							(type//poly (altRE "polytypic"))
@@ -620,6 +621,7 @@ This function also returns nil meaning don't specify the indentation."
   (All 'defun)
   (Ex 'defun)
   (Rec 'defun)
+  ("Class" 'defun)
 
   (synchronized 'defun)
   (object 'defun)
