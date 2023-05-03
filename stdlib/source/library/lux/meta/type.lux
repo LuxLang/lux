@@ -3,16 +3,17 @@
 
 (.require
  [library
-  [lux (.except function as let variant tuple)
+  [lux (.except function as let variant tuple only except)
    [abstract
     [equivalence (.only Equivalence)]
     [codec (.only Codec)]
     ["[0]" monad (.only Monad do)]]
    [control
     ["?" parser (.use "[1]#[0]" monad)]
-    ["[0]" function]
     ["[0]" maybe]
-    ["[0]" try]]
+    ["[0]" try (.only Try)]
+    ["[0]" function (.only)
+     ["[0]" predicate (.only Predicate)]]]
    [data
     ["[0]" product]
     ["[0]" text (.use "[1]#[0]" monoid equivalence)]
@@ -22,7 +23,7 @@
    [math
     [number
      ["n" nat (.use "[1]#[0]" decimal)]]]
-   ["[0]" meta (.only)
+   ["[0]" meta (.use "[1]#[0]" functor)
     ["[0]" location]
     ["[0]" symbol (.use "[1]#[0]" equivalence)]
     ["[0]" code (.only)
@@ -589,10 +590,8 @@
                    (, bodyT)))))))
 
 (the .public member
-  (syntax (_ [[label parameters] (all ?.either
-                                      (?code.form (?.and ?code.symbol (?.some ?code.any)))
-                                      (?.and ?code.global (?#in (list)))
-                                      )])
+  (syntax (_ [label ?code.global
+              parameters (?code.tuple (?.some ?code.any))])
     (do [! meta.monad]
       [full_label (meta.normal label)
        label (meta.or (meta.tag full_label)
@@ -636,3 +635,131 @@
                                  " for type "
                                  (relative_format here it)))))]
       (in (list (..code it))))))
+
+(the .public cannot_specialize_function
+  Error
+  (location.with (location.here)
+    "Cannot specialize function type."))
+
+(the (specialized_function it parameters)
+  (-> Symbol (List Code)
+      (Meta [(List Type) Type]))
+  (do [! meta.monad]
+    [[it _] (meta.export it)
+     parameters (monad.each ! (|>> (meta.eval Type)
+                                   (of ! each (|>> (.as Type))))
+                            parameters)
+     it (when (..applied parameters it)
+          {.#Some it}
+          (in it)
+
+          {.#None}
+          (meta.failure ..cannot_specialize_function))]
+    (in (..flat_function it))))
+
+(the as_type
+  (-> Type
+      Code)
+  (|>> ..code
+       (,)
+       (is Type)
+       (`)))
+
+(the .public parameters
+  (syntax (_ [function ?code.global
+              parameters (?code.tuple (?.some ?code.any))])
+    (meta#each (|>> product.left
+                    ..tuple
+                    ..as_type
+                    list)
+               (specialized_function function parameters))))
+
+(the .public return
+  (syntax (_ [function ?code.global
+              parameters (?code.tuple (?.some ?code.any))])
+    (meta#each (|>> product.right
+                    ..as_type
+                    list)
+               (specialized_function function parameters))))
+
+(the .public slots_belong_to_different_types
+  Error
+  (location.with (location.here)
+    "Slots belong to different types."))
+
+(the (specialized_record parameters [head tail])
+  (-> (List Code) [Symbol (List Symbol)]
+      (Meta [(List Type) [Label (List Label)]]))
+  (do [! meta.monad]
+    [head (meta.slot head)
+     tail (monad.each ! meta.slot tail)
+     .let [general_type (product.right head)]
+     _ (if (list.every? (|>> product.right (same? general_type)) tail)
+         (in [])
+         (meta.failure ..slots_belong_to_different_types))
+     parameters (monad.each ! (|>> (meta.eval Type)
+                                   (of ! each (|>> (.as Type))))
+                            parameters)
+     it (when (..applied parameters general_type)
+          {.#Some it}
+          (in it)
+
+          {.#None}
+          (meta.failure ..cannot_specialize_function))]
+    (in [(..flat_tuple it) [head tail]])))
+
+(the .public singleton_record
+  Error
+  (location.with (location.here)
+    "Cannot produce a subset of a singleton record/tuple."))
+
+(the (slot_index [it _])
+  (-> Label
+      (Try Nat))
+  (when it
+    {.#Some [index right? cohort]}
+    {try.#Success (if right?
+                    (++ index)
+                    index)}
+
+    {.#None}
+    {try.#Failure ..singleton_record}))
+
+(the .public only
+  (syntax (_ [parameters (?code.tuple (?.some ?code.any))
+              [head tail] (?code.tuple (?.and ?code.symbol (?.some ?code.symbol)))])
+    (do [! meta.monad]
+      [[specialized_type [head tail]] (specialized_record parameters [head tail])
+       subset (meta.of_try
+               (do [! try.monad]
+                 [head (..slot_index head)
+                  tail (monad.each ! ..slot_index tail)]
+                 (|> (list.partial head tail)
+                     (monad.each ! ((function.flipped list.item) specialized_type)))))]
+      (in (list (as_type (..tuple subset)))))))
+
+(the .public except
+  (syntax (_ [parameters (?code.tuple (?.some ?code.any))
+              [head tail] (?code.tuple (?.and ?code.symbol (?.some ?code.symbol)))])
+    (do [! meta.monad]
+      [[specialized_type [head tail]] (specialized_record parameters [head tail])
+       excluded (meta.of_try
+                 (do [! try.monad]
+                   [head (..slot_index head)
+                    tail (monad.each ! ..slot_index tail)]
+                   (in (list.partial head tail))))
+       .let [excluded? (is (Predicate Nat)
+                           (.function (_ index)
+                             (list.any? (n.= index) excluded)))
+             included (|> (when (product.left head)
+                            {.#Some [index exported? cohort]}
+                            (list.size cohort)
+
+                            {.#None}
+                            1)
+                          list.indices
+                          (list.only (predicate.not excluded?)))]
+       subset (meta.of_try
+               (monad.each try.monad ((function.flipped list.item) specialized_type)
+                           included))]
+      (in (list (as_type (..tuple subset)))))))

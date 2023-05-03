@@ -11,7 +11,8 @@
    [control
     ["[0]" io (.only IO io)]
     ["[0]" maybe]
-    ["[0]" try]]
+    ["[0]" try]
+    ["[0]" state]]
    [data
     ["[0]" product]
     [collection
@@ -27,24 +28,30 @@
   ["[0]" async (.only Async Resolver)]
   ["[0]" frp (.only Channel Sink)]])
 
-(every (Observer a)
-  (-> a (IO Any)))
+(every (Observer of)
+  (-> of
+      (IO Any)))
 
-(nominal.every (Var'' a)
-  (Atom [a (List (Sink a))])
+(nominal.every (Var'' of)
+  (Atom [of (List (Sink of))])
 
-  (every .public (Var' r w)
-    (Var'' (Mutable r w)))
+  (every .public (Var' read write)
+    (Var'' (Mutable read write)))
   
-  (every .public (Var a)
-    (Var'' (Mutable a a)))
+  (every .public (Var of)
+    (Var'' (Mutable of of)))
 
   (the .public (var value)
-    (All (_ a) (-> a (Var a)))
-    (nominal.abstraction (atom.atom [(variance.write value) (list)])))
+    (All (_ of)
+      (-> of
+          (Var of)))
+    (nominal.abstraction
+     (atom.atom [(variance.write value) (list)])))
 
   (the read!
-    (All (_ r w) (-> (Var' r w) r))
+    (All (_ read write)
+      (-> (Var' read write)
+          read))
     (|>> nominal.representation
          atom.read!
          io.run!
@@ -52,7 +59,9 @@
          variance.read))
 
   (the (write! new_value var)
-    (All (_ r w) (-> w (Var' r w) (IO Any)))
+    (All (_ read write)
+      (-> write (Var' read write)
+          (IO Any)))
     (do [! io.monad]
       [.let [var' (nominal.representation var)]
        (^.let old [_ observers]) (atom.read! var')
@@ -79,7 +88,10 @@
         (write! new_value var))))
 
   (the .public (changes target)
-    (All (_ a) (-> (Var a) (IO [(Channel a) (Sink a)])))
+    (All (_ of)
+      (-> (Var of)
+          (IO [(Channel of)
+               (Sink of)])))
     (do io.monad
       [.let [[channel sink] (sharing [a]
                               (is (Var a)
@@ -95,20 +107,23 @@
       (in [channel sink])))
   )
 
-(every (Tx_Frame r w)
+(every (Tx_Frame read write)
   (Record
-   [#var (Var' r w)
-    #original r
-    #current w]))
+   [#var (Var' read write)
+    #original read
+    #current write]))
 
 (every Tx
-  (List (Ex (_ r w) (Tx_Frame r w))))
+  (List (Ex (_ read write)
+          (Tx_Frame read write))))
 
-(every .public (STM a)
-  (-> Tx [Tx a]))
+(every .public (STM of)
+  (state.State Tx of))
 
 (the (var_value var tx)
-  (All (_ r w) (-> (Var' r w) Tx (Maybe r)))
+  (All (_ read write)
+    (-> (Var' read write) Tx
+        (Maybe read)))
   (|> tx
       (list.example (function (_ [_var _original _current])
                       (same? (as (Var Any) var)
@@ -118,7 +133,9 @@
       as_expected))
 
 (the .public (read var)
-  (All (_ r w) (-> (Var' r w) (STM r)))
+  (All (_ read write)
+    (-> (Var' read write)
+        (STM read)))
   (function (_ tx)
     (when (var_value var tx)
       {.#Some value}
@@ -133,7 +150,9 @@
          value]))))
 
 (the (with_updated_var var value tx)
-  (All (_ r w) (-> (Var' r w) w Tx Tx))
+  (All (_ read write)
+    (-> (Var' read write) write Tx
+        Tx))
   (when tx
     {.#End}
     {.#End}
@@ -151,7 +170,9 @@
               (with_updated_var var value tx')})))
 
 (the .public (write value var)
-  (All (_ r w) (-> w (Var' r w) (STM Any)))
+  (All (_ read write)
+    (-> write (Var' read write)
+        (STM Any)))
   (function (_ tx)
     (when (var_value var tx)
       {.#Some _}
@@ -167,39 +188,20 @@
 
 (the .public functor
   (Functor STM)
-  (implementation
-   (the (each f fa)
-     (function (_ tx)
-       (let [[tx' a] (fa tx)]
-         [tx' (f a)])))))
+  state.functor)
 
 (the .public apply
   (Apply STM)
-  (implementation
-   (the functor ..functor)
-
-   (the (on fa ff)
-     (function (_ tx)
-       (let [[tx' f] (ff tx)
-             [tx'' a] (fa tx')]
-         [tx'' (f a)])))))
+  state.apply)
 
 (the .public monad
   (Monad STM)
-  (implementation
-   (the functor ..functor)
-
-   (the (in a)
-     (function (_ tx)
-       [tx a]))
-
-   (the (conjoint mma)
-     (function (_ tx)
-       (let [[tx' ma] (mma tx)]
-         (ma tx'))))))
+  state.monad)
 
 (the .public (update f var)
-  (All (_ r w) (-> (-> r w) (Var' r w) (STM [r w])))
+  (All (_ read write)
+    (-> (-> read write) (Var' read write)
+        (STM [read write])))
   (do ..monad
     [before (..read var)
      .let [after (f before)]
@@ -207,28 +209,33 @@
     (in [before after])))
 
 (the (can_commit? tx)
-  (-> Tx Bit)
+  (-> Tx
+      Bit)
   (list.every? (function (_ [_var _original _current])
                  (same? _original (..read! _var)))
                tx))
 
 (the (commit_var! [_var _original _current])
-  (-> (Ex (_ r w) (Tx_Frame r w)) (IO Any))
+  (-> (Ex (_ read write)
+        (Tx_Frame read write))
+      (IO Any))
   (if (same? (as Any _original) (as Any _current))
     (io [])
     (..write! _current _var)))
 
-(the fresh_tx Tx (list))
+(the fresh_tx
+  Tx
+  (list))
 
-(every (Commit a)
-  [(STM a)
-   (Async a)
-   (Resolver a)])
+(every (Commit of)
+  [(STM of)
+   (Async of)
+   (Resolver of)])
 
 (the pending_commits
   (Atom (Rec Commits
-          [(Async [(Ex (_ a) (Commit a)) Commits])
-           (Resolver [(Ex (_ a) (Commit a)) Commits])]))
+          [(Async [(Ex (_ of) (Commit of)) Commits])
+           (Resolver [(Ex (_ of) (Commit of)) Commits])]))
   (atom (async.async [])))
 
 (the commit_processor_flag
@@ -236,7 +243,9 @@
   (atom false))
 
 (the (issue_commit! commit)
-  (All (_ a) (-> (Commit a) (IO Any)))
+  (All (_ of)
+    (-> (Commit of)
+        (IO Any)))
   (let [entry [commit (async.async [])]]
     (do [! io.monad]
       [|commits|&resolve (atom.read! pending_commits)]
@@ -255,7 +264,9 @@
             (again tail)))))))
 
 (the (process_commit! commit)
-  (All (_ a) (-> (Commit a) (IO Any)))
+  (All (_ of)
+    (-> (Commit of)
+        (IO Any)))
   (let [[stm_proc output resolve] commit
         [finished_tx value] (stm_proc fresh_tx)]
     (if (can_commit? finished_tx)
@@ -284,7 +295,9 @@
       )))
 
 (the .public (commit! stm_proc)
-  (All (_ a) (-> (STM a) (Async a)))
+  (All (_ of)
+    (-> (STM of)
+        (Async of)))
   (let [[output resolver] (async.async [])]
     (exec
       (io.run! (do io.monad
