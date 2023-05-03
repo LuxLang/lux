@@ -3,15 +3,21 @@
 
 (.require
  [library
-  [lux (.except)
+  [lux (.except open)
    [abstract
     [equivalence (.only Equivalence)]]
+   [control
+    ["[0]" maybe (.use "[1]#[0]" functor)]
+    ["[0]" try (.only Try)]
+    ["[0]" exception (.only Exception)]]
    [data
+    ["[0]" product]
     [text
      ["%" \\format (.only Format)]]]
    [math
     [number
-     ["n" nat]]]]]
+     ["n" nat]
+     ["i" int]]]]]
  [//
   ["[0]" volume (.only Volume)]
   [//
@@ -22,51 +28,186 @@
 
 (every .public (Session $)
   (Record
-   [#open (Price $)
-    #high (Price $)
-    #low (Price $)
-    #close (Price $)
+   [#low (Price $)
+    #to_bottom Nat
+    #real_body Int
+    #to_high Nat
     #volume (Volume $)]))
+
+(the .public currency
+  (All (_ $)
+    (-> (Session $)
+        (Currency $)))
+  (|>> (its #low)
+       money.currency))
+
+... https://en.wikipedia.org/wiki/Open-high-low-close_chart
+(the .public low
+  (All (_ $)
+    (-> (Session $)
+        (Price $)))
+  (its #low))
+
+(the .public (bottom it)
+  (All (_ $)
+    (-> (Session $)
+        (Price $)))
+  (money.+ (..low it)
+           (money.money (..currency it)
+                        (its #to_bottom it))))
+
+(the .public (top it)
+  (All (_ $)
+    (-> (Session $)
+        (Price $)))
+  (let [real_body (its #real_body it)]
+    (money.+ (..bottom it)
+             (money.money (..currency it)
+                          (if (i.< +0 real_body)
+                            (.nat (i.opposite real_body))
+                            (.nat real_body))))))
+
+(the .public (open it)
+  (All (_ $)
+    (-> (Session $)
+        (Price $)))
+  (if (i.< +0 (its #real_body it))
+    (..top it)
+    (..bottom it)))
+
+(the .public (close it)
+  (All (_ $)
+    (-> (Session $)
+        (Price $)))
+  (if (i.< +0 (its #real_body it))
+    (..bottom it)
+    (..top it)))
+
+(the .public (high it)
+  (All (_ $)
+    (-> (Session $)
+        (Price $)))
+  (money.+ (..top it)
+           (money.money (..currency it)
+                        (its #to_high it))))
 
 (the .public equivalence
   (All (_ $)
     (Equivalence (Session $)))
-  (implementation
-   (the (= reference subject)
-     (`` (and (,, (with_template [<=> <slot>]
-                    [(<=> (its <slot> reference)
-                          (its <slot> subject))]
+  (all product.equivalence
+       money.equivalence
+       n.equivalence
+       i.equivalence
+       n.equivalence
+       volume.equivalence
+       ))
 
-                    [money.= #open]
-                    [money.= #high]
-                    [money.= #low]
-                    [money.= #close]
-                    [volume.equivalence #volume]
-                    )))))))
+(the (to_bottom low close)
+  (All (_ $)
+    (-> (Price $) (Price $)
+        Nat))
+  (|> close
+      (money.- low)
+      (maybe#each money.amount)
+      (maybe.else 0)))
+
+(the (real_body open close)
+  (All (_ $)
+    (-> (Price $) (Price $)
+        Int))
+  (if (money.> open close)
+    (|> close
+        (money.- open)
+        (maybe#each money.amount)
+        (maybe.else 0)
+        .int)
+    (|> open
+        (money.- close)
+        (maybe#each money.amount)
+        (maybe.else 0)
+        .int
+        i.opposite)))
 
 (the .public (composite before after)
   (All (_ $)
     (-> (Session $) (Session $)
         (Session $)))
-  [#open (its #open before)
-   #high (money.max (its #high before) (its #high after))
-   #low (money.min (its #low before) (its #low after))
-   #close (its #close after)
-   #volume [volume.#in (n.+ (its [#volume volume.#in] before)
-                            (its [#volume volume.#in] after))
-            volume.#out (money.+ (its [#volume volume.#out] before)
-                                 (its [#volume volume.#out] after))]])
+  (let [open (..open before)
+        high (money.max (..high before) (..high after))
+        low (money.min (..low before) (..low after))
+        close (..close after)]
+    [#low low
+     #to_bottom (..to_bottom low close)
+     #real_body (..real_body open close)
+     #to_high (..to_bottom (money.max open close)
+                           high)
+     #volume [volume.#in (n.+ (its [#volume volume.#in] before)
+                              (its [#volume volume.#in] after))
+              volume.#out (money.+ (its [#volume volume.#out] before)
+                                   (its [#volume volume.#out] after))]]))
 
-... https://en.wikipedia.org/wiki/Open-high-low-close_chart
+(with_template [<header> <name>]
+  [(the <name> <header>)]
+
+  ["O" open_header]
+  ["H" high_header]
+  ["L" low_header]
+  ["C" close_header]
+  ["V" volume_header]
+  )
+
 (the .public (format it)
   (All (_ $)
     (Format (Session $)))
-  (`` (%.format (,, (with_template [<header> <slot> <format>]
-                      [<header> ": " (`` (<format> (its <slot> it)))]
+  (`` (%.format (,, (with_template [<header> <field>]
+                      [<header> ": " (money.format (<field> it)) " | "]
 
-                      ["O" #open money.format]
-                      [" | H" #high money.format]
-                      [" | L" #low money.format]
-                      [" | C" #close money.format]
-                      [" | V" [#volume volume.#in] %.nat]
-                      )))))
+                      [..open_header ..open]
+                      [..high_header ..high]
+                      [..low_header ..low]
+                      [..close_header ..close]
+                      ))
+                ..volume_header ": " (%.nat (its [#volume volume.#in] it)))))
+
+(exception.the .public (invalid [open high low close volume])
+  (All (_ $)
+    (Exception [(Price $) (Price $) (Price $) (Price $) (Volume $)]))
+  (exception.report
+   (`` (list (,, (with_template [<header> <field>]
+                   [[<header> (money.format <field>)]]
+
+                   [..open_header open]
+                   [..high_header high]
+                   [..low_header low]
+                   [..close_header close]
+                   ))
+             [..volume_header (%.nat (its volume.#in volume))]))))
+
+(the (between? [low high] it)
+  (All (_ $)
+    (-> [(Price $) (Price $)] (Price $)
+        Bit))
+  (and (money.>= low it)
+       (money.<= high it)))
+
+(the (valid? open high low close)
+  (All (_ $)
+    (-> (Price $) (Price $) (Price $) (Price $)
+        Bit))
+  (and (money.<= high low)
+       (between? [low high] open)
+       (between? [low high] close)))
+
+(the .public (ohlc open high low close volume)
+  (All (_ $)
+    (-> (Price $) (Price $) (Price $) (Price $) (Volume $)
+        (Try (Session $))))
+  (if (valid? open high low close)
+    {try.#Success
+     [#low low
+      #to_bottom (..to_bottom low close)
+      #real_body (..real_body open close)
+      #to_high (..to_bottom (money.max open close)
+                            high)
+      #volume volume]}
+    (exception.except ..invalid [open high low close volume])))
