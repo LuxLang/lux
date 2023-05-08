@@ -105,7 +105,8 @@
     [{try.#Success <it>}]))
 
 (the (relative#composite left right)
-  (-> Relative Relative Relative)
+  (-> Relative Relative
+      Relative)
   (cond (same? ..relative#identity left)
         right
 
@@ -125,18 +126,19 @@
    (the identity ..relative#identity)
    (the composite ..relative#composite)))
 
-(every .public (Bytecode a)
+(every .public (Bytecode of)
   (state.With Try [Pool Environment Tracker]
-    (Writer Relative a)))
+    (Writer Relative of)))
 
 (the .public new_label
   (Bytecode Label)
   (function (_ [pool environment tracker])
-    {try.#Success [[pool
-                    environment
-                    (revised #next ++ tracker)]
-                   [..relative#identity
-                    (its #next tracker)]]}))
+    {try.#Success
+     [[pool
+       environment
+       (revised #next ++ tracker)]
+      [..relative#identity
+       (its #next tracker)]]}))
 
 (exception.the .public (label_has_already_been_set label)
   (exception.Exception Label)
@@ -152,39 +154,49 @@
          ["Expected" (/stack.text expected)]
          ["Actual" (/stack.text actual)])))
 
+(exception.the .public (unknown_label label)
+  (exception.Exception Label)
+  (exception.report
+   (list ["Label" (%.nat label)])))
+
 (the .public (set? label)
-  (-> Label (Bytecode (Maybe [Stack Address])))
+  (-> Label
+      (Bytecode (Try [Stack Address])))
   (function (_ state)
     (let [[pool environment tracker] state]
-      {try.#Success [state
-                     [..relative#identity
-                      (when (dictionary.value label (its #known tracker))
-                        {.#Some [expected {.#Some address}]}
-                        {.#Some [expected address]}
-                        
-                        _
-                        {.#None})]]})))
+      {try.#Success
+       [state
+        [..relative#identity
+         (when (dictionary.value label (its #known tracker))
+           {try.#Success [expected {.#Some address}]}
+           {try.#Success [expected address]}
+           
+           failure
+           (exception.except ..unknown_label [label]))]]})))
 
 (the .public (acknowledged? label)
-  (-> Label (Bytecode (Maybe Stack)))
+  (-> Label
+      (Bytecode (Try Stack)))
   (function (_ state)
     (let [[pool environment tracker] state]
-      {try.#Success [state
-                     [..relative#identity
-                      (when (dictionary.value label (its #known tracker))
-                        {.#Some [expected {.#None}]}
-                        {.#Some expected}
+      {try.#Success
+       [state
+        [..relative#identity
+         (when (dictionary.value label (its #known tracker))
+           {try.#Success [expected {.#None}]}
+           {try.#Success expected}
 
-                        _
-                        {.#None})]]})))
+           failure
+           (exception.except ..unknown_label [label]))]]})))
 
 (the .public stack
   (Bytecode (Maybe Stack))
   (function (_ state)
     (let [[pool environment tracker] state]
-      {try.#Success [state
-                     [..relative#identity
-                      (its /environment.#stack environment)]]})))
+      {try.#Success
+       [state
+        [..relative#identity
+         (its /environment.#stack environment)]]})))
 
 (with_expansions [<success> (these (try|in [[pool
                                              environment
@@ -194,19 +206,19 @@
                                             [..relative#identity
                                              []]]))]
   (the .public (set_label label)
-    (-> Label (Bytecode Any))
+    (-> Label
+        (Bytecode Any))
     (function (_ [pool environment tracker])
       (let [@here (its #program_counter tracker)]
         (when (dictionary.value label (its #known tracker))
-          {.#Some [expected {.#Some address}]}
+          {try.#Success [expected {.#Some address}]}
           (exception.except ..label_has_already_been_set [label])
           
-          {.#Some [expected {.#None}]}
+          {try.#Success [expected {.#None}]}
           (<| (try|do [actual environment] (/environment.continue expected environment))
               <success>)
 
-          ... {.#None}
-          _
+          failure
           (<| (try|do [actual environment] (/environment.continue (|> environment
                                                                       (its /environment.#stack)
                                                                       (maybe.else /stack.empty))
@@ -252,7 +264,8 @@
          (as_expected failure))))))
 
 (the .public (when_continuous it)
-  (-> (Bytecode Any) (Bytecode Any))
+  (-> (Bytecode Any)
+      (Bytecode Any))
   (do ..monad
     [stack ..stack]
     (.when stack
@@ -264,30 +277,33 @@
       (in []))))
 
 (the .public (when_acknowledged @ it)
-  (-> Label (Bytecode Any) (Bytecode Any))
+  (-> Label (Bytecode Any)
+      (Bytecode Any))
   (do ..monad
     [?@ (..acknowledged? @)]
     (.when ?@
-      {.#Some _}
+      {try.#Success _}
       it
 
-      ... {.#None}
-      _
+      failure
       (in []))))
 
 (the .public (failure error)
-  (-> Text Bytecode)
+  (-> Text
+      Bytecode)
   (function (_ _)
     {try.#Failure error}))
 
 (the .public (except exception value)
-  (All (_ e) (-> (exception.Exception e) e Bytecode))
+  (All (_ of)
+    (-> (exception.Exception of) of
+        Bytecode))
   (..failure (exception.error exception value)))
 
 (the .public (resolve environment bytecode)
-  (All (_ a)
-    (-> Environment (Bytecode a)
-        (Resource [Environment Line_Number_Table (Sequence Exception) Instruction a])))
+  (All (_ of)
+    (-> Environment (Bytecode of)
+        (Resource [Environment Line_Number_Table (Sequence Exception) Instruction of])))
   (function (_ pool)
     (<| (try|do [[pool environment tracker] [relative output]] (bytecode [pool environment ..fresh]))
         (try|do [exceptions instruction] (relative (its #known tracker)))
@@ -298,11 +314,14 @@
                        output]]))))
 
 (the (step estimator counter)
-  (-> Estimator Address (Try Address))
+  (-> Estimator Address
+      (Try Address))
   (/address.move (estimator counter) counter))
 
 (the (bytecode consumption production registry [estimator bytecode] input)
-  (All (_ a) (-> U2 U2 Registry [Estimator (-> [a] Instruction)] a (Bytecode Any)))
+  (All (_ of)
+    (-> U2 U2 Registry [Estimator (-> of Instruction)] of
+        (Bytecode Any)))
   (function (_ [pool environment tracker])
     (<| (try|do environment' (|> environment
                                  (/environment.consumes consumption)
@@ -318,8 +337,11 @@
                   []]]))))
 
 (with_template [<name> <frames>]
-  [(the <name> U2
-     (|> <frames> //unsigned.u2 try.trusted))]
+  [(the <name>
+     U2
+     (|> <frames>
+         //unsigned.u2
+         try.trusted))]
 
   [$0 0]
   [$1 1]
@@ -331,7 +353,12 @@
   )
 
 (with_template [<name> <registry>]
-  [(the <name> Registry (|> <registry> //unsigned.u2 try.trusted /registry.registry))]
+  [(the <name>
+     Registry
+     (|> <registry>
+         //unsigned.u2
+         try.trusted
+         /registry.registry))]
 
   [@_ 0]
   [@0 1]
@@ -553,13 +580,14 @@
   )
 
 (the .public (bipush byte)
-  (-> S1 (Bytecode Any))
+  (-> S1
+      (Bytecode Any))
   (..bytecode $0 $1 @_ _.bipush [byte]))
 
 (the (lifted resource)
-  (All (_ a)
-    (-> (Resource a)
-        (Bytecode a)))
+  (All (_ of)
+    (-> (Resource of)
+        (Bytecode of)))
   (function (_ [pool environment tracker])
     (<| (try|do [pool' output] (resource pool))
         (try|in [[pool' environment tracker]
@@ -567,7 +595,8 @@
                   output]]))))
 
 (the .public (string value)
-  (-> //constant.UTF8 (Bytecode Any))
+  (-> //constant.UTF8
+      (Bytecode Any))
   (do ..monad
     [index (..lifted (//constant/pool.string value))]
     (when (|> index //index.value //unsigned.value //unsigned.u1)
@@ -587,7 +616,8 @@
 
 (with_template [<name> <type> <constructor> <constant> <wide> <to_lux> <specializations>]
   [(the .public (<name> value)
-     (-> <type> (Bytecode Any))
+     (-> <type>
+         (Bytecode Any))
      (when (|> value <to_lux>)
        (^.with_template [<special> <instruction>]
          [<special> (..bytecode $0 $1 @_ <instruction> [])])
@@ -614,7 +644,8 @@
   )
 
 (the (arbitrary_float value)
-  (-> java/lang/Float (Bytecode Any))
+  (-> java/lang/Float
+      (Bytecode Any))
   (do ..monad
     [index (..lifted (//constant/pool.float (//constant.float value)))]
     (when (|> index //index.value //unsigned.value //unsigned.u1)
@@ -625,7 +656,8 @@
       (..bytecode $0 $1 @_ _.ldc_w/float [index]))))
 
 (the float_bits
-  (-> java/lang/Float Int)
+  (-> java/lang/Float
+      Int)
   (|>> java/lang/Float::floatToRawIntBits
        ffi.int_to_long
        (as Int)))
@@ -637,7 +669,8 @@
       ..float_bits))
 
 (the .public (float value)
-  (-> java/lang/Float (Bytecode Any))
+  (-> java/lang/Float
+      (Bytecode Any))
   (if (i.= ..negative_zero_float_bits
            (..float_bits value))
     (..arbitrary_float value)
@@ -652,7 +685,8 @@
 
 (with_template [<name> <type> <constructor> <constant> <wide> <to_lux> <specializations>]
   [(the .public (<name> value)
-     (-> <type> (Bytecode Any))
+     (-> <type>
+         (Bytecode Any))
      (when (|> value <to_lux>)
        (^.with_template [<special> <instruction>]
          [<special> (..bytecode $0 $2 @_ <instruction> [])])
@@ -669,13 +703,15 @@
   )
 
 (the (arbitrary_double value)
-  (-> Frac (Bytecode Any))
+  (-> Frac
+      (Bytecode Any))
   (do ..monad
     [index (..lifted (//constant/pool.double (//constant.double value)))]
     (..bytecode $0 $2 @_ _.ldc2_w/double [index])))
 
 (the double_bits
-  (-> Frac Int)
+  (-> Frac
+      Int)
   (|>> (as java/lang/Double)
        java/lang/Double::doubleToRawLongBits
        (as Int)))
@@ -684,7 +720,8 @@
   (..double_bits -0.0))
 
 (the .public (double value)
-  (-> Frac (Bytecode Any))
+  (-> Frac
+      (Bytecode Any))
   (if (i.= ..negative_zero_double_bits
            (..double_bits value))
     (..arbitrary_double value)
@@ -702,7 +739,8 @@
    (list ["ID" (%.nat id)])))
 
 (the (register id)
-  (-> Nat (Bytecode Register))
+  (-> Nat
+      (Bytecode Register))
   (when (//unsigned.u1 id)
     {try.#Success register}
     (of ..monad in register)
@@ -712,7 +750,8 @@
 
 (with_template [<for> <size> <name> <general> <specials>]
   [(the .public (<name> local)
-     (-> Nat (Bytecode Any))
+     (-> Nat
+         (Bytecode Any))
      (with_expansions [<specials>' (template.spliced <specials>)]
        (`` (when local
              (,, (with_template [<case> <instruction> <registry>]
@@ -752,7 +791,8 @@
 
 (with_template [<for> <size> <name> <general> <specials>]
   [(the .public (<name> local)
-     (-> Nat (Bytecode Any))
+     (-> Nat
+         (Bytecode Any))
      (with_expansions [<specials>' (template.spliced <specials>)]
        (`` (when local
              (,, (with_template [<case> <instruction> <registry>]
@@ -792,17 +832,13 @@
 
 (with_template [<consumption> <production> <name> <instruction> <input>]
   [(the .public <name>
-     (-> <input> (Bytecode Any))
+     (-> <input>
+         (Bytecode Any))
      (..bytecode <consumption> <production> @_ <instruction>))]
   
   [$1 $1 newarray _.newarray Primitive_Array_Type]
   [$0 $1 sipush _.sipush S2]
   )
-
-(exception.the .public (unknown_label label)
-  (exception.Exception Label)
-  (exception.report
-   (list ["Label" (%.nat label)])))
 
 (exception.the .public (cannot_do_a_big_jump [label @from jump])
   (exception.Exception [Label Address Big_Jump])
@@ -816,7 +852,8 @@
           Jump))
 
 (the (jump @from @to)
-  (-> Address Address (Try Any_Jump))
+  (-> Address Address
+      (Try Any_Jump))
   (<| (try|do jump (try#each //signed.value
                              (/address.jump @from @to)))
       (let [big? (or (i.> (//signed.value //signed.maximum/2)
@@ -833,31 +870,32 @@
    (list ["Label" (%.nat label)])))
 
 (the (resolve_label label resolver)
-  (-> Label Resolver (Try [Stack Address]))
+  (-> Label Resolver
+      (Try [Stack Address]))
   (when (dictionary.value label resolver)
-    {.#Some [actual {.#Some address}]}
+    {try.#Success [actual {.#Some address}]}
     {try.#Success [actual address]}
 
-    {.#Some [actual {.#None}]}
+    {try.#Success [actual {.#None}]}
     (exception.except ..unset_label [label])
     
-    ... {.#None}
-    _
+    failure
     (exception.except ..unknown_label [label])))
 
 (the (acknowledge_label stack label tracker)
-  (-> Stack Label Tracker Tracker)
+  (-> Stack Label Tracker
+      Tracker)
   (when (dictionary.value label (its #known tracker))
-    {.#Some _}
+    {try.#Success _}
     tracker
 
-    ... {.#None}
-    _
+    failure
     (revised #known (dictionary.has label [stack {.#None}]) tracker)))
 
 (with_template [<consumption> <name> <instruction>]
   [(the .public (<name> label)
-     (-> Label (Bytecode Any))
+     (-> Label
+         (Bytecode Any))
      (let [[estimator bytecode] <instruction>]
        (function (_ [pool environment tracker])
          (<| (let [@here (its #program_counter tracker)])
@@ -907,7 +945,8 @@
 
 (with_template [<name> <instruction> <on_long_jump> <on_short_jump>]
   [(the .public (<name> label)
-     (-> Label (Bytecode Any))
+     (-> Label
+         (Bytecode Any))
      (let [[estimator bytecode] <instruction>]
        (function (_ [pool environment tracker])
          (<| (try|do actual (/environment.stack environment))
@@ -921,7 +960,7 @@
                              (has #program_counter program_counter'))]
                         [(function (_ resolver)
                            (when (dictionary.value label resolver)
-                             {.#Some [expected {.#Some @to}]}
+                             {try.#Success [expected {.#Some @to}]}
                              (<| (try|do _ (exception.assertion ..mismatched_environments [(symbol <instruction>) label @here expected actual]
                                                                 (of /stack.equivalence = expected actual)))
                                  (try|do jump (..jump @from @to))
@@ -932,11 +971,10 @@
                                    {.#Right jump}
                                    <on_short_jump>))
 
-                             {.#Some [expected {.#None}]}
+                             {try.#Success [expected {.#None}]}
                              (exception.except ..unset_label [label])
 
-                             ... {.#None}
-                             _
+                             failure
                              (exception.except ..unknown_label [label])))
                          []]]))))))]
 
@@ -949,7 +987,8 @@
   )
 
 (the (big_jump jump)
-  (-> Any_Jump Big_Jump)
+  (-> Any_Jump
+      Big_Jump)
   (when jump
     {.#Left big}
     big
@@ -960,7 +999,8 @@
 (exception.the .public invalid_tableswitch)
 
 (the .public (tableswitch minimum default [at_minimum afterwards])
-  (-> S4 Label [Label (List Label)] (Bytecode Any))
+  (-> S4 Label [Label (List Label)]
+      (Bytecode Any))
   (let [[estimator bytecode] _.tableswitch]
     (function (_ [pool environment tracker])
       (<| (try|do environment' (|> environment
@@ -973,32 +1013,33 @@
                       (|> (list#mix (..acknowledge_label actual) tracker (list.partial default at_minimum afterwards))
                           (has #program_counter program_counter'))]
                      [(function (_ resolver)
-                        (let [get (is (-> Label (Maybe [Stack (Maybe Address)]))
-                                      (function (_ label)
-                                        (dictionary.value label resolver)))]
-                          (when (do [! maybe.monad]
-                                  [@default (|> default get (monad.then ! product.right))
-                                   @at_minimum (|> at_minimum get (monad.then ! product.right))]
+                        (let [address (is (-> Label (Try Address))
+                                          (function (_ label)
+                                            (|> (dictionary.value label resolver)
+                                                (monad.then try.monad (|>> product.right
+                                                                           (try.of_maybe (exception.error ..unknown_label [label])))))))]
+                          (when (do [! try.monad]
+                                  [@default (address default)
+                                   @at_minimum (address at_minimum)]
                                   (|> afterwards
-                                      (monad.each ! get)
-                                      (monad.then ! (monad.each ! product.right))
+                                      (monad.each ! address)
                                       (of ! each (|>> [@default @at_minimum]))))
-                            {.#Some [@default @at_minimum @afterwards]}
+                            {try.#Success [@default @at_minimum @afterwards]}
                             (<| (try|do >default (try#each ..big_jump (..jump @from @default)))
                                 (try|do >at_minimum (try#each ..big_jump (..jump @from @at_minimum)))
                                 (try|do >afterwards (monad.each try.monad (|>> (..jump @from) (try#each ..big_jump))
                                                                 @afterwards))
                                 (try|in [..no_exceptions (bytecode minimum >default [>at_minimum >afterwards])]))
 
-                            ... {.#None}
-                            _
+                            failure
                             (exception.except ..invalid_tableswitch []))))
                       []]]))))))
 
 (exception.the .public invalid_lookupswitch)
 
 (the .public (lookupswitch default cases)
-  (-> Label (List [S4 Label]) (Bytecode Any))
+  (-> Label (List [S4 Label])
+      (Bytecode Any))
   (let [cases (list.sorted (function (_ [left _] [right _])
                              (i.< (//signed.value left)
                                   (//signed.value right)))
@@ -1015,35 +1056,37 @@
                       (|> (list#mix (..acknowledge_label actual) tracker (list.partial default (list#each product.right cases)))
                           (has #program_counter program_counter'))]
                      [(function (_ resolver)
-                        (let [get (is (-> Label (Maybe [Stack (Maybe Address)]))
-                                      (function (_ label)
-                                        (dictionary.value label resolver)))]
-                          (when (do [! maybe.monad]
-                                  [@default (|> default get (monad.then ! product.right))]
+                        (let [address (is (-> Label (Try Address))
+                                          (function (_ label)
+                                            (|> (dictionary.value label resolver)
+                                                (monad.then try.monad (|>> product.right
+                                                                           (try.of_maybe (exception.error ..unknown_label [label])))))))]
+                          (when (do [! try.monad]
+                                  [@default (address default)]
                                   (|> cases
-                                      (monad.each ! (|>> product.right get))
-                                      (monad.then ! (monad.each ! product.right))
+                                      (monad.each ! (|>> product.right address))
                                       (of ! each (|>> [@default]))))
-                            {.#Some [@default @cases]}
+                            {try.#Success [@default @cases]}
                             (<| (try|do >default (try#each ..big_jump (..jump @from @default)))
                                 (try|do >cases (|> @cases
                                                    (monad.each try.monad (|>> (..jump @from) (try#each ..big_jump)))
                                                    (try#each (|>> (list.zipped_2 (list#each product.left cases))))))
                                 (try|in [..no_exceptions (bytecode >default >cases)]))
 
-                            ... {.#None}
-                            _
+                            failure
                             (exception.except ..invalid_lookupswitch []))))
                       []]]))))))
 
 (the reflection
   (All (_ category)
-    (-> (Type (<| Return' Value' category)) Text))
+    (-> (Type (<| Return' Value' category))
+        Text))
   (|>> type.reflection reflection.reflection))
 
 (with_template [<consumption> <production> <name> <category> <instruction>]
   [(the .public (<name> class)
-     (-> (Type <category>) (Bytecode Any))
+     (-> (Type <category>)
+         (Bytecode Any))
      (do ..monad
        [... TODO: Make sure it's impossible to have indexes greater than U2.
         index (..lifted (//constant/pool.class (//name.internal (..reflection class))))]
@@ -1056,7 +1099,8 @@
   )
 
 (the .public (iinc register increase)
-  (-> Nat U1 (Bytecode Any))
+  (-> Nat U1
+      (Bytecode Any))
   (do ..monad
     [register (..register register)]
     (..bytecode $0 $0 (/registry.for register) _.iinc [register increase])))
@@ -1067,7 +1111,8 @@
    (list ["Class" (..reflection class)])))
 
 (the .public (multianewarray class dimensions)
-  (-> (Type Object) U1 (Bytecode Any))
+  (-> (Type Object) U1
+      (Bytecode Any))
   (do ..monad
     [_ (is (Bytecode Any)
            (when (|> dimensions //unsigned.value)
@@ -1077,7 +1122,8 @@
     (..bytecode (//unsigned.lifted/2 dimensions) $1 @_ _.multianewarray [index dimensions])))
 
 (the (type_size type)
-  (-> (Type Return) Nat)
+  (-> (Type Return)
+      Nat)
   (cond (same? type.void type)
         0
 
@@ -1090,7 +1136,8 @@
 
 (with_template [<static?> <name> <instruction> <method>]
   [(the .public (<name> class method type)
-     (-> (Type Class) Text (Type Method) (Bytecode Any))
+     (-> (Type Class) Text (Type Method)
+         (Bytecode Any))
      (let [[type_variables inputs output exceptions] (parser.method type)]
        (do ..monad
          [index (<| ..lifted
@@ -1116,7 +1163,8 @@
 
 (with_template [<consumption> <name> <1> <2>]
   [(the .public (<name> class field type)
-     (-> (Type Class) Text (Type Value) (Bytecode Any))
+     (-> (Type Class) Text (Type Value)
+         (Bytecode Any))
      (do ..monad
        [index (<| ..lifted
                   (//constant/pool.field (..reflection class))
@@ -1133,7 +1181,8 @@
 
 (with_template [<name> <consumption/1> <1> <consumption/2> <2>]
   [(the .public (<name> class field type)
-     (-> (Type Class) Text (Type Value) (Bytecode Any))
+     (-> (Type Class) Text (Type Value)
+         (Bytecode Any))
      (do [! ..monad]
        [index (<| ..lifted
                   (//constant/pool.field (..reflection class))
@@ -1155,7 +1204,8 @@
          ["End" (|> end /address.value //unsigned.value %.nat)])))
 
 (the .public (try @start @end @handler catch)
-  (-> Label Label Label (Type Class) (Bytecode Any))
+  (-> Label Label Label (Type Class)
+      (Bytecode Any))
   (do ..monad
     [@catch (..lifted (//constant/pool.class (//name.internal (..reflection catch))))]
     (function (_ [pool environment tracker])
@@ -1180,7 +1230,8 @@
 
 (the .public (composite pre post)
   (All (_ pre post)
-    (-> (Bytecode pre) (Bytecode post) (Bytecode post)))
+    (-> (Bytecode pre) (Bytecode post)
+        (Bytecode post)))
   (function (_ state)
     (when (pre state)
       {try.#Success [state' [left _]]}
@@ -1188,16 +1239,15 @@
         {try.#Success [state'' [right it]]}
         {try.#Success [state'' [(relative#composite left right) it]]}
 
-        ... {try.#Failure error}
         failure
         failure)
       
-      ... {try.#Failure error}
       failure
       (as_expected failure))))
 
 (the .public (map line)
-  (-> Nat (Bytecode Any))
+  (-> Nat
+      (Bytecode Any))
   (function (_ [pool environment tracker])
     (<| (let [instruction (/address.value (its #program_counter tracker))])
         (try|do line (//unsigned.u2 line))

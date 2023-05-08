@@ -4,6 +4,7 @@
 
 # Virtual DOM
 
+0. [Virtual DOM: Back in Block](https://millionjs.org/blog/virtual-dom)
 0. [You Might Not Need The Virtual DOM](https://blog.functorial.com/posts/2018-03-12-You-Might-Not-Need-The-Virtual-DOM.html)
 0. [Virtual DOM is pure overhead](https://svelte.dev/blog/virtual-dom-is-pure-overhead)
 0. [million: <1kb virtual DOM - it's fast!](https://million.js.org/)

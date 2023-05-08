@@ -112,7 +112,7 @@
 
 # Reference
 
-0. []()
+0. [SYNIT: a reactive operating system](https://synit.org/)
 0. [Purely Functional Operating Systems](https://eighty-twenty.org/2022/06/23/henderson-functional-operating-systems-1982)
 0. [The little book about OS development](http://littleosbook.github.io/)
 0. [Rethinking files](https://www.devever.net/~hl/objectworld)

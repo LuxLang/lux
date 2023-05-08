@@ -24,6 +24,7 @@
      ["n" nat]
      ["[0]" i64]]]
    [meta
+    ["[0]" location]
     [macro
      ["^" pattern]]]]])
 
@@ -508,16 +509,21 @@
         {#Collisions _hash (array#lacks idx _colls)}))
     ))
 
+(the .public unknown_value
+  Error
+  (location.with (location.here)
+    "Unknown value."))
+
 (the (node#value level hash key key_hash node)
   (All (_ key value)
     (-> Level Hash_Code key (Hash key) (Node key value)
-        (Maybe value)))
+        (Try value)))
   (when node
     ... For #Hierarchy nodes, just look-up the key on its children.
     {#Hierarchy _size hierarchy}
     (let [index (level_index level hash)]
       (if (array.lacks? index hierarchy)
-        {.#None}
+        {try.#Failure ..unknown_value}
         (node#value (level_up level) hash key key_hash (array.item index hierarchy))))
 
     ... For #Base nodes, check the leaves, and recursively check the branches.
@@ -530,15 +536,16 @@
 
           {.#Right [key' val']}
           (if (of key_hash = key key')
-            {.#Some val'}
-            {.#None}))
-        {.#None}))
+            {try.#Success val'}
+            {try.#Failure ..unknown_value}))
+        {try.#Failure ..unknown_value}))
 
     ... For #Collisions nodes, do a linear scan of all the known KV-pairs.
     {#Collisions _hash _colls}
-    (of maybe.monad each product.right
-        (array.example (|>> product.left (of key_hash = key))
-                       _colls))
+    (|> _colls
+        (array.example (|>> product.left (of key_hash = key)))
+        (of maybe.monad each product.right)
+        (try.of_maybe ..unknown_value))
     ))
 
 (the (node#size node)
@@ -637,7 +644,7 @@
 (the .public (value key dict)
   (All (_ key value)
     (-> key (Dictionary key value)
-        (Maybe value)))
+        (Try value)))
   (let [[key_hash node] dict]
     (node#value root_level (of key_hash hash key) key key_hash node)))
 
@@ -645,11 +652,11 @@
   (All (_ key value)
     (-> (Dictionary key value) key
         Bit))
-  (when (value key dict)
-    {.#None}
+  (when (..value key dict)
+    {try.#Failure _}
     false
     
-    {.#Some _}
+    {try.#Success _}
     true))
 
 (exception.the .public key_already_exists)
@@ -658,35 +665,40 @@
   (All (_ key value)
     (-> key value (Dictionary key value)
         (Try (Dictionary key value))))
-  (when (value key dict)
-    {.#None}   {try.#Success (has key val dict)}
-    {.#Some _} (exception.except ..key_already_exists [])))
+  (when (..value key dict)
+    {try.#Failure _}
+    {try.#Success (has key val dict)}
+    
+    {try.#Success _}
+    (exception.except ..key_already_exists [])))
 
 (the .public (revised key f dict)
   (All (_ key value)
     (-> key (-> value value) (Dictionary key value)
         (Dictionary key value)))
-  (when (value key dict)
-    {.#None}
+  (when (..value key dict)
+    {try.#Failure _}
     dict
 
-    {.#Some val}
+    {try.#Success val}
     (has key (f val) dict)))
 
-(the .public (revised' key default f dict)
+(the .public (revised' key default revision dict)
   (All (_ key value)
     (-> key value (-> value value) (Dictionary key value)
         (Dictionary key value)))
   (..has key
-         (f (maybe.else default
-                        (..value key dict)))
+         (|> (..value key dict)
+             (try.else default)
+             revision)
          dict))
 
 (the .public size
   (All (_ key value)
     (-> (Dictionary key value)
         Nat))
-  (|>> (its #root) ..node#size))
+  (|>> (its #root)
+       ..node#size))
 
 (the .public empty?
   (All (_ key value)
@@ -739,12 +751,12 @@
     (-> (-> value value value) (Dictionary key value) (Dictionary key value)
         (Dictionary key value)))
   (node#mix (function (_ [key val2] dict)
-              (when (value key dict)
-                {.#None}
-                (has key val2 dict)
+              (when (..value key dict)
+                {try.#Success val1}
+                (has key (f val2 val1) dict)
 
-                {.#Some val1}
-                (has key (f val2 val1) dict)))
+                failure
+                (has key val2 dict)))
             dict1
             (its #root dict2)))
 
@@ -752,14 +764,14 @@
   (All (_ key value)
     (-> key key (Dictionary key value)
         (Dictionary key value)))
-  (when (value from_key dict)
-    {.#None}
-    dict
-
-    {.#Some val}
+  (when (..value from_key dict)
+    {try.#Success val}
     (|> dict
         (lacks from_key)
-        (has to_key val))))
+        (has to_key val))
+
+    failure
+    dict))
 
 (the .public (sub keys dict)
   (All (_ key value)
@@ -767,9 +779,12 @@
         (Dictionary key value)))
   (let [[key_hash _] dict]
     (list#mix (function (_ key new_dict)
-                (when (value key dict)
-                  {.#None}     new_dict
-                  {.#Some val} (has key val new_dict)))
+                (when (..value key dict)
+                  {try.#Success val}
+                  (has key val new_dict)
+
+                  failure
+                  new_dict))
               (empty key_hash)
               keys)))
 
@@ -783,10 +798,10 @@
                (..size subject))
           (list.every? (function (_ [k rv])
                          (when (..value k subject)
-                           {.#Some sv}
+                           {try.#Success sv}
                            (,#= rv sv)
 
-                           _
+                           failure
                            false))
                        (..entries reference))))))
 
