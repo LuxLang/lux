@@ -24,7 +24,16 @@
     _
     false))
 
-(def max-stack-size 256)
+(def max-stack-size
+  (->> 1
+       (* 2)
+       (* 2)
+       (* 2)
+       (* 2)
+       (* 2)
+       (* 2)
+       (* 2)
+       (* 2)))
 
 (def empty-env &/$End)
 
