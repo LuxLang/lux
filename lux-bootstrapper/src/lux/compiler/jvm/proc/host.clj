@@ -83,11 +83,11 @@
         (&/$Named ?name ?type)
         (prepare-return! *writer* ?type)
 
-        (&/$Ex _)
+        (&/$Opaque _)
         nil
 
         ;; &type/Any
-        (&/$ExQ _ (&/$Parameter 1))
+        (&/$Existential _ (&/$Parameter 1))
         (.visitLdcInsn *writer* &/unit-tag)
 
         _

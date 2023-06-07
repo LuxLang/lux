@@ -38,16 +38,16 @@
       (&/$Function left right)
       (str ">" (serialize-type left) (serialize-type right))
 
-      (&/$UnivQ env body)
+      (&/$Universal env body)
       (str "U" (serialize-list serialize-type env) (serialize-type body))
 
-      (&/$ExQ env body)
+      (&/$Existential env body)
       (str "E" (serialize-list serialize-type env) (serialize-type body))
 
       (&/$Parameter idx)
       (str "$" idx stop)
 
-      (&/$Ex idx)
+      (&/$Opaque idx)
       (str "!" idx stop)
 
       (&/$Var idx)
@@ -100,7 +100,7 @@
         [(<type> (Long/parseLong idx)) input*])))
 
   ^:private deserialize-parameter "$" &/$Parameter
-  ^:private deserialize-ex        "!" &/$Ex
+  ^:private deserialize-ex        "!" &/$Opaque
   ^:private deserialize-var       "?" &/$Var
   )
 
@@ -118,8 +118,8 @@
         (when-let [[body ^String input*] (deserialize-type input*)]
           [(<type> env body) input*]))))
 
-  ^:private deserialize-univq "U" &/$UnivQ
-  ^:private deserialize-exq   "E" &/$ExQ
+  ^:private deserialize-univq "U" &/$Universal
+  ^:private deserialize-exq   "E" &/$Existential
   )
 
 (defn ^:private deserialize-host [^String input]

@@ -31,16 +31,16 @@
     (&/$Var id)
     (return (&/T ["java.lang.Object" (&/|list)]))
 
-    (&/$Ex id)
+    (&/$Opaque id)
     (return (&/T ["java.lang.Object" (&/|list)]))
 
     (&/$Named _ type*)
     (ensure-object type*)
 
-    (&/$UnivQ _ type*)
+    (&/$Universal _ type*)
     (ensure-object type*)
 
-    (&/$ExQ _ type*)
+    (&/$Existential _ type*)
     (ensure-object type*)
 
     (&/$Apply A F)
@@ -107,7 +107,7 @@
   (&/fold (fn [base-type type-arg]
             (|case type-arg
               (&/$Parameter _)
-              (&/$UnivQ &type/empty-env base-type)
+              (&/$Universal &type/empty-env base-type)
               
               _
               base-type))
@@ -212,7 +212,7 @@
       (return (&type/Array =param)))
 
     (&/$GenericWildcard _)
-    (return (&/$ExQ &/$End (&/$Parameter 1)))
+    (return (&/$Existential &/$End (&/$Parameter 1)))
     ))
 
 (defn gen-super-env

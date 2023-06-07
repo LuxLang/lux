@@ -25,7 +25,7 @@
   "(-> Type Int)"
   [type]
   (|case type
-    (&/$UnivQ env type*)
+    (&/$Universal env type*)
     (inc (count-univq type*))
 
     _
@@ -42,8 +42,8 @@
   "(-> Type Type Type)"
   [input output]
   (|case output
-    (&/$UnivQ env output*)
-    (&/$UnivQ env (embed-inferred-input input output*))
+    (&/$Universal env output*)
+    (&/$Universal env (embed-inferred-input input output*))
 
     _
     (&/$Function input output)))
@@ -73,7 +73,7 @@
       (&/$Left exo-type)
       (|do [exo-type* (&type/actual-type exo-type)]
         (|case exo-type*
-          (&/$UnivQ _)
+          (&/$Universal _)
           (&type/with-var
             (fn [$var]
               (|do [exo-type** (&type/apply-type exo-type* $var)
@@ -84,7 +84,7 @@
                                     (|do [:let [=var* (next-parameter-type tuple-type)]
                                           _ (&type/set-var iid =var*)
                                           tuple-type* (&type/clean $var tuple-type)]
-                                      (return (&/$UnivQ &/$End tuple-type*)))
+                                      (return (&/$Universal &/$End tuple-type*)))
 
                                     _
                                     (&type/clean $var tuple-type))]
@@ -134,7 +134,7 @@
                                                  (&&/$tuple (&/|++ =direct-elems =indirect-elems))
                                                  ))))))
 
-                (&/$ExQ _)
+                (&/$Existential _)
                 (&type/with-var
                   (fn [$var]
                     (|do [exo-type** (&type/apply-type exo-type* $var)
@@ -143,9 +143,9 @@
                                                                             tuple-analysis))]
                       (return (&/|list =tuple-analysis)))))
 
-                (&/$UnivQ _)
+                (&/$Universal _)
                 (|do [$var &type/existential
-                      :let [(&/$Ex $var-id) $var]
+                      :let [(&/$Opaque $var-id) $var]
                       exo-type** (&type/apply-type exo-type* $var)
                       [[tuple-type tuple-location] tuple-analysis] (&/with-scope-type-var $var-id
                                                                      (&&/cap-1 (analyse-tuple analyse (&/$Right exo-type**) ?elems)))]
@@ -182,7 +182,7 @@
     (&/$Left exo-type)
     (|do [exo-type* (&type/actual-type exo-type)]
       (|case exo-type*
-        (&/$UnivQ _)
+        (&/$Universal _)
         (&type/with-var
           (fn [$var]
             (|do [exo-type** (&type/apply-type exo-type* $var)
@@ -193,7 +193,7 @@
                                   (|do [:let [=var* (next-parameter-type variant-type)]
                                         _ (&type/set-var iid =var*)
                                         variant-type* (&type/clean $var variant-type)]
-                                    (return (&/$UnivQ &/$End variant-type*)))
+                                    (return (&/$Universal &/$End variant-type*)))
 
                                   _
                                   (&type/clean $var variant-type))]
@@ -227,12 +227,12 @@
               (return (&/|list (&&/|meta exo-type _location (&&/$variant idx right? =value))))
               ))
 
-          (&/$UnivQ _)
+          (&/$Universal _)
           (|do [$var &type/existential
                 exo-type** (&type/apply-type exo-type* $var)]
             (analyse-variant analyse (&/$Right exo-type**) lefts right? ?values))
 
-          (&/$ExQ _)
+          (&/$Existential _)
           (&type/with-var
             (fn [$var]
               (|do [exo-type** (&type/apply-type exo-type* $var)
@@ -339,7 +339,7 @@
     (|do [?fun-type* (&type/actual-type fun-type)]
       (&/with-attempt
         (|case ?fun-type*
-          (&/$UnivQ _)
+          (&/$Universal _)
           (&type/with-var
             (fn [$var]
               (|do [type* (&type/apply-type ?fun-type* $var)
@@ -352,13 +352,13 @@
                                    (&type/clean $var =output-t)
                                  (|do [_ (&type/set-var ?id (next-parameter-type =output-t))
                                        cleaned-output* (&type/clean $var =output-t)
-                                       :let [cleaned-output (&/$UnivQ &/$End cleaned-output*)]]
+                                       :let [cleaned-output (&/$Universal &/$End cleaned-output*)]]
                                    (return cleaned-output)))
                         _ (&type/clean $var exo-type)]
                     (return (&/T [type** ==args])))
                   ))))
 
-          (&/$ExQ _)
+          (&/$Existential _)
           (&type/with-var
             (fn [$var]
               (|do [type* (&type/apply-type ?fun-type* $var)
@@ -460,7 +460,7 @@
           _ (&type/set-var iid =input*)
           =func* (&type/clean $input =func)
           =func** (&type/clean $output =func*)]
-      (return (&/$UnivQ &/$End =func**)))
+      (return (&/$Universal &/$End =func**)))
     
     (&/$Apply (&/$Var _inf-var) =input+)
     (&/fold% (fn [_func _inf-var]
@@ -510,14 +510,14 @@
     (&/with-attempt
       (|do [exo-type* (&type/actual-type exo-type)]
         (|case exo-type*
-          (&/$UnivQ _)
+          (&/$Universal _)
           (|do [$var &type/existential
-                :let [(&/$Ex $var-id) $var]
+                :let [(&/$Opaque $var-id) $var]
                 exo-type** (&type/apply-type exo-type* $var)]
             (&/with-scope-type-var $var-id
               (analyse-function* analyse exo-type** ?self ?arg ?body)))
 
-          (&/$ExQ _)
+          (&/$Existential _)
           (&type/with-var
             (fn [$var]
               (|do [exo-type** (&type/apply-type exo-type* $var)
@@ -541,9 +541,9 @@
 
 (defn analyse-function** [analyse exo-type ?self ?arg ?body]
   (|case exo-type
-    (&/$UnivQ _)
+    (&/$Universal _)
     (|do [$var &type/existential
-          :let [(&/$Ex $var-id) $var]
+          :let [(&/$Opaque $var-id) $var]
           exo-type* (&type/apply-type exo-type $var)
           [_ _expr] (&/with-scope-type-var $var-id
                       (analyse-function** analyse exo-type* ?self ?arg ?body))

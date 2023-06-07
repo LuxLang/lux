@@ -78,7 +78,7 @@
                   (return ?module))]
     (return (&/T [module* ?name]))))
 
-(let [tag-names #{"Nominal" "Sum" "Product" "Function" "Parameter" "Var" "Ex" "UnivQ" "ExQ" "Apply" "Named"}]
+(let [tag-names #{"Nominal" "Sum" "Product" "Function" "Parameter" "Var" "Ex" "Universal" "Existential" "Apply" "Named"}]
   (defn type-tag? [module name]
     (and (= &/prelude module)
          (contains? tag-names name))))

@@ -97,7 +97,7 @@
       (|do [type* (&type/apply-type ?F ?A)]
         (->java-sig type*))
 
-      (&/$Ex _)
+      (&/$Opaque _)
       (return ex-type-class)
 
       _

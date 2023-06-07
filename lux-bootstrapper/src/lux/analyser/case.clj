@@ -49,13 +49,13 @@
                                        (&/fail-with-loc "##1##")))]
         (resolve-type type*))
 
-      (&/$UnivQ _)
+      (&/$Universal _)
       (|do [$var &type/existential
             =type (&type/apply-type type $var)
             ==type (&type/actual-type =type)]
         (resolve-type ==type))
 
-      (&/$ExQ _ _)
+      (&/$Existential _ _)
       (|do [$var &type/existential
             =type (&type/apply-type type $var)
             ==type (&type/actual-type =type)]
@@ -95,13 +95,13 @@
     (&/$Sum (clean! level ?tid parameter-idx ?left)
             (clean! level ?tid parameter-idx ?right))
 
-    (&/$UnivQ ?env ?body)
-    (&/$UnivQ (&/|map (partial clean! level ?tid parameter-idx) ?env)
-              (clean! (inc level) ?tid parameter-idx ?body))
+    (&/$Universal ?env ?body)
+    (&/$Universal (&/|map (partial clean! level ?tid parameter-idx) ?env)
+                  (clean! (inc level) ?tid parameter-idx ?body))
 
-    (&/$ExQ ?env ?body)
-    (&/$ExQ (&/|map (partial clean! level ?tid parameter-idx) ?env)
-            (clean! (inc level) ?tid parameter-idx ?body))
+    (&/$Existential ?env ?body)
+    (&/$Existential (&/|map (partial clean! level ?tid parameter-idx) ?env)
+                    (clean! (inc level) ?tid parameter-idx ?body))
 
     _
     type
@@ -124,18 +124,18 @@
     (&/$Apply (beta-reduce! level env ?type-arg)
               (beta-reduce! level env ?type-fn))
     
-    (&/$UnivQ ?local-env ?local-def)
+    (&/$Universal ?local-env ?local-def)
     (|case ?local-env
       (&/$End)
-      (&/$UnivQ ?local-env (beta-reduce! (inc level) env ?local-def))
+      (&/$Universal ?local-env (beta-reduce! (inc level) env ?local-def))
 
       _
       type)
 
-    (&/$ExQ ?local-env ?local-def)
+    (&/$Existential ?local-env ?local-def)
     (|case ?local-env
       (&/$End)
-      (&/$ExQ ?local-env (beta-reduce! (inc level) env ?local-def))
+      (&/$Existential ?local-env (beta-reduce! (inc level) env ?local-def))
 
       _
       type)
@@ -158,13 +158,13 @@
 
 (defn apply-type! [type-fn param]
   (|case type-fn
-    (&/$UnivQ local-env local-def)
+    (&/$Universal local-env local-def)
     (return (beta-reduce! 0 (->> local-env
                                  (&/$Item param)
                                  (&/$Item type-fn))
                           local-def))
 
-    (&/$ExQ local-env local-def)
+    (&/$Existential local-env local-def)
     (return (beta-reduce! 0 (->> local-env
                                  (&/$Item param)
                                  (&/$Item type-fn))
@@ -177,7 +177,7 @@
     (&/$Named ?name ?type)
     (apply-type! ?type param)
 
-    (&/$Ex id)
+    (&/$Opaque id)
     (return (&/$Apply param type-fn))
 
     (&/$Var id)
@@ -191,7 +191,7 @@
   "(-> (List (, (Maybe (List Type)) Int Type)) Type (Lux Type))"
   [up type]
   (|case type
-    (&/$UnivQ _aenv _abody)
+    (&/$Universal _aenv _abody)
     (&type/with-var
       (fn [$var]
         (|do [=type (apply-type! type $var)
@@ -200,7 +200,7 @@
                                    =type)]
           (&type/clean $var ==type))))
 
-    (&/$ExQ _aenv _abody)
+    (&/$Existential _aenv _abody)
     (|do [$var &type/existential
           =type (apply-type! type $var)]
       (adjust-type* up =type))
@@ -214,7 +214,7 @@
           distributor (fn [v]
                         (&/fold (fn [_abody ena]
                                   (|let [[_aenv _aidx _avar] ena]
-                                    (&/$UnivQ _aenv _abody)))
+                                    (&/$Universal _aenv _abody)))
                                 v
                                 up))]
       (return (&type/Tuple$ (&/|map distributor
@@ -229,7 +229,7 @@
           distributor (fn [v]
                         (&/fold (fn [_abody ena]
                                   (|let [[_aenv _aidx _avar] ena]
-                                    (&/$UnivQ _aenv _abody)))
+                                    (&/$Universal _aenv _abody)))
                                 v
                                 up))]
       (return (&type/Variant$ (&/|map distributor

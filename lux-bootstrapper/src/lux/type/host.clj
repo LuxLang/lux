@@ -41,13 +41,13 @@
                      [(&/$Parameter xidx) (&/$Parameter yidx)]
                      (= xidx yidx)
 
-                     [(&/$Ex xid) (&/$Ex yid)]
+                     [(&/$Opaque xid) (&/$Opaque yid)]
                      (= xid yid)
 
                      [(&/$Apply xparam xlambda) (&/$Apply yparam ylambda)]
                      (and (type= xparam yparam) (type= xlambda ylambda))
                      
-                     [(&/$UnivQ xenv xbody) (&/$UnivQ yenv ybody)]
+                     [(&/$Universal xenv xbody) (&/$Universal yenv ybody)]
                      (type= xbody ybody)
 
                      [(&/$Named ?xname ?xtype) _]
@@ -63,8 +63,8 @@
 
 (def ^:private Any
   (&/$Named (&/T [&/prelude "Any"])
-            (&/$ExQ (&/|list)
-                    (&/$Parameter 1))))
+            (&/$Existential (&/|list)
+                            (&/$Parameter 1))))
 
 ;; [Exports]
 (def mutable-data-tag "#Mutable")

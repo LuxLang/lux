@@ -1,3 +1,7 @@
+```
+cd ~/lux && grep -r "" --include *.clj | sort
+```
+
 # Install
 
 ```

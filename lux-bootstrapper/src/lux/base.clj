@@ -97,9 +97,9 @@
   ("Function" 2)
   ("Parameter" 1)
   ("Var" 1)
-  ("Ex" 1)
-  ("UnivQ" 2)
-  ("ExQ" 2)
+  ("Opaque" 1)
+  ("Universal" 2)
+  ("Existential" 2)
   ("Apply" 2)
   ("Named" 2))
 

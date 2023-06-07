@@ -38,8 +38,8 @@
 (def empty-env &/$End)
 
 (def I64 (&/$Named (&/T [&/prelude "I64"])
-                   (&/$UnivQ empty-env
-                             (&/$Nominal "#I64" (&/|list (&/$Parameter 1))))))
+                   (&/$Universal empty-env
+                                 (&/$Nominal "#I64" (&/|list (&/$Parameter 1))))))
 (def Bit (&/$Named (&/T [&/prelude "Bit"]) (&/$Nominal "#Bit" &/$End)))
 (def Nat (&/$Named (&/T [&/prelude "Nat"]) (&/$Nominal "#I64" (&/|list (&/$Nominal &&host/nat-data-tag &/$End)))))
 (def Int (&/$Named (&/T [&/prelude "Int"]) (&/$Nominal "#I64" (&/|list (&/$Nominal &&host/int-data-tag &/$End)))))
@@ -52,40 +52,40 @@
 
 (def Nothing
   (&/$Named (&/T [&/prelude "Nothing"])
-            (&/$UnivQ empty-env
-                      (&/$Parameter 1))))
+            (&/$Universal empty-env
+                          (&/$Parameter 1))))
 
 (def Any
   (&/$Named (&/T [&/prelude "Any"])
-            (&/$ExQ empty-env
-                    (&/$Parameter 1))))
+            (&/$Existential empty-env
+                            (&/$Parameter 1))))
 
 (def IO
   (&/$Named (&/T [(str &/prelude "/control/io") "IO"])
-            (&/$UnivQ empty-env
-                      (&/$Nominal (str &/prelude "/control/io.IO")
-                                  (&/|list (&/$Parameter 1))))))
+            (&/$Universal empty-env
+                          (&/$Nominal (str &/prelude "/control/io.IO")
+                                      (&/|list (&/$Parameter 1))))))
 
 (def List
   (&/$Named (&/T [&/prelude "List"])
-            (&/$UnivQ empty-env
-                      (&/$Sum
-                       ;; .End
-                       Any
-                       ;; .Item
-                       (&/$Product (&/$Parameter 1)
-                                   (&/$Apply (&/$Parameter 1)
-                                             (&/$Parameter 0)))))))
+            (&/$Universal empty-env
+                          (&/$Sum
+                           ;; .End
+                           Any
+                           ;; .Item
+                           (&/$Product (&/$Parameter 1)
+                                       (&/$Apply (&/$Parameter 1)
+                                                 (&/$Parameter 0)))))))
 
 (def Maybe
   (&/$Named (&/T [&/prelude "Maybe"])
-            (&/$UnivQ empty-env
-                      (&/$Sum
-                       ;; .None
-                       Any
-                       ;; .Some
-                       (&/$Parameter 1))
-                      )))
+            (&/$Universal empty-env
+                          (&/$Sum
+                           ;; .None
+                           Any
+                           ;; .Some
+                           (&/$Parameter 1))
+                          )))
 
 (def Type
   (&/$Named (&/T [&/prelude "Type"])
@@ -93,40 +93,40 @@
                   TypeList (&/$Apply Type List)
                   TypePair (&/$Product Type Type)]
               (&/$Apply (&/$Nominal "" &/$End)
-                        (&/$UnivQ empty-env
-                                  (&/$Sum
-                                   ;; Nominal
-                                   (&/$Product Text TypeList)
-                                   (&/$Sum
-                                    ;; Sum
-                                    TypePair
-                                    (&/$Sum
-                                     ;; Product
-                                     TypePair
-                                     (&/$Sum
-                                      ;; Function
-                                      TypePair
+                        (&/$Universal empty-env
                                       (&/$Sum
-                                       ;; Parameter
-                                       Nat
+                                       ;; Nominal
+                                       (&/$Product Text TypeList)
                                        (&/$Sum
-                                        ;; Var
-                                        Nat
+                                        ;; Sum
+                                        TypePair
                                         (&/$Sum
-                                         ;; Ex
-                                         Nat
+                                         ;; Product
+                                         TypePair
                                          (&/$Sum
-                                          ;; UnivQ
-                                          (&/$Product TypeList Type)
+                                          ;; Function
+                                          TypePair
                                           (&/$Sum
-                                           ;; ExQ
-                                           (&/$Product TypeList Type)
+                                           ;; Parameter
+                                           Nat
                                            (&/$Sum
-                                            ;; App
-                                            TypePair
-                                            ;; Named
-                                            (&/$Product Symbol Type)))))))))))
-                                  )))))
+                                            ;; Var
+                                            Nat
+                                            (&/$Sum
+                                             ;; Ex
+                                             Nat
+                                             (&/$Sum
+                                              ;; Universal
+                                              (&/$Product TypeList Type)
+                                              (&/$Sum
+                                               ;; Existential
+                                               (&/$Product TypeList Type)
+                                               (&/$Sum
+                                                ;; App
+                                                TypePair
+                                                ;; Named
+                                                (&/$Product Symbol Type)))))))))))
+                                      )))))
 
 (def Macro
   (&/$Named (&/T [&/prelude "Macro"])
@@ -241,7 +241,7 @@
              (->> compiler
                   (&/get$ &/$type-context)
                   (&/get$ &/$ex-counter)
-                  &/$Ex))))
+                  &/$Opaque))))
 
 (defn with-var [k]
   (|do [id create-var]
@@ -297,15 +297,15 @@
           =right (clean* ?tid ?right)]
       (return (&/$Sum =left =right)))
 
-    (&/$UnivQ ?env ?body)
+    (&/$Universal ?env ?body)
     (|do [=env (&/map% (partial clean* ?tid) ?env)
           body* (clean* ?tid ?body)] ;; TODO: DO NOT CLEAN THE BODY
-      (return (&/$UnivQ =env body*)))
+      (return (&/$Universal =env body*)))
 
-    (&/$ExQ ?env ?body)
+    (&/$Existential ?env ?body)
     (|do [=env (&/map% (partial clean* ?tid) ?env)
           body* (clean* ?tid ?body)] ;; TODO: DO NOT CLEAN THE BODY
-      (return (&/$ExQ =env body*)))
+      (return (&/$Existential =env body*)))
 
     _
     (return type)
@@ -410,7 +410,7 @@
     (&/$Var id)
     (str "-" id)
 
-    (&/$Ex ?id)
+    (&/$Opaque ?id)
     (str "+" ?id)
 
     (&/$Parameter idx)
@@ -420,11 +420,11 @@
     (|let [[?call-fun ?call-args] (unravel-app type)]
       (str "(" (show-type ?call-fun) " " (->> ?call-args (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
     
-    (&/$UnivQ ?env ?body)
+    (&/$Universal ?env ?body)
     (str "(All " "{" (->> ?env (&/|map show-type) (&/|interpose " ") (&/fold str "")) "} "
          (show-type ?body) ")")
 
-    (&/$ExQ ?env ?body)
+    (&/$Existential ?env ?body)
     (str "(Ex " "{" (->> ?env (&/|map show-type) (&/|interpose " ") (&/fold str "")) "} "
          (show-type ?body) ")")
     
@@ -464,13 +464,13 @@
                      [(&/$Parameter xidx) (&/$Parameter yidx)]
                      (= xidx yidx)
 
-                     [(&/$Ex xid) (&/$Ex yid)]
+                     [(&/$Opaque xid) (&/$Opaque yid)]
                      (= xid yid)
 
                      [(&/$Apply xparam xlambda) (&/$Apply yparam ylambda)]
                      (and (type= xparam yparam) (type= xlambda ylambda))
                      
-                     [(&/$UnivQ xenv xbody) (&/$UnivQ yenv ybody)]
+                     [(&/$Universal xenv xbody) (&/$Universal yenv ybody)]
                      (type= xbody ybody)
 
                      [(&/$Named ?xname ?xtype) _]
@@ -537,18 +537,18 @@
     (&/$Apply ?type-arg ?type-fn)
     (&/$Apply (beta-reduce env ?type-arg) (beta-reduce env ?type-fn))
     
-    (&/$UnivQ ?local-env ?local-def)
+    (&/$Universal ?local-env ?local-def)
     (|case ?local-env
       (&/$End)
-      (&/$UnivQ env ?local-def)
+      (&/$Universal env ?local-def)
 
       _
       type)
 
-    (&/$ExQ ?local-env ?local-def)
+    (&/$Existential ?local-env ?local-def)
     (|case ?local-env
       (&/$End)
-      (&/$ExQ env ?local-def)
+      (&/$Existential env ?local-def)
 
       _
       type)
@@ -570,13 +570,13 @@
 
 (defn apply-type [type-fn param]
   (|case type-fn
-    (&/$UnivQ local-env local-def)
+    (&/$Universal local-env local-def)
     (return (beta-reduce (->> local-env
                               (&/$Item param)
                               (&/$Item type-fn))
                          local-def))
 
-    (&/$ExQ local-env local-def)
+    (&/$Existential local-env local-def)
     (return (beta-reduce (->> local-env
                               (&/$Item param)
                               (&/$Item type-fn))
@@ -590,7 +590,7 @@
     (apply-type ?type param)
 
     ;; TODO: This one must go...
-    (&/$Ex id)
+    (&/$Opaque id)
     (return (&/$Apply param type-fn))
 
     (&/$Var id)
@@ -661,7 +661,7 @@
                (check* fixpoints invariant?? expected bound))
              state)))
 
-        [(&/$Apply eA (&/$Ex eid)) (&/$Apply aA (&/$Ex aid))]
+        [(&/$Apply eA (&/$Opaque eid)) (&/$Apply aA (&/$Opaque aid))]
         (if (= eid aid)
           (check* fixpoints invariant?? eA aA)
           (check-error "" expected actual))
@@ -676,12 +676,12 @@
 
             (&/$Left _)
             (|case F2
-              (&/$UnivQ (&/$Item _) _)
+              (&/$Universal (&/$Item _) _)
               ((|do [actual* (apply-type F2 A2)]
                  (check* fixpoints invariant?? expected actual*))
                state)
 
-              (&/$Ex _)
+              (&/$Opaque _)
               ((|do [fixpoints* (check* fixpoints invariant?? (&/$Var ?id) F2)]
                  (check* fixpoints* invariant?? A1 A2))
                state)
@@ -729,19 +729,19 @@
             (|do [expected* (apply-type F A)]
               (check* (fp-put fp-pair true fixpoints) invariant?? expected* actual))))
 
-        [_ (&/$Apply A (&/$Ex aid))]
+        [_ (&/$Apply A (&/$Opaque aid))]
         (check-error "" expected actual)
 
         [_ (&/$Apply A F)]
         (|do [actual* (apply-type F A)]
           (check* fixpoints invariant?? expected actual*))
 
-        [(&/$UnivQ _) _]
+        [(&/$Universal _) _]
         (|do [$arg existential
               expected* (apply-type expected $arg)]
           (check* fixpoints invariant?? expected* actual))
 
-        [_ (&/$UnivQ _)]
+        [_ (&/$Universal _)]
         (with-var
           (fn [$arg]
             (|do [actual* (apply-type actual $arg)
@@ -749,7 +749,7 @@
                   _ (clean $arg expected)]
               (return =output))))
 
-        [(&/$ExQ e!env e!def) _]
+        [(&/$Existential e!env e!def) _]
         (with-var
           (fn [$arg]
             (|do [expected* (apply-type expected $arg)
@@ -757,7 +757,7 @@
                   _ (clean $arg actual)]
               (return =output))))
 
-        [_ (&/$ExQ a!env a!def)]
+        [_ (&/$Existential a!env a!def)]
         (|do [$arg existential
               actual* (apply-type actual $arg)]
           (check* fixpoints invariant?? expected actual*))
@@ -794,7 +794,7 @@
         (|do [fixpoints* (check* fixpoints invariant?? eL aL)]
           (check* fixpoints* invariant?? eR aR))
 
-        [(&/$Ex e!id) (&/$Ex a!id)]
+        [(&/$Opaque e!id) (&/$Opaque a!id)]
         (if (= e!id a!id)
           (return fixpoints)
           (check-error "" expected actual))
@@ -924,7 +924,7 @@
     (&/$Apply inf-var* (push-univq env inf-type*))
 
     _
-    (&/$UnivQ env inf-type)))
+    (&/$Universal env inf-type)))
 
 (defn instantiate-inference [type]
   (|case type
@@ -932,7 +932,7 @@
     (|do [output (instantiate-inference ?type)]
       (return (push-name ?name output)))
 
-    (&/$UnivQ _aenv _abody)
+    (&/$Universal _aenv _abody)
     (|do [inf-var create-var
           output (instantiate-inference _abody)]
       (return (push-univq _aenv (push-app output (&/$Var inf-var)))))

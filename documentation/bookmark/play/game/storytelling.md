@@ -1,5 +1,6 @@
 # Reference
 
+0. [The Seven Basic Plots](https://en.wikipedia.org/wiki/The_Seven_Basic_Plots)
 0. [Hook Your Players Fast (Episode 288)](https://www.youtube.com/watch?v=oUFk2ZGYLs8)
 0. [Sparking Curiosity-Driven Exploration Through Narrative in 'Outer Wilds'](https://www.youtube.com/watch?v=QaGu9tGCNbI)
 0. [Approaching a Pedagogy of Game Writing](https://www.youtube.com/watch?v=24HHIKOA1ZA)
