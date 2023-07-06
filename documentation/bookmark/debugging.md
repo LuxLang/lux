@@ -20,6 +20,7 @@
 
 # Reference
 
+0. [Writing a basic `async` debugger](https://cliffle.com/blog/lildb/)
 0. [An easier way to get bugs out of programming languages: Developed at MIT, D2X is a new tool that makes it easy to debug any domain-specific programming language.](https://news.mit.edu/2023/d2x-easier-way-get-bugs-out-programming-languages-0407)
 0. [Wolverine: Give your python scripts regenerative healing abilities!](https://github.com/biobootloader/wolverine)
 0. [A debugging manifesto](https://jvns.ca/blog/2022/12/08/a-debugging-manifesto/)

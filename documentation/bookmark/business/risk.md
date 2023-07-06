@@ -1,5 +1,6 @@
 # Reference
 
+0. [Risk-storming: A visual and collaborative risk identification technique](https://riskstorming.com/)
 0. [On the semantic representation of risk](https://www.science.org/doi/10.1126/sciadv.abm1883)
 0. [High Variance Management](https://blog.sbensu.com/posts/high-variance-management/)
 0. [The Six Mistakes Executives Make in Risk Management](https://hbr.org/2009/10/the-six-mistakes-executives-make-in-risk-management)

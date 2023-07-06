@@ -97,8 +97,7 @@
 
 (import java/lang/Object
   "[1]::[0]"
-  (equals [java/lang/Object] boolean)
-  (toString [] java/lang/String))
+  (equals [java/lang/Object] boolean))
 
 (import java/lang/reflect/Type
   "[1]::[0]")
@@ -191,7 +190,7 @@
     [class (phase.of_try (reflection!.load class_loader name))]
     (phase.assertion ..deprecated_class [name]
                      (|> class
-                         java/lang/Class::getDeclaredAnnotations
+                         (java/lang/Class::getDeclaredAnnotations [])
                          reflection!.deprecated?
                          not))))
 
@@ -960,16 +959,19 @@
                      super_class (phase.of_try (reflection!.load class_loader super_name))
                      superT (reflection_type mapping superJT)]
                     (in [[super_name superT]
-                         (ffi.of_boolean (java/lang/Class::isAssignableFrom super_class to_class))])))
-                (when (java/lang/Class::getGenericSuperclass from_class)
+                         (ffi.of_boolean (java/lang/Class::isAssignableFrom [super_class] to_class))])))
+                (when (java/lang/Class::getGenericSuperclass [] from_class)
                   {.#Some super}
-                  (list.partial super (array.list {.#None} (java/lang/Class::getGenericInterfaces from_class)))
+                  (list.partial super (array.list {.#None} (java/lang/Class::getGenericInterfaces [] from_class)))
 
                   {.#None}
-                  (if (ffi.of_boolean (java/lang/reflect/Modifier::isInterface (java/lang/Class::getModifiers from_class)))
+                  (if (|> from_class
+                          (java/lang/Class::getModifiers [])
+                          [] java/lang/reflect/Modifier::isInterface
+                          ffi.of_boolean)
                     {.#Item (as java/lang/reflect/Type (ffi.class_for java/lang/Object))
-                            (array.list {.#None} (java/lang/Class::getGenericInterfaces from_class))}
-                    (array.list {.#None} (java/lang/Class::getGenericInterfaces from_class)))))))
+                            (array.list {.#None} (java/lang/Class::getGenericInterfaces [] from_class))}
+                    (array.list {.#None} (java/lang/Class::getGenericInterfaces [] from_class)))))))
 
 (the (object::cast class_loader)
   (-> java/lang/ClassLoader
@@ -1012,7 +1014,7 @@
                                                        (not (dictionary.key? ..boxes to_name)))
                                     to_class (phase.of_try (reflection!.load class_loader to_name))
                                     from_class (phase.of_try (reflection!.load class_loader from_name))]
-                                   (if (ffi.of_boolean (java/lang/Class::isAssignableFrom from_class to_class))
+                                   (if (ffi.of_boolean (java/lang/Class::isAssignableFrom [from_class] to_class))
                                      (loop (again [[current_name currentT] [from_name fromT]])
                                        (if (text#= to_name current_name)
                                          (in true)
@@ -1205,24 +1207,30 @@
   (-> Aliasing (java/lang/Class java/lang/Object) Text Method_Style (List (Type Value)) java/lang/reflect/Method
       (Operation Bit))
   (do phase.monad
-    [parameters (|> (java/lang/reflect/Method::getGenericParameterTypes method)
+    [parameters (|> method
+                    (java/lang/reflect/Method::getGenericParameterTypes [])
                     (array.list {.#None})
                     (monad.each try.monad reflection!.type)
                     phase.of_try)
-     .let [modifiers (java/lang/reflect/Method::getModifiers method)
-           correct_class? (ffi.of_boolean (java/lang/Class::isAssignableFrom class (java/lang/reflect/Method::getDeclaringClass method)))
-           correct_method? (text#= method_name
-                                   (ffi.of_string (java/lang/reflect/Method::getName method)))
+     .let [modifiers (java/lang/reflect/Method::getModifiers [] method)
+           correct_class? (|> method
+                              (java/lang/reflect/Method::getDeclaringClass [])
+                              (java/lang/Class::isAssignableFrom [class])
+                              ffi.of_boolean)
+           correct_method? (|> method
+                               (java/lang/reflect/Method::getName [])
+                               ffi.of_string
+                               (text#= method_name))
            same_static? (when method_style
                           {#Static}
-                          (ffi.of_boolean (java/lang/reflect/Modifier::isStatic modifiers))
+                          (ffi.of_boolean (java/lang/reflect/Modifier::isStatic [modifiers]))
 
                           _
                           true)
            same_special? (when method_style
                            {#Special}
-                           (not (or (ffi.of_boolean (java/lang/reflect/Modifier::isInterface (java/lang/Class::getModifiers class)))
-                                    (ffi.of_boolean (java/lang/reflect/Modifier::isAbstract modifiers))))
+                           (not (or (ffi.of_boolean (java/lang/reflect/Modifier::isInterface [(java/lang/Class::getModifiers [] class)]))
+                                    (ffi.of_boolean (java/lang/reflect/Modifier::isAbstract [modifiers]))))
 
                            _
                            true)
@@ -1241,11 +1249,14 @@
   (-> Aliasing (java/lang/Class java/lang/Object) (List (Type Value)) (java/lang/reflect/Constructor java/lang/Object)
       (Operation Bit))
   (do phase.monad
-    [parameters (|> (java/lang/reflect/Constructor::getGenericParameterTypes constructor)
+    [parameters (|> constructor
+                    (java/lang/reflect/Constructor::getGenericParameterTypes [])
                     (array.list {.#None})
                     (monad.each try.monad reflection!.type)
                     phase.of_try)]
-    (in (and (ffi.of_boolean (java/lang/Object::equals class (java/lang/reflect/Constructor::getDeclaringClass constructor)))
+    (in (and (ffi.of_boolean (|> constructor
+                                 (java/lang/reflect/Constructor::getDeclaringClass [])
+                                 (java/lang/Object::equals [class])))
              (n.= (list.size inputsJT) (list.size parameters))
              (list.every? (function (_ [expectedJC actualJC])
                             (jvm#= expectedJC (de_aliased aliasing actualJC)))
@@ -1276,13 +1287,13 @@
 (the (lux_class it)
   (-> (java/lang/Class java/lang/Object)
       (Type Class))
-  (jvm.class (ffi.of_string (java/lang/Class::getName it)) (list)))
+  (jvm.class (ffi.of_string (java/lang/Class::getName [] it)) (list)))
 
 (with_template [<name> <type> <params>]
   [(`` (the <name>
          (-> (<type> (,, (template.spliced <params>)))
              (List (Type Class)))
-         (|>> (,, (template.symbol [<type> "::getExceptionTypes"]))
+         (|>> ((,, (template.symbol [<type> "::getExceptionTypes"])) [])
               (array.list {.#None})
               (list#each ..lux_class))))]
 
@@ -1294,35 +1305,38 @@
   (-> java/lang/reflect/Method
       (Try (Type Return)))
   (reflection!.return
-   (when (java/lang/reflect/Method::getGenericReturnType it)
+   (when (java/lang/reflect/Method::getGenericReturnType [] it)
      {.#Some it}
      it
      
      {.#None}
      (|> it
-         java/lang/reflect/Method::getReturnType
+         (java/lang/reflect/Method::getReturnType [])
          (ffi.is java/lang/reflect/Type)))))
 
 (the (method_signature method_style method)
   (-> Method_Style java/lang/reflect/Method
       (Operation Method_Signature))
-  (let [owner (java/lang/reflect/Method::getDeclaringClass method)
+  (let [owner (java/lang/reflect/Method::getDeclaringClass [] method)
         owner_tvars (when method_style
                       {#Static}
                       (list)
 
                       _
-                      (|> (java/lang/Class::getTypeParameters owner)
+                      (|> owner
+                          (java/lang/Class::getTypeParameters [])
                           (array.list {.#None})
-                          (list#each (|>> java/lang/reflect/TypeVariable::getName
+                          (list#each (|>> (java/lang/reflect/TypeVariable::getName [])
                                           ffi.of_string))))
-        method_tvars (|> (java/lang/reflect/Method::getTypeParameters method)
+        method_tvars (|> method
+                         (java/lang/reflect/Method::getTypeParameters [])
                          (array.list {.#None})
-                         (list#each (|>> java/lang/reflect/TypeVariable::getName
+                         (list#each (|>> (java/lang/reflect/TypeVariable::getName [])
                                          ffi.of_string)))
         [owner_tvarsT mapping] (jvm_type_var_mapping owner_tvars method_tvars)]
     (do [! phase.monad]
-      [inputsT' (|> (java/lang/reflect/Method::getGenericParameterTypes method)
+      [inputsT' (|> method
+                    (java/lang/reflect/Method::getGenericParameterTypes [])
                     (array.list {.#None})
                     (monad.each ! (|>> reflection!.type phase.of_try)))
        inputsT (monad.each ! (..reflection_type mapping) inputsT')
@@ -1332,7 +1346,8 @@
        outputT (..reflection_return mapping outputT')
        .let [concrete_exceptions (..concrete_method_exceptions method)]
        concrete_exceptions (monad.each ! (..reflection_type mapping) concrete_exceptions)
-       generic_exceptions (|> (java/lang/reflect/Method::getGenericExceptionTypes method)
+       generic_exceptions (|> method
+                              (java/lang/reflect/Method::getGenericExceptionTypes [])
                               (array.list {.#None})
                               (monad.each ! (|>> reflection!.type phase.of_try))
                               (phase#each (monad.each ! (..reflection_type mapping)))
@@ -1343,14 +1358,16 @@
                                           inputsT
 
                                           _
-                                          (list.partial {.#Nominal (ffi.of_string (java/lang/Class::getName owner))
+                                          (list.partial {.#Nominal (ffi.of_string (java/lang/Class::getName [] owner))
                                                                    owner_tvarsT}
                                                         inputsT)))
                          outputT)]]
       (in [#method methodT
            #inputs inputsT'
            #output outputT'
-           #deprecated? (reflection!.deprecated? (java/lang/reflect/Method::getDeclaredAnnotations method))
+           #deprecated? (|> method
+                            (java/lang/reflect/Method::getDeclaredAnnotations [])
+                            reflection!.deprecated?)
            #throws (if (list.empty? generic_exceptions)
                      concrete_exceptions
                      generic_exceptions)]))))
@@ -1358,29 +1375,33 @@
 (the (constructor_signature constructor)
   (-> (java/lang/reflect/Constructor java/lang/Object)
       (Operation Method_Signature))
-  (let [owner (java/lang/reflect/Constructor::getDeclaringClass constructor)
-        owner_tvars (|> (java/lang/Class::getTypeParameters owner)
+  (let [owner (java/lang/reflect/Constructor::getDeclaringClass [] constructor)
+        owner_tvars (|> owner
+                        (java/lang/Class::getTypeParameters [])
                         (array.list {.#None})
-                        (list#each (|>> java/lang/reflect/TypeVariable::getName
+                        (list#each (|>> (java/lang/reflect/TypeVariable::getName [])
                                         ffi.of_string)))
-        method_tvars (|> (java/lang/reflect/Constructor::getTypeParameters constructor)
+        method_tvars (|> constructor
+                         (java/lang/reflect/Constructor::getTypeParameters [])
                          (array.list {.#None})
-                         (list#each (|>> java/lang/reflect/TypeVariable::getName
+                         (list#each (|>> (java/lang/reflect/TypeVariable::getName [])
                                          ffi.of_string)))
         [owner_tvarsT mapping] (jvm_type_var_mapping owner_tvars method_tvars)]
     (do [! phase.monad]
-      [inputsT' (|> (java/lang/reflect/Constructor::getGenericParameterTypes constructor)
+      [inputsT' (|> constructor
+                    (java/lang/reflect/Constructor::getGenericParameterTypes [])
                     (array.list {.#None})
                     (monad.each ! (|>> reflection!.type phase.of_try)))
        inputsT (monad.each ! (reflection_type mapping) inputsT')
        .let [concrete_exceptions (..concrete_constructor_exceptions constructor)]
        concrete_exceptions (monad.each ! (..reflection_type mapping) concrete_exceptions)
-       generic_exceptions (|> (java/lang/reflect/Constructor::getGenericExceptionTypes constructor)
+       generic_exceptions (|> constructor
+                              (java/lang/reflect/Constructor::getGenericExceptionTypes [])
                               (array.list {.#None})
                               (monad.each ! (|>> reflection!.type phase.of_try))
                               (phase#each (monad.each ! (reflection_type mapping)))
                               phase#conjoint)
-       .let [objectT {.#Nominal (ffi.of_string (java/lang/Class::getName owner))
+       .let [objectT {.#Nominal (ffi.of_string (java/lang/Class::getName [] owner))
                                 owner_tvarsT}
              constructorT (<| (type.univ_q (dictionary.size mapping))
                               (type.function inputsT)
@@ -1388,7 +1409,9 @@
       (in [#method constructorT
            #inputs inputsT'
            #output jvm.void
-           #deprecated? (reflection!.deprecated? (java/lang/reflect/Constructor::getDeclaredAnnotations constructor))
+           #deprecated? (|> constructor
+                            (java/lang/reflect/Constructor::getDeclaredAnnotations [])
+                            reflection!.deprecated?)
            #throws (if (list.empty? generic_exceptions)
                      concrete_exceptions
                      generic_exceptions)]))))
@@ -1417,9 +1440,9 @@
   [(the <name>
      (-> <type>
          (List (Type Var)))
-     (|>> <method>
+     (|>> (<method> [])
           (array.list {.#None})
-          (list#each (|>> java/lang/reflect/TypeVariable::getName
+          (list#each (|>> (java/lang/reflect/TypeVariable::getName [])
                           ffi.of_string
                           jvm.var))))]
 
@@ -1438,8 +1461,8 @@
 (the (family_tree' it)
   (-> (java/lang/Class java/lang/Object)
       (List (java/lang/Class java/lang/Object)))
-  (let [interfaces (array.list {.#None} (java/lang/Class::getInterfaces it))
-        supers (when (java/lang/Class::getSuperclass it)
+  (let [interfaces (array.list {.#None} (java/lang/Class::getInterfaces [] it))
+        supers (when (java/lang/Class::getSuperclass [] it)
                  {.#Some class}
                  (list.partial class interfaces)
                  
@@ -1456,7 +1479,7 @@
   (|>> ..family_tree'
        ... De-duplication
        (list#mix (function (_ class all)
-                   (dictionary.has (ffi.of_string (java/lang/Class::getName class)) class all))
+                   (dictionary.has (ffi.of_string (java/lang/Class::getName [] class)) class all))
                  (dictionary.empty text.hash))
        dictionary.values))
 
@@ -1465,7 +1488,7 @@
       (List java/lang/reflect/Method))
   (|> it
       ..family_tree
-      (list#each (|>> java/lang/Class::getDeclaredMethods
+      (list#each (|>> (java/lang/Class::getDeclaredMethods [])
                       (array.list {.#None})))
       list#conjoint))
 
@@ -1477,8 +1500,8 @@
      .let [expected_class_tvars (class_type_variables class)]
      candidates (|> (if allow_inheritance?
                       (all_declared_methods class)
-                      (array.list {.#None} (java/lang/Class::getDeclaredMethods class)))
-                    (list.only (|>> java/lang/reflect/Method::getName
+                      (array.list {.#None} (java/lang/Class::getDeclaredMethods [] class)))
+                    (list.only (|>> (java/lang/reflect/Method::getName [])
                                     ffi.of_string
                                     (text#= method_name)))
                     (monad.each ! (is (-> java/lang/reflect/Method (Operation Evaluation))
@@ -1514,7 +1537,7 @@
     [class (phase.of_try (reflection!.load class_loader class_name))
      .let [expected_class_tvars (class_type_variables class)]
      candidates (|> class
-                    java/lang/Class::getConstructors
+                    (java/lang/Class::getConstructors [])
                     (array.list {.#None})
                     (monad.each ! (function (_ constructor)
                                     (do !
@@ -1654,7 +1677,10 @@
          .let [argsT (list#each product.left argsTC)]
          class (phase.of_try (reflection!.load class_loader class_name))
          _ (phase.assertion non_interface class_name
-                            (ffi.of_boolean (java/lang/reflect/Modifier::isInterface (java/lang/Class::getModifiers class))))
+                            (|> class
+                                (java/lang/Class::getModifiers [])
+                                [] java/lang/reflect/Modifier::isInterface
+                                ffi.of_boolean))
          method_candidate (..method_candidate true class_loader class_tvars class_name method_tvars method {#Interface} argsT)
          .let [method_type (its #method method_candidate)]
          _ (phase.assertion ..deprecated_method [class_name method method_type]
@@ -1769,36 +1795,39 @@
          (Try (List [(Type Class) Text (Type Method)])))
      (|> class
          <methods>
-         (list.only (|>> java/lang/reflect/Method::getModifiers
-                         (predicate.or (|>> java/lang/reflect/Modifier::isPublic ffi.of_boolean)
-                                       (|>> java/lang/reflect/Modifier::isProtected ffi.of_boolean))))
+         (list.only (|>> (java/lang/reflect/Method::getModifiers [])
+                         (predicate.or (|>> [] java/lang/reflect/Modifier::isPublic ffi.of_boolean)
+                                       (|>> [] java/lang/reflect/Modifier::isProtected ffi.of_boolean))))
          <only>
          (monad.each try.monad
                      (function (_ method)
                        (do [! try.monad]
-                         [.let [type_variables (|> (java/lang/reflect/Method::getTypeParameters method)
+                         [.let [type_variables (|> method
+                                                   (java/lang/reflect/Method::getTypeParameters [])
                                                    (array.list {.#None})
-                                                   (list#each (|>> java/lang/reflect/TypeVariable::getName
+                                                   (list#each (|>> (java/lang/reflect/TypeVariable::getName [])
                                                                    ffi.of_string
                                                                    jvm.var)))]
-                          inputs (|> (java/lang/reflect/Method::getGenericParameterTypes method)
+                          inputs (|> method
+                                     (java/lang/reflect/Method::getGenericParameterTypes [])
                                      (array.list {.#None})
                                      (monad.each ! reflection!.type))
                           return (..return_type method)
                           .let [concrete_exceptions (..concrete_method_exceptions method)]
-                          generic_exceptions (|> (java/lang/reflect/Method::getGenericExceptionTypes method)
+                          generic_exceptions (|> method
+                                                 (java/lang/reflect/Method::getGenericExceptionTypes [])
                                                  (array.list {.#None})
                                                  (monad.each ! reflection!.class))]
                          (in [type
-                              (ffi.of_string (java/lang/reflect/Method::getName method))
+                              (ffi.of_string (java/lang/reflect/Method::getName [] method))
                               (jvm.method [type_variables inputs return (if (list.empty? generic_exceptions)
                                                                           concrete_exceptions
                                                                           generic_exceptions)])]))))))]
 
-  [abstract_methods (list.only (|>> java/lang/reflect/Method::getModifiers
-                                    java/lang/reflect/Modifier::isAbstract
+  [abstract_methods (list.only (|>> (java/lang/reflect/Method::getModifiers [])
+                                    [] java/lang/reflect/Modifier::isAbstract
                                     ffi.of_boolean))
-   (<| (array.list {.#None}) java/lang/Class::getDeclaredMethods)]
+   (<| (array.list {.#None}) (java/lang/Class::getDeclaredMethods []))]
   [methods (<|)
    ..all_declared_methods]
   )
@@ -2491,9 +2520,10 @@
   (do phase.monad
     [.let [[name actual_parameters] (parser.read_class class)]
      jvm_class (phase.of_try (reflection!.load class_loader name))
-     .let [expected_parameters (|> (java/lang/Class::getTypeParameters jvm_class)
+     .let [expected_parameters (|> jvm_class
+                                   (java/lang/Class::getTypeParameters [])
                                    (array.list {.#None})
-                                   (list#each (|>> java/lang/reflect/TypeVariable::getName
+                                   (list#each (|>> (java/lang/reflect/TypeVariable::getName [])
                                                    ffi.of_string)))]
      _ (phase.assertion ..class_parameter_mismatch [name class expected_parameters actual_parameters]
                         (n.= (list.size expected_parameters)
