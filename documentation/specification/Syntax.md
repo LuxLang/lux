@@ -160,7 +160,7 @@ Other white space characters serve no purpose within the language, and may even 
 
 The only exception to this rule is the carriage-return, which can show-up next to new-lines in text generated in some operating systems.
 
-The Lux parser can recognize the carriage-return, and processes it along its associated new-line, in order to accomodate files which contain it.
+The Lux parser can recognize the carriage-return, and processes it along its associated new-line, in order to accommodate files which contain it.
 
 # Comment
 
