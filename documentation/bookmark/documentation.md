@@ -65,7 +65,7 @@
 
 # Reference
 
-0. []()
+0. [Towards a theory of quality in documentation](https://diataxis.fr/quality/)
 0. [The Ultimate Guide to Writing Online](https://perell.com/essay/the-ultimate-guide-to-writing-online/)
 0. [Typst: Compose papers faster](https://typst.app/)
 0. [Mintlify Writer](https://www.mintlify.com/writer)

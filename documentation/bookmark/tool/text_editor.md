@@ -193,6 +193,7 @@
 
 ## General
 
+0. [Rich Text Editing is a Layouting Problem: Why powerful rich-text editors implement a layout engine](https://docs.google.com/document/d/e/2PACX-1vSJg7ZunK4wgLM3Sgee2Rjn6xd4shpQKer5zaSFK8RWtYjopzgAeQT7H_gbnZ9m9j2nLleY3pyOw_N3/pub)
 0. [Stack graphs: Name resolution at scale](https://dcreager.net/publications/016-stack-graphs/stack-graphs.pdf)
 0. [Combobulate: Structured Movement and Editing with Tree-Sitter](https://www.masteringemacs.org/article/combobulate-structured-movement-editing-treesitter)
 0. [Bridging the Gap between Textual and Projectional Editors](https://tomassetti.me/textual-and-projectional-editors-a-gap/)
