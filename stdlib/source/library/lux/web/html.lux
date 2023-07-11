@@ -13,7 +13,7 @@
     ["[0]" text (.only)
      ["%" \\format (.only Format format)]]
     [collection
-     ["[0]" list (.use "[1]#[0]" functor mix)]]
+     ["[0]" list (.use "[1]#[0]" monad mix monoid)]]
     [format
      ["[0]" xml (.only XML)]]]
    [meta
@@ -28,7 +28,7 @@
     [net (.only URL)]]]]
  [/
   ["[0]" tag]
-  [attribute
+  ["[0]" attribute (.only Attributes)
    ["[0]" shape]]]
  [//
   ["[0]" css
@@ -40,34 +40,8 @@
 (every .public ID css/id.ID)
 (every .public Class css/class.Class)
 
-... Attributes for an HTML tag.
-(every .public Attributes
-  (List [Text Text]))
-
-(the .public empty
-  Attributes
-  (list))
-
 (every .public Script
   js.Statement)
-
-(every .public Target
-  (Variant
-   {#Blank}
-   {#Parent}
-   {#Self}
-   {#Top}
-   {#Frame Text}))
-
-(the (target value)
-  (-> Target
-      Text)
-  (when value
-    {#Blank} "_blank"
-    {#Parent} "_parent"
-    {#Self} "_self"
-    {#Top} "_top"
-    {#Frame name} name))
 
 ... Properly formats text to ensure no injection can happen on the HTML.
 (the safe
@@ -83,8 +57,14 @@
 (the attributes
   (-> Attributes
       Text)
-  (|>> (list#each (function (_ [key val])
-                    (format " " key "=" text.double_quote (..safe val) text.double_quote)))
+  (|>> (list#each (function (_ [key value])
+                    (when ((its attribute.#format key) value)
+                      {.#None}
+                      ""
+                      
+                      {.#Some value}
+                      (format " " (its attribute.#label key)
+                              "=" text.double_quote (..safe value) text.double_quote))))
        text.together))
 
 (the (open tag attributes)
@@ -215,12 +195,12 @@
     )
 
   (the .public (base href target)
-    (-> URL (Maybe Target)
+    (-> URL (Maybe attribute.Target)
         Meta)
-    (let [partial (list ["href" href])
+    (let [partial (list [attribute.hyper_link href])
           full (when target
                  {.#Some target}
-                 (list.partial ["target" (..target target)] partial)
+                 (list.partial [attribute.target target] partial)
                  
                  {.#None}
                  partial)]
@@ -262,7 +242,7 @@
     (-> URL Attributes
         Image)
     (|> attributes
-        {.#Item ["src" source]}
+        (list.partial [attribute.source source])
         (..simple tag.image)))
 
   (the .public (svg attributes content)
@@ -277,12 +257,10 @@
      [#horizontal Nat
       #vertical Nat]))
 
-  (the metric_separator ",")
-  (the coord_separator ",")
-
   (the (%coord [horizontal vertical])
-    (Format Coord)
-    (format (%.nat horizontal) ..metric_separator (%.nat vertical)))
+    (-> Coord
+        (List Nat))
+    (list horizontal vertical))
   
   (every .public Rectangle
     (Record
@@ -302,18 +280,27 @@
       #extra (List Coord)]))
 
   (the (%rectangle [start end])
-    (Format Rectangle)
-    (format (%coord start) ..coord_separator (%coord end)))
+    (-> Rectangle
+        (List Nat))
+    (all list#composite
+         (%coord start)
+         (%coord end)))
 
   (the (%circle [center radius])
-    (Format Circle)
-    (format (%coord center) ..metric_separator (%.nat radius)))
+    (-> Circle
+        (List Nat))
+    (all list#composite
+         (%coord center)
+         (list radius)))
 
   (the (%polygon [first second third extra])
-    (Format Polygon)
-    (|> (list.partial first second third extra)
-        (list#each %coord)
-        (text.interposed ..coord_separator)))
+    (-> Polygon
+        (List Nat))
+    (all list#composite
+         (%coord first)
+         (%coord second)
+         (%coord third)
+         (list#conjoint (list#each %coord extra))))
   
   (every .public Shape
     (Variant
@@ -325,8 +312,8 @@
     [(the (<name> attributes shape)
        (-> Attributes <type>
            (HTML Any))
-       (..simple tag.area (list.partial ["shape" <shape>]
-                                        ["coords" (<format> shape)]
+       (..simple tag.area (list.partial [attribute.shape <shape>]
+                                        [attribute.coordinates (<format> shape)]
                                         attributes)))]
 
     [rectangle shape.rectangle Rectangle ..%rectangle]
@@ -395,13 +382,15 @@
   (the .public (anchor href attributes content)
     (-> URL Attributes Element
         Element)
-    (..tag tag.anchor (list.partial ["href" href] attributes) content))
+    (..tag tag.anchor
+           (list.partial [attribute.hyper_link href]
+                         attributes)
+           content))
 
   (the .public label
     (-> ID
         Input)
-    (|>> css/id.id
-         ["for"] list
+    (|>> [attribute.for] list
          (..empty_tag tag.label)))
 
   (with_template [<name> <description> <type>]
