@@ -10,6 +10,8 @@
 
 # Reference
 
+0. ["Formal Modeling and Analysis of Distributed Systems" by Ankush Desai (Strange Loop 2022)](https://www.youtube.com/watch?v=5YjsSDDWFDY)
+0. ["Functional distributed systems beyond request/response" by Melinda Lu](https://www.youtube.com/watch?v=VWrpnT8rwVY)
 0. [FlexiRaft: Flexible Quorums with Raft](https://www.cidrdb.org/cidr2023/papers/p83-yadav.pdf)
 0. [Mitogen: Mitogen is a Python library for writing distributed self-replicating programs.](https://mitogen.networkgenomics.com/)
 0. [The Art of Immutable Architecture](https://www.immutablearchitecture.com/)

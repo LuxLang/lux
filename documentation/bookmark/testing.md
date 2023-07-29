@@ -29,11 +29,6 @@
 0. []()
 0. [Cross-Branch Testing](https://www.hillelwayne.com/post/cross-branch-testing/)
 
-# Coverage
-
-0. []()
-0. [Modified condition/decision coverage](https://en.wikipedia.org/wiki/Modified_condition/decision_coverage)
-
 # Property-based
 
 0. []()
@@ -41,7 +36,7 @@
 
 # Reference
 
-0. []()
+0. [Manuel Rigger: How to test software without writing test](https://www.youtube.com/watch?v=tLKTILnVasg)
 0. [What do you do, Testing or Checking?](https://www.infoq.com/news/2009/12/testing-or-checking/)
 0. [Testing vs. Checking](https://www.developsense.com/blog/2009/08/testing-vs-checking/)
 0. [J.B. Rainsberger - Integrated Tests Are A Scam](https://vimeo.com/80533536)

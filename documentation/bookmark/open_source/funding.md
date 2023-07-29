@@ -1,5 +1,6 @@
 # Reference
 
+0. [Sustain: Holding a space for conversations about sustaining Open Source](https://sustainoss.org/)
 0. [Awesome OSS Monetization v1.1](https://github.com/PayDevs/awesome-oss-monetization)
 0. [The Reality of Depending on True Fans](https://kk.org/thetechnium/the-reality-of/)
 0. [OpenFare](https://github.com/openfare/openfare)
