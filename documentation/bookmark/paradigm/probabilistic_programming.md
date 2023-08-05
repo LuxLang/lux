@@ -15,6 +15,7 @@
 
 # Reference
 
+0. [Pyro: Deep Universal Probabilistic Programming](https://pyro.ai/)
 0. [Pangolin: probabilistic programming focused on fun](https://github.com/justindomke/pangolin)
 0. [LazyPPL](https://lazyppl.bitbucket.io/)
 0. [Probability Monads from scratch in 100 lines of Haskell](https://dennybritz.com/posts/probability-monads-from-scratch/)

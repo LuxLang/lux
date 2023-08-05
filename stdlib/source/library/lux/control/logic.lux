@@ -1,0 +1,335 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.require
+ [library
+  [lux (.except nat int rev
+                or and)
+   [abstract
+    [equivalence (.only Equivalence)]
+    [functor (.only Functor)]
+    [monad (.only Monad
+                  do)]]
+   [control
+    ["[0]" try (.only Try) (.use "[1]#[0]" monad)]
+    ["[0]" object (.only Object)]]
+   [data
+    ["[0]" product]
+    ["[0]" text]
+    [collection
+     ["[0]" dictionary (.only Dictionary)]
+     ["[0]" list (.use "[1]#[0]" monad mix monoid)]]]
+   [math
+    [number
+     ["[0]" nat]
+     ["[0]" int]
+     ["[0]" rev]
+     ["[0]" frac]]]
+   [meta
+    [type
+     ["[0]" nominal]]
+    [macro
+     ["^" pattern]]]]])
+
+(the .public nat
+  (Equivalence Nat)
+  nat.equivalence)
+
+(the .public int
+  (Equivalence Int)
+  int.equivalence)
+
+(the .public rev
+  (Equivalence Rev)
+  rev.equivalence)
+
+(the .public frac
+  (Equivalence Frac)
+  frac.equivalence)
+
+(the .public text
+  (Equivalence Text)
+  text.equivalence)
+
+(every .public ID
+  Nat)
+
+(every .public Binding
+  (Ex (_ of)
+    [(Equivalence of)
+     (Either ID of)]))
+
+(every .public Context
+  (Dictionary ID Binding))
+
+(the empty
+  Context
+  (dictionary.empty nat.hash))
+
+(every .public (Logic of)
+  (-> Context
+      (List [Context of])))
+
+(the .public (values it)
+  (All (_ of)
+    (-> (Logic of)
+        (List of)))
+  (|> ..empty
+      it
+      (list#each product.right)))
+
+(the .public failure
+  (All (_ of)
+    (Logic of))
+  (function (_ context)
+    (list)))
+
+(the .public success
+  (Logic Any)
+  (function (_ context)
+    (list [context []])))
+
+(the .public functor
+  (Functor Logic)
+  (implementation
+   (the (each $ !a)
+     (|>> !a
+          (list#each (function (_ [context it])
+                       [context ($ it)]))))))
+
+(the .public monad
+  (Monad Logic)
+  (implementation
+   (the functor ..functor)
+   (the (in it)
+     (function (_ context)
+       (list [context it])))
+   (the (conjoint !!a)
+     (|>> !!a
+          (list#each (function (_ [context it])
+                       (it context)))
+          list#conjoint))))
+
+(the .public (or left right)
+  (All (_ of)
+    (-> (Logic of) (Logic of)
+        (Logic of)))
+  (function (_ context)
+    (list#composite (left context)
+                    (right context))))
+
+(the .public (and left right)
+  (All (_ left right)
+    (-> (Logic left) (Logic right)
+        (Logic right)))
+  (do ..monad
+    [_ left]
+    right))
+
+(object.every .public (Term' [of] _)
+  [#value (object.Method [] (Logic of))
+   #unified (object.Method [(Object (Term' of))] (Logic Any))])
+
+(.every .public (Term of)
+  (Object (Term' of)))
+
+(the .public (value it)
+  (All (_ of)
+    (-> ((Term of) Any)
+        (Logic of)))
+  (object.on #value [] it))
+
+(the .public (= reference subject)
+  (All (_ of)
+    (-> (Term of) ((Term of) Any)
+        (Logic Any)))
+  (object.on #unified [reference] subject))
+
+(every (Constant of)
+  [(Equivalence of) of])
+
+(the constant_class
+  (All (_ of)
+    ((Term' of) (Constant of)))
+  [#value (object.method
+            (function (_ next again [this []])
+              (let [[this#= this_value] (object.state this)]
+                (of ..monad in this_value))))
+   #unified (object.method
+              (function (_ next again [this [reference]])
+                (when (object.as (object.class this) reference)
+                  {.#Some [reference#= reference_value]}
+                  (let [[this#= this_value] (object.state this)]
+                    (if (this#= reference_value this_value)
+                      ..success
+                      ..failure))
+
+                  {.#None}
+                  (= this reference))))])
+
+(the .public (constant equivalence it)
+  (All (_ of)
+    (-> (Equivalence of) of
+        (Term of)))
+  (object.new ..constant_class [equivalence it]))
+
+(nominal.every (Variable of)
+  ID
+
+  (the (binding id context)
+    (All (_ of)
+      (-> (Variable of) Context
+          (Try (Binding of))))
+    (|> context
+        (dictionary.value (nominal.representation id))
+        (try#each (|>> as_expected))))
+
+  (the (has_binding equivalence value id context)
+    (All (_ of)
+      (-> (Equivalence of) of ID Context
+          Context))
+    (dictionary.has id [equivalence {.#Right value}] context))
+
+  (every Ring
+    (List ID))
+
+  (the (ring start context)
+    (-> ID Context
+        (Try Ring))
+    (loop (next [id start
+                 output (is Ring (list))])
+      (do try.monad
+        [[_ it] (dictionary.value id context)]
+        (when it
+          {.#Left link}
+          (if (nat.= start link)
+            (in (list.partial start output))
+            (next link (list.partial link output)))
+
+          {.#Right value}
+          (undefined)))))
+
+  (the (connected left right context)
+    (-> Ring Ring Context
+        (Try Context))
+    (when [left right]
+      [(list left) (list right)]
+      (|> context
+          (dictionary.revised left (function (_ [equivalence _])
+                                     [equivalence {.#Left right}]))
+          (dictionary.revised right (function (_ [equivalence _])
+                                      [equivalence {.#Left left}]))
+          try#in)
+
+      (^.or [(list.partial head tail) it]
+            [it (list.partial head tail)])
+      (do try.monad
+        [[_ head'] (dictionary.value head context)]
+        (when head'
+          {.#Left next}
+          (let [[last context] (list#mix (function (_ next [previous context])
+                                           (|> context
+                                               (dictionary.revised previous (function (_ [equivalence _])
+                                                                              [equivalence {.#Left next}]))
+                                               [next]))
+                                         [head context]
+                                         it)]
+            (in (dictionary.revised last (function (_ [equivalence _])
+                                           [equivalence {.#Left next}])
+                                    context)))
+
+          {.#Right _}
+          (undefined)))
+
+      _
+      (try#in context)))
+
+  (the (unified_variables reference_id this)
+    (All (_ of)
+      (-> (Variable of) ((Term of) (Variable of))
+          (Logic Any)))
+    (function (_ context)
+      (let [this_id (object.state this)]
+        (<| (try.else (list))
+            (is (Try (List [Context Any])))
+            (do [! try.monad]
+              [[reference#= reference_value] (binding reference_id context)
+               [this#= this_value] (binding this_id context)]
+              (when [reference_value this_value]
+                [{.#Right reference_value}
+                 {.#Right this_value}]
+                (in (if (of this#= = reference_value this_value)
+                      (list [context this_value])
+                      (list)))
+
+                [{.#Right reference_value}
+                 {.#Left this_link}]
+                (do !
+                  [ring (..ring this_link context)]
+                  (in (list [(list#mix (has_binding this#= reference_value) context ring)
+                             []])))
+
+                [{.#Left reference_link}
+                 {.#Right this_value}]
+                (do !
+                  [ring (..ring reference_link context)]
+                  (in (list [(list#mix (has_binding reference#= this_value) context ring)
+                             []])))
+
+                [{.#Left reference_link}
+                 {.#Left this_link}]
+                (do !
+                  [this_ring (..ring this_link context)
+                   reference_ring (..ring reference_link context)
+                   context (connected this_ring reference_ring context)]
+                  (in (list [context []])))))))))
+
+  (the variable_class
+    (All (_ of)
+      ((Term' of) (Variable of)))
+    [#value (object.method
+              (function (_ next again [this []])
+                (function (_ context)
+                  (when (dictionary.value (nominal.representation (object.state this))
+                                          context)
+                    {try.#Success [this#= {.#Right this_value}]}
+                    (list [context this_value])
+
+                    _
+                    (list)))))
+     #unified (object.method
+                (function (_ next again [this [reference]])
+                  (when (object.as (object.class this) reference)
+                    {.#Some reference_id}
+                    (unified_variables reference_id this)
+
+                    {.#None}
+                    (do ..monad
+                      [reference_value (..value reference)]
+                      (function (_ context)
+                        (let [id (object.state this)]
+                          (<| (try.else (list))
+                              (is (Try (List [Context Any])))
+                              (do try.monad
+                                [[this#= this_value] (binding id context)]
+                                (in (when this_value
+                                      {.#Right this_value}
+                                      (if (of this#= = reference_value this_value)
+                                        (list [context this_value])
+                                        (list))
+
+                                      {.#Left link}
+                                      (list [(dictionary.has (nominal.representation id)
+                                                             [this#= {.#Right reference_value}]
+                                                             context)
+                                             []])))))))))))])
+
+  (the .public (variable equivalence)
+    (All (_ of)
+      (-> (Equivalence of)
+          (Logic (Term of))))
+    (function (_ context)
+      (let [id (dictionary.size context)]
+        (list [(dictionary.has id [equivalence {.#Left id}] context)
+               (object.new ..variable_class (nominal.abstraction id))]))))
+  )
