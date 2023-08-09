@@ -146,6 +146,7 @@
 
 ## General
 
+0. [Readings in Database Systems, 5th Edition](http://www.redbook.io/)
 0. [How FoundationDB works and why it works](https://blog.the-pans.com/notes-on-the-foundationdb-paper/)
 0. [FeatureBase: The First OLAP Database Built Entirely on Bitmaps](https://www.featurebase.com/)
 	0. [FeatureBase](https://github.com/FeatureBaseDB/featurebase)
