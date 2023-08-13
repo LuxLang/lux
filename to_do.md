@@ -16,6 +16,26 @@
 0. Re-name Format to Injection.
 0. Re-name Parser to Projection.
 0. <- as reverse-order function syntax.
+0. Notation for 2-adic numbers (as a sibling to Rev)
+   * [Mathematicians Use Numbers Differently From The Rest of Us](https://www.youtube.com/watch?v=tRaq4aYPzCc)
+   * [Fractions and p-adic numbers | Real numbers and limits Math Foundations 90 | N J Wildberger](https://www.youtube.com/watch?v=XXRwlo_MHnI)
+0. Get rid of Sum, Product, and Function types in Type, and replace them with custom-named instances of Nominal.
+0. Re-name Frac(tion) to Dec(imal). Re-name Ratio to Frac(tion). Then, introduce an integer-based alternative to Frac(tion) called Rat(tional).
+   * [Decimal](https://en.wikipedia.org/wiki/Decimal)
+   * [Fraction](https://en.wikipedia.org/wiki/Fraction)
+0. Have alternative arithmetic operators for Frac(tion) that do not normalize the result after the operation (+', -', *', /').
+   * Normalization would obfuscate [an interesting fact about working with infinity](https://youtu.be/pE01mIrsw74?list=PL5A714C94D40392AB&t=1010).
+   * ^ Which is: (infinity + point) == (infinity / point) == (infinity * (/ point))
+   * It may also obfusface the possibility that there are multiple infinities (and multiple zeroes) which may be equivalente to one another, but not necessarily equal.
+   * Such inequality may prove useful in some calculations, but it would be erased during normalization (leading to ambiguities).
+0. Allow for an alternative syntax for anonymous Variant/Sum construction where just a statically-known bit and a term are provided.
+   * e.g. `{#0 left}`, or `{#1 right}`. They are equivalent to similar terms with a `0` _lefts_ term prepended.
+0. Have a special rules for Frac(tion)/Rat(ional) multiplication that says:
+   * `a/b * b/c = a/c` && `a/b * c/a = c/b` && `a/b * c/d = ac/bd`.
+   * The above rule can make `a/0 * 0/b = a/b` and `0/a * b/0 = b/a`, bypassing any possibility for `0/0`.
+   * It may also make the de-normalized zeroes and infinities carry useful information, instead of losing it through normalization.
+0. Extract the variable link-ring machinery being used by both the `control/logic` and `meta/type/check` modules into its own module.
+0. Aliases: `Any => True/Verum` && `Nothing => False/Falsum`
 
 ## Done
 
