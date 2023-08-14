@@ -35,7 +35,8 @@
    * The above rule can make `a/0 * 0/b = a/b` and `0/a * b/0 = b/a`, bypassing any possibility for `0/0`.
    * It may also make the de-normalized zeroes and infinities carry useful information, instead of losing it through normalization.
 0. Extract the variable link-ring machinery being used by both the `control/logic` and `meta/type/check` modules into its own module.
-0. Aliases: `Any => True/Verum` && `Nothing => False/Falsum`
 
 ## Done
+
+0. Aliases: `Any => True/Verum` && `Nothing => False/Falsum`
 

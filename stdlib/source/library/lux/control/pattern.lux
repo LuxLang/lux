@@ -9,7 +9,7 @@
                 or and
                 is has
                 left right
-                when)
+                try with when)
    [abstract
     [equivalence (.only Equivalence)]]
    [control
@@ -29,17 +29,110 @@
      ["[0]" rev]
      ["[0]" frac]]]
    [meta
-    ["[0]" type]]]]
+    ["[0]" type]
+    [macro
+     ["[0]" template]]]]]
  [/
   ["[0]" input]
-  ["[0]" match]
-  ["[0]" body]])
+  ["[0]" output]])
+
+... Composition
+(every .public (Adjustment negative positive value)
+  (-> negative positive
+      value))
+
+(every .public Start
+  (All (_ value)
+    (Adjustment (output.One value) input.Zero
+                value)))
+
+(the .public start
+  Start
+  (function (_ one (input.zero))
+    one))
+
+(every .public (Composition negative_change positive_change)
+  (All (_ value negative positive)
+    (-> (Adjustment negative positive
+                    value)
+        (Adjustment (negative_change negative) (positive_change positive)
+                    value))))
+
+(every .public Same
+  (Composition output.One input.One))
+
+(the .public same
+  Same
+  (|>>))
+
+(every .public (With of)
+  (Composition (output.Succ of) (input.Succ of)))
+
+(the .public (with pred)
+  With
+  (function (_ negative (input.succ ++ --))
+    (pred (negative ++) --)))
+
+... Body
+(every .public (Then arity value)
+  (-> arity
+      value))
+
+(every .public Else
+  (Then input.Zero))
+
+(every .public (Body outer inner value)
+  (-> (Then inner value) (Else value)
+      (Then outer value)))
+
+(every .public Simple
+  (All (_ arity value)
+    (Body arity arity value)))
+
+(the .public success
+  Simple
+  (function (_ then else)
+    then))
+
+(every .public (Complex of)
+  (All (_ arity value)
+    (|> (Body arity (input.Succ of arity) value)
+        (output.Succ of))))
+
+(the .public (complex value)
+  Complex
+  (function (_ then else stack)
+    (then (input.succ value stack))))
+
+(the .public failure
+  Body
+  (function (_ then else stack)
+    (else (input.zero))))
+
+(the .public (try left right)
+  (All (_ arity_0 arity_1 value)
+    (type.let [choice (Body arity_1 arity_0 value)]
+      (-> choice choice
+          choice)))
+  (function (_ then else stack)
+    (left then
+          (function (_ _)
+            (right then else stack))
+          stack)))
+
+(the .public (composite left right)
+  (All (_ arity_0 arity_1 arity_2 value)
+    (-> (Body arity_1 arity_0 value)
+        (Body arity_2 arity_1 value)
+        (Body arity_2 arity_0 value)))
+  (function (_ then else stack)
+    (right (left then else) else stack)))
 
 ... Pattern
 (every .public (Pattern composition input outer inner value)
   (Record
    [#composition composition
-    #match (-> input (body.Body outer inner value))]))
+    #match (-> input (..Body outer inner value))]))
 
 (the .public (or left right)
   (All (_ number input outer inner value)
@@ -50,8 +143,8 @@
         [_ right] right]
     [number
      (function (_ input)
-       (body.or (left input)
-                (right input)))]))
+       (..try (left input)
+              (right input)))]))
 
 (with_template [,tag ,side]
   [(the .public (,side it)
@@ -69,7 +162,7 @@
             (it value)
 
             _
-            body.failure))]))]
+            ..failure))]))]
 
   [#0 left]
   [#1 right]
@@ -92,8 +185,8 @@
         [numberR right] right]
     [(|>> numberL numberR)
      (function (_ input)
-       (body.and (left input)
-                 (right input)))]))
+       (..composite (left input)
+                    (right input)))]))
 
 (the .public (pair left right)
   (All (_ left right)
@@ -103,8 +196,8 @@
         [numberR rightM] right]
     [(|>> numberL numberR)
      (function (_ [leftV rightV])
-       (body.and (leftM leftV)
-                 (rightM rightV)))]))
+       (..composite (leftM leftV)
+                    (rightM rightV)))]))
 
 (the .public (item pattern)
   (All (_ of number outer inner value)
@@ -115,36 +208,36 @@
      (function (again input)
        (.when input
          {.#End}
-         body.failure
+         ..failure
 
          {.#Item head tail}
-         (body.or (match head)
-                  (function (_ next exit stack)
-                    ((again tail) next exit stack)))))]))
+         (..try (match head)
+                (function (_ then else stack)
+                  ((again tail) then else stack)))))]))
 
 (every .public (Static of)
   (All (_ value arity)
-    (Pattern match.Zero of arity (input.One arity) value)))
+    (Pattern ..Same of arity (input.One arity) value)))
 
 (the .public none
   Static
-  [match.zero
-   (function.constant body.failure)])
+  [..same
+   (function.constant ..failure)])
 
 (the .public any
   Static
-  [match.zero
-   (function.constant body.success)])
+  [..same
+   (function.constant ..success)])
 
 (the .public (is predicate)
   (All (_ of)
     (-> (Predicate of)
         (Static of)))
-  [match.zero
+  [..same
    (function (_ input)
      (if (predicate input)
-       body.success
-       body.failure))])
+       ..success
+       ..failure))])
 
 (the .public (constant = expected)
   (All (_ of)
@@ -168,12 +261,12 @@
 
 (every .public (Dynamic input of)
   (All (_ value arity)
-    (Pattern match.Succ (input of) arity (input.Succ of arity) value)))
+    (Pattern ..With (input of) arity (input.Succ of arity) value)))
 
 (the .public variable
   (Dynamic Pure)
-  [match.succ
-   body.succ])
+  [..with
+   ..complex])
 
 (the .public (has key)
   (-> Text
@@ -189,37 +282,36 @@
                  ..variable)))
 
 ... Clause
-(every .public (Composition term arity value)
-  (type.let [negative term
-             positive (body.Then arity value)]
-    (-> match.Constant
-        (-> negative positive))))
-
 (every .public (Clause input value)
-  (-> input (body.Else value)
+  (-> input (..Else value)
       value))
 
-(every .public (Case input term value)
-  (Ex (_ arity)
-    (..Pattern (Composition term arity value)
-               input input.Zero arity value)))
+(template.let [(composition term arity value)
+               [(type.let [negative term
+                           positive (..Then arity value)]
+                  (-> ..Start
+                      (-> negative positive)))]]
+  (every .public (Case input term value)
+    (Ex (_ arity)
+      (..Pattern (composition term arity value)
+                 input input.Zero arity value))))
 
 (the .public (clause pattern body)
   (All (_ input term value)
     (-> (Case input term value) term
         (Clause input value)))
-  (function (_ input exit)
+  (function (_ input else)
     (let [[number match] pattern]
-      ((match input) (number match.constant body) exit []))))
+      ((match input) (number ..start body) else []))))
 
 (the .public (else left right)
   (All (_ input value)
     (-> (Clause input value) (Clause input value)
         (Clause input value)))
-  (function (_ input exit)
+  (function (_ input else)
     (left input
           (function (_ _)
-            (right input exit)))))
+            (right input else)))))
 
 ... Main
 (the .public (when input clause)

@@ -1,5 +1,6 @@
 # Reference
 
+0. [Scènes à faire](https://en.wikipedia.org/wiki/Sc%C3%A8nes_%C3%A0_faire)
 0. [Big Dumb Object](https://en.wikipedia.org/wiki/Big_Dumb_Object)
 0. [The Seven Basic Plots](https://en.wikipedia.org/wiki/The_Seven_Basic_Plots)
 0. [Hook Your Players Fast (Episode 288)](https://www.youtube.com/watch?v=oUFk2ZGYLs8)

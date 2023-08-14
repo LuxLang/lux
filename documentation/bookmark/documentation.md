@@ -58,13 +58,14 @@
 
 # Doclet
 
-0. []()
 0. https://docs.oracle.com/javase/8/docs/technotes/guides/javadoc/doclet/overview.html
 0. http://www.doclet.com/
 0. https://en.wikipedia.org/wiki/Doclet
 
 # Reference
 
+0. [Histoire: A new way to write stories](https://histoire.dev/)
+0. [Better Explained](https://betterexplained.com/)
 0. [Towards a theory of quality in documentation](https://diataxis.fr/quality/)
 0. [The Ultimate Guide to Writing Online](https://perell.com/essay/the-ultimate-guide-to-writing-online/)
 0. [Typst: Compose papers faster](https://typst.app/)

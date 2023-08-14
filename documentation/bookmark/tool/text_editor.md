@@ -193,6 +193,9 @@
 
 ## General
 
+0. [Gamut: The Idea Editor](https://gamut.ink/)
+0. [How to Build a Text Editor With Java](https://www.youtube.com/playlist?list=PLIRBoI92yManB1eHCupZ6iG61qMTA9hWe)
+0. [Hard vs. Soft Line Wrap](https://martin-ueding.de/posts/hard-vs-soft-line-wrap/)
 0. [Rich Text Editing is a Layouting Problem: Why powerful rich-text editors implement a layout engine](https://docs.google.com/document/d/e/2PACX-1vSJg7ZunK4wgLM3Sgee2Rjn6xd4shpQKer5zaSFK8RWtYjopzgAeQT7H_gbnZ9m9j2nLleY3pyOw_N3/pub)
 0. [Stack graphs: Name resolution at scale](https://dcreager.net/publications/016-stack-graphs/stack-graphs.pdf)
 0. [Combobulate: Structured Movement and Editing with Tree-Sitter](https://www.masteringemacs.org/article/combobulate-structured-movement-editing-treesitter)

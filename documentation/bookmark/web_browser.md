@@ -43,7 +43,6 @@
 0. []()
 0. [V8 Torque user manual](https://v8.dev/docs/torque)
 0. [Emacs with Nyxt: extend your editor with the power of a Lisp browser](https://nyxt.atlas.engineer/article/emacs-conf.org)
-0. [Web Browser Engineering](https://browser.engineering/)
 0. [Public Suffix List](https://publicsuffix.org/)
 0. [Public Suffix List Problems](https://github.com/sleevi/psl-problems)
 0. https://www.opera.com/gx
@@ -57,5 +56,5 @@
 0. https://v8project.blogspot.com/2018/08/embedded-builtins.html
 0. https://developers.google.com/web/updates/2018/09/inside-browser-part1
 0. https://addons.mozilla.org/en-US/firefox/addon/tree-style-tab/
-0. [Web Browser Engineering](https://browser.engineering/index.html)
+0. [Web Browser Engineering](https://browser.engineering/)
 

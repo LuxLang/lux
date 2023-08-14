@@ -1,5 +1,6 @@
 # Reference
 
+0. [Can you use a class in C?](https://thasso.xyz/2023/08/11/can-you-use-a-class-in-c/)
 0. [Few lesser known tricks, quirks and features of C](https://jorengarenar.github.io/blog/less-known-c)
 0. [Portability and the C Language](https://en.wikibooks.org/wiki/Portability_and_the_C_Language)
 0. [Cosmopolitan: build-once run-anywhere c library](https://github.com/jart/cosmopolitan)
