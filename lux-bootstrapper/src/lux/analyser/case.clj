@@ -283,6 +283,19 @@
       _
       (&/fail-with-loc (str "[Pattern-matching Error] Tuples require tuple-types: " (&type/show-type value-type))))))
 
+(defn ^:private anonymous_variant [analyse-pattern
+                                   value-type kont
+                                   lefts right? ?values]
+  (let [idx (if right? (inc lefts) lefts)]
+    (|do [value-type* (adjust-type value-type)
+          case-type (&type/sum-at idx value-type*)
+          [=test =kont] (case (int (&/|length ?values))
+                          0 (analyse-pattern &/$None case-type unit-tuple kont)
+                          1 (analyse-pattern &/$None case-type (&/|head ?values) kont)
+                          ;; 1+
+                          (analyse-pattern &/$None case-type (&/T [(&/T ["" -1 -1]) (&/$Tuple ?values)]) kont))]
+      (return (&/T [($VariantTestAC (&/T [lefts right? =test])) =kont])))))
+
 (defn ^:private analyse-pattern [var?? value-type pattern kont]
   (|let [[meta pattern*] pattern]
     (|case pattern*
@@ -359,16 +372,15 @@
           (&/$None)
           (analyse-tuple-pattern analyse-pattern pattern value-type ?members kont)))
 
+      (&/$Variant (&/$Item [_ (&/$Bit right?)] ?values))
+      (anonymous_variant analyse-pattern
+                         value-type kont
+                         0 right? ?values)
+
       (&/$Variant (&/$Item [_ (&/$Nat lefts)] (&/$Item [_ (&/$Bit right?)] ?values)))
-      (let [idx (if right? (inc lefts) lefts)]
-        (|do [value-type* (adjust-type value-type)
-              case-type (&type/sum-at idx value-type*)
-              [=test =kont] (case (int (&/|length ?values))
-                              0 (analyse-pattern &/$None case-type unit-tuple kont)
-                              1 (analyse-pattern &/$None case-type (&/|head ?values) kont)
-                              ;; 1+
-                              (analyse-pattern &/$None case-type (&/T [(&/T ["" -1 -1]) (&/$Tuple ?values)]) kont))]
-          (return (&/T [($VariantTestAC (&/T [lefts right? =test])) =kont]))))
+      (anonymous_variant analyse-pattern
+                         value-type kont
+                         lefts right? ?values)
 
       (&/$Variant (&/$Item [_ (&/$Identifier ?ident)] ?values))
       (|do [[=module =name] (&&/resolved-ident ?ident)

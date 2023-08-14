@@ -8,353 +8,99 @@
     [monad (.only do)]
     ["[0]" codec]]
    [control
-    ["<>" parser]
-    ["[0]" try]]
+    ["?" parser]]
    [data
-    ["[0]" text (.only)
+    [text
      ["%" \\format (.only format)]]
-    [format
-     [json
-      ["</>" \\parser]]]
     [collection
-     ["[0]" list (.use "[1]#[0]" monad)]
-     ["[0]" sequence (.only sequence)]
-     ["[0]" dictionary]]]
-   [math
-    [number
-     ["n" nat (.use "[1]#[0]" decimal)]
-     ["[0]" i64]
-     ["[0]" int]
-     ["[0]" frac]]]
-   ["[0]" meta (.only)
-    ["[0]" code (.only)
-     ["<[1]>" \\parser]]
-    [macro
-     [syntax (.only syntax)]
-     ["[0]" expansion]]
+     [dictionary (.only Dictionary)]
+     ["[0]" list (.use "[1]#[0]" functor)]]]
+   [meta
     ["[0]" type (.only)
      ["<[1]>" \\parser]
-     ["[0]" unit]
      ["[0]" poly (.only polytypic)]]]
    [world
     [time
-     ... ["[0]" instant]
-     ... ["[0]" duration]
+     ["[0]" instant]
+     ["[0]" duration]
      ["[0]" date]
      ["[0]" day]
      ["[0]" month]]]]]
  [\\library
   ["[0]" / (.only JSON)]])
 
-(the tag
-  (-> Nat Frac)
-  (|>> .int int.frac))
-
-(the ,!
-  (template (_ <it>)
-    [(` (.in_module# (, (code.text (.let [[module short] (.symbol .._)]
-                                     module)))
-                     <it>))]))
-
-(the (rec_encoded non_rec)
-  (All (_ of)
-    (-> (-> (-> of JSON)
-            (-> of JSON))
-        (-> of JSON)))
-  (function (_ input)
-    (non_rec (rec_encoded non_rec) input)))
-
-(the low_mask Nat (|> 1 (i64.left_shifted 32) --))
-(the high_mask Nat (|> low_mask (i64.left_shifted 32)))
-
-(the nat_codec
-  (codec.Codec JSON Nat)
-  (implementation
-   (the (encoded input)
-     (let [high (|> input (i64.and high_mask) (i64.right_shifted 32))
-           low (i64.and low_mask input)]
-       {/.#Array (sequence (|> high .int int.frac {/.#Number})
-                           (|> low .int int.frac {/.#Number}))}))
-   (the decoded
-     (</>.value (</>.array
-                 (do <>.monad
-                   [high </>.number
-                    low </>.number]
-                   (in (n.+ (|> high frac.int .nat (i64.left_shifted 32))
-                            (|> low frac.int .nat)))))))))
-
-(the int_codec
-  (codec.Codec JSON Int)
-  (implementation
-   (the encoded
-     (|>> .nat
-          (of nat_codec encoded)))
-   (the decoded
-     (|>> (of nat_codec decoded)
-          (of try.functor each (|>> .int))))))
-
-... Builds a JSON generator for potentially inexistent values.
-(the (nullable format)
-  (All (_ of)
-    (-> (-> of JSON)
-        (-> (Maybe of) JSON)))
-  (function (_ elem)
-    (when elem
-      {.#None}
-      {/.#Null}
-      
-      {.#Some value}
-      (format value))))
-
-(the measure_codec
-  (All (_ unit)
-    (codec.Codec JSON (unit.Measure unit)))
-  (implementation
-   (the encoded
-     (|>> unit.number
-          (of ..int_codec encoded)))
-   (the decoded
-     (|>> (of ..int_codec decoded)
-          (of try.functor each unit.measure)))))
-
-(the encoded
-  (polytypic encoded
-    (with_expansions
-      [<basic> (with_template [<matcher> <encoder>]
-                 [(do !
-                    [.let [g!_ (code.local "_______")]
-                     _ <matcher>]
-                    (in (` (is (, (@JSON#encoded inputT))
-                               <encoder>))))]
-
-                 [(<type>.exactly Any) (function ((, g!_) (, (code.symbol ["" "0"]))) {/.#Null})]
-                 [(<type>.sub Bit)     (|>> {/.#Boolean})]
-                 [(<type>.sub Nat)     (of (, (,! ..nat_codec)) (,' encoded))]
-                 [(<type>.sub Int)     (of (, (,! ..int_codec)) (,' encoded))]
-                 [(<type>.sub Frac)    (|>> {/.#Number})]
-                 [(<type>.sub Text)    (|>> {/.#String})])
-       <time> (with_template [<type> <codec>]
-                [(do !
-                   [_ (<type>.exactly <type>)]
-                   (in (` (is (, (@JSON#encoded inputT))
-                              (|>> (of <codec> (,' encoded)) {/.#String})))))]
-
-                ... [duration.Duration duration.codec]
-                ... [instant.Instant instant.codec]
-                [date.Date date.codec]
-                [day.Day day.codec]
-                [month.Month month.codec])]
-      (do [! <>.monad]
-        [*env* <type>.env
-         .let [g!_ (code.local "_______")
-               @JSON#encoded (is (-> Type Code)
-                                 (function (_ type)
-                                   (` (-> (, (poly.code *env* type)) /.JSON))))]
-         inputT <type>.next]
-        (all <>.either
-             <basic>
-             <time>
-             (do !
-               [unitT (<type>.applied (<>.after (<type>.exactly unit.Measure)
-                                                <type>.any))]
-               (in (` (is (, (@JSON#encoded inputT))
-                          (of (, (,! ..measure_codec)) (,' encoded))))))
-             (do !
-               [.let [g!_ (code.local "_______")
-                      g!key (code.local "_______key")
-                      g!val (code.local "_______val")]
-                [_ _ =val=] (<type>.applied (all <>.and
-                                                 (<type>.exactly dictionary.Dictionary)
-                                                 (<type>.exactly .Text)
-                                                 encoded))]
-               (in (` (is (, (@JSON#encoded inputT))
-                          (|>> (dictionary.entries)
-                               (of list.functor (,' each) (function ((, g!_) [(, g!key) (, g!val)])
-                                                            [(, g!key) ((, =val=) (, g!val))]))
-                               (dictionary.of_list text.hash)
-                               {/.#Object})))))
-             (do !
-               [[_ =sub=] (<type>.applied (all <>.and
-                                               (<type>.exactly .Maybe)
-                                               encoded))]
-               (in (` (is (, (@JSON#encoded inputT))
-                          ((, (,! ..nullable)) (, =sub=))))))
-             (do !
-               [[_ =sub=] (<type>.applied (all <>.and
-                                               (<type>.exactly .List)
-                                               encoded))]
-               (in (` (is (, (@JSON#encoded inputT))
-                          (|>> (of list.functor (,' each) (, =sub=)) sequence.of_list {/.#Array})))))
-             (do !
-               [.let [g!_ (code.local "_______")
-                      g!input (code.local "_______input")]
-                members (<type>.variant (<>.many encoded))
-                .let [last (-- (list.size members))]]
-               (in (` (is (, (@JSON#encoded inputT))
-                          (function ((, g!_) (, g!input))
-                            (when (, g!input)
-                              (,* (list#conjoint (list#each (function (_ [tag g!encoded])
-                                                              (if (n.= last tag)
-                                                                (.list (` {(, (code.nat (-- tag))) #1 (, g!input)})
-                                                                       (` (/.json [(, (code.frac (..tag (-- tag))))
-                                                                                   #1
-                                                                                   ((, g!encoded) (, g!input))])))
-                                                                (.list (` {(, (code.nat tag)) #0 (, g!input)})
-                                                                       (` (/.json [(, (code.frac (..tag tag)))
-                                                                                   #0
-                                                                                   ((, g!encoded) (, g!input))])))))
-                                                            (list.enumeration members))))))))))
-             (do !
-               [g!encoders (<type>.tuple (<>.many encoded))
-                .let [g!_ (code.local "_______")
-                      g!members (|> (list.size g!encoders)
-                                    list.indices
-                                    (list#each (|>> n#encoded code.local)))]]
-               (in (` (is (, (@JSON#encoded inputT))
-                          (function ((, g!_) [(,* g!members)])
-                            (/.json [(,* (list#each (function (_ [g!member g!encoded])
-                                                      (` ((, g!encoded) (, g!member))))
-                                                    (list.zipped_2 g!members g!encoders)))]))))))
-             ... Type recursion
-             (do !
-               [[selfC non_recC] (<type>.recursive encoded)
-                .let [g! (code.local "____________")]]
-               (in (` (is (, (@JSON#encoded inputT))
-                          ((, (,! ..rec_encoded))
-                           (.function ((, g!) (, selfC))
-                             (, non_recC)))))))
-             <type>.recursive_self
-             ... Type applications
-             (do !
-               [partsC (<type>.applied (<>.many encoded))]
-               (in (` ((,* partsC)))))
-             ... Polymorphism
-             (do !
-               [[funcC varsC bodyC] (<type>.polymorphic encoded)]
-               (in (` (is (All ((, g!_) (,* varsC))
-                            (-> (,* (list#each (function (_ varC) (` (-> (, varC) /.JSON)))
-                                               varsC))
-                                (-> ((, (poly.code *env* inputT)) (,* varsC))
-                                    /.JSON)))
-                          (function ((, funcC) (,* varsC))
-                            (, bodyC))))))
-             <type>.parameter
-             <type>.recursive_call
-             ... If all else fails...
-             (<>.failure (format "Cannot create JSON encoder for: " (type.absolute_format inputT)))
-             )))))
-
-(the decoded
-  (polytypic decoded
-    (with_expansions
-      [<basic> (with_template [<matcher> <decoder>]
-                 [(do !
-                    [_ <matcher>]
-                    (in (` (is (, (@JSON#decoded inputT))
-                               <decoder>))))]
-
-                 [(<type>.exactly Any)  </>.null]
-                 [(<type>.sub Bit)      </>.boolean]
-                 [(<type>.sub Nat)      (<>.codec (, (,! ..nat_codec)) </>.any)]
-                 [(<type>.sub Int)      (<>.codec (, (,! ..int_codec)) </>.any)]
-                 [(<type>.sub Frac)     </>.number]
-                 [(<type>.sub Text)     </>.string])
-       <time> (with_template [<type> <codec>]
-                [(do !
-                   [_ (<type>.exactly <type>)]
-                   (in (` (is (, (@JSON#decoded inputT))
-                              (<>.codec <codec> </>.string)))))]
-
-                ... [duration.Duration duration.codec]
-                ... [instant.Instant instant.codec]
-                [date.Date date.codec]
-                [day.Day day.codec]
-                [month.Month month.codec])]
-      (do [! <>.monad]
-        [*env* <type>.env
-         .let [g!_ (code.local "_______")
-               @JSON#decoded (is (-> Type Code)
-                                 (function (_ type)
-                                   (` (</>.Parser (, (poly.code *env* type))))))]
-         inputT <type>.next]
-        (all <>.either
-             <basic>
-             <time>
-             (do !
-               [unitT (<type>.applied (<>.after (<type>.exactly unit.Measure)
-                                                <type>.any))]
-               (in (` (is (, (@JSON#decoded inputT))
-                          (<>.codec (, (,! ..measure_codec)) </>.any)))))
-             (do !
-               [[_ _ valC] (<type>.applied (all <>.and
-                                                (<type>.exactly dictionary.Dictionary)
-                                                (<type>.exactly .Text)
-                                                decoded))]
-               (in (` (is (, (@JSON#decoded inputT))
-                          (</>.dictionary (, valC))))))
-             (do !
-               [[_ subC] (<type>.applied (<>.and (<type>.exactly .Maybe)
-                                                 decoded))]
-               (in (` (is (, (@JSON#decoded inputT))
-                          (</>.nullable (, subC))))))
-             (do !
-               [[_ subC] (<type>.applied (<>.and (<type>.exactly .List)
-                                                 decoded))]
-               (in (` (is (, (@JSON#decoded inputT))
-                          (</>.array (<>.some (, subC)))))))
-             (do !
-               [members (<type>.variant (<>.many decoded))
-                .let [last (-- (list.size members))]]
-               (in (` (is (, (@JSON#decoded inputT))
-                          (all <>.or
-                               (,* (list#each (function (_ [tag memberC])
-                                                (if (n.= last tag)
-                                                  (` (|> (, memberC)
-                                                         (<>.after (</>.this_boolean (, (code.bit #1))))
-                                                         (<>.after (</>.this_number (, (code.frac (..tag (-- tag))))))
-                                                         </>.array))
-                                                  (` (|> (, memberC)
-                                                         (<>.after (</>.this_boolean (, (code.bit #0))))
-                                                         (<>.after (</>.this_number (, (code.frac (..tag tag)))))
-                                                         </>.array))))
-                                              (list.enumeration members))))))))
-             (do !
-               [g!decoders (<type>.tuple (<>.many decoded))]
-               (in (` (is (, (@JSON#decoded inputT))
-                          (</>.array (all <>.and (,* g!decoders)))))))
-             ... Type recursion
-             (do !
-               [[selfC bodyC] (<type>.recursive decoded)
-                .let [g! (code.local "____________")]]
-               (in (` (is (, (@JSON#decoded inputT))
-                          (<>.rec (.function ((, g!) (, selfC))
-                                    (, bodyC)))))))
-             <type>.recursive_self
-             ... Type applications
-             (do !
-               [[funcC argsC] (<type>.applied (<>.and decoded (<>.many decoded)))]
-               (in (` ((, funcC) (,* argsC)))))
-             ... Polymorphism
-             (do !
-               [[funcC varsC bodyC] (<type>.polymorphic decoded)]
-               (in (` (is (All ((, g!_) (,* varsC))
-                            (-> (,* (list#each (|>> (,) </>.Parser (`)) varsC))
-                                (</>.Parser ((, (poly.code *env* inputT)) (,* varsC)))))
-                          (function ((, funcC) (,* varsC))
-                            (, bodyC))))))
-             <type>.parameter
-             <type>.recursive_call
-             ... If all else fails...
-             (<>.failure (format "Cannot create JSON decoder for: " (type.absolute_format inputT)))
-             )))))
-
 (the .public codec
-  (syntax (_ [inputT <code>.any])
-    (do meta.monad
-      [encoded (expansion.single (` (..encoded (, inputT))))
-       decoded (expansion.single (` (..decoded (, inputT))))]
-      (in (.list (` (is (codec.Codec /.JSON (, inputT))
-                        (implementation
-                         (the (,' encoded) (,* encoded))
-                         (the (,' decoded) (</>.value (,* decoded)))
-                         ))))))))
+  (polytypic codec
+    (with_expansions
+      [,basic (with_template [,type ,codec]
+                [(do !
+                   [_ (<type>.sub ,type)]
+                   (in (` ,codec)))]
+
+                [Bit /.bit]
+                [Nat /.nat]
+                [Int /.int]
+                [Rev /.rev]
+                [Frac /.frac]
+                [Text /.text])
+       ,time (with_template [,type ,codec]
+               [(do !
+                  [_ (<type>.exactly ,type)]
+                  (in (` ,codec)))]
+
+               [Any /.any]
+               [duration.Duration /.duration]
+               [instant.Instant /.instant]
+               [date.Date /.date]
+               [day.Day /.day]
+               [month.Month /.month])]
+      (do [! ?.monad]
+        [inputT <type>.next]
+        (all ?.either
+             ,basic
+             ,time
+             (do !
+               ['value (<type>.applied (all ?.after
+                                            (<type>.exactly Dictionary)
+                                            (<type>.exactly .Text)
+                                            codec))]
+               (in (` (/.dictionary (, 'value)))))
+             (do !
+               ['item (<type>.applied (all ?.after
+                                           (<type>.exactly .List)
+                                           codec))]
+               (in (` (/.list (, 'item)))))
+             (do !
+               [[head tail] (<type>.variant (?.and codec (?.many codec)))]
+               (in (` (all /.sum
+                           (, head)
+                           (,* tail)))))
+             (do !
+               [[head tail] (<type>.tuple (?.and codec (?.many codec)))]
+               (in (` (all /.product
+                           (, head)
+                           (,* tail)))))
+             ... Type recursion
+             (do !
+               [['self 'body] (<type>.recursive codec)]
+               (in (` (/.recursive
+                       (.function ((, 'self) (, 'self))
+                         (, 'body))))))
+             <type>.recursive_self
+             ... Type applications
+             (do !
+               [partsC (<type>.applied (?.many codec))]
+               (in (` ((,* partsC)))))
+             <type>.parameter
+             <type>.recursive_call
+             ... Polymorphism
+             (do !
+               [['func '*vars 'body] (<type>.polymorphic codec)]
+               (in (` (is (All ((, 'func) (,* '*vars))
+                            (-> (,* (list#each (|>> , (codec.Codec /.JSON) `) '*vars))
+                                (codec.Codec /.JSON ((, (poly.code <type>.fresh inputT)) (,* '*vars)))))
+                          (function ((, 'func) (,* '*vars))
+                            (, 'body))))))
+             ... If all else fails...
+             (?.failure (format "Cannot create JSON codec for: " (type.absolute_format inputT)))
+             )))))

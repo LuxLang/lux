@@ -68,6 +68,10 @@
 
       (&/$Variant (&/$Item [command-meta command] parameters))
       (|case command
+        (&/$Bit ?right)
+        (&/with-analysis-meta location exo-type
+          (&&lux/analyse-variant analyse (&/$Right exo-type) 0 ?right parameters))
+
         (&/$Nat lefts)
         (|let [(&/$Item [_ (&/$Bit ?right)] parameters*) parameters]
           (&/with-analysis-meta location exo-type

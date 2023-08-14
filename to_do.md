@@ -6,20 +6,21 @@
 
 ## To Do
 
-0. Implement type-level naming ("Ghosts of Dependent Proofs"-style), in order to give unique names to classes, to force distinctions between them beyond their state types.
+0. Implement type-level naming ([Ghosts of Dependent Proofs](https://kataskeue.com/gdp.pdf)-style), in order to give unique names to classes, to force distinctions between them beyond their state types.
 0. An anonymous type for un-tagged sums. E.g. `{3 #1 x}` = `(All (_ a b c d) (Or a b c (Or d (type_of x))))` && `{3 #0 x}` = `(All (_ a b c d) (Or a b c (Or (type_of x) d)))`
-0. Re-name Codec#format to "injection" and Codec#value to "projection".
-0. Re-name "Codec" to "Embedding".
+0. Re-name `Codec#format` to `injection` and `Codec#value` to `projection`.
+0. Re-name `Codec` to `Embedding`.
    * [Embedding](https://en.wikipedia.org/wiki/Embedding)
 0. Implement polytypic counting/length via induction.
 0. Re-implement all the current polytypic code just using induction.
-0. Re-name Format to Injection.
-0. Re-name Parser to Projection.
-0. <- as reverse-order function syntax.
-0. Notation for 2-adic numbers (as a sibling to Rev)
+   * 403d5a46c8cbada8e6eb5d457a98b1e8d9df87f3
+0. Re-name `Format` to `Injection`.
+0. Re-name `Parser` to `Projection`.
+0. `<-` as reverse-order function syntax.
+0. Notation for 2-adic numbers (as a sibling to `Rev`)
    * [Mathematicians Use Numbers Differently From The Rest of Us](https://www.youtube.com/watch?v=tRaq4aYPzCc)
    * [Fractions and p-adic numbers | Real numbers and limits Math Foundations 90 | N J Wildberger](https://www.youtube.com/watch?v=XXRwlo_MHnI)
-0. Get rid of Sum, Product, and Function types in Type, and replace them with custom-named instances of Nominal.
+0. Get rid of `#Sum`, `#Product`, and `#Function` types in `Type`, and replace them with custom-named instances of Nominal.
 0. Re-name Frac(tion) to Dec(imal). Re-name Ratio to Frac(tion). Then, introduce an integer-based alternative to Frac(tion) called Rat(tional).
    * [Decimal](https://en.wikipedia.org/wiki/Decimal)
    * [Fraction](https://en.wikipedia.org/wiki/Fraction)
@@ -28,8 +29,6 @@
    * ^ Which is: (infinity + point) == (infinity / point) == (infinity * (/ point))
    * It may also obfusface the possibility that there are multiple infinities (and multiple zeroes) which may be equivalente to one another, but not necessarily equal.
    * Such inequality may prove useful in some calculations, but it would be erased during normalization (leading to ambiguities).
-0. Allow for an alternative syntax for anonymous Variant/Sum construction where just a statically-known bit and a term are provided.
-   * e.g. `{#0 left}`, or `{#1 right}`. They are equivalent to similar terms with a `0` _lefts_ term prepended.
 0. Have a special rules for Frac(tion)/Rat(ional) multiplication that says:
    * `a/b * b/c = a/c` && `a/b * c/a = c/b` && `a/b * c/d = ac/bd`.
    * The above rule can make `a/0 * 0/b = a/b` and `0/a * b/0 = b/a`, bypassing any possibility for `0/0`.
@@ -38,5 +37,7 @@
 
 ## Done
 
-0. Aliases: `Any => True/Verum` && `Nothing => False/Falsum`
+0. Allow for an alternative syntax for anonymous Variant/Sum construction where just a statically-known bit and a term are provided.
+   * e.g. `{#0 left}`, or `{#1 right}`. They are equivalent to similar terms with a `0` _lefts_ term prepended.
+0. 403d5a46c8cbada8e6eb5d457a98b1e8d9df87f3 Aliases: `Any => True/Verum` && `Nothing => False/Falsum`
 
