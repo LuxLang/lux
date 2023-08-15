@@ -1,6 +1,11 @@
 # References
 
 0. [Basic writing and formatting syntax](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax)
+0. [Autolinked references and URLs](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/autolinked-references-and-urls)
+
+# Templates
+
+0. [(Commit)](https://github.com/LuxLang/lux/commit/)
 
 # Tasks
 
@@ -12,8 +17,6 @@
 0. Re-name `Codec` to `Embedding`.
    * [Embedding](https://en.wikipedia.org/wiki/Embedding)
 0. Implement polytypic counting/length via induction.
-0. Re-implement all the current polytypic code just using induction.
-   * 403d5a46c8cbada8e6eb5d457a98b1e8d9df87f3
 0. Re-name `Format` to `Injection`.
 0. Re-name `Parser` to `Projection`.
 0. `<-` as reverse-order function syntax.
@@ -34,10 +37,16 @@
    * The above rule can make `a/0 * 0/b = a/b` and `0/a * b/0 = b/a`, bypassing any possibility for `0/0`.
    * It may also make the de-normalized zeroes and infinities carry useful information, instead of losing it through normalization.
 0. Extract the variable link-ring machinery being used by both the `control/logic` and `meta/type/check` modules into its own module.
+0. Re-name `check.subsumes?` to `check.subsumed?`.
+0. Replace recursive type calls from `(0 "")` to `(0 0)`
+0. Fix bug wherein private aliases in module `A` of public definitions in module `B` are seen in module `C`, if it imports `A`.
 
 ## Done
 
-0. Allow for an alternative syntax for anonymous Variant/Sum construction where just a statically-known bit and a term are provided.
+0. Re-implement all the current polytypic code just using induction.
+   * [(Commit)](https://github.com/LuxLang/lux/commit/403d5a46c8cbada8e6eb5d457a98b1e8d9df87f3)
+   * [(Commit)](https://github.com/LuxLang/lux/commit/caab080b72a358b63d6a289e0bf6e929d00873fb)
+0. [(Commit)](https://github.com/LuxLang/lux/commit/caab080b72a358b63d6a289e0bf6e929d00873fb) Allow for an alternative syntax for anonymous Variant/Sum construction where just a statically-known bit and a term are provided.
    * e.g. `{#0 left}`, or `{#1 right}`. They are equivalent to similar terms with a `0` _lefts_ term prepended.
-0. 403d5a46c8cbada8e6eb5d457a98b1e8d9df87f3 Aliases: `Any => True/Verum` && `Nothing => False/Falsum`
+0. [(Commit)](https://github.com/LuxLang/lux/commit/403d5a46c8cbada8e6eb5d457a98b1e8d9df87f3) Aliases: `Any => True/Verum` && `Nothing => False/Falsum`
 

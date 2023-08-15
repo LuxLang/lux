@@ -377,7 +377,6 @@ Called by `imenu--generic-function'."
 												 "Class"
 												 "type"))
 							(type//checking (altRE "is" "as" "let" "as_expected" "type_of" "sharing" "by_example" "hole"))
-							(type//poly (altRE "polytypic"))
 							(type//dynamic (altRE "dynamic" "static"))
 							(type//capability (altRE "capability"))
 							;; Data
@@ -409,7 +408,6 @@ Called by `imenu--generic-function'."
 											  control//polymorphism))
 							  (type (altRE type//syntax
 										   type//checking
-										   type//poly
 										   type//dynamic
 										   type//capability))
 							  (data (altRE data//record
@@ -583,7 +581,6 @@ This function also returns nil meaning don't specify the indentation."
   ("macro" 'defun)
   ("syntax" 'defun)
   ("template" 'defun)
-  ("polytypic" 'defun)
   ("program" 'defun)
 
   ("the" 'defun)

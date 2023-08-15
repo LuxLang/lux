@@ -3,94 +3,236 @@
 
 (.require
  [library
-  [lux (.except)
+  [lux (.except has with)
    [abstract
     ["[0]" monad (.only do)]]
    [control
     ["<>" parser (.use "[1]#[0]" monad)]
-    ["[0]" maybe]]
+    ["[0]" maybe]
+    ["[0]" try (.only Try)]
+    ["[0]" exception (.only Exception)]]
    [data
     ["[0]" product]
-    ["[0]" text]
+    [text
+     ["%" \\format]]
     [collection
-     ["[0]" list (.use "[1]#[0]" functor)]
-     ["[0]" dictionary]]]
+     ["[0]" list (.use "[1]#[0]" functor mix)]
+     ["[0]" dictionary (.only Dictionary)]]]
    [math
     [number
      ["n" nat]]]
    [meta
     ["[0]" code (.only)
      ["<[1]>" \\parser (.only Parser)]]
-    [macro (.only with_symbols)
+    ["[0]" macro (.only with_symbols)
      [syntax (.only syntax)]
      ["^" pattern]]]]]
- ["[0]" // (.only)
-  ["<[1]>" \\parser (.only Env)]
+ ["[0]" // (.use "[1]#[0]" equivalence)
+  ["?[1]" \\parser (.only Env)]
   ["/[1]" //]])
 
-(the .public polytypic
-  (syntax (_ [name <code>.local
-              body <code>.any])
-    (with_symbols [g!_ g!type g!output]
-      (let [g!name (code.symbol ["" name])]
-        (in (.list (` (syntax ((, g!_) [(, g!type) <code>.any])
-                        (do ///.monad
-                          [(, g!type) (///.eval .Type (, g!type))]
-                          (when (is (.Either .Text .Code)
-                                    (<//>.value (<>.rec
-                                                 (function ((, g!_) (, g!name))
-                                                   (, body)))
-                                                (.as .Type (, g!type))))
-                            {.#Right (, g!output)}
-                            (of ///.monad (,' in) (.list (, g!output)))
+(exception.the (invalid [it])
+  (Exception Type)
+  (exception.report
+   (list ["Type" (%.type it)])))
 
-                            {.#Left (, g!output)}
-                            (///.failure (, g!output))))))))))))
+(the Poly
+  (type (-> Type
+            (Try Code))))
 
-(the .public (code env type)
-  (-> Env Type Code)
-  (when type
-    {.#Nominal name params}
-    (` {.#Nominal (, (code.text name))
-                  (.list (,* (list#each (code env) params)))})
+(the Composite
+  (template (_ ,of)
+    [(-> Poly ,of
+         (Try Code))]))
 
-    (^.with_template [<tag>]
-      [{<tag> idx}
-       (` {<tag> (, (code.nat idx))})])
-    ([.#Var]
-     [.#Opaque])
+(exception.the impossible)
 
-    {.#Parameter idx}
-    (let [idx (<//>.argument env idx)]
-      (if (n.= 0 idx)
-        (|> (dictionary.value idx env) maybe.trusted product.left (code env))
-        (` (.$ (, (code.nat (-- idx)))))))
+... https://en.wikipedia.org/wiki/N/A
+(the .public (not_applicable _ _)
+  (All (_ of)
+    (Composite of))
+  (exception.except ..impossible []))
 
-    {.#Apply {.#Nominal "" {.#End}}
-             {.#Parameter idx}}
-    (when (<//>.argument env idx)
-      0 (|> env (dictionary.value 0) maybe.trusted product.left (code env))
-      idx (undefined))
-    
-    (^.with_template [<tag>]
-      [{<tag> left right}
-       (` {<tag> (, (code env left))
-                 (, (code env right))})])
-    ([.#Function]
-     [.#Apply])
+(the Specialization
+  (type [Type Code]))
 
-    (^.with_template [<macro> <tag> <flattener>]
-      [{<tag> left right}
-       (` (<macro> (,* (list#each (code env) (<flattener> type)))))])
-    ([.Union .#Sum //.flat_variant]
-     [.Tuple .#Product //.flat_tuple])
+(the recursion_parameter
+  (template (_)
+    [{.#Nominal "" {.#End}}]))
 
-    {.#Named name sub_type}
-    (code.symbol name)
+(the recursive
+  (template (_ ,type)
+    [{.#Apply (..recursion_parameter)
+              {.#Universal (list) ,type}}]))
 
-    (^.with_template [<tag>]
-      [{<tag> scope body}
-       (` {<tag> (.list (,* (list#each (code env) scope)))
-                 (, (code env body))})])
-    ([.#Universal]
-     [.#Existential])))
+(the recursion
+  (template (_)
+    [{.#Apply (..recursion_parameter)
+              {.#Parameter 0}}]))
+
+(the polymorphic
+  (template (_ ,name ,non_quantified)
+    [{.#Named ,name {.#Universal (list) ,non_quantified}}]))
+
+(every Context
+  (Dictionary Nat Code))
+
+(the empty
+  Context
+  (dictionary.empty n.hash))
+
+(the (has solution it)
+  (-> Code
+      (-> Context Context))
+  (dictionary.has (dictionary.size it) solution it))
+
+(the (with successor predecessors it)
+  (-> Code (List Code)
+      (-> Context Context))
+  (let [[_ it] (list#mix (function (_ next [previous it])
+                           [(list.partial next previous)
+                            (|> it
+                                (has (` ((, successor) (,* (list.reversed previous)))))
+                                (has next))])
+                         [(list) it]
+                         predecessors)]
+    it))
+
+(the (specialized specializations it)
+  (-> (List Specialization) Type
+      (Maybe Code))
+  (when specializations
+    (list.partial [expected specialization] tail)
+    (if (//#= expected it)
+      {.#Some specialization}
+      (specialized tail it))
+
+    (list)
+    {.#None}))
+
+(every .public Polytypic
+  (Record
+   [#sum (Composite [Type Type])
+    #product (Composite [Type Type])
+    #function (Composite [Type Type])
+    #apply (Maybe (Composite [Type Type]))
+    #recursive (Composite [(List Code) Type])
+    #recursion (Maybe (Composite [(List Code)]))
+    #any (Maybe Code)
+    #polymorphic (Maybe (Composite [(List Code) Nat Type]))
+    #parameter (Maybe (Composite [Nat Nat]))]))
+
+(the default_apply
+  (Composite [Type Type])
+  (function (_ code [parameter abstraction])
+    (do try.monad
+      [abstraction (code abstraction)
+       parameter (code parameter)]
+      (in (` ((, abstraction) (, parameter)))))))
+
+(the .public (composite combinator)
+  (-> Code
+      (Composite [Type Type]))
+  (function (_ code [left right])
+    (do try.monad
+      [left (code left)
+       right (code right)]
+      (in (` ((, combinator) (, left) (, right)))))))
+
+(the .public (polytypic 'successor poly specializations)
+  (-> Code Polytypic (List Specialization)
+      Macro)
+  (let [poly (is (-> Nat Code Context
+                     Poly)
+                 (function (code arity 'recursive context it)
+                   (when (..specialized specializations it)
+                     {.#Some code}
+                     {try.#Success code}
+
+                     {.#None}
+                     (when it
+                       {.#Sum it}
+                       ((its #sum poly) (code arity 'recursive context) it)
+
+                       {.#Product it}
+                       ((its #product poly) (code arity 'recursive context) it)
+
+                       {.#Function it}
+                       ((its #function poly) (code arity 'recursive context) it)
+
+                       (..recursive it)
+                       ((its #recursive poly) (code arity 'recursive context) [(list 'recursive) it])
+
+                       (..recursion)
+                       {try.#Success 'recursive}
+
+                       {.#Apply it}
+                       (when it
+                         [{.#Parameter 1} {.#Parameter 0}]
+                         (when (its #recursion poly)
+                           {.#Some recursion}
+                           (recursion (code arity 'recursive context) (list 'recursive))
+
+                           {.#None}
+                           ((maybe.else default_apply (its #apply poly))
+                            (code arity 'recursive context)
+                            it))
+
+                         _
+                         ((maybe.else default_apply (its #apply poly))
+                          (code arity 'recursive context)
+                          it))
+
+                       {.#Parameter index}
+                       (when (its #parameter poly)
+                         {.#Some parameter}
+                         (parameter (code arity 'recursive context) [arity index])
+
+                         {.#None}
+                         (when (dictionary.value index context)
+                           {try.#Failure _}
+                           (exception.except ..invalid [it])
+
+                           success
+                           success))
+                       
+                       (..polymorphic _ _)
+                       (let [[arity non_quantified] (//.flat_univ_q (//.anonymous it))
+                             'self (code.local "'self")]
+                         (when (its #polymorphic poly)
+                           {.#Some polymorphic}
+                           (polymorphic (code arity 'self context) [(list 'self) arity non_quantified])
+
+                           {.#None}
+                           (do try.monad
+                             [.let ['*parameters (list#each (|>> %.nat (%.format "_") code.local)
+                                                            (list.indices arity))
+                                    '*predecessors (list#each (|>> (,) ((, 'successor)) (`))
+                                                              '*parameters)]
+                              'body (code arity
+                                          'self
+                                          (with 'successor '*parameters context)
+                                          non_quantified)]
+                             (in (` (is (All ((, 'self) (,* '*parameters))
+                                          (-> (,* '*predecessors)
+                                              ((, 'successor) ((, (//.code it)) (,* '*parameters)))))
+                                        (function ((, 'self) (,* '*parameters))
+                                          (, 'body))))))))
+                       
+                       {.#Named name it}
+                       (code arity 'recursive context it)
+
+                       _
+                       (when (its #any poly)
+                         {.#Some any}
+                         {try.#Success any}
+
+                         _
+                         (exception.except ..invalid [it]))))))]
+    (syntax (_ [type <code>.any])
+      (macro.with_symbols ['recursive]
+        (do ///.monad
+          [type (///.eval Type type)
+           .let [type (as Type type)]
+           implementation (///.of_try (poly 0 'recursive ..empty type))]
+          (in (list implementation)))))))
