@@ -149,24 +149,6 @@
   ^:private compile-dec-lt Opcodes/DCMPG -1 &&/unwrap-double
   )
 
-(defn ^:private compile-dec-encode [compile ?values special-args]
-  (|do [:let [(&/$Item ?input (&/$End)) ?values]
-        ^MethodVisitor *writer* &/get-writer
-        _ (compile ?input)
-        :let [_ (doto *writer*
-                  &&/unwrap-double
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Double" "toString" "(D)Ljava/lang/String;"))]]
-    (return nil)))
-
-(defn ^:private compile-dec-decode [compile ?values special-args]
-  (|do [:let [(&/$Item ?input (&/$End)) ?values]
-        ^MethodVisitor *writer* &/get-writer
-        _ (compile ?input)
-        :let [_ (doto *writer*
-                  (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String")
-                  (.visitMethodInsn Opcodes/INVOKESTATIC &rt/runtime-class "decode_dec" "(Ljava/lang/String;)[Ljava/lang/Object;"))]]
-    (return nil)))
-
 (defn ^:private compile-int-char [compile ?values special-args]
   (|do [:let [(&/$Item ?x (&/$End)) ?values]
         ^MethodVisitor *writer* &/get-writer
@@ -459,8 +441,6 @@
       "="      (compile-dec-eq compile ?values special-args)
       "<"      (compile-dec-lt compile ?values special-args)
       "i64"    (compile-dec-int compile ?values special-args)
-      "encode" (compile-dec-encode compile ?values special-args)
-      "decode" (compile-dec-decode compile ?values special-args)
       )
 
     ;; else

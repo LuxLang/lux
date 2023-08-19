@@ -167,27 +167,6 @@
   ["f64" "<"] analyse-f64-lt  &type/Dec &type/Bit
   )
 
-(do-template [<encode> <encode-op> <decode> <decode-op> <type>]
-  (do (defn- <encode> [analyse exo-type ?values]
-        (|do [:let [(&/$Item x (&/$End)) ?values]
-              =x (&&/analyse-1 analyse <type> x)
-              _ (&type/check exo-type &type/Text)
-              _location &/location]
-          (return (&/|list (&&/|meta exo-type _location
-                                     (&&/$proc (&/T <encode-op>) (&/|list =x) (&/|list)))))))
-
-    (let [decode-type (&/$Apply <type> &type/Maybe)]
-      (defn- <decode> [analyse exo-type ?values]
-        (|do [:let [(&/$Item x (&/$End)) ?values]
-              =x (&&/analyse-1 analyse &type/Text x)
-              _ (&type/check exo-type decode-type)
-              _location &/location]
-          (return (&/|list (&&/|meta exo-type _location
-                                     (&&/$proc (&/T <decode-op>) (&/|list =x) (&/|list)))))))))
-
-  analyse-f64-encode ["f64" "encode"] analyse-f64-decode ["f64" "decode"] &type/Dec
-  )
-
 (do-template [<name> <from-type> <to-type> <op>]
   (defn- <name> [analyse exo-type ?values]
     (|do [:let [(&/$Item x (&/$End)) ?values]
@@ -240,7 +219,7 @@
 
                    "f64_+#" "f64_-#" "f64_*#" "f64_/#" "f64_%#"
                    "f64_=#" "f64_<#"
-                   "f64_int#" "f64_encoded#" "f64_decoded#"}]
+                   "f64_int#"}]
   (defn uses_new_format? [extension]
     (if (extensions extension)
       true
@@ -292,8 +271,6 @@
          "f64_<#" (analyse-f64-lt analyse exo-type ?values)
 
          "f64_int#" (analyse-f64-int analyse exo-type ?values)
-         "f64_encoded#" (analyse-f64-encode analyse exo-type ?values)
-         "f64_decoded#" (analyse-f64-decode analyse exo-type ?values)
 
          ;; else
          (&/fail-with-loc (str "[Analyser Error] Unknown host procedure: " proc)))

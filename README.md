@@ -1,5 +1,3 @@
-[![Gitter](https://badges.gitter.im/LuxProgrammingLanguage/community.svg)](https://gitter.im/LuxProgrammingLanguage/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
-
 # What is Lux?
 
 Lux is a new programming language in the making.
@@ -85,8 +83,6 @@ Alternatively, you can use the `syntax` macro, which also offers monadic parsing
 ## Is there a community for this?
 
 We have a Discord server: https://discord.gg/YPvEGANkch
-
-Say hi at Gitter: https://gitter.im/LuxProgrammingLanguage/community
 
 Come join the forum: http://luxlang.freeforums.net/
 

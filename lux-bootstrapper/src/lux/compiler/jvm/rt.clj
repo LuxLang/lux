@@ -264,31 +264,6 @@
     (.visitInsn Opcodes/POP2) ;; Y2, X1
     ))
 
-(do-template [<name> <method> <class> <parse-method> <signature> <wrapper>]
-  (defn <name> [^ClassWriter =class]
-    (do (let [$from (new Label)
-              $to (new Label)
-              $handler (new Label)]
-          (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) <method> "(Ljava/lang/String;)[Ljava/lang/Object;" nil nil)
-            (.visitCode)
-            (.visitTryCatchBlock $from $to $handler "java/lang/Exception")
-            (.visitLabel $from)
-            (.visitVarInsn Opcodes/ALOAD 0)
-            (.visitMethodInsn Opcodes/INVOKESTATIC <class> <parse-method> <signature>)
-            <wrapper>
-            (.visitMethodInsn Opcodes/INVOKESTATIC runtime-class "make_some" "(Ljava/lang/Object;)[Ljava/lang/Object;")
-            (.visitInsn Opcodes/ARETURN)
-            (.visitLabel $to)
-            (.visitLabel $handler)
-            (.visitMethodInsn Opcodes/INVOKESTATIC runtime-class "make_none" "()[Ljava/lang/Object;")
-            (.visitInsn Opcodes/ARETURN)
-            (.visitMaxs 0 0)
-            (.visitEnd)))
-      nil))
-
-  ^:private compile-Runtime-dec-methods "decode_dec" "java/lang/Double" "parseDouble" "(Ljava/lang/String;)D" &&/wrap-double
-  )
-
 (defn peekI [^MethodVisitor writer]
   (doto writer
     (.visitLdcInsn (int 0))
@@ -429,7 +404,6 @@
                     (.visitEnd)))
               _ (doto =class
                   (compile-Runtime-pm-methods)
-                  (compile-Runtime-adt-methods)
-                  (compile-Runtime-dec-methods))]]
+                  (compile-Runtime-adt-methods))]]
     (&&/save-class! (-> &&/lux-utils-class (string/split #"/") (nth 2))
                     (.toByteArray (doto =class .visitEnd)))))

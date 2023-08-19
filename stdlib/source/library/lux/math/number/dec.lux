@@ -499,37 +499,107 @@
   [maximum        ..max (..* -1.0 ..biggest)]
   )
 
-(the .public cannot_decode
+(the .public cannot_project
   Error
   (location.with (location.here)
     "Cannot decode."))
 
+(the (decimal#encoded it)
+  (-> Dec
+      Text)
+  (<| (as Text)
+      (for .jvm
+           (|> it
+               ..!double
+               ["D"]
+               (.jvm_member_invoke_static# [] "java.lang.Double" "toString" []))
+           
+           .js
+           (.js_object_do# "toString" it [])
+
+           .lua
+           (.lua_apply# (.lua_constant# "string.format") ["%.17g" it])
+
+           .python
+           (.python_apply# (.python_constant# "repr") [it])
+
+           .ruby
+           (.ruby_object_do# "to_s" it []))))
+
+(the with_projection_error
+  (template (_ ,it)
+    [(when (try ,it)
+       {try.#Failure _}
+       {try.#Failure ..cannot_project}
+
+       success
+       success)]))
+
 (the .public decimal
   (Codec Text Dec)
   (implementation
-   (the (encoded x)
-     (when x
-       -0.0 (let [output (.f64_encoded# x)]
+   (the (encoded it)
+     (when it
+       -0.0 (let [output (decimal#encoded it)]
               (if (text.starts_with? "-" output)
                 output
                 (.text_composite# "+" output)))
-       _ (if (..< +0.0 x)
-           (.f64_encoded# x)
-           (.text_composite# "+" (.f64_encoded# x)))))
+       _ (if (..< +0.0 it)
+           (decimal#encoded it)
+           (.text_composite# "+" (decimal#encoded it)))))
 
-   (the (decoded input)
-     (when (.f64_decoded# input)
-       {.#Some value}
-       {try.#Success value}
+   (the (decoded it)
+     (for .jvm
+          (|> it
+              (as (Nominal "java.lang.String"))
+              .jvm_object_cast#
+              ["Ljava/lang/String;"]
+              (.jvm_member_invoke_static# [] "java.lang.Double" "parseDouble" [])
+              ..!dec
+              with_projection_error)
 
-       {.#None}
-       {try.#Failure ..cannot_decode}))))
+          .js
+          (|> (.js_apply# (.js_constant# "parseFloat") [it])
+              (as Dec)
+              with_projection_error)
+
+          .lua
+          (|> (.lua_apply# (.lua_constant# "tonumber") [it])
+              (as Dec)
+              with_projection_error)
+
+          .python
+          (|> (.python_apply# (.python_constant# "float") [it])
+              (as Dec)
+              with_projection_error)
+
+          .ruby
+          (let [projection (as Dec (.ruby_object_do# "to_f" it []))]
+            (with_expansions [,success {try.#Success projection}]
+              (if (..= +0.0 projection)
+                (when it
+                  "0" ,success
+                  "+0" ,success
+                  "-0" ,success
+                  
+                  ".0" ,success
+                  "+.0" ,success
+                  "-.0" ,success
+                  
+                  "0.0" ,success
+                  "+0.0" ,success
+                  "-0.0" ,success
+
+                  ... else
+                  {try.#Failure ..cannot_project})
+                ,success)))))))
 
 (the log/2
   (-> Dec
       Dec)
-  (|>> ..log
-       (../ (..log +2.0))))
+  (let [base (..log +2.0)]
+    (|>> ..log
+         (../ base))))
 
 (the double_bias Nat 1023)
 
@@ -797,13 +867,16 @@
               (try#each <of>))
           
           _
-          {try.#Failure ..cannot_decode}))))]
+          {try.#Failure ..cannot_project}))))]
 
   ... https://en.wikipedia.org/wiki/Degree_(angle)
   [+360.0 "°" degree as_degree of_degree]
 
+  ... https://en.wikipedia.org/wiki/Gradian
+  [+400.0 "g" gradian as_gradian of_gradian]
+
   ... https://en.wikipedia.org/wiki/Percentage
-  [+100.0 "%" percentage as_percentage of_percentage]
+  [+00,100.0 "%" percentage as_percentage of_percentage]
 
   ... https://en.wikipedia.org/wiki/Per_mille
   [+01,000.0 "‰" permille as_permille of_permille]
