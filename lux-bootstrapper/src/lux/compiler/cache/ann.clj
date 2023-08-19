@@ -37,10 +37,10 @@
     (str "I" value stop)
 
     [_ (&/$Rev value)]
-    (str "D" value stop)
+    (str "R" value stop)
 
-    [_ (&/$Frac value)]
-    (str "F" value stop)
+    [_ (&/$Dec value)]
+    (str "D" value stop)
 
     [_ (&/$Text value)]
     (str "T" value stop)
@@ -75,8 +75,8 @@
   ^:private deserialize-bit  "B" &/$Bit  Boolean/parseBoolean
   ^:private deserialize-nat  "N" &/$Nat  Long/parseLong
   ^:private deserialize-int  "I" &/$Int  Long/parseLong
-  ^:private deserialize-rev  "D" &/$Rev  Long/parseLong
-  ^:private deserialize-frac "F" &/$Frac Double/parseDouble
+  ^:private deserialize-rev  "R" &/$Rev  Long/parseLong
+  ^:private deserialize-dec  "D" &/$Dec  Double/parseDouble
   ^:private deserialize-text "T" &/$Text identity
   )
 
@@ -118,7 +118,7 @@
       (deserialize-nat input)
       (deserialize-int input)
       (deserialize-rev input)
-      (deserialize-frac input)
+      (deserialize-dec input)
       (deserialize-text input)
       (deserialize-identifier input)
       (deserialize-form input)

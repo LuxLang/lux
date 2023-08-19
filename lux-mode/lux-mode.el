@@ -358,7 +358,7 @@ Called by `imenu--generic-function'."
 		   (integer (concat sign natural))
 		   (bitRE (literal (altRE "#0" "#1")))
 		   (natRE (literal natural))
-		   (int&fracRE (literal (concat integer "\\(\\." natural "\\(\\(e\\|E\\)" integer "\\)?\\)?")))
+		   (int&decRE (literal (concat integer "\\(\\." natural "\\(\\(e\\|E\\)" integer "\\)?\\)?")))
 		   (revRE (literal (concat "\\." natural)))
 		   (specialRE (let (;; Control
 							(control//flow (altRE "when" "exec" "let" "cond" "loop" "do" "be"
@@ -458,7 +458,7 @@ Called by `imenu--generic-function'."
 		   (labelRE (concat global_prefix (+class identifier_h|label) (-class identifier_t) "+"))
 		   (literalRE (altRE bitRE ;; Bit literals
 							 natRE ;; Nat literals
-							 int&fracRE ;; Int literals && Frac literals
+							 int&decRE ;; Int literals && Dec literals
 							 revRE ;; Rev literals
 							 )))
 	  `(;; Special forms

@@ -44,7 +44,7 @@
 (def Nat (&/$Named (&/T [&/prelude "Nat"]) (&/$Nominal "#I64" (&/|list (&/$Nominal &&host/nat-data-tag &/$End)))))
 (def Int (&/$Named (&/T [&/prelude "Int"]) (&/$Nominal "#I64" (&/|list (&/$Nominal &&host/int-data-tag &/$End)))))
 (def Rev (&/$Named (&/T [&/prelude "Rev"]) (&/$Nominal "#I64" (&/|list (&/$Nominal &&host/rev-data-tag &/$End)))))
-(def Frac (&/$Named (&/T [&/prelude "Frac"]) (&/$Nominal "#Frac" &/$End)))
+(def Dec (&/$Named (&/T [&/prelude "Dec"]) (&/$Nominal "#Dec" &/$End)))
 (def Text (&/$Named (&/T [&/prelude "Text"]) (&/$Nominal "#Text" &/$End)))
 (def Symbol (&/$Named (&/T [&/prelude "Symbol"]) (&/$Product Text Text)))
 

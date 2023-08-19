@@ -19,7 +19,7 @@
   ("NatTotal" 2)
   ("IntTotal" 2)
   ("RevTotal" 2)
-  ("FracTotal" 2)
+  ("DecTotal" 2)
   ("TextTotal" 2)
   ("TupleTotal" 2)
   ("VariantTotal" 2))
@@ -31,7 +31,7 @@
   ("NatTestAC" 1)
   ("IntTestAC" 1)
   ("RevTestAC" 1)
-  ("FracTestAC" 1)
+  ("DecTestAC" 1)
   ("TextTestAC" 1)
   ("TupleTestAC" 1)
   ("VariantTestAC" 1))
@@ -335,10 +335,10 @@
             =kont kont]
         (return (&/T [($RevTestAC ?value) =kont])))
       
-      (&/$Frac ?value)
-      (|do [_ (&type/check value-type &type/Frac)
+      (&/$Dec ?value)
+      (|do [_ (&type/check value-type &type/Dec)
             =kont kont]
-        (return (&/T [($FracTestAC ?value) =kont])))
+        (return (&/T [($DecTestAC ?value) =kont])))
 
       (&/$Text ?value)
       (|do [_ (&type/check value-type &type/Text)
@@ -436,8 +436,8 @@
 ;;       [($RevTotal total? ?values) ($NoTestAC)]
 ;;       (return ($RevTotal true ?values))
 
-;;       [($FracTotal total? ?values) ($NoTestAC)]
-;;       (return ($FracTotal true ?values))
+;;       [($DecTotal total? ?values) ($NoTestAC)]
+;;       (return ($DecTotal true ?values))
 
 ;;       [($TextTotal total? ?values) ($NoTestAC)]
 ;;       (return ($TextTotal true ?values))
@@ -463,8 +463,8 @@
 ;;       [($RevTotal total? ?values) ($StoreTestAC ?idx)]
 ;;       (return ($RevTotal true ?values))
 
-;;       [($FracTotal total? ?values) ($StoreTestAC ?idx)]
-;;       (return ($FracTotal true ?values))
+;;       [($DecTotal total? ?values) ($StoreTestAC ?idx)]
+;;       (return ($DecTotal true ?values))
 
 ;;       [($TextTotal total? ?values) ($StoreTestAC ?idx)]
 ;;       (return ($TextTotal true ?values))
@@ -499,11 +499,11 @@
 ;;       [($RevTotal total? ?values) ($RevTestAC ?value)]
 ;;       (return ($RevTotal total? (&/$Item ?value ?values)))
 
-;;       [($DefaultTotal total?) ($FracTestAC ?value)]
-;;       (return ($FracTotal total? (&/|list ?value)))
+;;       [($DefaultTotal total?) ($DecTestAC ?value)]
+;;       (return ($DecTotal total? (&/|list ?value)))
 
-;;       [($FracTotal total? ?values) ($FracTestAC ?value)]
-;;       (return ($FracTotal total? (&/$Item ?value ?values)))
+;;       [($DecTotal total? ?values) ($DecTestAC ?value)]
+;;       (return ($DecTotal total? (&/$Item ?value ?values)))
 
 ;;       [($DefaultTotal total?) ($TextTestAC ?value)]
 ;;       (return ($TextTotal total? (&/|list ?value)))
@@ -586,8 +586,8 @@
 ;;     (|do [_ (&type/check value-type &type/Rev)]
 ;;       (return ?total))
 
-;;     ($FracTotal ?total _)
-;;     (|do [_ (&type/check value-type &type/Frac)]
+;;     ($DecTotal ?total _)
+;;     (|do [_ (&type/check value-type &type/Dec)]
 ;;       (return ?total))
 
 ;;     ($TextTotal ?total _)

@@ -82,7 +82,7 @@
   ("Nat" 1)
   ("Int" 1)
   ("Rev" 1)
-  ("Frac" 1)
+  ("Dec" 1)
   ("Text" 1)
   ("Identifier" 1)
   ("Form" 1)
@@ -1262,7 +1262,7 @@
     [_ ($Rev ?value)]
     (encode-rev ?value)
 
-    [_ ($Frac ?value)]
+    [_ ($Dec ?value)]
     (pr-str ?value)
 
     [_ ($Text ?value)]

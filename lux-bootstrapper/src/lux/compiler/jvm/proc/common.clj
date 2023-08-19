@@ -111,11 +111,11 @@
   ^:private compile-int-div   Opcodes/LDIV &&/unwrap-long &&/wrap-long
   ^:private compile-int-rem   Opcodes/LREM &&/unwrap-long &&/wrap-long
   
-  ^:private compile-frac-add  Opcodes/DADD &&/unwrap-double &&/wrap-double
-  ^:private compile-frac-sub  Opcodes/DSUB &&/unwrap-double &&/wrap-double
-  ^:private compile-frac-mul  Opcodes/DMUL &&/unwrap-double &&/wrap-double
-  ^:private compile-frac-div  Opcodes/DDIV &&/unwrap-double &&/wrap-double
-  ^:private compile-frac-rem  Opcodes/DREM &&/unwrap-double &&/wrap-double
+  ^:private compile-dec-add  Opcodes/DADD &&/unwrap-double &&/wrap-double
+  ^:private compile-dec-sub  Opcodes/DSUB &&/unwrap-double &&/wrap-double
+  ^:private compile-dec-mul  Opcodes/DMUL &&/unwrap-double &&/wrap-double
+  ^:private compile-dec-div  Opcodes/DDIV &&/unwrap-double &&/wrap-double
+  ^:private compile-dec-rem  Opcodes/DREM &&/unwrap-double &&/wrap-double
   )
 
 (do-template [<name> <cmpcode> <cmp-output> <unwrap>]
@@ -145,11 +145,11 @@
   
   ^:private compile-int-lt  Opcodes/LCMP  -1 &&/unwrap-long
 
-  ^:private compile-frac-eq Opcodes/DCMPG  0 &&/unwrap-double
-  ^:private compile-frac-lt Opcodes/DCMPG -1 &&/unwrap-double
+  ^:private compile-dec-eq Opcodes/DCMPG  0 &&/unwrap-double
+  ^:private compile-dec-lt Opcodes/DCMPG -1 &&/unwrap-double
   )
 
-(defn ^:private compile-frac-encode [compile ?values special-args]
+(defn ^:private compile-dec-encode [compile ?values special-args]
   (|do [:let [(&/$Item ?input (&/$End)) ?values]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?input)
@@ -158,13 +158,13 @@
                   (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Double" "toString" "(D)Ljava/lang/String;"))]]
     (return nil)))
 
-(defn ^:private compile-frac-decode [compile ?values special-args]
+(defn ^:private compile-dec-decode [compile ?values special-args]
   (|do [:let [(&/$Item ?input (&/$End)) ?values]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?input)
         :let [_ (doto *writer*
                   (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String")
-                  (.visitMethodInsn Opcodes/INVOKESTATIC &rt/runtime-class "decode_frac" "(Ljava/lang/String;)[Ljava/lang/Object;"))]]
+                  (.visitMethodInsn Opcodes/INVOKESTATIC &rt/runtime-class "decode_dec" "(Ljava/lang/String;)[Ljava/lang/Object;"))]]
     (return nil)))
 
 (defn ^:private compile-int-char [compile ?values special-args]
@@ -189,8 +189,8 @@
                     <wrap>)]]
       (return nil)))
 
-  ^:private compile-frac-int &&/unwrap-double Opcodes/D2L &&/wrap-long
-  ^:private compile-int-frac &&/unwrap-long   Opcodes/L2D &&/wrap-double
+  ^:private compile-dec-int &&/unwrap-double Opcodes/D2L &&/wrap-long
+  ^:private compile-int-dec &&/unwrap-long   Opcodes/L2D &&/wrap-double
   )
 
 (defn ^:private compile-text-eq [compile ?values special-args]
@@ -445,22 +445,22 @@
       "/"           (compile-int-div compile ?values special-args)
       "%"           (compile-int-rem compile ?values special-args)
       "<"           (compile-int-lt compile ?values special-args)
-      "f64"         (compile-int-frac compile ?values special-args)
+      "f64"         (compile-int-dec compile ?values special-args)
       "char"        (compile-int-char compile ?values special-args)
       )
     
     "f64"
     (case proc
-      "+"      (compile-frac-add compile ?values special-args)
-      "-"      (compile-frac-sub compile ?values special-args)
-      "*"      (compile-frac-mul compile ?values special-args)
-      "/"      (compile-frac-div compile ?values special-args)
-      "%"      (compile-frac-rem compile ?values special-args)
-      "="      (compile-frac-eq compile ?values special-args)
-      "<"      (compile-frac-lt compile ?values special-args)
-      "i64"    (compile-frac-int compile ?values special-args)
-      "encode" (compile-frac-encode compile ?values special-args)
-      "decode" (compile-frac-decode compile ?values special-args)
+      "+"      (compile-dec-add compile ?values special-args)
+      "-"      (compile-dec-sub compile ?values special-args)
+      "*"      (compile-dec-mul compile ?values special-args)
+      "/"      (compile-dec-div compile ?values special-args)
+      "%"      (compile-dec-rem compile ?values special-args)
+      "="      (compile-dec-eq compile ?values special-args)
+      "<"      (compile-dec-lt compile ?values special-args)
+      "i64"    (compile-dec-int compile ?values special-args)
+      "encode" (compile-dec-encode compile ?values special-args)
+      "decode" (compile-dec-decode compile ?values special-args)
       )
 
     ;; else

@@ -286,7 +286,7 @@
             (.visitEnd)))
       nil))
 
-  ^:private compile-Runtime-frac-methods "decode_frac" "java/lang/Double" "parseDouble" "(Ljava/lang/String;)D" &&/wrap-double
+  ^:private compile-Runtime-dec-methods "decode_dec" "java/lang/Double" "parseDouble" "(Ljava/lang/String;)D" &&/wrap-double
   )
 
 (defn peekI [^MethodVisitor writer]
@@ -430,6 +430,6 @@
               _ (doto =class
                   (compile-Runtime-pm-methods)
                   (compile-Runtime-adt-methods)
-                  (compile-Runtime-frac-methods))]]
+                  (compile-Runtime-dec-methods))]]
     (&&/save-class! (-> &&/lux-utils-class (string/split #"/") (nth 2))
                     (.toByteArray (doto =class .visitEnd)))))

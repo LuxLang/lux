@@ -97,7 +97,7 @@
       (.visitInsn Opcodes/LCMP)
       (.visitJumpInsn Opcodes/IFNE $else))
 
-    (&o/$FracPM _value)
+    (&o/$DecPM _value)
     (doto writer
       stack-peek
       &&/unwrap-double

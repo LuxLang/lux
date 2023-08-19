@@ -158,13 +158,13 @@
   ["i64" "%"] analyse-int-rem  &type/Int  &type/Int
   ["i64" "<"] analyse-int-lt   &type/Int  &type/Bit
 
-  ["f64" "+"] analyse-f64-add &type/Frac &type/Frac
-  ["f64" "-"] analyse-f64-sub &type/Frac &type/Frac
-  ["f64" "*"] analyse-f64-mul &type/Frac &type/Frac
-  ["f64" "/"] analyse-f64-div &type/Frac &type/Frac
-  ["f64" "%"] analyse-f64-rem &type/Frac &type/Frac
-  ["f64" "="] analyse-f64-eq  &type/Frac &type/Bit
-  ["f64" "<"] analyse-f64-lt  &type/Frac &type/Bit
+  ["f64" "+"] analyse-f64-add &type/Dec &type/Dec
+  ["f64" "-"] analyse-f64-sub &type/Dec &type/Dec
+  ["f64" "*"] analyse-f64-mul &type/Dec &type/Dec
+  ["f64" "/"] analyse-f64-div &type/Dec &type/Dec
+  ["f64" "%"] analyse-f64-rem &type/Dec &type/Dec
+  ["f64" "="] analyse-f64-eq  &type/Dec &type/Bit
+  ["f64" "<"] analyse-f64-lt  &type/Dec &type/Bit
   )
 
 (do-template [<encode> <encode-op> <decode> <decode-op> <type>]
@@ -185,7 +185,7 @@
           (return (&/|list (&&/|meta exo-type _location
                                      (&&/$proc (&/T <decode-op>) (&/|list =x) (&/|list)))))))))
 
-  analyse-f64-encode ["f64" "encode"] analyse-f64-decode ["f64" "decode"] &type/Frac
+  analyse-f64-encode ["f64" "encode"] analyse-f64-decode ["f64" "decode"] &type/Dec
   )
 
 (do-template [<name> <from-type> <to-type> <op>]
@@ -197,12 +197,12 @@
       (return (&/|list (&&/|meta exo-type _location
                                  (&&/$proc (&/T <op>) (&/|list =x) (&/|list)))))))
 
-  analyse-int-char  &type/Int  &type/Text   ["i64" "char"]
-  analyse-int-frac  &type/Int  &type/Frac   ["i64" "f64"]
-  analyse-f64-int  &type/Frac &type/Int    ["f64" "i64"]
+  analyse-int-char &type/Int  &type/Text   ["i64" "char"]
+  analyse-int-dec  &type/Int  &type/Dec   ["i64" "f64"]
+  analyse-f64-int  &type/Dec  &type/Int    ["f64" "i64"]
 
-  analyse-io-log    &type/Text &type/Any    ["io" "log"]
-  analyse-io-error  &type/Text &type/Nothing ["io" "error"]
+  analyse-io-log   &type/Text &type/Any    ["io" "log"]
+  analyse-io-error &type/Text &type/Nothing ["io" "error"]
   )
 
 (defn- analyse-syntax-char-case! [analyse exo-type ?values]
@@ -280,7 +280,7 @@
          "int_%#" (analyse-int-rem analyse exo-type ?values)
          "int_<#" (analyse-int-lt analyse exo-type ?values)
 
-         "int_f64#" (analyse-int-frac analyse exo-type ?values)
+         "int_f64#" (analyse-int-dec analyse exo-type ?values)
          "int_char#" (analyse-int-char analyse exo-type ?values)
          
          "f64_+#" (analyse-f64-add analyse exo-type ?values)

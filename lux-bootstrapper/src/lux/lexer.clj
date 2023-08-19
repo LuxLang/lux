@@ -16,7 +16,7 @@
   ("Nat" 1)
   ("Int" 1)
   ("Rev" 1)
-  ("Frac" 1)
+  ("Dec" 1)
   ("Text" 1)
   ("Identifier" 1)
   ("Open_Paren" 0)
@@ -61,10 +61,10 @@
     (|do [[meta _ token] (&reader/read-regex <regex>)]
       (return (&/T [meta (<tag> (string/replace token #"," ""))]))))
 
-  lex-nat  $Nat  #"^[0-9][0-9,]*"
-  lex-int  $Int  #"^(-|\+)[0-9][0-9,]*"
-  lex-rev  $Rev  #"^\.[0-9][0-9,]*"
-  lex-frac $Frac #"^(-|\+)[0-9][0-9,]*\.[0-9][0-9,]*((e|E)(-|\+)[0-9][0-9,]*)?"
+  lex-nat $Nat #"^[0-9][0-9,]*"
+  lex-int $Int #"^(-|\+)[0-9][0-9,]*"
+  lex-rev $Rev #"^\.[0-9][0-9,]*"
+  lex-dec $Dec #"^(-|\+)[0-9][0-9,]*\.[0-9][0-9,]*((e|E)(-|\+)[0-9][0-9,]*)?"
   )
 
 (def +same-module-mark+ (str &/+name-separator+ &/+name-separator+))
@@ -125,7 +125,7 @@
                         lex-comment
                         lex-bit
                         lex-nat
-                        lex-frac
+                        lex-dec
                         lex-rev
                         lex-int
                         lex-text

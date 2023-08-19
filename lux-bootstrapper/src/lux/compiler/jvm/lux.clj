@@ -40,10 +40,10 @@
                     (.visitMethodInsn Opcodes/INVOKESTATIC <class> "valueOf" (str "(" <prim> ")" (&host-generics/->type-signature <class>))))]]
       (return nil)))
 
-  compile-nat  "java/lang/Long"      "J" long
-  compile-int  "java/lang/Long"      "J" long
-  compile-rev "java/lang/Long"      "J" long
-  compile-frac "java/lang/Double"    "D" double
+  compile-nat "java/lang/Long"   "J" long
+  compile-int "java/lang/Long"   "J" long
+  compile-rev "java/lang/Long"   "J" long
+  compile-dec "java/lang/Double" "D" double
   )
 
 (defn compile-text [?value]

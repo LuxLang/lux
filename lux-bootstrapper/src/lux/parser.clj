@@ -62,8 +62,8 @@
       (&lexer/$Rev ?value)
       (return (&/|list (&/T [meta (&/$Rev (&/decode-rev ?value))])))
 
-      (&lexer/$Frac ?value)
-      (return (&/|list (&/T [meta (&/$Frac (Double/parseDouble ?value))])))
+      (&lexer/$Dec ?value)
+      (return (&/|list (&/T [meta (&/$Dec (Double/parseDouble ?value))])))
 
       (&lexer/$Text ?value)
       (return (&/|list (&/T [meta (&/$Text ?value)])))

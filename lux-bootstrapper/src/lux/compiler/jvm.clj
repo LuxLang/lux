@@ -62,8 +62,8 @@
         (&o/$rev ?value)
         (&&lux/compile-rev ?value)
 
-        (&o/$frac ?value)
-        (&&lux/compile-frac ?value)
+        (&o/$dec ?value)
+        (&&lux/compile-dec ?value)
 
         (&o/$text ?value)
         (&&lux/compile-text ?value)

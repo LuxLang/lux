@@ -13,7 +13,7 @@
   ("nat" 1)
   ("int" 1)
   ("rev" 1)
-  ("frac" 1)
+  ("dec" 1)
   ("text" 1)
   ("variant" 3)
   ("tuple" 1)
@@ -76,8 +76,8 @@
   ("IntPM" 1)
   ;; Compare the CDN with a revolution value.
   ("RevPM" 1)
-  ;; Compare the CDN with a frac value.
-  ("FracPM" 1)
+  ;; Compare the CDN with a dec value.
+  ("DecPM" 1)
   ;; Compare the CDN with a text value.
   ("TextPM" 1)
   ;; Compare the CDN with a variant value. If valid, proceed to test
@@ -193,8 +193,8 @@
     (&/|list ($RevPM _value)
              $PopPM)
 
-    (&a-case/$FracTestAC _value)
-    (&/|list ($FracPM _value)
+    (&a-case/$DecTestAC _value)
+    (&/|list ($DecPM _value)
              $PopPM)
 
     (&a-case/$TextTestAC _value)
@@ -298,9 +298,9 @@
       ($RevPM _pre-value)
       ($AltPM pre post))
 
-    [($FracPM _pre-value) ($FracPM _post-value)]
+    [($DecPM _pre-value) ($DecPM _post-value)]
     (if (= _pre-value _post-value)
-      ($FracPM _pre-value)
+      ($DecPM _pre-value)
       ($AltPM pre post))
 
     [($TextPM _pre-value) ($TextPM _post-value)]
@@ -1029,8 +1029,8 @@
         (&a/$rev value)
         (&/T [meta ($rev value)])
         
-        (&a/$frac value)
-        (&/T [meta ($frac value)])
+        (&a/$dec value)
+        (&/T [meta ($dec value)])
         
         (&a/$text value)
         (&/T [meta ($text value)])
@@ -1177,7 +1177,7 @@
       ;; 3
       ($rev it) `(~'$rev ~it)
       ;; 4
-      ($frac it) `(~'$frac ~it)
+      ($dec it) `(~'$dec ~it)
       ;; 5
       ($text it) `(~'$text ~it)
       ;; 6

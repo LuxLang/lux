@@ -329,7 +329,7 @@
 (def ^:private lux-jvm-type-combos
   #{#{"java.lang.Boolean" "#Bit"}
     #{"java.lang.Long" i64-data-tag}
-    #{"java.lang.Double" "#Frac"}
+    #{"java.lang.Double" "#Dec"}
     #{"java.lang.String" "#Text"}})
 
 (defn ^:private lux-type? [^String class-name]

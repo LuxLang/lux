@@ -13,7 +13,7 @@
   ("nat" 1)
   ("int" 1)
   ("rev" 1)
-  ("frac" 1)
+  ("dec" 1)
   ("text" 1)
   ("variant" 3)
   ("tuple" 1)

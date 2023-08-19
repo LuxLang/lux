@@ -58,9 +58,9 @@
       (|do [_ (&type/check exo-type &type/Rev)]
         (return (&/|list (&&/|meta exo-type location (&&/$rev ?value)))))
 
-      (&/$Frac ?value)
-      (|do [_ (&type/check exo-type &type/Frac)]
-        (return (&/|list (&&/|meta exo-type location (&&/$frac ?value)))))
+      (&/$Dec ?value)
+      (|do [_ (&type/check exo-type &type/Dec)]
+        (return (&/|list (&&/|meta exo-type location (&&/$dec ?value)))))
 
       (&/$Text ?value)
       (|do [_ (&type/check exo-type &type/Text)]
