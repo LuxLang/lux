@@ -31,19 +31,21 @@
 0. Extract the variable link-ring machinery being used by both the `control/logic` and `meta/type/check` modules into its own module.
 0. Replace recursive type calls from `(0 "")` to `(0 0)`
 0. Fix bug wherein private aliases in module `A` of public definitions in module `B` are seen in module `C`, if it imports `A`.
-0. Re-name `Codec#format` to `injection` and `Codec#value` to `projection`.
+0. Re-name `Codec#format` to `injection`, and `Codec#value` to `projection`.
 0. Re-name `Codec` to `Embedding`.
    * [Embedding](https://en.wikipedia.org/wiki/Embedding)
 0. Re-name `Format` to `Injection`.
 0. Re-name `Parser` to `Projection`.
-0. Re-name Ratio to Frac(tion). Then, introduce an integer-based alternative to Frac(tion) called Rat(tional).
-   * [Fraction](https://en.wikipedia.org/wiki/Fraction)
+0. Introduce an integer-based alternative to `Frac`(tion) called `Rat`(tional).
 0. Make type-normalization no longer confuse local type parameters with globally-defined types/macros. Remove instances of `(.except left right)`.
 
 ## Done
 
-0. Re-name `check.subsumes?` to `check.subsumed?`.
-0. Get rid of `Dec` encoding/decoding default extensions.
+0. Move `abstract/mix` to `algorithm/mix`.
+0. Re-name Ratio to Frac(tion).
+   * [Fraction](https://en.wikipedia.org/wiki/Fraction)
+0. [(Commit)](https://github.com/LuxLang/lux/commit/9291b0f9e2799063ddb09d97bd0f7ebfaaac59ee) Re-name `check.subsumes?` to `check.subsumed?`.
+0. [(Commit)](https://github.com/LuxLang/lux/commit/9291b0f9e2799063ddb09d97bd0f7ebfaaac59ee) Get rid of `Dec` encoding/decoding default extensions.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/6fff5228b1b92c9ee37a27b584be10547f337782) Re-name Frac(tion) to Dec(imal).
    * [Decimal](https://en.wikipedia.org/wiki/Decimal)
 0. [(Commit)](https://github.com/LuxLang/lux/commit/6fff5228b1b92c9ee37a27b584be10547f337782) Implement polytypic counting/length via induction.

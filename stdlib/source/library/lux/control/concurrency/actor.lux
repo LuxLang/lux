@@ -29,20 +29,21 @@
 (exception.the .public poisoned)
 (exception.the .public dead)
 
-(local.let [<Mail> (template (_ Actor s)
-                     [(-> s (Actor s) (Async (Try s)))])
-            <Obituary> (template (_ Actor s)
-                         [[Text s (List (<Mail> Actor s))]])
-            <Mailbox> (template (_ Actor s)
+(local.let [<Mail> (template (_ Actor state)
+                     [(-> state (Actor state)
+                          (Async (Try state)))])
+            <Obituary> (template (_ Actor state)
+                         [[Text state (List (<Mail> Actor state))]])
+            <Mailbox> (template (_ Actor state)
                         [(Rec Mailbox
-                           [(Async [(<Mail> Actor s) Mailbox])
-                            (Resolver [(<Mail> Actor s) Mailbox])])])]
+                           [(Async [(<Mail> Actor state) Mailbox])
+                            (Resolver [(<Mail> Actor state) Mailbox])])])]
   (these (the (pending [read write])
-           (All (_ a)
+           (All (_ of)
              (-> (Rec Mailbox
-                   [(Async [a Mailbox])
-                    (Resolver [a Mailbox])])
-                 (IO (List a))))
+                   [(Async [of Mailbox])
+                    (Resolver [of Mailbox])])
+                 (IO (List of))))
            (do [! io.monad]
              [current (async.value read)]
              (when current
@@ -53,23 +54,26 @@
                {.#None}
                (in {.#End}))))
          
-         (nominal.every .public (Actor s)
+         (nominal.every .public (Actor state)
            (Record
-            [#obituary [(Async (<Obituary> Actor s))
-                        (Resolver (<Obituary> Actor s))]
-             #mailbox (Atom (<Mailbox> Actor s))])
+            [#obituary [(Async (<Obituary> Actor state))
+                        (Resolver (<Obituary> Actor state))]
+             #mailbox (Atom (<Mailbox> Actor state))])
 
-           (every .public (Mail s)
-             (<Mail> Actor s))
+           (every .public (Mail state)
+             (<Mail> Actor state))
 
-           (every .public (Obituary s)
-             (<Obituary> Actor s))
+           (every .public (Obituary state)
+             (<Obituary> Actor state))
 
-           (every .public (Behavior s)
-             (-> (Mail s) s (Actor s) (Async (Try s))))
+           (every .public (Behavior state)
+             (-> (Mail state) state (Actor state)
+                 (Async (Try state))))
 
            (the .public (spawn! behavior init)
-             (All (_ s) (-> (Behavior s) s (IO (Actor s))))
+             (All (_ state)
+               (-> (Behavior state) state
+                   (IO (Actor state))))
              (io (let [self (`` (is (Actor (,, (type_of init)))
                                     (nominal.abstraction
                                      [#obituary (async.async [])
@@ -94,7 +98,9 @@
                    self)))
 
            (the .public (alive? actor)
-             (All (_ s) (-> (Actor s) (IO Bit)))
+             (All (_ state)
+               (-> (Actor state)
+                   (IO Bit)))
              (let [[obituary _] (its #obituary (nominal.representation actor))]
                (|> obituary
                    async.value
@@ -107,18 +113,24 @@
                               bit.no))))))
 
            (the .public (obituary' actor)
-             (All (_ s) (-> (Actor s) (IO (Maybe (Obituary s)))))
+             (All (_ state)
+               (-> (Actor state)
+                   (IO (Maybe (Obituary state)))))
              (let [[obituary _] (its #obituary (nominal.representation actor))]
                (async.value obituary)))
 
            (the .public obituary
-             (All (_ s) (-> (Actor s) (Async (Obituary s))))
+             (All (_ state)
+               (-> (Actor state)
+                   (Async (Obituary state))))
              (|>> nominal.representation
                   (its #obituary)
                   product.left))
 
            (the .public (mail! mail actor)
-             (All (_ s) (-> (Mail s) (Actor s) (IO (Try Any))))
+             (All (_ state)
+               (-> (Mail state) (Actor state)
+                   (IO (Try Any))))
              (do [! io.monad]
                [alive? (..alive? actor)]
                (if alive?
@@ -142,16 +154,20 @@
                            (again |mailbox|'))))))
                  (in (exception.except ..dead [])))))
 
-           (every .public (Message s o)
-             (-> s (Actor s) (Async (Try [s o]))))
+           (every .public (Message state of)
+             (-> state (Actor state)
+                 (Async (Try [state of]))))
 
            (the (mail message)
-             (All (_ s o) (-> (Message s o) [(Async (Try o)) (Mail s)]))
-             (let [[async resolve] (sharing [s o]
-                                     (is (Message s o)
+             (All (_ state of)
+               (-> (Message state of)
+                   [(Async (Try of))
+                    (Mail state)]))
+             (let [[async resolve] (sharing [state of]
+                                     (is (Message state of)
                                          message)
-                                     (is [(Async (Try o))
-                                          (Resolver (Try o))]
+                                     (is [(Async (Try of))
+                                          (Resolver (Try of))]
                                          (async.async [])))]
                [async
                 (function (_ state self)
@@ -169,7 +185,9 @@
                         (async.resolved {try.#Failure error})))))]))
 
            (the .public (request! message actor)
-             (All (_ s o) (-> (Message s o) (Actor s) (Async (Try o))))
+             (All (_ state of)
+               (-> (Message state of) (Actor state)
+                   (Async (Try of))))
              (let [[async mail] (..mail message)]
                (do async.monad
                  [outcome (async.future (..mail! mail actor))]
@@ -187,7 +205,9 @@
     (mail state self)))
 
 (the .public (poison! actor)
-  (All (_ s) (-> (Actor s) (IO (Try Any))))
+  (All (_ state)
+    (-> (Actor state)
+        (IO (Try Any))))
   (..mail! (function (_ state self)
              (async.resolved (exception.except ..poisoned [])))
            actor))
@@ -199,7 +219,9 @@
 (the stop! false)
 
 (the .public (observe! action channel actor)
-  (All (_ r w s) (-> (-> r Stop (Mail s)) (Channel' r w) (Actor s) (IO Any)))
+  (All (_ read write state)
+    (-> (-> read Stop (Mail state)) (Channel' read write) (Actor state)
+        (IO Any)))
   (let [signal (is (Atom Bit)
                    (atom.atom ..continue!))
         stop (is Stop
