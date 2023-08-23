@@ -1,0 +1,158 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.require
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]
+    ["[0]" codec
+     ["[1]T" \\test]]
+    ["[0]" equivalence
+     ["[1]T" \\test]]
+    ["[0]" order
+     ["[1]T" \\test]]
+    ["[0]" monoid
+     ["[1]T" \\test]]]
+   [control
+    ["[0]" maybe (.use "[1]#[0]" functor)]
+    ["[0]" try]]
+   [data
+    ["[0]" bit (.use "[1]#[0]" equivalence)]]
+   [math
+    ["[0]" random (.only Random)]
+    ["[0]" arithmetic
+     ["[1]T" \\test]]]
+   [test
+    ["_" property (.only Test)]]]]
+ [\\library
+  ["[0]" / (.only)
+   [//
+    ["i" int (.use "[1]#[0]" equivalence)]]]])
+
+(the part
+  (Random Int)
+  (of random.monad each (i.% +1,000,000) random.int))
+
+(the .public random
+  (Random /.Rat)
+  (do random.monad
+    [numerator ..part
+     denominator ..part]
+    (in (/.ratio numerator denominator))))
+
+(the (identical? reference exemplar)
+  (-> /.Rat /.Rat
+      Bit)
+  (and (i.= (its /.#numerator reference)
+            (its /.#numerator exemplar))
+       (i.= (its /.#denominator reference)
+            (its /.#denominator exemplar))))
+
+(the (normal? it)
+  (-> /.Rat
+      Bit)
+  (identical? it (/.normal it)))
+
+(the .public test
+  Test
+  (<| (_.covering /._)
+      (_.for [/.Rat
+              /.#numerator /.#denominator])
+      (`` (all _.and
+               (_.for [/.equivalence /.=]
+                      (equivalenceT.spec /.equivalence ..random))
+               (_.for [/.order /.<]
+                      (orderT.spec /.order ..random))
+               (,, (with_template [<composite> <monoid>]
+                     [(_.for [<monoid> <composite>]
+                             (monoidT.spec /.equivalence <monoid> ..random))]
+
+                     [/.+ /.addition]
+                     [/.* /.multiplication]
+                     ))
+               (_.for [/.codec]
+                      (codecT.spec /.equivalence /.codec ..random))
+               (_.for [/.arithmetic]
+                      (arithmeticT.spec /.equivalence /.arithmetic ..random))
+
+               (do random.monad
+                 [.let [(open "/#[0]") /.equivalence]
+                  denom/0 ..part
+                  denom/1 ..part]
+                 (_.coverage [/.ratio]
+                   (/#= (/.ratio +0 denom/0)
+                        (/.ratio +0 denom/1))))
+               (do [! random.monad]
+                 [.let [(open "/#[0]") /.equivalence]
+                  before_normal (random.and ..part ..part)]
+                 (_.coverage [/.normal]
+                   (or (normal? before_normal)
+                       (let [it (/.normal before_normal)]
+                         (and (normal? it)
+                              (/#= before_normal it))))))
+               (do random.monad
+                 [numerator ..part
+                  denominator (random.only (|>> (i#= +1) not)
+                                           ..part)]
+                 (_.coverage [/.int]
+                   (let [only_numerator!
+                         (|> (/.ratio numerator)
+                             /.int
+                             (maybe#each (i#= numerator))
+                             (maybe.else false))
+
+                         denominator_1!
+                         (|> (/.ratio numerator +1)
+                             /.int
+                             (maybe#each (i#= numerator))
+                             (maybe.else false))
+
+                         with_denominator!
+                         (when (/.int (/.ratio numerator denominator))
+                           {try.#Success factor}
+                           (and (i.= +0 (i.% denominator numerator))
+                                (i.= numerator (i.* factor denominator)))
+                           
+                           {try.#Failure _}
+                           (not (i.= +0 (i.% denominator numerator))))]
+                     (and only_numerator!
+                          denominator_1!
+                          with_denominator!))))
+               (do random.monad
+                 [sample ..random]
+                 (all _.and
+                      (_.coverage [/.-]
+                        (and (/.= (/.ratio +0) (/.- sample sample))
+                             (/.= sample (/.- (/.ratio +0) sample))))
+                      (_.coverage [/./]
+                        (and (/.= (/.ratio +1) (/./ sample sample))
+                             (/.= sample (/./ (/.ratio +1) sample))))
+                      (_.coverage [/.reciprocal]
+                        (/.= (/.ratio +1)
+                             (/.* sample (/.reciprocal sample))))
+                      ))
+               (do random.monad
+                 [left (random.only (|>> (/.= (/.ratio +0)) not)
+                                    ..random)
+                  right ..random]
+                 (_.coverage [/.%]
+                   (let [rem (/.% left right)
+                         div (|> right (/.- rem) (/./ left))]
+                     (and (/.= right
+                               (|> div (/.* left) (/.+ rem)))
+                          (when (/.int div)
+                            {try.#Success _} true
+                            {try.#Failure _} false)))))
+               (do random.monad
+                 [left ..random
+                  right ..random]
+                 (all _.and
+                      (_.coverage [/.>]
+                        (bit#= (/.> left right)
+                               (/.< right left)))
+                      (_.coverage [/.<= /.>=]
+                        (bit#= (/.<= left right)
+                               (/.>= right left)))
+                      ))
+               ))))

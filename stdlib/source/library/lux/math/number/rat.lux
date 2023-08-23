@@ -1,0 +1,229 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+... [Rational number](https://en.wikipedia.org/wiki/Rational_number)
+(.require
+ [library
+  [lux (.except int)
+   [abstract
+    [equivalence (.only Equivalence)]
+    [order (.only Order)]
+    [monoid (.only Monoid)]
+    [codec (.only Codec)]
+    [monad (.only do)]]
+   [control
+    ["<>" projection]
+    ["[0]" function]
+    ["[0]" maybe]
+    ["[0]" try (.only Try)]
+    [function
+     [predicate (.only Predicate)]]]
+   [data
+    ["[0]" product]
+    ["[0]" text (.use "[1]#[0]" monoid)]]
+   [meta
+    ["[0]" location]
+    ["[0]" code (.only)
+     ["<[1]>" \\projection]]
+    [macro
+     [syntax (.only syntax)]]]]]
+ [//
+  ["i" int (.use "[1]#[0]" decimal)]
+  [//
+   [arithmetic (.only Arithmetic)]]])
+
+(every .public Rat
+  (Record
+   [#numerator Int
+    #denominator Int]))
+
+(the .public not_an_int
+  Error
+  (location.with (location.here)
+    "Not an integer."))
+
+(the .public (int value)
+  (-> Rat
+      (Try Int))
+  (when (its #denominator value)
+    +1 {try.#Success (its #numerator value)}
+    _ {try.#Failure ..not_an_int}))
+
+(the .public (normal (open "/[0]"))
+  (-> Rat
+      Rat)
+  (let [common (i.gcd /#numerator /#denominator)]
+    [..#numerator (i./ common /#numerator)
+     ..#denominator (i./ common /#denominator)]))
+
+(the .public ratio
+  (syntax (_ [numerator <code>.any
+              ?denominator (<>.maybe <code>.any)])
+    (in (list (` (normal [..#numerator (, numerator)
+                          ..#denominator (, (maybe.else (' +1) ?denominator))]))))))
+
+(the .public (= parameter subject)
+  (-> Rat Rat
+      Bit)
+  (i.= (i.* (its #numerator parameter)
+            (its #denominator subject))
+       (i.* (its #denominator parameter)
+            (its #numerator subject))))
+
+(the .public equivalence
+  (Equivalence Rat)
+  (implementation
+   (the = ..=)))
+
+(the (equalized parameter subject)
+  (-> Rat Rat
+      [Int Int])
+  [(i.* (its #denominator subject)
+        (its #numerator parameter))
+   (i.* (its #denominator parameter)
+        (its #numerator subject))])
+
+(the .public (< parameter subject)
+  (-> Rat Rat
+      Bit)
+  (let [[parameter' subject'] (..equalized parameter subject)]
+    (i.< parameter' subject')))
+
+(the .public (<= parameter subject)
+  (-> Rat Rat
+      Bit)
+  (or (< parameter subject)
+      (= parameter subject)))
+
+(the .public (> parameter subject)
+  (-> Rat Rat
+      Bit)
+  (..< subject parameter))
+
+(the .public (>= parameter subject)
+  (-> Rat Rat
+      Bit)
+  (or (> parameter subject)
+      (= parameter subject)))
+
+(the .public order
+  (Order Rat)
+  (implementation
+   (the equivalence ..equivalence)
+   (the < ..<)))
+
+(the .public (+ parameter subject)
+  (-> Rat Rat
+      Rat)
+  (let [[parameter' subject'] (..equalized parameter subject)]
+    (normal [(i.+ parameter' subject')
+             (i.* (its #denominator parameter)
+                  (its #denominator subject))])))
+
+(the .public (- parameter subject)
+  (-> Rat Rat
+      Rat)
+  (let [[parameter' subject'] (..equalized parameter subject)]
+    (normal [(i.- parameter' subject')
+             (i.* (its #denominator parameter)
+                  (its #denominator subject))])))
+
+(the .public (* parameter subject)
+  (-> Rat Rat
+      Rat)
+  (normal [(i.* (its #numerator parameter)
+                (its #numerator subject))
+           (i.* (its #denominator parameter)
+                (its #denominator subject))]))
+
+(the .public (/ parameter subject)
+  (-> Rat Rat
+      Rat)
+  (let [[parameter' subject'] (..equalized parameter subject)]
+    (normal [subject' parameter'])))
+
+(the .public (% parameter subject)
+  (-> Rat Rat
+      Rat)
+  (let [[parameter' subject'] (..equalized parameter subject)
+        quot (i./ parameter' subject')]
+    (..- (revised #numerator (i.* quot) parameter)
+         subject)))
+
+(the .public arithmetic
+  (Arithmetic Rat)
+  (implementation
+   (the + ..+)
+   (the - ..-)
+   (the * ..*)
+   (the / ../)))
+
+(the .public (reciprocal (open "/[0]"))
+  (-> Rat
+      Rat)
+  [..#numerator /#denominator
+   ..#denominator /#numerator])
+
+(the separator "/")
+
+(the .public codec
+  (Codec Text Rat)
+  (implementation
+   (the (injection (open "/[0]"))
+     (all text#composite
+          (i#injection /#numerator)
+          ..separator (i#injection /#denominator)))
+
+   (the (projection input)
+     (when (text.split_by ..separator input)
+       {.#Some [num denom]}
+       (do try.monad
+         [numerator (i#projection num)
+          denominator (i#projection denom)]
+         (in (normal [#numerator numerator
+                      #denominator denominator])))
+       
+       {.#None}
+       {.#Left (text#composite "Invalid syntax for ratio: " input)}))))
+
+(with_template [<identity> <composite> <name>]
+  [(the .public <name>
+     (Monoid Rat)
+     (implementation
+      (the identity (..ratio <identity>))
+      (the composite <composite>)))]
+  
+  [+0 ..+ addition]
+  [+1 ..* multiplication]
+  )
+
+(the .public zero
+  Rat
+  [#numerator +0
+   #denominator +1])
+
+(the .public one
+  Rat
+  [#numerator +1
+   #denominator +1])
+
+(the .public negative
+  Rat
+  [#numerator -1
+   #denominator +1])
+
+(with_template [<numerator> <predicate> ,name]
+  [(the .public ,name
+     Rat
+     [#numerator <numerator>
+      #denominator +0])
+
+   (the .public <predicate>
+     (Predicate Rat)
+     (|>> (= ,name)
+          not))]
+
+  [+1 finite? infinity]
+  ... https://en.wikipedia.org/wiki/Indeterminate_form
+  [+0 determinate? indeterminate]
+  )

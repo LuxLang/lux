@@ -9,7 +9,7 @@
     ["[0]" monad (.only Monad do)]
     ["[0]" enum]]
    [control
-    ["<>" parser]
+    ["<>" projection]
     ["[0]" function]
     ["[0]" io]
     ["[0]" maybe]
@@ -25,7 +25,7 @@
    ["[0]" meta (.only)
     ["[0]" type (.use "[1]#[0]" equivalence)]
     ["[0]" code (.only)
-     ["<[1]>" \\parser (.only Parser)]]
+     ["<[1]>" \\projection (.only Projection)]]
     ["[0]" macro (.only with_symbols)
      [syntax (.only syntax)]
      ["^" pattern]
@@ -447,25 +447,25 @@
       (format "[L" (simple_class$ env param) ";"))
     ))
 
-(the (get_const_parser class_name field_name)
-  (-> Text Text (Parser Code))
+(the (get_const_projection class_name field_name)
+  (-> Text Text (Projection Code))
   (do <>.monad
     [.let [dotted_name (format "::" field_name)]
      _ (<code>.this (code.symbol ["" dotted_name]))]
     (in (`' ((, (code.text (format "jvm getstatic" ":" class_name ":" field_name))))))))
 
-(the (get_var_parser class_name field_name)
-  (-> Text Text (Parser Code))
+(the (get_var_projection class_name field_name)
+  (-> Text Text (Projection Code))
   (do <>.monad
     [.let [dotted_name (format "::" field_name)]
      _ (<code>.this (code.symbol ["" dotted_name]))]
     (in (`' ((, (code.text (format "jvm getfield" ":" class_name ":" field_name))) _jvm_this)))))
 
-(the (put_var_parser class_name field_name)
-  (-> Text Text (Parser Code))
+(the (put_var_projection class_name field_name)
+  (-> Text Text (Projection Code))
   (do <>.monad
     [.let [dotted_name (format "::" field_name)]
-     [_ _ value] (.is (Parser [Any Any Code])
+     [_ _ value] (.is (Projection [Any Any Code])
                       (<code>.form (all <>.and (<code>.this (' :=)) (<code>.this (code.symbol ["" dotted_name])) <code>.any)))]
     (in (`' ((, (code.text (format "jvm putfield" ":" class_name ":" field_name))) _jvm_this (, value))))))
 
@@ -482,8 +482,8 @@
     ast'
     ast'))
 
-(the (parser_replacer p ast)
-  (-> (Parser Code) (-> Code Code))
+(the (projection_replacer p ast)
+  (-> (Projection Code) (-> Code Code))
   (when (<>.value p (list ast))
     {.#Right [{.#End} ast']}
     ast'
@@ -492,31 +492,31 @@
     ast
     ))
 
-(the (field_parser class_name [[field_name _ _] field])
-  (-> Text [Member_Declaration FieldDecl] (Parser Code))
+(the (field_projection class_name [[field_name _ _] field])
+  (-> Text [Member_Declaration FieldDecl] (Projection Code))
   (when field
     {#ConstantField _}
-    (get_const_parser class_name field_name)
+    (get_const_projection class_name field_name)
     
     {#VariableField _}
-    (<>.either (get_var_parser class_name field_name)
-               (put_var_parser class_name field_name))))
+    (<>.either (get_var_projection class_name field_name)
+               (put_var_projection class_name field_name))))
 
-(the (constructor_parser params class_name arg_decls)
-  (-> (List Type_Parameter) Text (List ArgDecl) (Parser Code))
+(the (constructor_projection params class_name arg_decls)
+  (-> (List Type_Parameter) Text (List ArgDecl) (Projection Code))
   (do <>.monad
-    [args (.is (Parser (List Code))
+    [args (.is (Projection (List Code))
                (<code>.form (<>.after (<code>.this (' ::new!))
                                       (<code>.tuple (<>.exactly (list.size arg_decls) <code>.any)))))
      .let [arg_decls' (.is (List Text) (list#each (|>> product.right (simple_class$ params)) arg_decls))]]
     (in (` ((, (code.text (format "jvm new" ":" class_name ":" (text.interposed "," arg_decls'))))
             (,* args))))))
 
-(the (static_method_parser params class_name method_name arg_decls)
-  (-> (List Type_Parameter) Text Text (List ArgDecl) (Parser Code))
+(the (static_method_projection params class_name method_name arg_decls)
+  (-> (List Type_Parameter) Text Text (List ArgDecl) (Projection Code))
   (do <>.monad
     [.let [dotted_name (format "::" method_name "!")]
-     args (.is (Parser (List Code))
+     args (.is (Projection (List Code))
                (<code>.form (<>.after (<code>.this (code.symbol ["" dotted_name]))
                                       (<code>.tuple (<>.exactly (list.size arg_decls) <code>.any)))))
      .let [arg_decls' (.is (List Text) (list#each (|>> product.right (simple_class$ params)) arg_decls))]]
@@ -525,42 +525,42 @@
 
 (with_template [<name> <jvm_op>]
   [(the (<name> params class_name method_name arg_decls)
-     (-> (List Type_Parameter) Text Text (List ArgDecl) (Parser Code))
+     (-> (List Type_Parameter) Text Text (List ArgDecl) (Projection Code))
      (do <>.monad
        [.let [dotted_name (format "::" method_name "!")]
-        args (.is (Parser (List Code))
+        args (.is (Projection (List Code))
                   (<code>.form (<>.after (<code>.this (code.symbol ["" dotted_name]))
                                          (<code>.tuple (<>.exactly (list.size arg_decls) <code>.any)))))
         .let [arg_decls' (.is (List Text) (list#each (|>> product.right (simple_class$ params)) arg_decls))]]
        (in (`' ((, (code.text (format <jvm_op> ":" class_name ":" method_name ":" (text.interposed "," arg_decls'))))
                 (,' _jvm_this) (,* args))))))]
 
-  [special_method_parser "jvm invokespecial"]
-  [virtual_method_parser "jvm invokevirtual"]
+  [special_method_projection "jvm invokespecial"]
+  [virtual_method_projection "jvm invokevirtual"]
   )
 
-(the (method_parser params class_name [[method_name _ _] meth_def])
-  (-> (List Type_Parameter) Text [Member_Declaration Method_Definition] (Parser Code))
+(the (method_projection params class_name [[method_name _ _] meth_def])
+  (-> (List Type_Parameter) Text [Member_Declaration Method_Definition] (Projection Code))
   (when meth_def
     {#ConstructorMethod strict? type_vars args constructor_args return_expr exs}
-    (constructor_parser params class_name args)
+    (constructor_projection params class_name args)
     
     {#StaticMethod strict? type_vars args return_type return_expr exs}
-    (static_method_parser params class_name method_name args)
+    (static_method_projection params class_name method_name args)
     
     (^.or {#VirtualMethod final? strict? type_vars self_name args return_type return_expr exs}
           {#OverridenMethod strict? owner_class type_vars self_name args return_type return_expr exs})
-    (special_method_parser params class_name method_name args)
+    (special_method_projection params class_name method_name args)
 
     {#AbstractMethod type_vars args return_type exs}
-    (virtual_method_parser params class_name method_name args)
+    (virtual_method_projection params class_name method_name args)
 
     {#NativeMethod type_vars args return_type exs}
-    (virtual_method_parser params class_name method_name args)))
+    (virtual_method_projection params class_name method_name args)))
 
-... Parsers
+... Projections
 (the privacy_modifier^
-  (Parser Privacy)
+  (Projection Privacy)
   (let [(open "[0]") <>.monad]
     (all <>.or
          (<code>.this (' "public"))
@@ -569,7 +569,7 @@
          (in []))))
 
 (the inheritance_modifier^
-  (Parser Inheritance)
+  (Projection Inheritance)
   (let [(open "[0]") <>.monad]
     (all <>.or
          (<code>.this (' "final"))
@@ -577,17 +577,17 @@
          (in []))))
 
 (the bound_kind^
-  (Parser BoundKind)
+  (Projection BoundKind)
   (<>.or (<code>.this (' <))
          (<code>.this (' >))))
 
 (the (no_periods_assertion name)
-  (-> Text (Parser Any))
+  (-> Text (Projection Any))
   (<>.assertion "Names in class declarations cannot contain periods."
                 (not (text.contains? "." name))))
 
 (the (generic_type^ type_vars)
-  (-> (List Type_Parameter) (Parser GenericType))
+  (-> (List Type_Parameter) (Projection GenericType))
   (<>.rec
    (function (_ again^)
      (all <>.either
@@ -632,7 +632,7 @@
           ))))
 
 (the type_param^
-  (Parser Type_Parameter)
+  (Projection Type_Parameter)
   (<>.either (do <>.monad
                [param_name <code>.local]
                (in [param_name (list)]))
@@ -643,14 +643,14 @@
                              (in [param_name bounds])))))
 
 (the type_params^
-  (Parser (List Type_Parameter))
+  (Projection (List Type_Parameter))
   (|> ..type_param^
       <>.some
       <code>.tuple
       (<>.else (list))))
 
 (the class_decl^
-  (Parser Class_Declaration)
+  (Projection Class_Declaration)
   (<>.either (do <>.monad
                [name <code>.local
                 _ (no_periods_assertion name)]
@@ -663,7 +663,7 @@
              ))
 
 (the (super_class_decl^ type_vars)
-  (-> (List Type_Parameter) (Parser Super_Class_Decl))
+  (-> (List Type_Parameter) (Projection Super_Class_Decl))
   (<>.either (do <>.monad
                [name <code>.local
                 _ (no_periods_assertion name)]
@@ -675,11 +675,11 @@
                             (in [name params])))))
 
 (the annotation_params^
-  (Parser (List AnnotationParam))
+  (Projection (List AnnotationParam))
   (<code>.tuple (<>.some (<>.and <code>.text <code>.any))))
 
 (the annotation^
-  (Parser Annotation)
+  (Projection Annotation)
   (<>.either (do <>.monad
                [ann_name <code>.local]
                (in [ann_name (list)]))
@@ -687,31 +687,31 @@
                                   annotation_params^))))
 
 (the annotations^'
-  (Parser (List Annotation))
+  (Projection (List Annotation))
   (do <>.monad
     [_ (<code>.this (' "ann"))]
     (<code>.tuple (<>.some ..annotation^))))
 
 (the annotations^
-  (Parser (List Annotation))
+  (Projection (List Annotation))
   (do <>.monad
     [anns?? (<>.maybe ..annotations^')]
     (in (maybe.else (list) anns??))))
 
 (the (throws_decl'^ type_vars)
-  (-> (List Type_Parameter) (Parser (List GenericType)))
+  (-> (List Type_Parameter) (Projection (List GenericType)))
   (do <>.monad
     [_ (<code>.this (' "throws"))]
     (<code>.tuple (<>.some (..generic_type^ type_vars)))))
 
 (the (throws_decl^ type_vars)
-  (-> (List Type_Parameter) (Parser (List GenericType)))
+  (-> (List Type_Parameter) (Projection (List GenericType)))
   (do <>.monad
     [exs? (<>.maybe (throws_decl'^ type_vars))]
     (in (maybe.else (list) exs?))))
 
 (the (method_decl^ type_vars)
-  (-> (List Type_Parameter) (Parser [Member_Declaration MethodDecl]))
+  (-> (List Type_Parameter) (Projection [Member_Declaration MethodDecl]))
   (<code>.form (do <>.monad
                  [tvars ..type_params^
                   name <code>.local
@@ -725,14 +725,14 @@
                                               #method_exs    exs]]))))
 
 (the state_modifier^
-  (Parser State)
+  (Projection State)
   (all <>.or
        (<code>.this (' "volatile"))
        (<code>.this (' "final"))
        (of <>.monad in [])))
 
 (the (field_decl^ type_vars)
-  (-> (List Type_Parameter) (Parser [Member_Declaration FieldDecl]))
+  (-> (List Type_Parameter) (Projection [Member_Declaration FieldDecl]))
   (<>.either (<code>.form (do <>.monad
                             [_ (<code>.this (' "const"))
                              name <code>.local
@@ -749,24 +749,24 @@
                             (in [[name pm anns] {#VariableField [sm type]}])))))
 
 (the (arg_decl^ type_vars)
-  (-> (List Type_Parameter) (Parser ArgDecl))
+  (-> (List Type_Parameter) (Projection ArgDecl))
   (<>.and <code>.local
           (..generic_type^ type_vars)))
 
 (the (arg_decls^ type_vars)
-  (-> (List Type_Parameter) (Parser (List ArgDecl)))
+  (-> (List Type_Parameter) (Projection (List ArgDecl)))
   (<code>.tuple (<>.some (arg_decl^ type_vars))))
 
 (the (constructor_arg^ type_vars)
-  (-> (List Type_Parameter) (Parser ConstructorArg))
+  (-> (List Type_Parameter) (Projection ConstructorArg))
   (<>.and (..generic_type^ type_vars) <code>.any))
 
 (the (constructor_args^ type_vars)
-  (-> (List Type_Parameter) (Parser (List ConstructorArg)))
+  (-> (List Type_Parameter) (Projection (List ConstructorArg)))
   (<code>.tuple (<>.some (constructor_arg^ type_vars))))
 
 (the (constructor_method^ class_vars)
-  (-> (List Type_Parameter) (Parser [Member_Declaration Method_Definition]))
+  (-> (List Type_Parameter) (Projection [Member_Declaration Method_Definition]))
   (<code>.form (do <>.monad
                  [pm privacy_modifier^
                   strict_fp? (<>.parses? (<code>.this (' "strict")))
@@ -784,7 +784,7 @@
                       {#ConstructorMethod strict_fp? method_vars arg_decls constructor_args body exs}]))))
 
 (the (virtual_method_def^ class_vars)
-  (-> (List Type_Parameter) (Parser [Member_Declaration Method_Definition]))
+  (-> (List Type_Parameter) (Projection [Member_Declaration Method_Definition]))
   (<code>.form (do <>.monad
                  [pm privacy_modifier^
                   strict_fp? (<>.parses? (<code>.this (' "strict")))
@@ -808,7 +808,7 @@
                                       body exs}]))))
 
 (the overriden_method_def^
-  (Parser [Member_Declaration Method_Definition])
+  (Projection [Member_Declaration Method_Definition])
   (<code>.form (do <>.monad
                  [strict_fp? (<>.parses? (<code>.this (' "strict")))
                   owner_class ..class_decl^
@@ -831,7 +831,7 @@
                                         body exs}]))))
 
 (the static_method_def^
-  (Parser [Member_Declaration Method_Definition])
+  (Projection [Member_Declaration Method_Definition])
   (<code>.form (do <>.monad
                  [pm privacy_modifier^
                   strict_fp? (<>.parses? (<code>.this (' "strict")))
@@ -850,7 +850,7 @@
                       {#StaticMethod strict_fp? method_vars arg_decls return_type body exs}]))))
 
 (the abstract_method_def^
-  (Parser [Member_Declaration Method_Definition])
+  (Projection [Member_Declaration Method_Definition])
   (<code>.form (do <>.monad
                  [pm privacy_modifier^
                   _ (<code>.this (' "abstract"))
@@ -867,7 +867,7 @@
                       {#AbstractMethod method_vars arg_decls return_type exs}]))))
 
 (the native_method_def^
-  (Parser [Member_Declaration Method_Definition])
+  (Projection [Member_Declaration Method_Definition])
   (<code>.form (do <>.monad
                  [pm privacy_modifier^
                   _ (<code>.this (' "native"))
@@ -884,7 +884,7 @@
                       {#NativeMethod method_vars arg_decls return_type exs}]))))
 
 (the (method_def^ class_vars)
-  (-> (List Type_Parameter) (Parser [Member_Declaration Method_Definition]))
+  (-> (List Type_Parameter) (Projection [Member_Declaration Method_Definition]))
   (all <>.either
        (..constructor_method^ class_vars)
        (..virtual_method_def^ class_vars)
@@ -894,30 +894,30 @@
        ..native_method_def^))
 
 (the partial_call^
-  (Parser Partial_Call)
+  (Projection Partial_Call)
   (<code>.form (<>.and <code>.symbol (<code>.tuple (<>.some <code>.any)))))
 
 (the import_member_alias^
-  (Parser (Maybe Text))
+  (Projection (Maybe Text))
   (<>.maybe (do <>.monad
               [_ (<code>.this (' "as"))]
               <code>.local)))
 
 (the (import_member_args^ type_vars)
-  (-> (List Type_Parameter) (Parser (List [Bit GenericType])))
+  (-> (List Type_Parameter) (Projection (List [Bit GenericType])))
   (<code>.tuple (<>.some (<>.and (<>.parses? (<code>.this (' "?"))) (..generic_type^ type_vars)))))
 
 (the import_member_return_flags^
-  (Parser [Bit Bit Bit])
+  (Projection [Bit Bit Bit])
   (all <>.and (<>.parses? (<code>.this (' "io"))) (<>.parses? (<code>.this (' "try"))) (<>.parses? (<code>.this (' "?")))))
 
 (the primitive_mode^
-  (Parser Primitive_Mode)
+  (Projection Primitive_Mode)
   (<>.or (<code>.this (' "manual"))
          (<code>.this (' "auto"))))
 
 (the (import_member_decl^ owner_vars)
-  (-> (List Type_Parameter) (Parser Import_Member_Declaration))
+  (-> (List Type_Parameter) (Projection Import_Member_Declaration))
   (all <>.either
        (<code>.form (do <>.monad
                       [_ (<code>.this (' "enum"))
@@ -941,7 +941,7 @@
                                               #import_member_io?     io?]
                                              []]})))
        (<code>.form (do <>.monad
-                      [kind (.is (Parser ImportMethodKind)
+                      [kind (.is (Projection ImportMethodKind)
                                  (<>.or (<code>.this (' "static"))
                                         (in [])))
                        tvars ..type_params^
@@ -1133,16 +1133,16 @@
                                                                    (, body))))))))
     
     {#OverridenMethod strict_fp? class_decl type_vars this_name arg_decls return_type body exs}
-    (let [super_replacer (parser_replacer (<code>.form (do <>.monad
-                                                         [_ (<code>.this (' ::super!))
-                                                          args (<code>.tuple (<>.exactly (list.size arg_decls) <code>.any))
-                                                          .let [arg_decls' (.is (List Text) (list#each (|>> product.right (simple_class$ (list)))
-                                                                                                       arg_decls))]]
-                                                         (in (`' ((, (code.text (format "jvm invokespecial"
-                                                                                        ":" (its #super_class_name super_class)
-                                                                                        ":" name
-                                                                                        ":" (text.interposed "," arg_decls'))))
-                                                                  (,' _jvm_this) (,* args)))))))]
+    (let [super_replacer (projection_replacer (<code>.form (do <>.monad
+                                                             [_ (<code>.this (' ::super!))
+                                                              args (<code>.tuple (<>.exactly (list.size arg_decls) <code>.any))
+                                                              .let [arg_decls' (.is (List Text) (list#each (|>> product.right (simple_class$ (list)))
+                                                                                                           arg_decls))]]
+                                                             (in (`' ((, (code.text (format "jvm invokespecial"
+                                                                                            ":" (its #super_class_name super_class)
+                                                                                            ":" name
+                                                                                            ":" (text.interposed "," arg_decls'))))
+                                                                      (,' _jvm_this) (,* args)))))))]
       (with_parens
         (spaced (list "override"
                       (class_decl$ class_decl)
@@ -1221,11 +1221,11 @@
     (do meta.monad
       [current_module meta.current_module_name
        .let [fully_qualified_class_name (format (safe current_module) "." full_class_name)
-             field_parsers (list#each (field_parser fully_qualified_class_name) fields)
-             method_parsers (list#each (method_parser (product.right class_decl) fully_qualified_class_name) methods)
-             replacer (parser_replacer (list#mix <>.either
-                                                 (<>.failure "")
-                                                 (list#composite field_parsers method_parsers)))
+             field_projections (list#each (field_projection fully_qualified_class_name) fields)
+             method_projections (list#each (method_projection (product.right class_decl) fully_qualified_class_name) methods)
+             replacer (projection_replacer (list#mix <>.either
+                                                     (<>.failure "")
+                                                     (list#composite field_projections method_projections)))
              def_code (format "jvm class:"
                               (spaced (list (class_decl$ class_decl)
                                             (super_class_decl$ super)
