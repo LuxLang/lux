@@ -3,7 +3,7 @@
 
 (.require
  [library
-  [lux (.except)
+  [lux (.except #Function)
    [abstract
     [monad (.only do)]]
    [control
@@ -12,7 +12,7 @@
     ["[0]" exception (.only Exception)]]
    [data
     ["[0]" text (.only)
-     ["%" \\format (.only format)]]
+     ["%" \\injection (.only format)]]
     [collection
      ["[0]" list]]]
    [math
@@ -31,10 +31,9 @@
   ["[1][0]" reference]
   ["[1][0]" when]
   ["[1][0]" function]
-  [//
+  ["[0]" // (.use "[1]#[0]" functor)
    ["[0]" extension]
    [//
-    ["//" phase]
     ["/" analysis (.only Operation Phase Handler Extender)
      ["[1][0]" macro (.only Expander)]
      ["[1][0]" type]]
@@ -83,73 +82,108 @@
          [here meta.current_module_name]
          (//.except ..invalid [here code])))]))
 
-... TODO: Replace with an inline function.
-(exception.the .public (not_a_macro name)
-  (Exception Symbol)
-  (exception.report
-   (list ["Name" (%.symbol name)])))
+(every Abstraction
+  (Variant
+   {#Macro Symbol Macro}
+   {#Extension Symbol}
+   {#Function Type /.Term}))
 
-(the (macro_application extender expander analysis archive def_name argsC+)
-  (-> Extender Expander Phase Archive Symbol (List Code)
-      (Operation /.Term))
-  (do [! //.monad]
-    [?macro (meta.macro def_name)]
-    (when ?macro
-      {.#Some macro}
-      (do !
-        [expansion (/macro.single_expansion expander def_name macro argsC+)]
-        (analysis archive expansion))
-
-      _
-      (//.except ..not_a_macro [def_name]))))
-
-... TODO: Replace with an inline function.
-(the (global_application extender expander analysis archive function_type function_analysis def_name functionC argsC+)
-  (-> Extender Expander Phase Archive Type /.Term Symbol Code (List Code)
-      (Operation /.Term))
-  (<| (if (check.subsumed? .Macro function_type)
-        (macro_application extender expander analysis archive def_name argsC+))
-      (if (check.subsumed? .Analysis function_type)
-        (do //.monad
-          [lux meta.compiler_state]
-          (extension.application extender
-                                 lux analysis archive
-                                 .Analysis true def_name argsC+
-                                 (|>>)
-                                 (function (_ _) {.#None}))))
-      (/function.apply analysis argsC+ function_type function_analysis archive functionC)))
-
-... TODO: Replace with an inline function.
-(the (term_application extender expander analysis archive functionC argsC+)
-  (-> Extender Expander Phase Archive Code (List Code)
-      (Operation /.Term))
+(the (not_an_abstraction term)
+  (-> Code
+      (Operation Abstraction))
   (do //.monad
-    [[function_type function_analysis] (/type.inferring
-                                        (analysis archive functionC))]
-    (when function_analysis
-      (/.constant @ def_name)
-      (global_application extender expander analysis archive function_type function_analysis def_name functionC argsC+)
+    [here meta.current_module_name]
+    (//.except ..invalid [here term])))
+
+(the (macro_abstraction analysis archive term)
+  (-> Phase Archive Code
+      (Operation Abstraction))
+  (do [! //.monad]
+    [it (<| (/type.expecting .Macro)
+            (analysis archive term))]
+    (when it
+      (/.constant @ name)
+      (do [! //.monad]
+        [it (meta.macro name)]
+        (when it
+          {.#Some it}
+          (in {#Macro name it})
+
+          _
+          (..not_an_abstraction term)))
 
       _
-      (/function.apply analysis argsC+ function_type function_analysis archive functionC))))
+      (..not_an_abstraction term))))
+
+(the (extension_abstraction analysis archive term)
+  (-> Phase Archive Code
+      (Operation Abstraction))
+  (do //.monad
+    [it (<| //.try
+            (/type.expecting .Analysis)
+            (analysis archive term))]
+    (when it
+      {try.#Success it}
+      (when it
+        (/.constant @ it)
+        (in {#Extension it})
+
+        _
+        (..not_an_abstraction term))
+
+      {try.#Failure error}
+      (if (text.contains? (its exception.#label extension.defaults_cannot_be_referenced)
+                          error)
+        (when term
+          [_ {.#Symbol ["" _]}]
+          (..not_an_abstraction term)
+          
+          [_ {.#Symbol it}]
+          (in {#Extension it})
+
+          _
+          (..not_an_abstraction term))
+        (..not_an_abstraction term)))))
+
+(the (function_abstraction analysis archive term)
+  (-> Phase Archive Code
+      (Operation Abstraction))
+  (<| (//#each (|>> {#Function}))
+      /type.inferring
+      (analysis archive term)))
+
+(the (abstraction analysis archive term)
+  (-> Phase Archive Code
+      (Operation Abstraction))
+  (all //.either
+       (macro_abstraction analysis archive term)
+       (extension_abstraction analysis archive term)
+       (function_abstraction analysis archive term)
+       ))
 
 ... TODO: Replace with an inline function.
-(the apply_analysis
-  (template (_ extender expander analysis archive functionC argsC+)
+(the application
+  (template (_ extender expander analysis archive 'abstraction argsC+)
     ... (-> Extender Expander Phase Archive Code (List Code) (Operation /.Term))
-    [(when functionC
-       [_ {.#Symbol global}]
-       (do //.monad
-         [lux meta.compiler_state]
-         (extension.application extender
-                                lux analysis archive
-                                .Analysis false global argsC+
-                                (|>>)
-                                (function (_ _)
-                                  {.#Some (term_application extender expander analysis archive functionC argsC+)})))
+    [(do [! //.monad]
+       [abstraction (abstraction analysis archive 'abstraction)]
+       (when abstraction
+         {#Function type abstraction}
+         (/function.apply analysis argsC+ type abstraction archive 'abstraction)
 
-       _
-       (term_application extender expander analysis archive functionC argsC+))]))
+         {#Macro name macro}
+         (do !
+           [expansion (/macro.single_expansion expander name macro argsC+)]
+           (analysis archive expansion))
+         
+         {#Extension abstraction}
+         (do !
+           [lux meta.compiler_state]
+           (extension.application extender
+                                  lux analysis archive
+                                  .Analysis abstraction argsC+
+                                  (|>>)
+                                  (function (_ _) {.#None})))))]))
 
 (the .public (phase extender expander)
   (-> Extender Expander
@@ -160,6 +194,39 @@
         ... of having useful error messages.
         (/.with_location @)
         (when code
+          ... The `quoted_module` value is extracted from the symbol's location in order to solve a problem with macro expansion.
+          ... Suppose that we have 3 modules: `A`, `B`, and `C`.
+          ... Module `A` exports a definition named `a`.
+          ... Module `B` exports a macro named `b`, which makes a reference to `A.a` in its expansion.
+          ... Module `C` imports module `B`, but not module `A`. It also utilizes the `B.b` macro somewhere in its code.
+          ... Now, Module `C` has a reference to `A.a` somewhere in its code, which it cannot access because it does not import `A`.
+          ... In order to allow macros to reference any definition their owning module can see, when programmatically generating a symbol, they set themselves
+          ... as the module in the symbol's location.
+          ... The compiler then picks that up as the `quoted_module`, and uses it for symbol resolution in order to guarantee visibility of symbols in the expansion.
+          [[quoted_module _line _row] {.#Symbol it}]
+          (/reference.reference extender analysis archive quoted_module it)
+
+          (^.` ({(^.,* branches)} (^., input)))
+          (..when_analysis analysis archive input branches code)
+
+          (^.` ([(^., [_ {.#Symbol ["" function_name]}]) (^., [_ {.#Symbol ["" arg_name]}])] (^., body)))
+          (/function.function analysis function_name arg_name archive body)
+
+          (^.` ((^., functionC) (^.,* argsC+)))
+          (..application extender expander analysis archive functionC argsC+)
+
+          (^.` {(^., [_ {.#Symbol tag}]) (^.,* values)})
+          (..variant_analysis analysis archive tag values)
+
+          (^.` {(^., [_ {.#Bit right?}]) (^.,* values)})
+          (..sum_analysis analysis archive 0 right? values)
+
+          (^.` {(^., [_ {.#Nat lefts}]) (^., [_ {.#Bit right?}]) (^.,* values)})
+          (..sum_analysis analysis archive lefts right? values)
+
+          (^.` [(^.,* elems)])
+          (/complex.record analysis archive elems)
+
           (^.with_template [<tag> <analyser>]
             [[_ {<tag> value}]
              (<analyser> value)])
@@ -169,30 +236,6 @@
            [.#Dec  /simple.dec]
            [.#Int  /simple.int]
            [.#Rev  /simple.rev])
-
-          [[quoted_module @line @row] {.#Symbol value}]
-          (/reference.reference extender analysis archive quoted_module value)
-
-          (^.` [(^.,* elems)])
-          (/complex.record analysis archive elems)
-
-          (^.` {(^., [_ {.#Symbol tag}]) (^.,* values)})
-          (..variant_analysis analysis archive tag values)
-
-          (^.` ({(^.,* branches)} (^., input)))
-          (..when_analysis analysis archive input branches code)
-
-          (^.` ([(^., [_ {.#Symbol ["" function_name]}]) (^., [_ {.#Symbol ["" arg_name]}])] (^., body)))
-          (/function.function analysis function_name arg_name archive body)
-
-          (^.` ((^., functionC) (^.,* argsC+)))
-          (..apply_analysis extender expander analysis archive functionC argsC+)
-
-          (^.` {(^., [_ {.#Bit right?}]) (^.,* values)})
-          (..sum_analysis analysis archive 0 right? values)
-
-          (^.` {(^., [_ {.#Nat lefts}]) (^., [_ {.#Bit right?}]) (^.,* values)})
-          (..sum_analysis analysis archive lefts right? values)
 
           _
           (do //.monad

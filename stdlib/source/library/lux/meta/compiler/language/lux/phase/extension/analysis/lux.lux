@@ -14,7 +14,7 @@
    [data
     ["[0]" text (.use "[1]#[0]" equivalence)
      [char (.only Char)]
-     ["%" \\format (.only format)]]
+     ["%" \\injection (.only format)]]
     [collection
      ["[0]" list (.use "[1]#[0]" functor)]
      ["[0]" dictionary (.only Dictionary)]]]
@@ -48,10 +48,10 @@
     (-> [(Projection of)
          (-> Text Phase Archive of (Operation analysis.Term))]
         (-> Text Handler)))
-  (function (_ analyse archive args)
+  (function (_ analysis archive args)
     (when (<code>.value syntax args)
       {try.#Success inputs}
-      (handler extension_name analyse archive inputs)
+      (handler extension_name analysis archive inputs)
 
       {try.#Failure error}
       (phase.failure error))))
@@ -76,7 +76,7 @@
 (the (simple inputsT+ outputT extension_name)
   (-> (List Type) Type (-> Text Handler))
   (let [num_expected (list.size inputsT+)]
-    (function (_ analyse archive args)
+    (function (_ analysis archive args)
       (let [num_actual (list.size args)]
         (if (n.= num_expected num_actual)
           (do [! phase.monad]
@@ -84,7 +84,7 @@
              argsA (monad.each !
                                (function (_ [argT argC])
                                  (<| (typeA.expecting argT)
-                                     (analyse archive argC)))
+                                     (analysis archive argC)))
                                (list.zipped_2 inputsT+ args))
              @ meta.location]
             (in [@ {analysis.#Extension (..translation extension_name) argsA}]))
@@ -113,11 +113,11 @@
 (the .public (variadic input output next extension_name)
   (-> Type Type (-> Text Text)
       (-> Text Handler))
-  (function (_ analyse archive args)
+  (function (_ analysis archive args)
     (do [! phase.monad]
       [_ (typeA.inference output)
        argsA (monad.each !
-                         (|>> (analyse archive)
+                         (|>> (analysis archive)
                               (typeA.expecting input))
                          args)
        @ meta.location]
@@ -172,25 +172,25 @@
 ... .is?# represents reference/pointer equality.
 (the (lux::is? extension_name)
   (-> Text Handler)
-  (function (_ analyse archive args)
+  (function (_ analysis archive args)
     (<| typeA.with_var
         (function (_ [@var :var:]))
         ((binary :var: :var: Bit extension_name)
-         analyse archive args))))
+         analysis archive args))))
 
 ... .try# provides a unified way to interact with the host platform's runtime error-handling facilities.
 (the lux::try
   (-> Text Handler)
   (..custom
    [<code>.any
-    (function (_ extension_name analyse archive opC)
+    (function (_ extension_name analysis archive opC)
       (<| typeA.with_var
           (function (_ [@var :var:]))
           (do [! phase.monad]
             [_ (typeA.inference (type (Either Text :var:)))
              @ meta.location]
             (|> opC
-                (analyse archive)
+                (analysis archive)
                 (typeA.expecting (type (-> .Any :var:)))
                 (of ! each (|>> list
                                 {analysis.#Extension (..translation extension_name)}
@@ -201,37 +201,38 @@
       (-> Text Handler))
   (..custom
    [(<>.and <code>.any <code>.any)
-    (function (_ extension_name analyse archive [module exprC])
+    (function (_ extension_name analysis archive [module 'expression])
       (do [! phase.monad]
         [module (eval archive Text module)]
         (analysis.with_current_module (as Text module)
-          (analyse archive exprC))))]))
+          (when 'expression
+            [_ 'expression]
+            (analysis archive [[(as Text module) 0 0] 'expression])))))]))
 
 (the .public (is#_extension eval)
   (-> Eval
       (-> Text Handler))
   (..custom
    [(<>.and <code>.any <code>.any)
-    (function (_ extension_name analyse archive [typeC valueC])
+    (function (_ extension_name analysis archive [typeC valueC])
       (do [! phase.monad]
         [actualT (of ! each (|>> (as Type))
                      (eval archive Type typeC))
          _ (typeA.inference actualT)]
         (<| (typeA.expecting actualT)
-            (analyse archive valueC))))]))
+            (analysis archive valueC))))]))
 
 (the .public (as#_extension eval)
   (-> Eval
       (-> Text Handler))
   (..custom
    [(<>.and <code>.any <code>.any)
-    (function (_ extension_name analyse archive [typeC valueC])
+    (function (_ extension_name analysis archive [typeC valueC])
       (do [! phase.monad]
         [actualT (of ! each (|>> (as Type))
                      (eval archive Type typeC))
          _ (typeA.inference actualT)
-         [valueT valueA] (typeA.inferring
-                          (analyse archive valueC))]
+         [valueT valueA] (typeA.inferring (analysis archive valueC))]
         (in valueA)))]))
 
 (the (caster input output)
@@ -245,68 +246,72 @@
         (<| (typeA.expecting input)
             (phase archive valueC))))]))
 
-(exception.the .public (foreign_module_has_not_been_imported [current foreign quoted global])
-  (Exception [Text Text Text Symbol])
+(exception.the .public (cannot_access_global [from global])
+  (Exception [Text Symbol])
   (exception.report
-   (list ["Current" current]
-         ["Foreign" foreign]
-         ["Quoted" quoted]
+   (list ["From" (%.text from)]
          ["Global" (%.symbol global)])))
 
-(exception.the .public (global_has_not_been_exported global)
-  (Exception Symbol)
-  (exception.report
-   (list ["Global" (%.symbol global)])))
+(the (expected_module current quoted)
+  (-> Text Text
+      Text)
+  (when quoted
+    "" current
+    _ quoted))
 
-(exception.the .public (defaults_cannot_be_referenced global)
-  (Exception Symbol)
-  (exception.report
-   (list ["Default" (%.symbol global)])))
+... It may seem odd that type-checking is done just prior to raising an exception.
+... It would be a completely useless labor...
+... Except for that fact that, under certain circumstances, the compiler needs to access defaults.
+... And it only needs to forbid access in every other situation.
+... What this does is make sure that any code which does need to access defaults can just catch
+... the exception, and know that the default it was looking for has the correct type, because
+... the exception is only ever raised _after_ the inference.
+(the (global_default name [type _])
+  (All (_ of)
+    (-> Symbol Default
+        (Operation of)))
+  (do phase.monad
+    [_ (typeA.inference type)]
+    (analysis.except ///.defaults_cannot_be_referenced [name])))
 
-(the global
+(the .public global
   (-> Text Handler)
   (..custom
    [(<>.and <code>.text <code>.global)
     (function (_ extension_name phase archive [quoted_module def_name])
-      (loop (again [exported_alias? false
-                    def_name def_name])
+      (loop (de_aliased [validated_access? false
+                         def_name def_name])
         (do [! phase.monad]
           [(^.let def_name [::module ::name]) (meta.normal def_name)
+           [exported? constant] (meta.definition def_name)
            current meta.current_module_name
-           [exported? constant] (meta.definition def_name)]
-          (when constant
-            {.#Alias real_def_name}
-            (again (or exported_alias?
-                       (text#= current ::module)
-                       exported?)
-                   real_def_name)
-            
-            {.#Definition [actualT _]}
-            (do !
-              [_ (typeA.inference actualT)
-               @ meta.location]
-              (with_expansions [<return> (in (|> def_name reference.constant {analysis.#Reference} [@]))]
-                (if (or exported_alias?
-                        (text#= current ::module))
-                  <return>
-                  (if exported?
-                    (do !
-                      [imported! (meta.imported_by? ::module current)]
-                      (if (or imported!
-                              (text#= quoted_module ::module))
-                        <return>
-                        (analysis.except ..foreign_module_has_not_been_imported [current ::module quoted_module def_name])))
-                    (analysis.except ..global_has_not_been_exported [def_name])))))
+           .let [expected (..expected_module current quoted_module)]
+           imported! (meta.imported_by? ::module expected)]
+          (if (let [in_the_same_module? (text#= expected ::module)
+                    can_access_export? (and exported? imported!)]
+                (or validated_access?
+                    in_the_same_module?
+                    can_access_export?))
+            (when constant
+              {.#Alias real_def_name}
+              (de_aliased true real_def_name)
+              
+              {.#Definition [type _]}
+              (do !
+                [_ (typeA.inference type)
+                 @ meta.location]
+                (in (analysis.constant @ def_name)))
 
-            {.#Default _}
-            (analysis.except ..defaults_cannot_be_referenced [def_name])))))]))
+              {.#Default it}
+              (global_default def_name it))
+            (analysis.except ..cannot_access_global [expected def_name])))))]))
 
 (exception.the .public (unknown_local name)
   (Exception Text)
   (exception.report
    (list ["Name" (%.text name)])))
 
-(the local
+(the .public local
   (-> Text Handler)
   (..custom
    [<code>.local
@@ -318,7 +323,7 @@
           (do !
             [_ (typeA.inference local_type)
              @ meta.location]
-            (in (|> local_reference reference.variable {analysis.#Reference} [@])))
+            (in (analysis.variable @ local_reference)))
 
           {.#None}
           (analysis.except ..unknown_local [it]))))]))
@@ -350,21 +355,21 @@
   (|>> (install "log!#" (unary Text Any))
        (install "error#" (unary Text Nothing))))
 
-(the I64*
+(the Any_I64
   (type (I64 Any)))
 
 (the with_i64_extensions
   (-> Bundle
       Bundle)
-  (|>> (install "i64_and#" (binary I64* I64* I64))
-       (install "i64_or#" (binary I64* I64* I64))
-       (install "i64_xor#" (binary I64* I64* I64))
-       (install "i64_left#" (binary Nat I64* I64))
-       (install "i64_right#" (binary Nat I64* I64))
+  (|>> (install "i64_and#" (binary Any_I64 Any_I64 I64))
+       (install "i64_or#" (binary Any_I64 Any_I64 I64))
+       (install "i64_xor#" (binary Any_I64 Any_I64 I64))
+       (install "i64_left#" (binary Nat Any_I64 I64))
+       (install "i64_right#" (binary Nat Any_I64 I64))
 
-       (install "i64_=#" (binary I64* I64* Bit))
-       (install "i64_+#" (binary I64* I64* I64))
-       (install "i64_-#" (binary I64* I64* I64))))
+       (install "i64_=#" (binary Any_I64 Any_I64 Bit))
+       (install "i64_+#" (binary Any_I64 Any_I64 I64))
+       (install "i64_-#" (binary Any_I64 Any_I64 I64))))
 
 (the with_int_extensions
   (-> Bundle

@@ -30,19 +30,22 @@
    * `a/b * b/c = a/c` && `a/b * c/a = c/b` && `a/b * c/d = ac/bd`.
    * The above rule can make `a/0 * 0/b = a/b` and `0/a * b/0 = b/a`, bypassing any possibility for `0/0`.
    * It may also make the de-normalized zeroes and infinities carry useful information, instead of losing it through normalization.
-0. Fix bug wherein private aliases in module `A` of public definitions in module `B` are seen in module `C`, if it imports `A`.
 0. Re-name `Codec` to `Embedding`. Alternatively, re-name to `Format`.
    * [Embedding](https://en.wikipedia.org/wiki/Embedding)
    * [Format](https://en.wikipedia.org/wiki/Content_format)
-0. Re-name `Format` to `Injection`.
-   * [Injection](https://en.wikipedia.org/wiki/Injective_function)
 0. Make type-normalization no longer confuse local type parameters with globally-defined types/macros. Remove instances of `(.except left right)`.
+0. Get rid of the `.in_module#` extension. It can be replaced by a macro that piggy-backs on the existing `quoted_module` mechanism.
+0. Add extensions for pattern-matching and function definition, instead of having custom syntax for both.
+0. Unify the handling of globals between extensions, analysis & declaration.
 
 ## Done
 
-0. Re-name `Parser` to `Projection`.
+0. Re-name `Format` to `Injection`.
+   * [Injection](https://en.wikipedia.org/wiki/Injective_function)
+0. Fix bug wherein private aliases in module `A` of public definitions in module `B` are seen in module `C`, if it imports `A`.
+0. [(Commit)](https://github.com/LuxLang/lux/commit/6620a2ae31aa199874497c631f704c36d9244304) Re-name `Parser` to `Projection`.
    * [Projection](https://en.wikipedia.org/wiki/Projection_(relational_algebra))
-0. Introduce an `Int`-based alternative to `Frac`(tion) called `Rat`(tional).
+0. [(Commit)](https://github.com/LuxLang/lux/commit/6620a2ae31aa199874497c631f704c36d9244304) Introduce an `Int`-based alternative to `Frac`(tion) called `Rat`(tional).
    * [Rational number](https://en.wikipedia.org/wiki/Rational_number)
 0. [(Commit)](https://github.com/LuxLang/lux/commit/b548a7ebc71cd1d8150eb57d811c39afa80f20f3) `<-` as reverse-order function syntax.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/b548a7ebc71cd1d8150eb57d811c39afa80f20f3) Re-name `Codec#encoded` to `injection`, and `Codec#decoded` to `projection`.

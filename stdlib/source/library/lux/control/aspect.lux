@@ -12,11 +12,11 @@
     ["?" projection]
     ["[0]" maybe]
     ["[0]" try]
-    [function
+    ["[0]" function (.only)
      [predicate (.only Predicate)]]]
    [data
     ["[0]" text (.use "[1]#[0]" equivalence)
-     ["%" \\format]]
+     ["%" \\injection]]
     [collection
      ["[0]" list (.use "[1]#[0]" mix)
       ["[0]" property]]]]
@@ -161,11 +161,11 @@
     (-> Symbol (-> [Code .Global] (analysis.Operation of))
         (analysis.Operation of)))
   (do phase.monad
-    [g!cache (macro.symbol "g!cache")
+    ['cache (macro.symbol "'cache")
      [exported? global] (global_reference name)
-     .let [cache_name (%.code g!cache)]
+     .let [cache_name (%.code 'cache)]
      _ (module.define cache_name [exported? global])
-     it (then [g!cache global])
+     it (then ['cache global])
      current_module_name meta.current_module_name
      _ (without_global [current_module_name cache_name])]
     (in it)))
@@ -175,14 +175,14 @@
     (-> Symbol (-> [Code .Global] (declaration.Operation anchor expression declaration of))
         (declaration.Operation anchor expression declaration of)))
   (do phase.monad
-    [g!cache (declaration.of_analysis
-              (macro.symbol "g!cache"))
+    ['cache (declaration.of_analysis
+             (macro.symbol "'cache"))
      [exported? global] (declaration.of_analysis
                          (global_reference name))
-     .let [cache_name (%.code g!cache)]
+     .let [cache_name (%.code 'cache)]
      _ (declaration.of_analysis
         (module.define cache_name [exported? global]))
-     it (then [g!cache global])
+     it (then ['cache global])
      current_module_name (declaration.of_analysis
                           meta.current_module_name)
      _ (declaration.of_analysis
@@ -191,24 +191,24 @@
 
 (the (with_temporary_global [name new] then)
   (All (_ of)
-    (-> [Symbol .Global] (analysis.Operation of)
+    (-> [Symbol (-> .Global .Global)] (analysis.Operation of)
         (analysis.Operation of)))
   (do phase.monad
     [[exported? old] (global_reference name)
-     _ (module.override_definition name [exported? new])
+     _ (module.override_definition name [exported? (new old)])
      it then
      _ (module.override_definition name [exported? old])]
     (in it)))
 
 (the (with_temporary_global' [name new] then)
   (All (_ anchor expression declaration of)
-    (-> [Symbol .Global] (declaration.Operation anchor expression declaration of)
+    (-> [Symbol (-> .Global .Global)] (declaration.Operation anchor expression declaration of)
         (declaration.Operation anchor expression declaration of)))
   (do phase.monad
     [[exported? old] (declaration.of_analysis
                       (global_reference name))
      _ (declaration.of_analysis
-        (module.override_definition name [exported? new]))
+        (module.override_definition name [exported? (new old)]))
      it then
      _ (declaration.of_analysis
         (module.override_definition name [exported? old]))]
@@ -228,22 +228,24 @@
         (-> (-> Code (analysis.Operation of))
             (analysis.Operation of))))
   (do phase.monad
-    [g!cache (macro.symbol "g!cache")
-     .let [cache_name (%.code g!cache)]
+    ['cache (macro.symbol "'cache")
+     .let [cache_name (%.code 'cache)]
      _ (module.define cache_name [false {.#Definition [Analysis (expression type term)]}])
-     it (then g!cache)
+     it (then 'cache)
      current_module_name meta.current_module_name
      _ (without_global [current_module_name cache_name])]
     (in it)))
 
-(with_template [<name> <parameters> <term> <scenario> <advised>]
-  [(the (<name> original aspect)
-     (-> Code Aspect
+(with_template [<name> <parameters> <scenario> ,extension ,term <advised>]
+  [(the (<name> original aspect old)
+     (-> Code Aspect .Global
          Analysis)
      (analysis (_ phase archive <parameters>)
        (do [! phase.monad]
-         [[type term] (type.inferring
-                       (phase archive <term>))
+         [[type term] (<| type.inferring
+                          (with_temporary_global [(symbol ,extension) (function.constant old)])
+                          (phase archive)
+                          ,term)
           _ (type.inference type)
           location meta.location
           .let [join_point [#location location
@@ -256,21 +258,25 @@
            {try.#Success advice}
            (<| (with_cached_expression [type term])
                (function (_ analysis))
-               (phase archive <advised>))
+               (with_temporary_global [(symbol ,extension) (function.constant old)])
+               (phase archive)
+               <advised>)
            
            {try.#Failure _}
            (in term)))))]
 
   [local [it ?code.local]
-   (` ((, original) (, (code.local it))))
    #Local
+   .local#
+   (` (.local# (, (code.local it))))
    (` ((, (code.symbol advice)) ((, analysis))))]
   [global [quoted_module ?code.any
            it ?code.global]
-   (` ((, original) (, quoted_module) (, (code.symbol it))))
    #Global
+   .global#
+   (` (.global# (, quoted_module) (, (code.symbol it))))
    (let [[advice_module _] advice]
-     (` (((, original) (, (code.text advice_module)) (, (code.symbol advice)))
+     (` ((.global# (, (code.text advice_module)) (, (code.symbol advice)))
          ((, analysis)))))]
   )
 
@@ -283,8 +289,8 @@
        .let [aspect (as Aspect aspect)]]
       (list#mix (function (_ [original value] then)
                   (<| (with_cached_analysis original)
-                      (function (_ [g!original original_global]))
-                      (with_temporary_global [original {.#Definition [Analysis (value g!original aspect)]}])
+                      (function (_ ['original original_global]))
+                      (with_temporary_global [original (|>> (value 'original aspect) [Analysis] {.#Definition})])
                       then))
                 (phase archive body)
                 (list [(symbol .local#) ..local]
@@ -300,8 +306,8 @@
        .let [aspect (as Aspect aspect)]]
       (list#mix (function (_ [original value] then)
                   (<| (with_cached_analysis' original)
-                      (function (_ [g!original original_global]))
-                      (with_temporary_global' [original {.#Definition [Analysis (value g!original aspect)]}])
+                      (function (_ ['original original_global]))
+                      (with_temporary_global' [original (|>> (value 'original aspect) [Analysis] {.#Definition})])
                       then))
                 (phase archive body)
                 (list [(symbol .local#) ..local]
