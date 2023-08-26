@@ -139,6 +139,24 @@
         (|do [_ (&type/check exo-type &type/Nat)]
           (return (&/|list (&&/|meta exo-type location (&&/$nat 0)))))
 
+        ;; Pattern-matching syntax.
+        (&/$Identifier "library/lux" "when#")
+        (|let [(&/$Item [_ (&/$Variant ?pattern-matching)] (&/$Item ?input (&/$End))) parameters]
+          (if (even? (&/|length ?pattern-matching))
+            (&/with-analysis-meta location exo-type
+              (&&lux/analyse-case analyse exo-type ?input (&/|as-pairs ?pattern-matching)))
+            (&/fail-with-loc (str "[Analyser Error] Unknown syntax: " (&/show-ast (&/T [(&/T ["" -1 -1]) token]))))))
+
+        ;; Function syntax.
+        (&/$Identifier "library/lux" "function#")
+        (|let [(&/$Item [_ (&/$Identifier "" ?self)]
+                        (&/$Item [_ (&/$Identifier "" ?arg)]
+                                 (&/$Item ?body
+                                          (&/$End))))
+               parameters]
+          (&/with-analysis-meta location exo-type
+            (&&lux/analyse-function analyse exo-type ?self ?arg ?body)))
+
         (&/$Identifier "library/lux" extension)
         (if (&&common/uses_new_format? extension)
           (&/with-analysis-meta location exo-type
@@ -157,21 +175,6 @@
                   
                   :else
                   (&&common/analyse-proc analyse exo-type ?procedure parameters))))
-
-        ;; Pattern-matching syntax.
-        (&/$Variant ?pattern-matching)
-        (if (even? (&/|length ?pattern-matching))
-          (|let [(&/$Item ?input (&/$End)) parameters]
-            (&/with-analysis-meta location exo-type
-              (&&lux/analyse-case analyse exo-type ?input (&/|as-pairs ?pattern-matching))))
-          (&/fail-with-loc (str "[Analyser Error] Unknown syntax: " (&/show-ast (&/T [(&/T ["" -1 -1]) token])))))
-
-        ;; Function syntax.
-        (&/$Tuple (&/$Item [_ (&/$Identifier "" ?self)]
-                           (&/$Item [_ (&/$Identifier "" ?arg)] (&/$End))))
-        (|let [(&/$Item ?body (&/$End)) parameters]
-          (&/with-analysis-meta location exo-type
-            (&&lux/analyse-function analyse exo-type ?self ?arg ?body)))
 
         _
         (&/with-location location

@@ -35,14 +35,16 @@
    * [Format](https://en.wikipedia.org/wiki/Content_format)
 0. Make type-normalization no longer confuse local type parameters with globally-defined types/macros. Remove instances of `(.except left right)`.
 0. Get rid of the `.in_module#` extension. It can be replaced by a macro that piggy-backs on the existing `quoted_module` mechanism.
-0. Add extensions for pattern-matching and function definition, instead of having custom syntax for both.
 0. Unify the handling of globals between extensions, analysis & declaration.
+0. Get rid of `licentia`.
+0. Replace uses of `All` with `for_all` or `for_any`. Do the same for `Ex`.
 
 ## Done
 
-0. Re-name `Format` to `Injection`.
+0. Add extensions for pattern-matching and function definition, instead of having custom syntax for both.
+0. [(Commit)](https://github.com/LuxLang/lux/commit/ffe8cb4d1a728e2289b04eeb57f64cbababc58cd) Re-name `Format` to `Injection`.
    * [Injection](https://en.wikipedia.org/wiki/Injective_function)
-0. Fix bug wherein private aliases in module `A` of public definitions in module `B` are seen in module `C`, if it imports `A`.
+0. [(Commit)](https://github.com/LuxLang/lux/commit/ffe8cb4d1a728e2289b04eeb57f64cbababc58cd) Fix bug wherein private aliases in module `A` of public definitions in module `B` are seen in module `C`, if it imports `A`.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/6620a2ae31aa199874497c631f704c36d9244304) Re-name `Parser` to `Projection`.
    * [Projection](https://en.wikipedia.org/wiki/Projection_(relational_algebra))
 0. [(Commit)](https://github.com/LuxLang/lux/commit/6620a2ae31aa199874497c631f704c36d9244304) Introduce an `Int`-based alternative to `Frac`(tion) called `Rat`(tional).
