@@ -12,6 +12,7 @@
 
 ## To Do
 
+0. Get rid of the `.in_module#` extension. It can be replaced by a macro that piggy-backs on the existing `quoted_module` mechanism.
 0. Replace recursive type calls from `(0 "")` to `(0 0)`
 0. Extract the variable link-ring machinery being used by both the `control/logic` and `meta/type/check` modules into its own module.
 0. Implement type-level naming ([Ghosts of Dependent Proofs](https://kataskeue.com/gdp.pdf)-style), in order to give unique names to classes, to force distinctions between them beyond their state types.
@@ -34,14 +35,14 @@
    * [Embedding](https://en.wikipedia.org/wiki/Embedding)
    * [Format](https://en.wikipedia.org/wiki/Content_format)
 0. Make type-normalization no longer confuse local type parameters with globally-defined types/macros. Remove instances of `(.except left right)`.
-0. Get rid of the `.in_module#` extension. It can be replaced by a macro that piggy-backs on the existing `quoted_module` mechanism.
 0. Unify the handling of globals between extensions, analysis & declaration.
-0. Get rid of `licentia`.
-0. Replace uses of `All` with `for_all` or `for_any`. Do the same for `Ex`.
+0. Get rid of `library/lux/world/db`.
 
 ## Done
 
-0. Add extensions for pattern-matching and function definition, instead of having custom syntax for both.
+0. Replace uses of `All` with `for_all` or `for_any`. Do the same for `Ex`.
+0. Get rid of `licentia`.
+0. [(Commit)](https://github.com/LuxLang/lux/commit/31dacc61d04fad87f0e0c6e67220f4fc83dee9cb) Add extensions for pattern-matching and function definition, instead of having custom syntax for both.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/ffe8cb4d1a728e2289b04eeb57f64cbababc58cd) Re-name `Format` to `Injection`.
    * [Injection](https://en.wikipedia.org/wiki/Injective_function)
 0. [(Commit)](https://github.com/LuxLang/lux/commit/ffe8cb4d1a728e2289b04eeb57f64cbababc58cd) Fix bug wherein private aliases in module `A` of public definitions in module `B` are seen in module `C`, if it imports `A`.

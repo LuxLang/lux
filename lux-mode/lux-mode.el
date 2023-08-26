@@ -372,7 +372,8 @@ Called by `imenu--generic-function'."
 												 "Tuple" "And" "Record"
 												 "Rec"
 												 "Nominal" "->" "<-"
-												 "All" "Ex"
+												 "All" "for_all" "for_any" "for_every"
+												 "Ex" "there_exists" "for_some"
 												 "Interface"
 												 "Class"
 												 "type"))
@@ -615,8 +616,16 @@ This function also returns nil meaning don't specify the indentation."
   (be 'defun)
   (cond 0)
   (loop 1)
-  (All 'defun)
-  (Ex 'defun)
+
+  ("All" 'defun)
+  ("for_all" 'defun)
+  ("for_any" 'defun)
+  ("for_every" 'defun)
+  
+  ("Ex" 'defun)
+  ("there_exists" 'defun)
+  ("for_some" 'defun)
+
   (Rec 'defun)
   ("Class" 'defun)
 
