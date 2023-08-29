@@ -441,7 +441,7 @@ Called by `imenu--generic-function'."
 							"for"
 							"io"
 							"infix"
-							"format"
+							"message"
 							"regex")
 						   "\\>"))))
 		   (separator "\\.")

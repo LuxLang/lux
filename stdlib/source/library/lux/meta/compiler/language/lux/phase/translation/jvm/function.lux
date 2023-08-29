@@ -74,7 +74,7 @@
      [reference
       [register (.only Register)]]]]]])
 
-(the .public (with translate archive @begin class environment arity body)
+(the .public (with expression archive @begin class environment arity body)
   (-> Phase Archive Label External (Environment synthesis.Term) Arity (Bytecode Any)
       (Operation [(List (Resource Field))
                   (List (Resource Method))
@@ -94,7 +94,7 @@
                                     (list (/implementation.method classT arity @begin body)
                                           (/apply.method classT environment arity @begin 1)))))]
     (do [! phase.monad]
-      [environment (monad.each ! (translate archive) environment)]
+      [environment (monad.each ! (expression archive) environment)]
       (in [fields methods (/init.instance classT environment arity)]))))
 
 (the modifier
@@ -114,16 +114,16 @@
        reflection.reflection
        name.internal))
 
-(the .public (abstraction translate archive [environment arity bodyS])
+(the .public (abstraction expression archive [environment arity bodyS])
   (Translator Abstraction)
   (do phase.monad
     [dependencies (cache/artifact.dependencies archive bodyS)
      @begin //runtime.forge_label
      [function_context bodyG] (<| (translation.with_new_context archive dependencies)
                                   (translation.with_anchor [@begin ..this_offset])
-                                  (translate archive bodyS))
+                                  (expression archive bodyS))
      .let [function_class (//runtime.class_name function_context)]
-     [fields methods instance] (..with translate archive @begin function_class environment arity bodyG)
+     [fields methods instance] (..with expression archive @begin function_class environment arity bodyG)
      module translation.module
      class (phase.of_try (class.class version.v6_0
                            ..modifier
@@ -138,13 +138,13 @@
      _ (translation.save! (product.right function_context) {.#None} bytecode)]
     (in instance)))
 
-(the (apply/?' translate archive [abstractionG inputsS])
+(the (arbitrary_reification' expression archive [abstraction parameters])
   (Translator [(Bytecode Any) (List synthesis.Term)])
   (do [! phase.monad]
-    [inputsG (monad.each ! (translate archive) inputsS)]
+    [parameters (monad.each ! (expression archive) parameters)]
     (in (all _.composite
-             abstractionG
-             (|> inputsG
+             abstraction
+             (|> parameters
                  (list.sub /arity.maximum)
                  (monad.each _.monad
                              (function (_ batchG)
@@ -155,50 +155,50 @@
                                     ))))
              ))))
 
-(the (apply/? translate archive [abstractionS inputsS])
+(the (arbitrary_reification expression archive [abstraction parameters])
   (Translator Apply)
   (do [! phase.monad]
-    [abstractionG (translate archive abstractionS)]
-    (apply/?' translate archive [abstractionG inputsS])))
+    [abstraction (expression archive abstraction)]
+    (arbitrary_reification' expression archive [abstraction parameters])))
 
-(the (apply/= translate archive [$abstraction @abstraction arity inputsS])
+(the (exact_reification expression archive [$abstraction @abstraction arity parameters])
   (Translator [Symbol unit.ID Arity (List synthesis.Term)])
   (do [! phase.monad]
     [.let [:abstraction: (type.class (//runtime.class_name @abstraction) (list))]
-     abstractionG (//reference.constant archive $abstraction)
-     inputsG (monad.each ! (translate archive) inputsS)]
+     abstraction (//reference.constant archive $abstraction)
+     parameters (monad.each ! (expression archive) parameters)]
     (in (all _.composite
-             abstractionG
-             (monad.all _.monad inputsG)
+             abstraction
+             (monad.all _.monad parameters)
              (/implementation.call :abstraction: arity)
              ))))
 
-(the (apply/> translate archive [$abstraction @abstraction arity inputsS])
+(the (successive_reification expression archive [$abstraction @abstraction arity parameters])
   (Translator [Symbol unit.ID Arity (List synthesis.Term)])
   (do [! phase.monad]
-    [=G (apply/= translate archive [$abstraction @abstraction arity (list.first arity inputsS)])]
-    (apply/?' translate archive [=G (list.after arity inputsS)])))
+    [first (exact_reification expression archive [$abstraction @abstraction arity (list.first arity parameters)])]
+    (arbitrary_reification' expression archive [first (list.after arity parameters)])))
 
-(the .public (apply translate archive [abstractionS inputsS])
+(the .public (apply expression archive [abstraction parameters])
   (Translator Apply)
-  (when abstractionS
+  (when abstraction
     (synthesis.constant @ $abstraction)
     (do [! phase.monad]
       [[@definition |abstraction|] (translation.definition archive $abstraction)
-       .let [actual_arity (list.size inputsS)]]
+       .let [actual_arity (list.size parameters)]]
       (when |abstraction|
         {.#Some [_ {.#Some [expected_arity @abstraction]}]}
-        (cond (n.< expected_arity actual_arity)
-              (apply/? translate archive [abstractionS inputsS])
-              
-              (n.= expected_arity actual_arity)
-              (apply/= translate archive [$abstraction @abstraction expected_arity inputsS])
+        (cond (n.= expected_arity actual_arity)
+              (exact_reification expression archive [$abstraction @abstraction expected_arity parameters])
+
+              (n.< expected_arity actual_arity)
+              (arbitrary_reification expression archive [abstraction parameters])
               
               ... (n.> expected_arity actual_arity)
-              (apply/> translate archive [$abstraction @abstraction expected_arity inputsS]))
+              (successive_reification expression archive [$abstraction @abstraction expected_arity parameters]))
         
         _
-        (apply/? translate archive [abstractionS inputsS])))
+        (arbitrary_reification expression archive [abstraction parameters])))
 
     _
-    (apply/? translate archive [abstractionS inputsS])))
+    (arbitrary_reification expression archive [abstraction parameters])))

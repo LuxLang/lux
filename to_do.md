@@ -31,15 +31,16 @@
    * `a/b * b/c = a/c` && `a/b * c/a = c/b` && `a/b * c/d = ac/bd`.
    * The above rule can make `a/0 * 0/b = a/b` and `0/a * b/0 = b/a`, bypassing any possibility for `0/0`.
    * It may also make the de-normalized zeroes and infinities carry useful information, instead of losing it through normalization.
-0. Re-name `Codec` to `Embedding`. Alternatively, re-name to `Format`.
-   * [Embedding](https://en.wikipedia.org/wiki/Embedding)
-   * [Format](https://en.wikipedia.org/wiki/Content_format)
 0. Make type-normalization no longer confuse local type parameters with globally-defined types/macros. Remove instances of `(.except left right)`.
 0. Unify the handling of globals between extensions, analysis & declaration.
+0. Favor partial calls over successive calls when compiling function application.
 
 ## Done
 
-0. Get rid of `library/lux/world/db`.
+0. Re-name `Codec` to `Embedding`. Alternatively, re-name to `Format`.
+   * [Embedding](https://en.wikipedia.org/wiki/Embedding)
+   * [Format](https://en.wikipedia.org/wiki/Content_format)
+0. [(Commit)](https://github.com/LuxLang/lux/commit/b32652a350e543d9343d8b6c859773937474ae7b) Get rid of `library/lux/world/db`.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/ddbbca49f87ab84d8ee8cf8568d38c27542a6e67) Replace uses of `All` with `for_all` or `for_any`. Do the same for `Ex`.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/ddbbca49f87ab84d8ee8cf8568d38c27542a6e67) Get rid of `licentia`.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/31dacc61d04fad87f0e0c6e67220f4fc83dee9cb) Add extensions for pattern-matching and function definition, instead of having custom syntax for both.

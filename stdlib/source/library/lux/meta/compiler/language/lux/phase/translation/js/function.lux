@@ -11,7 +11,10 @@
     [text
      ["%" \\injection]]
     [collection
-     ["[0]" list (.use "[1]#[0]" functor mix)]]]
+     ["[0]" list (.use "[1]#[0]" monoid functor mix)]]]
+   [math
+    [number
+     ["n" nat]]]
    [meta
     [compiler
      [target
@@ -25,8 +28,8 @@
    ["//[1]" ///
     [analysis (.only Abstraction Reification)]
     ["[0]" phase (.use "[1]#[0]" monad)]
-    ["[0]" synthesis]
-    ["[1][0]" translation]
+    ["[0]" synthesis (.only Apply)]
+    ["[0]" translation]
     ["//[1]" ///
      [arity (.only Arity)]
      [reference
@@ -38,16 +41,85 @@
        [dependency
         ["[1]" artifact]]]]]]]])
 
-(the .public (apply expression archive [functionS argsS+])
-  (Translator (Reification synthesis.Term))
-  (do [! phase.monad]
-    [functionO (expression archive functionS)
-     argsO+ (monad.each ! (expression archive) argsS+)]
-    (in (_.apply functionO argsO+))))
-
 (the capture
   (-> Register Var)
   (|>> (///reference.foreign //reference.system) as_expected))
+
+(the (procedure_id abstraction_id)
+  (-> unit.ID
+      unit.ID)
+  [unit.#module (unit.module abstraction_id)
+   unit.#artifact (++ (unit.artifact abstraction_id))])
+
+(the (@scope abstraction_id)
+  (-> unit.ID Text)
+  (%.message (///reference.artifact abstraction_id) "_scope"))
+
+(the (procedure environment name arity body)
+  (-> (List //runtime.Value) unit.ID Arity _.Statement
+      _.Statement)
+  (_.function_definition
+   (_.var (///reference.artifact name))
+   (all list#composite
+        (|> (list.enumeration environment)
+            (list#each (|>> product.left ..capture)))
+        (list (//when.register 0))
+        (list#each (|>> ++ //when.register)
+                   (list.indices arity))
+        )
+   (<| (_.with_label (_.label (..@scope name)))
+       (_.do_while (_.boolean true))
+       body)))
+
+(the (arbitrary_reification' expression archive [abstraction parameters])
+  (Translator [//runtime.Value (List synthesis.Term)])
+  (do [! phase.monad]
+    [parameters (monad.each ! (expression archive) parameters)]
+    (in (_.apply abstraction parameters))))
+
+(the (arbitrary_reification expression archive [abstraction parameters])
+  (Translator Apply)
+  (do phase.monad
+    [abstraction (expression archive abstraction)]
+    (arbitrary_reification' expression archive [abstraction parameters])))
+
+(the (exact_reification expression archive [abstraction arity parameters])
+  (Translator [unit.ID Arity (List synthesis.Term)])
+  (do [! phase.monad]
+    [parameters (monad.each ! (expression archive) parameters)]
+    (in (_.apply (_.var (///reference.artifact (..procedure_id abstraction)))
+                 {.#Item (_.var (///reference.artifact abstraction))
+                         parameters}))))
+
+(the (successive_reification expression archive [abstraction arity parameters])
+  (Translator [unit.ID Arity (List synthesis.Term)])
+  (do [! phase.monad]
+    [first (exact_reification expression archive [abstraction arity (list.first arity parameters)])]
+    (arbitrary_reification' expression archive [first (list.after arity parameters)])))
+
+(the .public (apply expression archive [abstraction parameters])
+  (Translator Apply)
+  (when abstraction
+    (synthesis.constant @ $abstraction)
+    (do [! phase.monad]
+      [[@definition |abstraction|] (translation.definition archive $abstraction)
+       .let [actual_arity (list.size parameters)]]
+      (when |abstraction|
+        {.#Some [_ {.#Some [expected_arity @abstraction]}]}
+        (cond (n.= expected_arity actual_arity)
+              (exact_reification expression archive [@abstraction expected_arity parameters])
+
+              (n.< expected_arity actual_arity)
+              (arbitrary_reification expression archive [abstraction parameters])
+              
+              ... (n.> expected_arity actual_arity)
+              (successive_reification expression archive [@abstraction expected_arity parameters]))
+        
+        _
+        (arbitrary_reification expression archive [abstraction parameters])))
+
+    _
+    (arbitrary_reification expression archive [abstraction parameters])))
 
 (the (with_closure @self inits body!)
   (-> Var (List Expression) Statement [Statement Expression])
@@ -57,10 +129,11 @@
      @self]
 
     _
-    [(_.function_definition @self
-                            (|> (list.enumeration inits)
-                                (list#each (|>> product.left ..capture)))
-                            (_.return (_.function @self (list) body!)))
+    [(_.function_definition
+      @self
+      (|> (list.enumeration inits)
+          (list#each (|>> product.left ..capture)))
+      (_.return (_.function @self (list) body!)))
      (_.apply @self inits)]))
 
 (the @curried
@@ -72,24 +145,21 @@
 (the @@arguments
   (_.var "arguments"))
 
-(the (@scope function_name)
-  (-> unit.ID Text)
-  (%.message (///reference.artifact function_name) "_scope"))
-
 (the .public (function statement expression archive [environment arity bodyS])
   (-> Phase! (Translator (Abstraction synthesis.Term)))
   (do [! phase.monad]
     [dependencies (cache.dependencies archive bodyS)
-     [function_name body!] (/////translation.with_new_context archive dependencies
-                             (do !
-                               [scope (of ! each ..@scope
-                                          (/////translation.context archive))]
-                               (/////translation.with_anchor [1 scope]
-                                 (statement expression archive bodyS))))
+     [abstraction_id procedure_id body!] (<| (translation.with_new_context archive dependencies)
+                                             (translation.with_new_context archive dependencies)
+                                             (do !
+                                               [scope (of ! each ..@scope
+                                                          (translation.context archive))]
+                                               (translation.with_anchor [1 scope]
+                                                 (statement expression archive bodyS))))
      .let [arityO (|> arity .int _.i32)
            @num_args (_.var "num_args")
-           @scope (..@scope function_name)
-           @self (_.var (///reference.artifact function_name))
+           @scope (..@scope procedure_id)
+           @self (_.var (///reference.artifact abstraction_id))
            apply_poly (.function (_ args func)
                         (|> func (_.do "apply" (list _.null args))))
            initialize_self! (_.define (//when.register 0) @self)
@@ -100,15 +170,19 @@
                                  initialize_self!
                                  (list.indices arity))]
      environment (monad.each ! (expression archive) environment)
+     _ (do !
+         [.let [procedure_definition (..procedure environment procedure_id arity body!)]
+          _ (translation.execute! procedure_definition)]
+         (translation.save! (unit.artifact procedure_id) {.#None} procedure_definition))
      .let [[definition instantiation] (with_closure @self environment
                                         (all _.then
                                              (_.define @num_args (_.its "length" @@arguments))
                                              (<| (_.if (|> @num_args (_.= arityO))
                                                    (all _.then
                                                         initialize!
-                                                        (_.with_label (_.label @scope)
-                                                          (_.do_while (_.boolean true)
-                                                                      body!))))
+                                                        (<| (_.with_label (_.label @scope))
+                                                            (_.do_while (_.boolean true))
+                                                            body!)))
                                                  (_.if (|> @num_args (_.> arityO))
                                                    (let [arity_inputs (|> (_.array (list))
                                                                           (_.its "slice")
@@ -130,6 +204,6 @@
                                                                                (_.return (apply_poly (_.do "concat" (list @missing) @curried)
                                                                                                      @self))))))))
                                              ))]
-     _ (/////translation.execute! definition)
-     _ (/////translation.save! (product.right function_name) {.#None} definition)]
+     _ (translation.execute! definition)
+     _ (translation.save! (product.right abstraction_id) {.#None} definition)]
     (in instantiation)))
