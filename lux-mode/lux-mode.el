@@ -389,7 +389,7 @@ Called by `imenu--generic-function'."
 							(code//quotation (altRE "`" "`'" "'" "," ",\\*" ",'"))
 							(code//super-quotation (altRE "``" ",,"))
 							(code//template (altRE "with_template"))
-							(code//macro (altRE "macro" "template" "syntax"))
+							(code//macro (altRE "macro" "template"))
 							;; Miscellaneous
 							(jvm-host (altRE "import" "export" "class" "interface" "object" "synchronized" "class_for"))
 							(alternative-format (altRE "char" "bin" "oct" "hex"))
@@ -436,7 +436,6 @@ Called by `imenu--generic-function'."
 							extension
 							definition
 							;; ;;;;;;;;;;;;;;;;;;;;;;
-							"with_expansions"
 							"undefined" "symbol"
 							"for"
 							"io"
@@ -580,7 +579,6 @@ This function also returns nil meaning don't specify the indentation."
 (define-lux-indent
   ("function" 'defun)
   ("macro" 'defun)
-  ("syntax" 'defun)
   ("template" 'defun)
   ("program" 'defun)
 
