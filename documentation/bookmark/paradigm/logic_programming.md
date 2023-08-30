@@ -5,7 +5,6 @@
 
 # Unification
 
-0. []()
 0. [Functors of the World, Unite!](https://www.youtube.com/watch?v=8k7YH9st_8U)
 
 # Inspiration
@@ -15,6 +14,7 @@
 
 # Reference
 
+0. [Dis-unification](https://en.wikipedia.org/wiki/Dis-unification_(computer_science))
 0. [Rethinking Prolog](https://okmij.org/ftp/kakuritu/rethinking.pdf)
 0. [Symbolic artificial intelligence at Pipedrive](https://medium.com/pipedrive-engineering/symbolic-artificial-intelligence-at-pipedrive-a9bd36d06b9e)
 0. [PrologHub](https://prologhub.com/)

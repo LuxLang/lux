@@ -33,11 +33,11 @@
    * It may also make the de-normalized zeroes and infinities carry useful information, instead of losing it through normalization.
 0. Make type-normalization no longer confuse local type parameters with globally-defined types/macros. Remove instances of `(.except left right)`.
 0. Unify the handling of globals between extensions, analysis & declaration.
-0. Favor partial calls over successive calls when compiling function application.
 
 ## Done
 
-0. Re-name `Codec` to `Embedding`. Alternatively, re-name to `Format`.
+0. Favor partial calls over successive calls when compiling function application.
+0. [(Commit)](https://github.com/LuxLang/lux/commit/b7fb27e49cba22cdbad5ffc034b32963b35c05f4) Re-name `Codec` to `Embedding`. Alternatively, re-name to `Format`.
    * [Embedding](https://en.wikipedia.org/wiki/Embedding)
    * [Format](https://en.wikipedia.org/wiki/Content_format)
 0. [(Commit)](https://github.com/LuxLang/lux/commit/b32652a350e543d9343d8b6c859773937474ae7b) Get rid of `library/lux/world/db`.

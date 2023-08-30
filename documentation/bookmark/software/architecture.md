@@ -1,5 +1,6 @@
 # Reference
 
+0. [How Agility Enhances Software Architecture](https://www.agile-meets-architecture.com/essays/how-agility-enhances-software-architecture)
 0. [Feature-Sliced Design: Architectural methodology for frontend projects](https://feature-sliced.design/)
 0. [Why Do We Create System Architecture Diagrams Anyway?](https://www.ilograph.com/blog/posts/why-create-system-architecture-diagrams/)
 0. [A Syntactic Theory of Software Architecture](https://www.panda.sys.t.u-tokyo.ac.jp/kushiro/ReferencePaper/Pattern&Framework/00385969.pdf)
