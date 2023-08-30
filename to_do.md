@@ -20,7 +20,6 @@
 0. Notation for 2-adic numbers (as a sibling to `Rev`)
    * [Mathematicians Use Numbers Differently From The Rest of Us](https://www.youtube.com/watch?v=tRaq4aYPzCc)
    * [Fractions and p-adic numbers | Real numbers and limits Math Foundations 90 | N J Wildberger](https://www.youtube.com/watch?v=XXRwlo_MHnI)
-0. Get rid of `#Sum`, `#Product`, and `#Function` types in `Type`, and replace them with custom-named instances of `#Nominal`.
 0. Have alternative arithmetic operators for `Frac`(tion) that do not
  normalize the result after the operation (`+'`, `-'`, `*'`, `/'`).
    * Normalization would obfuscate [an interesting fact about working with infinity](https://youtu.be/pE01mIrsw74?list=PL5A714C94D40392AB&t=1010).
@@ -36,7 +35,7 @@
 
 ## Done
 
-0. Favor partial calls over successive calls when compiling function application.
+0. [(Commit)](https://github.com/LuxLang/lux/commit/c7daf84dfd365df8da5b381dfb1d3fca9afd62a7) Favor partial calls over successive calls when compiling function application.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/b7fb27e49cba22cdbad5ffc034b32963b35c05f4) Re-name `Codec` to `Embedding`. Alternatively, re-name to `Format`.
    * [Embedding](https://en.wikipedia.org/wiki/Embedding)
    * [Format](https://en.wikipedia.org/wiki/Content_format)

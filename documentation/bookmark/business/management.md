@@ -1,5 +1,6 @@
 # Reference
 
+0. [Archetypes of Broken Ownership](https://blog.alexewerlof.com/p/broken-ownership)
 0. [Manage process before people](https://world.hey.com/dhh/manage-process-before-people-20736695)
 0. [Types of Ego In The Workplace That Gotta Go](https://collato.com/blog/types-of-ego-at-work)
 0. [Kenny Baas-Schwegler — Autonomy, is that what we really want?](https://www.youtube.com/watch?v=ijKATZCQZL4)
