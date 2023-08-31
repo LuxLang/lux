@@ -388,8 +388,7 @@ Called by `imenu--generic-function'."
 							;; Code
 							(code//quotation (altRE "`" "`'" "'" "," ",\\*" ",'"))
 							(code//super-quotation (altRE "``" ",,"))
-							(code//template (altRE "with_template"))
-							(code//macro (altRE "macro" "template"))
+							(code//macro (altRE "macro"))
 							;; Miscellaneous
 							(jvm-host (altRE "import" "export" "class" "interface" "object" "synchronized" "class_for"))
 							(alternative-format (altRE "char" "bin" "oct" "hex"))
@@ -417,7 +416,6 @@ Called by `imenu--generic-function'."
 										   data//collection))
 							  (code (altRE code//quotation
 										   code//super-quotation
-										   code//template
 										   code//macro)))
 						  (concat
 						   "("
@@ -579,7 +577,6 @@ This function also returns nil meaning don't specify the indentation."
 (define-lux-indent
   ("function" 'defun)
   ("macro" 'defun)
-  ("template" 'defun)
   ("program" 'defun)
 
   ("the" 'defun)
