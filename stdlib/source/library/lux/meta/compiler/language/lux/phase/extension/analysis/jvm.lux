@@ -553,13 +553,74 @@
 (the (check_parameter objectT)
   (-> .Type
       (Operation (Type Parameter)))
-  (when objectT
-    (lux_array_type elementT _)
-    (analysis.except ..non_parameter objectT)
-    
-    {.#Nominal name parameters}
-    (`` (cond (or (,, (template.with [<type>]
-                        [(text#= (..reflection <type>) name)]
+  (`` (when objectT
+        (lux_array_type elementT _)
+        (analysis.except ..non_parameter objectT)
+        
+        {.#Nominal name parameters}
+        (`` (cond (or (,, (template.with [<type>]
+                            [(text#= (..reflection <type>) name)]
+
+                            [jvm.boolean]
+                            [jvm.byte]
+                            [jvm.short]
+                            [jvm.int]
+                            [jvm.long]
+                            [jvm.float]
+                            [jvm.double]
+                            [jvm.char]))
+                      (text.starts_with? descriptor.array_prefix name))
+                  (analysis.except ..non_parameter objectT)
+
+                  ... else
+                  (phase#in (jvm.class name (list)))))
+
+        {.#Named name anonymous}
+        (check_parameter anonymous)
+
+        {.#Var @var}
+        (do phase.monad
+          [:var: (typeA.check (check.peek @var))]
+          (when :var:
+            {.#Some :var:}
+            (check_parameter :var:)
+            
+            {.#None}
+            (in (jvm.class ..object_class (list)))))
+
+        (^.or {.#Opaque id}
+              {.#Parameter id})
+        (phase#in (jvm.class ..object_class (list)))
+
+        (,, (template.with [<tag>]
+              [{<tag> env unquantified}
+               (check_parameter unquantified)]
+
+              [.#Universal]
+              [.#Existential]))
+
+        {.#Apply inputT abstractionT}
+        (when (type.applied (list inputT) abstractionT)
+          {.#Some outputT}
+          (check_parameter outputT)
+
+          {.#None}
+          (analysis.except ..non_parameter objectT))
+
+        {.#Function _}
+        (phase#in function.class)
+
+        _
+        (analysis.except ..non_parameter objectT))))
+
+(the (check_jvm objectT)
+  (-> .Type
+      (Operation (Type Value)))
+  (`` (when objectT
+        {.#Nominal name {.#End}}
+        (`` (cond (,, (template.with [<type>]
+                        [(text#= (..reflection <type>) name)
+                         (phase#in <type>)]
 
                         [jvm.boolean]
                         [jvm.byte]
@@ -569,117 +630,58 @@
                         [jvm.float]
                         [jvm.double]
                         [jvm.char]))
-                  (text.starts_with? descriptor.array_prefix name))
-              (analysis.except ..non_parameter objectT)
 
-              ... else
-              (phase#in (jvm.class name (list)))))
+                  (,, (template.with [<type>]
+                        [(text#= (..reflection (jvm.array <type>)) name)
+                         (phase#in (jvm.array <type>))]
 
-    {.#Named name anonymous}
-    (check_parameter anonymous)
+                        [jvm.boolean]
+                        [jvm.byte]
+                        [jvm.short]
+                        [jvm.int]
+                        [jvm.long]
+                        [jvm.float]
+                        [jvm.double]
+                        [jvm.char]))
 
-    {.#Var @var}
-    (do phase.monad
-      [:var: (typeA.check (check.peek @var))]
-      (when :var:
-        {.#Some :var:}
-        (check_parameter :var:)
+                  (text.starts_with? descriptor.array_prefix name)
+                  (let [[_ unprefixed] (maybe.trusted (text.split_by descriptor.array_prefix name))]
+                    (of phase.monad each jvm.array
+                        (check_jvm {.#Nominal unprefixed (list)})))
+
+                  ... else
+                  (phase#in (jvm.class name (list)))))
+
+        (lux_array_type elementT _)
+        (|> elementT
+            check_jvm
+            (phase#each jvm.array))
         
-        {.#None}
-        (in (jvm.class ..object_class (list)))))
+        {.#Nominal name parameters}
+        (do [! phase.monad]
+          [parameters (monad.each ! check_parameter parameters)]
+          (phase#in (jvm.class name parameters)))
 
-    (^.or {.#Opaque id}
-          {.#Parameter id})
-    (phase#in (jvm.class ..object_class (list)))
+        {.#Named name anonymous}
+        (check_jvm anonymous)
 
-    (^.with_template [<tag>]
-      [{<tag> env unquantified}
-       (check_parameter unquantified)])
-    ([.#Universal]
-     [.#Existential])
+        (,, (template.with [<tag>]
+              [{<tag> env unquantified}
+               (check_jvm unquantified)]
 
-    {.#Apply inputT abstractionT}
-    (when (type.applied (list inputT) abstractionT)
-      {.#Some outputT}
-      (check_parameter outputT)
+              [.#Universal]
+              [.#Existential]))
 
-      {.#None}
-      (analysis.except ..non_parameter objectT))
+        {.#Apply inputT abstractionT}
+        (when (type.applied (list inputT) abstractionT)
+          {.#Some outputT}
+          (check_jvm outputT)
 
-    {.#Function _}
-    (phase#in function.class)
+          {.#None}
+          (analysis.except ..non_object objectT))
 
-    _
-    (analysis.except ..non_parameter objectT)))
-
-(the (check_jvm objectT)
-  (-> .Type
-      (Operation (Type Value)))
-  (when objectT
-    {.#Nominal name {.#End}}
-    (`` (cond (,, (template.with [<type>]
-                    [(text#= (..reflection <type>) name)
-                     (phase#in <type>)]
-
-                    [jvm.boolean]
-                    [jvm.byte]
-                    [jvm.short]
-                    [jvm.int]
-                    [jvm.long]
-                    [jvm.float]
-                    [jvm.double]
-                    [jvm.char]))
-
-              (,, (template.with [<type>]
-                    [(text#= (..reflection (jvm.array <type>)) name)
-                     (phase#in (jvm.array <type>))]
-
-                    [jvm.boolean]
-                    [jvm.byte]
-                    [jvm.short]
-                    [jvm.int]
-                    [jvm.long]
-                    [jvm.float]
-                    [jvm.double]
-                    [jvm.char]))
-
-              (text.starts_with? descriptor.array_prefix name)
-              (let [[_ unprefixed] (maybe.trusted (text.split_by descriptor.array_prefix name))]
-                (of phase.monad each jvm.array
-                    (check_jvm {.#Nominal unprefixed (list)})))
-
-              ... else
-              (phase#in (jvm.class name (list)))))
-
-    (lux_array_type elementT _)
-    (|> elementT
-        check_jvm
-        (phase#each jvm.array))
-    
-    {.#Nominal name parameters}
-    (do [! phase.monad]
-      [parameters (monad.each ! check_parameter parameters)]
-      (phase#in (jvm.class name parameters)))
-
-    {.#Named name anonymous}
-    (check_jvm anonymous)
-
-    (^.with_template [<tag>]
-      [{<tag> env unquantified}
-       (check_jvm unquantified)])
-    ([.#Universal]
-     [.#Existential])
-
-    {.#Apply inputT abstractionT}
-    (when (type.applied (list inputT) abstractionT)
-      {.#Some outputT}
-      (check_jvm outputT)
-
-      {.#None}
-      (analysis.except ..non_object objectT))
-
-    _
-    (check_parameter objectT)))
+        _
+        (check_parameter objectT))))
 
 (template.with [<name> <category> <projection>]
   [(the .public (<name> mapping typeJ)
@@ -2634,27 +2636,28 @@
   (when field
     ... TODO: Handle annotations.
     {#Constant [name annotations type value]}
-    (when value
-      (^.with_template [<tag> <type> <constant>]
-        [[_ {<tag> value}]
-         (do pool.monad
-           [constant (`` (|> value (,, (template.spliced <constant>))))
-            attribute (attribute.constant constant)]
-           (field.field ..constant::modifier name true <type> (sequence.sequence attribute)))])
-      ([.#Bit jvm.boolean [(pipe.when #0 +0 #1 +1) .i64 i32.i32 constant.integer pool.integer]]
-       ... [.#Int jvm.byte [.i64 i32.i32 constant.integer pool.integer]]
-       ... [.#Int jvm.short [.i64 i32.i32 constant.integer pool.integer]]
-       ... [.#Int jvm.int [.i64 i32.i32 constant.integer pool.integer]]
-       [.#Int jvm.long [constant.long pool.long]]
-       ... [.#Dec jvm.float [ffi.as_double ffi.double_to_float constant.float pool.float]]
-       [.#Dec jvm.double [constant.double pool.double]]
-       [.#Nat jvm.char [.i64 i32.i32 constant.integer pool.integer]]
-       [.#Text (jvm.class "java.lang.String" (list)) [pool.string]]
-       )
+    (`` (when value
+          (,, (template.with [<tag> <type> <constant>]
+                [[_ {<tag> value}]
+                 (do pool.monad
+                   [constant (`` (|> value (,, (template.spliced <constant>))))
+                    attribute (attribute.constant constant)]
+                   (field.field ..constant::modifier name true <type> (sequence.sequence attribute)))]
 
-      ... TODO: Tighten this pattern-matching so this catch-all clause isn't necessary.
-      _
-      (undefined))
+                [.#Bit jvm.boolean [(pipe.when #0 +0 #1 +1) .i64 i32.i32 constant.integer pool.integer]]
+                ... [.#Int jvm.byte [.i64 i32.i32 constant.integer pool.integer]]
+                ... [.#Int jvm.short [.i64 i32.i32 constant.integer pool.integer]]
+                ... [.#Int jvm.int [.i64 i32.i32 constant.integer pool.integer]]
+                [.#Int jvm.long [constant.long pool.long]]
+                ... [.#Dec jvm.float [ffi.as_double ffi.double_to_float constant.float pool.float]]
+                [.#Dec jvm.double [constant.double pool.double]]
+                [.#Nat jvm.char [.i64 i32.i32 constant.integer pool.integer]]
+                [.#Text (jvm.class "java.lang.String" (list)) [pool.string]]
+                ))
+
+          ... TODO: Tighten this pattern-matching so this catch-all clause isn't necessary.
+          _
+          (undefined)))
 
     ... TODO: Handle annotations.
     {#Variable [name visibility state annotations type]}

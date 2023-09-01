@@ -52,61 +52,63 @@
   (-> (Remover /.Term)
       (Remover Path))
   (function (again path)
-    (when path
-      {/.#Seq {/.#Bind register}
-              post}
-      (if (n.= redundant register)
-        (again post)
-        {/.#Seq {/.#Bind (if (n.> redundant register)
-                           (-- register)
-                           register)}
-                (again post)})
+    (`` (when path
+          {/.#Seq {/.#Bind register}
+                  post}
+          (if (n.= redundant register)
+            (again post)
+            {/.#Seq {/.#Bind (if (n.> redundant register)
+                               (-- register)
+                               register)}
+                    (again post)})
 
-      (^.or {/.#Seq {/.#Access {/access.#Member member}}
-                    {/.#Seq {/.#Bind register}
-                            post}}
-            ... This alternative form should never occur in practice.
-            ... Yet, it is "technically" possible to construct it.
-            {/.#Seq {/.#Seq {/.#Access {/access.#Member member}}
-                            {/.#Bind register}}
-                    post})
-      (if (n.= redundant register)
-        (again post)
-        {/.#Seq {/.#Access {/access.#Member member}}
-                {/.#Seq {/.#Bind (if (n.> redundant register)
-                                   (-- register)
-                                   register)}
-                        (again post)}})
+          (^.or {/.#Seq {/.#Access {/access.#Member member}}
+                        {/.#Seq {/.#Bind register}
+                                post}}
+                ... This alternative form should never occur in practice.
+                ... Yet, it is "technically" possible to construct it.
+                {/.#Seq {/.#Seq {/.#Access {/access.#Member member}}
+                                {/.#Bind register}}
+                        post})
+          (if (n.= redundant register)
+            (again post)
+            {/.#Seq {/.#Access {/access.#Member member}}
+                    {/.#Seq {/.#Bind (if (n.> redundant register)
+                                       (-- register)
+                                       register)}
+                            (again post)}})
 
-      (^.with_template [<tag>]
-        [{<tag> left right}
-         {<tag> (again left) (again right)}])
-      ([/.#Seq]
-       [/.#Alt])
+          (,, (template.with [<tag>]
+                [{<tag> left right}
+                 {<tag> (again left) (again right)}]
 
-      {/.#Bit_Fork when then else}
-      {/.#Bit_Fork when (again then) (maybe#each again else)}
+                [/.#Seq]
+                [/.#Alt]))
 
-      (^.with_template [<tag>]
-        [{<tag> [[test then] tail]}
-         {<tag> [[test (again then)]
-                 (list#each (function (_ [test' then'])
-                              [test' (again then')])
-                            tail)]}])
-      ([/.#I64_Fork]
-       [/.#F64_Fork]
-       [/.#Text_Fork])
-      
-      (^.or {/.#Pop}
-            {/.#Access _})
-      path
+          {/.#Bit_Fork when then else}
+          {/.#Bit_Fork when (again then) (maybe#each again else)}
 
-      {/.#Bind register}
-      (undefined)
-      
-      {/.#Then then}
-      {/.#Then (remove_local redundant then)}
-      )))
+          (,, (template.with [<tag>]
+                [{<tag> [[test then] tail]}
+                 {<tag> [[test (again then)]
+                         (list#each (function (_ [test' then'])
+                                      [test' (again then')])
+                                    tail)]}]
+
+                [/.#I64_Fork]
+                [/.#F64_Fork]
+                [/.#Text_Fork]))
+          
+          (^.or {/.#Pop}
+                {/.#Access _})
+          path
+
+          {/.#Bind register}
+          (undefined)
+          
+          {/.#Then then}
+          {/.#Then (remove_local redundant then)}
+          ))))
 
 (the (remove_local_from_variable redundant variable)
   (Remover Variable)
@@ -265,80 +267,81 @@
   (-> (Optimization /.Term)
       (Optimization Path))
   (function (again [redundancy path])
-    (when path
-      (^.or {/.#Pop}
-            {/.#Access _})
-      {try.#Success [redundancy
-                     path]}
+    (`` (when path
+          (^.or {/.#Pop}
+                {/.#Access _})
+          {try.#Success [redundancy
+                         path]}
 
-      {/.#Bit_Fork test then else}
-      (do [! try.monad]
-        [[redundancy then] (again [redundancy then])
-         [redundancy else] (when else
-                             {.#Some else}
-                             (of ! each
-                                 (function (_ [redundancy else])
-                                   [redundancy {.#Some else}])
-                                 (again [redundancy else]))
+          {/.#Bit_Fork test then else}
+          (do [! try.monad]
+            [[redundancy then] (again [redundancy then])
+             [redundancy else] (when else
+                                 {.#Some else}
+                                 (of ! each
+                                     (function (_ [redundancy else])
+                                       [redundancy {.#Some else}])
+                                     (again [redundancy else]))
 
-                             {.#None}
-                             (in [redundancy {.#None}]))]
-        (in [redundancy {/.#Bit_Fork test then else}]))
-      
-      (^.with_template [<tag> <type>]
-        [{<tag> [[test then] elses]}
-         (do [! try.monad]
-           [[redundancy then] (again [redundancy then])
-            [redundancy elses] (..list_optimization (is (Optimization [<type> Path])
-                                                        (function (_ [redundancy [else_test else_then]])
-                                                          (do !
-                                                            [[redundancy else_then] (again [redundancy else_then])]
-                                                            (in [redundancy [else_test else_then]]))))
-                                                    [redundancy elses])]
-           (in [redundancy {<tag> [[test then] elses]}]))])
-      ([/.#I64_Fork I64]
-       [/.#F64_Fork Dec]
-       [/.#Text_Fork Text])
-      
-      {/.#Bind register}
-      (do try.monad
-        [redundancy (..declare register redundancy)]
-        (in [redundancy
-             path]))
-      
-      {/.#Alt left right}
-      (do try.monad
-        [[redundancy left] (again [redundancy left])
-         [redundancy right] (again [redundancy right])]
-        (in [redundancy {/.#Alt left right}]))
-      
-      {/.#Seq pre post}
-      (do try.monad
-        [.let [baseline (|> redundancy
-                            dictionary.keys
-                            (set.of_list n.hash))]
-         [redundancy pre] (again [redundancy pre])
-         .let [bindings (|> redundancy
-                            dictionary.keys
-                            (set.of_list n.hash)
-                            (set.difference baseline))]
-         [redundancy post] (again [redundancy post])
-         .let [redundants (|> redundancy
-                              dictionary.entries
-                              (list.only (function (_ [register redundant?])
-                                           (and (set.member? bindings register)
-                                                redundant?)))
-                              (list#each product.left))]]
-        (in [(list#mix dictionary.lacks redundancy (set.list bindings))
-             (|> redundants
-                 (list.sorted n.>)
-                 (list#mix (..remove_local_from_path ..remove_local) {/.#Seq pre post}))]))
+                                 {.#None}
+                                 (in [redundancy {.#None}]))]
+            (in [redundancy {/.#Bit_Fork test then else}]))
+          
+          (,, (template.with [<tag> <type>]
+                [{<tag> [[test then] elses]}
+                 (do [! try.monad]
+                   [[redundancy then] (again [redundancy then])
+                    [redundancy elses] (..list_optimization (is (Optimization [<type> Path])
+                                                                (function (_ [redundancy [else_test else_then]])
+                                                                  (do !
+                                                                    [[redundancy else_then] (again [redundancy else_then])]
+                                                                    (in [redundancy [else_test else_then]]))))
+                                                            [redundancy elses])]
+                   (in [redundancy {<tag> [[test then] elses]}]))]
 
-      {/.#Then then}
-      (do try.monad
-        [[redundancy then] (optimization [redundancy then])]
-        (in [redundancy {/.#Then then}]))
-      )))
+                [/.#I64_Fork I64]
+                [/.#F64_Fork Dec]
+                [/.#Text_Fork Text]))
+          
+          {/.#Bind register}
+          (do try.monad
+            [redundancy (..declare register redundancy)]
+            (in [redundancy
+                 path]))
+          
+          {/.#Alt left right}
+          (do try.monad
+            [[redundancy left] (again [redundancy left])
+             [redundancy right] (again [redundancy right])]
+            (in [redundancy {/.#Alt left right}]))
+          
+          {/.#Seq pre post}
+          (do try.monad
+            [.let [baseline (|> redundancy
+                                dictionary.keys
+                                (set.of_list n.hash))]
+             [redundancy pre] (again [redundancy pre])
+             .let [bindings (|> redundancy
+                                dictionary.keys
+                                (set.of_list n.hash)
+                                (set.difference baseline))]
+             [redundancy post] (again [redundancy post])
+             .let [redundants (|> redundancy
+                                  dictionary.entries
+                                  (list.only (function (_ [register redundant?])
+                                               (and (set.member? bindings register)
+                                                    redundant?)))
+                                  (list#each product.left))]]
+            (in [(list#mix dictionary.lacks redundancy (set.list bindings))
+                 (|> redundants
+                     (list.sorted n.>)
+                     (list#mix (..remove_local_from_path ..remove_local) {/.#Seq pre post}))]))
+
+          {/.#Then then}
+          (do try.monad
+            [[redundancy then] (optimization [redundancy then])]
+            (in [redundancy {/.#Then then}]))
+          ))))
 
 (the (optimization' [redundancy synthesis])
   (Optimization /.Term)

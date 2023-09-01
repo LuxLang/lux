@@ -8,7 +8,7 @@
 
 # Reference
 
-0. []()
+0. [Propositions as types: explained (and debunked)](https://lawrencecpaulson.github.io//2023/08/23/Propositions_as_Types.html)
 0. [Checking Dependent Types with Normalization by Evaluation: A Tutorial](https://davidchristiansen.dk/tutorials/nbe/)
 0. [A Language Agnostic Introduction to Dependent Types](https://www.shuangrimu.com/posts/language-agnostic-intro-to-dependent-types.html)
 0. [The Gentle Art of Levitation](http://lambda-the-ultimate.org/node/5526)

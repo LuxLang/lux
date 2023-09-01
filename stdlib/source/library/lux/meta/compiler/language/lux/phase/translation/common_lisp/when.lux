@@ -17,7 +17,6 @@
      ["n" nat]]]
    [meta
     [macro
-     ["^" pattern]
      ["[0]" template]]
     [target
      ["_" common_lisp (.only Expression Var/1)]]]]]
@@ -69,12 +68,13 @@
   (do ///////phase.monad
     [valueG (expression archive valueS)]
     (in (list#mix (function (_ side source)
-                    (.let [method (.when side
-                                    (^.with_template [<side> <accessor>]
-                                      [(<side> lefts)
-                                       (<accessor> (_.int (.int lefts)))])
-                                    ([.#Left //runtime.tuple//left]
-                                     [.#Right //runtime.tuple//right]))]
+                    (.let [method (`` (.when side
+                                        (,, (template.with [<side> <accessor>]
+                                              [(<side> lefts)
+                                               (<accessor> (_.int (.int lefts)))]
+
+                                              [.#Left //runtime.tuple//left]
+                                              [.#Right //runtime.tuple//right]))))]
                       (method source)))
                   valueG
                   pathP))))
@@ -144,94 +144,97 @@
 (the (pattern_matching' expression archive)
   (Translator [Var/1 _.Tag _.Tag Path])
   (function (again [$output @done @fail pathP])
-    (.when pathP
-      (/////synthesis.path/then bodyS)
-      (of ///////phase.monad each
-          (function (_ outputV)
-            (_.progn (list (_.setq $output outputV)
-                           (_.go @done))))
-          (expression archive bodyS))
+    (`` (.when pathP
+          (/////synthesis.path/then bodyS)
+          (of ///////phase.monad each
+              (function (_ outputV)
+                (_.progn (list (_.setq $output outputV)
+                               (_.go @done))))
+              (expression archive bodyS))
 
-      {/////synthesis.#Pop}
-      (///////phase#in ..pop!)
+          {/////synthesis.#Pop}
+          (///////phase#in ..pop!)
 
-      {/////synthesis.#Bind register}
-      (///////phase#in (_.setq (..register register) ..peek))
+          {/////synthesis.#Bind register}
+          (///////phase#in (_.setq (..register register) ..peek))
 
-      {/////synthesis.#Bit_Fork when thenP elseP}
-      (do [! ///////phase.monad]
-        [then! (again [$output @done @fail thenP])
-         else! (.when elseP
-                 {.#Some elseP}
-                 (again [$output @done @fail elseP])
+          {/////synthesis.#Bit_Fork when thenP elseP}
+          (do [! ///////phase.monad]
+            [then! (again [$output @done @fail thenP])
+             else! (.when elseP
+                     {.#Some elseP}
+                     (again [$output @done @fail elseP])
 
-                 {.#None}
-                 (in (_.go @fail)))]
-        (in (.if when
-              (_.if ..peek
-                then!
-                else!)
-              (_.if ..peek
-                else!
-                then!))))
+                     {.#None}
+                     (in (_.go @fail)))]
+            (in (.if when
+                  (_.if ..peek
+                    then!
+                    else!)
+                  (_.if ..peek
+                    else!
+                    then!))))
 
-      (^.with_template [<tag> <injection> <=>]
-        [{<tag> item}
-         (do [! ///////phase.monad]
-           [clauses (monad.each ! (function (_ [match then])
-                                    (do !
-                                      [then! (again [$output @done @fail then])]
-                                      (in [(<=> [(|> match <injection>)
-                                                 ..peek])
-                                           then!])))
-                                {.#Item item})]
-           (in (list#mix (function (_ [when then] else)
-                           (_.if when then else))
-                         (_.go @fail)
-                         clauses)))])
-      ([/////synthesis.#I64_Fork //primitive.i64 _.=/2]
-       [/////synthesis.#F64_Fork //primitive.f64 _.=/2]
-       [/////synthesis.#Text_Fork //primitive.text _.string=/2])
+          (,, (template.with [<tag> <injection> <=>]
+                [{<tag> item}
+                 (do [! ///////phase.monad]
+                   [clauses (monad.each ! (function (_ [match then])
+                                            (do !
+                                              [then! (again [$output @done @fail then])]
+                                              (in [(<=> [(|> match <injection>)
+                                                         ..peek])
+                                                   then!])))
+                                        {.#Item item})]
+                   (in (list#mix (function (_ [when then] else)
+                                   (_.if when then else))
+                                 (_.go @fail)
+                                 clauses)))]
 
-      (^.with_template [<complex> <simple> <choice>]
-        [(<complex> idx)
-         (///////phase#in (<choice> @fail false idx {.#None}))
+                [/////synthesis.#I64_Fork //primitive.i64 _.=/2]
+                [/////synthesis.#F64_Fork //primitive.f64 _.=/2]
+                [/////synthesis.#Text_Fork //primitive.text _.string=/2]))
 
-         (<simple> idx nextP)
-         (|> nextP
-             [$output @done @fail] again
-             (of ///////phase.monad each (|>> {.#Some} (<choice> @fail true idx))))])
-      ([/////synthesis.side/left  /////synthesis.simple_left_side  ..left_choice]
-       [/////synthesis.side/right /////synthesis.simple_right_side ..right_choice])
+          (,, (template.with [<complex> <simple> <choice>]
+                [(<complex> idx)
+                 (///////phase#in (<choice> @fail false idx {.#None}))
 
-      (/////synthesis.member/left 0)
-      (///////phase#in (..push! (_.elt/2 [..peek (_.int +0)])))
-      
-      (^.with_template [<pm> <getter>]
-        [(<pm> lefts)
-         (///////phase#in (|> ..peek (<getter> (_.int (.int lefts))) ..push!))])
-      ([/////synthesis.member/left  //runtime.tuple//left]
-       [/////synthesis.member/right //runtime.tuple//right])
+                 (<simple> idx nextP)
+                 (|> nextP
+                     [$output @done @fail] again
+                     (of ///////phase.monad each (|>> {.#Some} (<choice> @fail true idx))))]
 
-      (/////synthesis.!multi_pop nextP)
-      (.let [[extra_pops nextP'] (////synthesis/when.count_pops nextP)]
-        (do ///////phase.monad
-          [next! (again [$output @done @fail nextP'])]
-          (///////phase#in (_.progn (list (..multi_pop! (n.+ 2 extra_pops))
-                                          next!)))))
+                [/////synthesis.side/left  /////synthesis.simple_left_side  ..left_choice]
+                [/////synthesis.side/right /////synthesis.simple_right_side ..right_choice]))
 
-      (/////synthesis.path/alt preP postP)
-      (do [! ///////phase.monad]
-        [@otherwise (of ! each (|>> %.nat (%.message "lux_when_otherwise") _.tag) /////translation.next)
-         pre! (again [$output @done @otherwise preP])
-         post! (again [$output @done @fail postP])]
-        (in (..alternation @otherwise pre! post!)))
+          (/////synthesis.member/left 0)
+          (///////phase#in (..push! (_.elt/2 [..peek (_.int +0)])))
+          
+          (,, (template.with [<pm> <getter>]
+                [(<pm> lefts)
+                 (///////phase#in (|> ..peek (<getter> (_.int (.int lefts))) ..push!))]
 
-      (/////synthesis.path/seq preP postP)
-      (do ///////phase.monad
-        [pre! (again [$output @done @fail preP])
-         post! (again [$output @done @fail postP])]
-        (in (_.progn (list pre! post!)))))))
+                [/////synthesis.member/left  //runtime.tuple//left]
+                [/////synthesis.member/right //runtime.tuple//right]))
+
+          (/////synthesis.!multi_pop nextP)
+          (.let [[extra_pops nextP'] (////synthesis/when.count_pops nextP)]
+            (do ///////phase.monad
+              [next! (again [$output @done @fail nextP'])]
+              (///////phase#in (_.progn (list (..multi_pop! (n.+ 2 extra_pops))
+                                              next!)))))
+
+          (/////synthesis.path/alt preP postP)
+          (do [! ///////phase.monad]
+            [@otherwise (of ! each (|>> %.nat (%.message "lux_when_otherwise") _.tag) /////translation.next)
+             pre! (again [$output @done @otherwise preP])
+             post! (again [$output @done @fail postP])]
+            (in (..alternation @otherwise pre! post!)))
+
+          (/////synthesis.path/seq preP postP)
+          (do ///////phase.monad
+            [pre! (again [$output @done @fail preP])
+             post! (again [$output @done @fail postP])]
+            (in (_.progn (list pre! post!))))))))
 
 (the (pattern_matching $output expression archive pathP)
   (-> Var/1 (Translator Path))
