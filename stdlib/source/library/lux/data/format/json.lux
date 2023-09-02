@@ -3,7 +3,9 @@
 
 (.require
  [library
-  [lux (.except has nat int rev list)
+  [lux (.except has nat int rev list
+                or and
+                variant record)
    [abstract
     [equivalence (.only Equivalence)]
     [format (.only Format)]
@@ -14,7 +16,7 @@
     ["[0]" maybe]
     ["[0]" try (.only Try) (.use "[1]#[0]" functor)]
     ["[0]" exception (.only Exception)]
-    [function
+    ["[0]" function (.only)
      [predicate (.only Predicate)]]]
    [data
     ["[0]" bit]
@@ -23,7 +25,7 @@
      ["<[1]>" \\projection (.only Projection)]]
     [collection
      ["[0]" list (.use "[1]#[0]" mix functor)]
-     ["[0]" sequence (.only Sequence sequence) (.use "[1]#[0]" monad)]
+     ["[0]" sequence (.only Sequence sequence) (.use "[1]#[0]" monoid monad)]
      ["[0]" dictionary (.only Dictionary) (.use "[1]#[0]" functor)]]]
    [math
     [number
@@ -221,29 +223,29 @@
                  [#String  text.equivalence]))
 
            [{#Array xs} {#Array ys}]
-           (and (nat.= (sequence.size xs) (sequence.size ys))
-                (list#mix (function (_ idx prev)
-                            (and prev
-                                 (maybe.else false
-                                             (do maybe.monad
-                                               [x' (sequence.item idx xs)
-                                                y' (sequence.item idx ys)]
-                                               (in (= x' y'))))))
-                          true
-                          (list.indices (sequence.size xs))))
+           (.and (nat.= (sequence.size xs) (sequence.size ys))
+                 (list#mix (function (_ idx prev)
+                             (.and prev
+                                   (maybe.else false
+                                               (do maybe.monad
+                                                 [x' (sequence.item idx xs)
+                                                  y' (sequence.item idx ys)]
+                                                 (in (= x' y'))))))
+                           true
+                           (list.indices (sequence.size xs))))
            
            [{#Object xs} {#Object ys}]
-           (and (nat.= (dictionary.size xs) (dictionary.size ys))
-                (list#mix (function (_ [xk xv] prev)
-                            (and prev
-                                 (when (dictionary.value xk ys)
-                                   {try.#Success yv}
-                                   (= xv yv)
+           (.and (nat.= (dictionary.size xs) (dictionary.size ys))
+                 (list#mix (function (_ [xk xv] prev)
+                             (.and prev
+                                   (when (dictionary.value xk ys)
+                                     {try.#Success yv}
+                                     (= xv yv)
 
-                                   failure
-                                   false)))
-                          true
-                          (dictionary.entries xs)))
+                                     failure
+                                     false)))
+                           true
+                           (dictionary.entries xs)))
            
            _
            false)))))
@@ -690,3 +692,113 @@
        
        _
        (exception.except ..cannot_project [it])))))
+
+(every .public (Case of)
+  (-> Nat
+      (Format JSON of)))
+
+(the .public (case format)
+  (All (_ of)
+    (-> (Format JSON of)
+        (Case of)))
+  (function (_ expected)
+    (let [expected (nat.dec expected)]
+      (implementation
+       (the (injection it)
+         {#Array (sequence {#Number expected}
+                           (of format injection it))})
+       (the (projection it)
+         (when it
+           {#Array case}
+           (when (sequence.list case)
+             (.list {#Number actual} case)
+             (if (dec.= expected actual)
+               (of format projection case)
+               (exception.except ..cannot_project [it]))
+
+             _
+             (exception.except ..cannot_project [it]))
+           
+           _
+           (exception.except ..cannot_project [it])))))))
+
+(the .public (or left right)
+  (All (_ left right)
+    (-> (Case left) (Case right)
+        (Case (Or left right))))
+  (function (_ expected)
+    (implementation
+     (the (injection it)
+       (when it
+         {#0 it} (of (left expected) injection it)
+         {#1 it} (of (right (++ expected)) injection it)))
+     (the (projection it)
+       (when (of (left expected) projection it)
+         {try.#Success it}
+         {try.#Success {#0 it}}
+         
+         {try.#Failure _}
+         (when (of (right (++ expected)) projection it)
+           {try.#Success it}
+           {try.#Success {#1 it}}
+           
+           {try.#Failure error}
+           {try.#Failure error}))))))
+
+(the .public variant
+  (All (_ of)
+    (-> (Case of)
+        (Format JSON of)))
+  (function.on 0))
+
+(every .public (Member of)
+  (-> [Nat Bit]
+      (Format (Sequence JSON) of)))
+
+(the .public (member format)
+  (All (_ of)
+    (-> (Format JSON of)
+        (Member of)))
+  (function (_ [index end?])
+    (implementation
+     (the (injection it)
+       (sequence (of format injection it)))
+     (the (projection it)
+       (if (.or (not end?)
+                (nat.= (++ index) (sequence.size it)))
+         (do try.monad
+           [it (sequence.item index it)]
+           (of format projection it))
+         (exception.except ..cannot_project [{#Array it}]))))))
+
+(the .public (and left right)
+  (All (_ left right)
+    (-> (Member left) (Member right)
+        (Member (And left right))))
+  (function (_ [index end?])
+    (implementation
+     (the (injection it)
+       (all sequence#composite
+            (of (left [index false]) injection (product.left it))
+            (of (right [(++ index) true]) injection (product.right it))))
+     (the (projection it)
+       (do try.monad
+         [left (of (left [index false]) projection it)
+          right (of (right [(++ index) true]) projection it)]
+         (in [left right]))))))
+
+(the .public (record member)
+  (All (_ of)
+    (-> (Member of)
+        (Format JSON of)))
+  (let [format (member [0 true])]
+    (implementation
+     (the (injection it)
+       {#Array (of format injection it)})
+     (the (projection it)
+       (when it
+         {#Array items}
+         (of format projection items)
+
+         _
+         (exception.except ..cannot_project [it]))))))

@@ -32,6 +32,7 @@
    * It may also make the de-normalized zeroes and infinities carry useful information, instead of losing it through normalization.
 0. Make type-normalization no longer confuse local type parameters with globally-defined types/macros. Remove instances of `(.except left right)`.
 0. Unify the handling of globals between extensions, analysis & declaration.
+0. Replace the usages single-use variables with the expression they are bound to, in order to eliminate unnecessary register allocations.
 
 ## Done
 
