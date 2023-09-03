@@ -2975,88 +2975,44 @@
                  (failure ..wrong_syntax)}
                 (list#reversed tokens))))
 
-(def' .private (total_expansion' total_expansion @name name args)
-      (-> (-> Code ($ Meta ($ List Code))) Location Symbol ($ List Code)
-          ($ Meta ($ List Code)))
+(def' .private (type_reification abstraction parameters)
+      (-> Code ($ List Code)
+          Code)
+      (list#mix (.is# (-> Code Code Code)
+                      (function' [parameter abstraction]
+                                 (` {.#Apply (, parameter) (, abstraction)})))
+                abstraction
+                parameters))
+
+(def' .private (normal_type_reification normal_type abstraction parameters)
+      (-> (-> Code ($ Meta Code)) Code ($ List Code)
+          ($ Meta Code))
       (<| (function' [lux])
-          (meta#let lux [name' (normal name)])
-          (meta#let lux [?macro (named_macro name')])
+          (meta#let lux [parameters (monad#each#meta normal_type parameters)])
+          (meta#return lux (type_reification abstraction parameters))))
+
+(def' .public type_must_have_singular_expansion
+      Error
+      "The expansion of the type-syntax has to yield a single element.")
+
+(def' .private (expanded_type_reification normal_type @ binding parameters)
+      (-> (-> Code ($ Meta Code)) Location Symbol ($ List Code)
+          ($ Meta Code))
+      (<| (function' [lux])
+          (meta#let lux [binding (normal binding)])
+          (meta#let lux [?macro (named_macro binding)])
           (.when# {{#Some macro}
-                   (<| (meta#let lux [expansion ((.as# Macro' macro) args)])
-                       (meta#let lux [expansion' (monad#each#meta total_expansion expansion)])
-                       (meta#return lux (list#conjoint expansion')))
+                   (<| (meta#let lux [expansion ((.as# Macro' macro) parameters)])
+                       (.when# {{.#Item singular {.#End}}
+                                (meta#return lux (` (..type (, singular))))
+
+                                else
+                                (meta#failure ..type_must_have_singular_expansion)}
+                               expansion))
                    
                    {#None}
-                   (<| (meta#let lux [args' (monad#each#meta total_expansion args)])
-                       (meta#return lux (list (as_form {#Item [@name {#Symbol name}] (list#conjoint args')}))))}
+                   ((normal_type_reification normal_type [@ {#Symbol binding}] parameters) lux)}
                   ?macro)))
-
-(def' .private (in_module module meta)
-      (for_any (_ of)
-        (-> Text ($ Meta of)
-            ($ Meta of)))
-      (function' [lux]
-                 (.when# {[..#info info ..#source source
-                           ..#current_module current_module ..#modules modules
-                           ..#scopes scopes ..#type_context type_context
-                           ..#host host ..#seed seed
-                           ..#expected expected ..#location location
-                           ..#extensions extensions ..#scope_type_vars scope_type_vars
-                           ..#eval eval]
-                          (.when# {{#Left error}
-                                   {#Left error}
-                                   
-                                   {#Right [[..#info info' ..#source source'
-                                             ..#current_module _ ..#modules modules'
-                                             ..#scopes scopes' ..#type_context type_context'
-                                             ..#host host' ..#seed seed'
-                                             ..#expected expected' ..#location location'
-                                             ..#extensions extensions' ..#scope_type_vars scope_type_vars'
-                                             ..#eval eval']
-                                            output]}
-                                   {#Right [[..#info info' ..#source source'
-                                             ..#current_module current_module ..#modules modules'
-                                             ..#scopes scopes' ..#type_context type_context'
-                                             ..#host host' ..#seed seed'
-                                             ..#expected expected' ..#location location'
-                                             ..#extensions extensions' ..#scope_type_vars scope_type_vars'
-                                             ..#eval eval']
-                                            output]}}
-                                  (meta [..#info info ..#source source
-                                         ..#current_module {.#Some module} ..#modules modules
-                                         ..#scopes scopes ..#type_context type_context
-                                         ..#host host ..#seed seed
-                                         ..#expected expected ..#location location
-                                         ..#extensions extensions ..#scope_type_vars scope_type_vars
-                                         ..#eval eval]))}
-                         lux)))
-
-(def' .private (total_expansion syntax)
-      (-> Code
-          ($ Meta ($ List Code)))
-      (.when# {[_ {#Form {#Item head tail}}]
-               (.when# {[@name {#Symbol name}]
-                        (..total_expansion' total_expansion @name name tail)
-
-                        _
-                        (<| (function' [lux])
-                            (meta#let lux [members' (monad#each#meta total_expansion {#Item head tail})])
-                            (meta#return lux (list (as_form (list#conjoint members')))))}
-                       head)
-
-               [_ {#Variant members}]
-               (<| (function' [lux])
-                   (meta#let lux [members' (monad#each#meta total_expansion members)])
-                   (meta#return lux (list (as_variant (list#conjoint members')))))
-
-               [_ {#Tuple members}]
-               (<| (function' [lux])
-                   (meta#let lux [members' (monad#each#meta total_expansion members)])
-                   (meta#return lux (list (as_tuple (list#conjoint members')))))
-
-               _
-               (meta#in (list syntax))}
-              syntax))
 
 (def' .private (normal_type type' it)
       (-> (-> Code ($ Meta Code)) Code
@@ -3092,11 +3048,10 @@
                                         {#Item value
                                                {#End}}}}}]
                (<| (function' [lux])
-                   (meta#let lux [body (normal_type type' body)])
-                   (meta#return lux [_0 {#Form {#Item [_ {#Symbol ["library/lux" "when#"]}]
-                                                      {#Item [_1 {#Variant {#Item binding {#Item body {#End}}}}]
-                                                             {#Item value
-                                                                    {#End}}}}}]))
+                   (meta#return lux [_0 {#Form (list [_ {#Symbol ["library/lux" "when#"]}]
+                                                     [_1 {#Variant {#Item binding {#Item (` (..type (, body)))
+                                                                                         {#End}}}}]
+                                                     value)}]))
 
                [_0 {#Form {#Item [_1 {#Symbol ["library/lux" "__adjusted_quantified_type__"]}]
                                  {#Item _permission
@@ -3105,11 +3060,10 @@
                                                       {#End}}}}}}]
                (<| (function' [lux])
                    (meta#let lux [body (normal_type type' body)])
-                   (meta#return lux [_0 {#Form {#Item [_1 {#Symbol [..prelude "__adjusted_quantified_type__"]}]
-                                                      {#Item _permission
-                                                             {#Item _level
-                                                                    {#Item body
-                                                                           {#End}}}}}}]))
+                   (meta#return lux [_0 {#Form (list [_1 {#Symbol [..prelude "__adjusted_quantified_type__"]}]
+                                                     _permission
+                                                     _level
+                                                     body)}]))
 
                [_ {#Form {#Item [_ {#Form {#Item [_ {#Symbol ["library/lux" "in_module#"]}]
                                                  {#Item [_ {#Text "library/lux"}]
@@ -3119,14 +3073,26 @@
                                        {#End}}}}]
                (type' it')
 
+               [_0 {#Form {#Item [_1 {#Symbol binding}]
+                                 parameters}}]
+               (<| (function' [lux])
+                   (.when# {["" local]
+                            (.when# {{.#Some type_of_local}
+                                     ((normal_type_reification (normal_type type') [_1 {#Symbol binding}] parameters) lux)
+                                     
+                                     not_a_local
+                                     ((expanded_type_reification (normal_type type') _1 binding parameters) lux)}
+                                    (in_env local lux))
+                            
+                            [module global]
+                            ((expanded_type_reification (normal_type type') _1 binding parameters) lux)}
+                           binding))
+
                [_ {#Form {#Item type_fn args}}]
                (<| (function' [lux])
                    (meta#let lux [type_fn (normal_type type' type_fn)])
                    (meta#let lux [args (monad#each#meta (normal_type type') args)])
-                   (meta#return lux (list#mix (.is# (-> Code Code Code)
-                                                    (function' [arg type_fn] (` {.#Apply (, arg) (, type_fn)})))
-                                              type_fn
-                                              args)))
+                   (meta#return lux (type_reification type_fn args)))
 
                _
                (meta#in it)}
@@ -3199,24 +3165,12 @@
                            ..#scope_type_vars scope_type_vars/pre
                            ..#eval eval/pre]))))
 
-(def' .public type_must_have_single_expansion
-      Error
-      "The expansion of the type-syntax has to yield a single element.")
-
 (def' .private (type' it)
       (-> Code
           ($ Meta Code))
       (<| (function' [lux])
-          (let' [initialized_quantification? (initialized_quantification? lux)])
-          (if initialized_quantification?
-            (<| (meta#let lux [it+ (total_expansion it)])
-                (.when# {{#Item it' {#End}}
-                         (<| (meta#let lux [it'' (normal_type type' it')])
-                             (meta#return lux it''))
-
-                         _
-                         (meta#failure ..type_must_have_single_expansion)}
-                        it+))
+          (if (initialized_quantification? lux)
+            ((normal_type type' it) lux)
             (<| (meta#let lux [it (with_quantification'
                                     (type' it))])
                 (meta#return lux (..quantified it))))))
@@ -3485,6 +3439,49 @@
       (-> Pattern
           Macro')
       (.as# Macro' it))
+
+(def' .private (total_expansion' total_expansion @name name args)
+      (-> (-> Code ($ Meta ($ List Code))) Location Symbol ($ List Code)
+          ($ Meta ($ List Code)))
+      (<| (function' [lux])
+          (meta#let lux [name' (normal name)])
+          (meta#let lux [?macro (named_macro name')])
+          (.when# {{#Some macro}
+                   (<| (meta#let lux [expansion ((.as# Macro' macro) args)])
+                       (meta#let lux [expansion' (monad#each#meta total_expansion expansion)])
+                       (meta#return lux (list#conjoint expansion')))
+                   
+                   {#None}
+                   (<| (meta#let lux [args' (monad#each#meta total_expansion args)])
+                       (meta#return lux (list (as_form {#Item [@name {#Symbol name}] (list#conjoint args')}))))}
+                  ?macro)))
+
+(def' .private (total_expansion syntax)
+      (-> Code
+          ($ Meta ($ List Code)))
+      (.when# {[_ {#Form {#Item head tail}}]
+               (.when# {[@name {#Symbol name}]
+                        (..total_expansion' total_expansion @name name tail)
+
+                        _
+                        (<| (function' [lux])
+                            (meta#let lux [members' (monad#each#meta total_expansion {#Item head tail})])
+                            (meta#return lux (list (as_form (list#conjoint members')))))}
+                       head)
+
+               [_ {#Variant members}]
+               (<| (function' [lux])
+                   (meta#let lux [members' (monad#each#meta total_expansion members)])
+                   (meta#return lux (list (as_variant (list#conjoint members')))))
+
+               [_ {#Tuple members}]
+               (<| (function' [lux])
+                   (meta#let lux [members' (monad#each#meta total_expansion members)])
+                   (meta#return lux (list (as_tuple (list#conjoint members')))))
+
+               _
+               (meta#in (list syntax))}
+              syntax))
 
 (def' .private (when_expansion#macro when_expansion pattern body branches)
       (type (-> (-> (List Code) (Meta (List Code))) Code Code (List Code)
@@ -4529,12 +4526,13 @@
             [it'' (type' it'')
              .let [itC (` {.#Named [(, (as_text module_name))
                                     (, (as_text name))]
-                                   (, it'')})]]
+                                   (, it'')})
+                   type_definition (` (the (, export_policy) (, type_name)
+                                        Type
+                                        (, itC)))]]
             (in (when labels??
                   {#Some labels}
-                  (list#partial (` (the (, export_policy) (, type_name)
-                                     Type
-                                     (, itC)))
+                  (list#partial type_definition
                                 (when labels
                                   {#Left tags}
                                   (label_definitions module_name export_policy type_name (` Tag) 'cohort tags)
@@ -4543,9 +4541,7 @@
                                   (label_definitions module_name export_policy type_name (` Slot) 'cohort slots)))
                   
                   _
-                  (list (` (the (, export_policy) (, type_name)
-                             Type
-                             (, itC)))))))
+                  (list type_definition))))
 
           {#None}
           (failure ..wrong_syntax)))

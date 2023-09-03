@@ -30,12 +30,21 @@
    * `a/b * b/c = a/c` && `a/b * c/a = c/b` && `a/b * c/d = ac/bd`.
    * The above rule can make `a/0 * 0/b = a/b` and `0/a * b/0 = b/a`, bypassing any possibility for `0/0`.
    * It may also make the de-normalized zeroes and infinities carry useful information, instead of losing it through normalization.
-0. Make type-normalization no longer confuse local type parameters with globally-defined types/macros. Remove instances of `(.except left right)`.
 0. Unify the handling of globals between extensions, analysis & declaration.
-0. Replace the usages single-use variables with the expression they are bound to, in order to eliminate unnecessary register allocations.
+0. Replace the usages of single-use variables with the expressions they are bound to, in order to eliminate unnecessary register allocations.
+0. Unsafe text module.
+0. Polytypic Binary format machinery.
+0. Go from having I32 variant tags to I8 tags.
+0. Implement extensible pattern-matching in the compiler, guided by the experiment in `control/pattern`.
+0. Better syntax for `.when#`.
+0. Get rid of the `left` and `right` macros in the prelude. Also, get rid of their highlighting in `lux-mode`.
+0. Dissolve `math/random` into the rest of the standard library.
+0. Dissolve `injection/.../text` into the rest of the standard library.
 
 ## Done
 
+0. Make type-normalization no longer confuse local type parameters with globally-defined types/macros.
+   * Remove instances of `(.except left right)`.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/c7daf84dfd365df8da5b381dfb1d3fca9afd62a7) Favor partial calls over successive calls when compiling function application.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/b7fb27e49cba22cdbad5ffc034b32963b35c05f4) Re-name `Codec` to `Embedding`. Alternatively, re-name to `Format`.
    * [Embedding](https://en.wikipedia.org/wiki/Embedding)
