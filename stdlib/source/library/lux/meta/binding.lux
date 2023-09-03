@@ -1,0 +1,490 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.require
+ [library
+  [lux (.except type alias macro)
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["[0]" maybe]
+    ["[0]" try (.only Try)]]
+   [data
+    ["[0]" product]
+    ["[0]" text (.use "[1]#[0]" monoid order)]
+    [collection
+     ["[0]" list (.use "[1]#[0]" functor)
+      ["[0]" property]]]]
+   [math
+    [number
+     ["n" nat]]]]]
+ ["[0]" // (.only)
+  ["[0]" location]
+  ["[0]" symbol (.use "[1]#[0]" absolute)]
+  ["[0]" code]])
+
+(the with_template' (.in_module# .prelude .with_template))
+
+(the .public (normal name)
+  (-> Symbol
+      (Meta Symbol))
+  (when name
+    ["" name]
+    (do //.monad
+      [module_name //.current_module_name]
+      (in [module_name name]))
+
+    _
+    (of //.monad in name)))
+
+(the (type_variable idx bindings)
+  (-> Nat (List [Nat (Maybe Type)])
+      (Maybe Type))
+  (when bindings
+    {.#End}
+    {.#None}
+    
+    {.#Item [var bound] bindings'}
+    (if (n.= idx var)
+      bound
+      (type_variable idx bindings'))))
+
+(`` (the (clean_type type)
+      (-> Type
+          (Meta Type))
+      (when type
+        {.#Var var}
+        (function (_ lux)
+          (when (|> lux
+                    (its [.#type_context .#var_bindings])
+                    (type_variable var))
+            (,, (with_template' [<pattern>]
+                  [<pattern>
+                   {try.#Success [lux type]}]
+
+                  [{.#None}]
+                  [{.#Some {.#Var _}}]))
+            
+
+            {.#Some type'}
+            {try.#Success [lux type']}))
+
+        _
+        (of //.monad in type))))
+
+(the (on_either f x1 x2)
+  (for_any (_ input output)
+    (-> (-> input (Maybe output)) input input
+        (Maybe output)))
+  (when (f x1)
+    {.#None}
+    (f x2)
+    
+    some
+    some))
+
+(the .public (var_type name)
+  (-> Text
+      (Meta Type))
+  (function (_ lux)
+    (let [test (is (-> [Text [Type Any]] Bit)
+                   (|>> product.left (text#= name)))]
+      (when (do maybe.monad
+              [scope (list.example (function (_ env)
+                                     (.or (list.any? test (is (List [Text [Type Any]])
+                                                              (its [.#locals .#mappings] env)))
+                                          (list.any? test (is (List [Text [Type Any]])
+                                                              (its [.#captured .#mappings] env)))))
+                                   (its .#scopes lux))
+               [_ [type _]] (on_either (list.example test)
+                                       (is (List [Text [Type Any]])
+                                           (its [.#locals .#mappings] scope))
+                                       (is (List [Text [Type Any]])
+                                           (its [.#captured .#mappings] scope)))]
+              (in type))
+        {.#Some var_type}
+        ((clean_type var_type) lux)
+
+        {.#None}
+        {try.#Failure (all text#composite "Unknown variable: " name)}))))
+
+(the without_lux_runtime
+  (-> (List Text)
+      (List Text))
+  ... The Lux runtime shows up as ""
+  ... so I'm excluding it.
+  (list.only (|>> text.empty? not)))
+
+(the listing_separator
+  Text
+  (all text#composite text.new_line "                    "))
+
+(the module_listing
+  (-> (List Text)
+      Text)
+  (|>> ..without_lux_runtime
+       (list.sorted text#<)
+       (text.interposed ..listing_separator)))
+
+(with_template' [<name> <yes>]
+  [(the .public (<name> name)
+     (-> Symbol
+         (Meta [Bit Global]))
+     (do //.monad
+       [name (..normal name)
+        .let [[normal_module normal_short] name]]
+       (function (_ lux)
+         (when (is (Maybe [Bit Global])
+                   (do maybe.monad
+                     [(open "[0]") (|> lux
+                                       (its .#modules)
+                                       (property.value normal_module))]
+                     (property.value normal_short #definitions)))
+           {.#Some exported?,definition}
+           {try.#Success [lux exported?,definition]}
+
+           _
+           (let [current_module (|> lux (its .#current_module) (maybe.else "???"))
+                 all_known_modules (|> lux
+                                       (its .#modules)
+                                       (list#each product.left)
+                                       ..module_listing)]
+             {try.#Failure (all text#composite
+                                " All known modules: " all_known_modules text.new_line
+                                (when (property.value current_module (its .#modules lux))
+                                  {try.#Success this_module}
+                                  (let [candidates (|> lux
+                                                       (its .#modules)
+                                                       (list#each (function (_ [module_name module])
+                                                                    (|> module
+                                                                        (its .#definitions)
+                                                                        (list.all (function (_ [def_name [exported? global]])
+                                                                                    (`` (when global
+                                                                                          {<yes> _}
+                                                                                          (if (.and exported?
+                                                                                                    (text#= normal_short def_name))
+                                                                                            {.#Some (symbol#injection [module_name def_name])}
+                                                                                            {.#None})
+
+                                                                                          _
+                                                                                          {.#None})))))))
+                                                       list.together
+                                                       (list.sorted text#<)
+                                                       (text.interposed ..listing_separator))
+                                        imports (|> this_module
+                                                    (its .#imports)
+                                                    ..module_listing)
+                                        aliases (|> this_module
+                                                    (its .#module_aliases)
+                                                    (list#each (function (_ [alias real]) (all text#composite alias " => " real)))
+                                                    (list.sorted text#<)
+                                                    (text.interposed ..listing_separator))]
+                                    (all text#composite
+                                         "           Aliases: " aliases text.new_line
+                                         "           Imports: " imports text.new_line
+                                         "        Candidates: " candidates text.new_line))
+
+                                  failure
+                                  "")
+                                "    Current module: " current_module text.new_line
+                                "Unknown definition: " (symbol#injection name) text.new_line
+                                )})))))]
+
+  [definition .#Definition]
+  [default' .#Default]
+  [alias' .#Alias]
+  )
+
+(the .public (export name)
+  (-> Symbol
+      (Meta Definition))
+  (do [! //.monad]
+    [name (..normal name)
+     .let [[expected _] name]
+     [exported? definition] (..definition name)
+     actual //.current_module_name]
+    (when definition
+      {.#Definition it}
+      (if (.or exported?
+               (text#= expected actual))
+        (in it)
+        (//.failure (all text#composite "Definition is not an export: " (symbol#injection name))))
+
+      {.#Alias it}
+      (if (.or exported?
+               (text#= expected actual))
+        (export it)
+        (//.failure (all text#composite "Alias is not an export: " (symbol#injection name))))
+
+      {.#Default _}
+      (//.failure (all text#composite
+                       "Defaults are not considered exports: "
+                       (symbol#injection name))))))
+
+(the .public (default name)
+  (-> Symbol
+      (Meta Default))
+  (do [! //.monad]
+    [name (..normal name)
+     [exported? definition] (..default' name)]
+    (when definition
+      {.#Definition _}
+      (//.failure (all text#composite
+                       "Definitions are not considered defaults: "
+                       (symbol#injection name)))
+
+      {.#Alias de_aliased}
+      (//.failure (all text#composite
+                       "Aliases are not considered defaults: "
+                       (symbol#injection name)))
+
+      {.#Default it}
+      (if exported?
+        (in it)
+        (do !
+          [.let [[expected _] name]
+           actual //.current_module_name]
+          (if (text#= expected actual)
+            (in it)
+            (//.failure (all text#composite "Default is not an export: " (symbol#injection name)))))))))
+
+(the .public (alias name)
+  (-> Symbol
+      (Meta Symbol))
+  (do [! //.monad]
+    [name (..normal name)
+     [exported? it] (..alias' name)]
+    (when it
+      {.#Alias it}
+      (in it)
+
+      _
+      (undefined))))
+
+(the .public (definition_type name)
+  (-> Symbol
+      (Meta Type))
+  (do //.monad
+    [[exported? definition] (definition name)]
+    (when definition
+      {.#Alias de_aliased}
+      (definition_type de_aliased)
+      
+      {.#Definition [def_type def_value]}
+      (clean_type def_type)
+
+      {.#Default _}
+      (//.failure (all text#composite
+                       "Defaults are not considered definitions: "
+                       (symbol#injection name))))))
+
+(the .public (type name)
+  (-> Symbol
+      (Meta Type))
+  (when name
+    ["" _name]
+    (//.either (var_type _name)
+               (definition_type name))
+
+    _
+    (definition_type name)))
+
+(the .public (type_definition name)
+  (-> Symbol
+      (Meta Type))
+  (do //.monad
+    [[exported? definition] (definition name)]
+    (when definition
+      {.#Alias de_aliased}
+      (type_definition de_aliased)
+      
+      {.#Definition [def_type def_value]}
+      (let [type_code (.in_module# .prelude .type_code)]
+        (if (.or (same? .Type def_type)
+                 (of code.equivalence =
+                     (type_code .Type)
+                     (type_code def_type)))
+          (in (as Type def_value))
+          (//.failure (all text#composite "Definition is not a type: " (symbol#injection name)))))
+
+      {.#Default _}
+      (//.failure (all text#composite "Default is not a type: " (symbol#injection name))))))
+
+(the .public (globals module)
+  (-> Text
+      (Meta (List [Text [Bit Global]])))
+  (function (_ lux)
+    (when (property.value module (its .#modules lux))
+      {try.#Success module}
+      {try.#Success [lux (its .#definitions module)]}
+
+      failure
+      {try.#Failure (all text#composite "Unknown module: " module)})))
+
+(the .public (definitions module)
+  (-> Text
+      (Meta (List [Text [Bit Definition]])))
+  (of //.monad each
+      (list.all (function (_ [name [exported? global]])
+                  (when global
+                    {.#Alias de_aliased}
+                    {.#None}
+                    
+                    {.#Definition definition}
+                    {.#Some [name [exported? definition]]}
+
+                    {.#Default _}
+                    {.#None})))
+      (..globals module)))
+
+(the .public cannot_de-alias_a_default
+  Error
+  (location.with (location.here)
+    "Cannot de-alias a default global."))
+
+(the .public (resolved_globals module)
+  (-> Text
+      (Meta (List [Text [Bit Definition]])))
+  (do [! //.monad]
+    [it (..globals module)
+     .let [input (is (List [Text Bit (Either Symbol Definition)])
+                     (list.all (function (_ [name [exported? global]])
+                                 (when global
+                                   {.#Alias de_aliased}
+                                   {.#Some [name exported? {.#Left de_aliased}]}
+                                   
+                                   {.#Definition definition}
+                                   {.#Some [name exported? {.#Right definition}]}
+
+                                   {.#Default _}
+                                   {.#None}))
+                               it))]]
+    (function (_ lux)
+      (loop (next [input input
+                   output (is (List [Text [Bit Definition]])
+                              (list))])
+        (when input
+          (list)
+          {try.#Success [lux output]}
+
+          (list.partial [name exported? it] input)
+          (let [real_definition (is (Try Definition)
+                                    (loop (again [it it])
+                                      (when it
+                                        {.#Left de_aliased}
+                                        (when (..definition de_aliased lux)
+                                          {try.#Success [_ [_ definition]]}
+                                          (when definition
+                                            {.#Alias de_aliased}
+                                            (again {.#Left de_aliased})
+                                            
+                                            {.#Definition definition}
+                                            {try.#Success definition}
+
+                                            {.#Default _}
+                                            {try.#Failure ..cannot_de-alias_a_default})
+                                          
+                                          {try.#Failure error}
+                                          {try.#Failure error})
+                                        
+                                        {.#Right definition}
+                                        {try.#Success definition})))]
+            (when real_definition
+              {try.#Success it}
+              (next input (list.partial [name [exported? it]] output))
+              
+              {try.#Failure error}
+              {try.#Failure error})))))))
+
+(the .public (exports module_name)
+  (-> Text
+      (Meta (List [Text Definition])))
+  (do //.monad
+    [constants (..definitions module_name)]
+    (in (do list.monad
+          [[name [exported? [def_type def_value]]] constants]
+          (if exported?
+            (in [name [def_type def_value]])
+            (list))))))
+
+(the .public no_local_environment
+  Error
+  (location.with (location.here)
+    "No local environment."))
+
+(the .public locals
+  (Meta (List (List [Text Type])))
+  (function (_ lux)
+    (when (list.inits (its .#scopes lux))
+      {try.#Success scopes}
+      {try.#Success [lux
+                     (list#each (|>> (its [.#locals .#mappings])
+                                     (list#each (function (_ [name [type _]])
+                                                  [name type])))
+                                scopes)]}
+
+      {try.#Failure error}
+      {try.#Failure ..no_local_environment})))
+
+(the .public (de_aliased def_name)
+  (-> Symbol
+      (Meta Symbol))
+  (do //.monad
+    [[exported? constant] (..definition def_name)]
+    (in (when constant
+          {.#Alias real_def_name}
+          real_def_name
+
+          {.#Definition _}
+          def_name
+
+          {.#Default _}
+          def_name))))
+
+(the (macro_type? type)
+  (-> Type
+      Bit)
+  (when type
+    {.#Named [.prelude "Macro"]
+             {.#Nominal "#Macro" {.#End}}}
+    true
+
+    _
+    false))
+
+(the .public not_a_macro
+  Error
+  (location.with (location.here)
+    "Not a macro."))
+
+(the .public (macro full_name)
+  (-> Symbol
+      (Meta Macro))
+  (do //.monad
+    [full_name (..normal full_name)]
+    (is (Meta Macro)
+        (function (_ lux)
+          (when (//.current_module_name lux)
+            {try.#Success [_ this_module]}
+            (let [modules (its .#modules lux)]
+              (loop (macro [[module name] full_name])
+                (do try.monad
+                  [$module (property.value module modules)
+                   [exported? definition] (|> $module
+                                              (is Module)
+                                              (its .#definitions)
+                                              (property.value name))]
+                  (when definition
+                    {.#Alias de_aliased}
+                    (macro de_aliased)
+                    
+                    {.#Definition [def_type def_value]}
+                    (if (macro_type? def_type)
+                      {try.#Success [lux (as Macro def_value)]}
+                      {try.#Failure ..not_a_macro})
+
+                    {.#Default _}
+                    {try.#Failure ..not_a_macro}))))
+
+            {try.#Failure error}
+            {try.#Failure error})))))

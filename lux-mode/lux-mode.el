@@ -393,7 +393,7 @@ Called by `imenu--generic-function'."
 							(jvm-host (altRE "import" "export" "class" "interface" "object" "synchronized" "class_for"))
 							(alternative-format (altRE "char" "bin" "oct" "hex"))
 							(documentation (altRE "comment"))
-							(function-application (altRE "|>" "<|" "left" "right" "all"))
+							(function-application (altRE "|>" "<|" "all"))
 							(function-definition (altRE "function" "|>>" "<<|"
 														"program"))
 							(remember (altRE "remember" "to_do" "fix_me"))

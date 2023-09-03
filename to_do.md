@@ -37,13 +37,13 @@
 0. Go from having I32 variant tags to I8 tags.
 0. Implement extensible pattern-matching in the compiler, guided by the experiment in `control/pattern`.
 0. Better syntax for `.when#`.
-0. Get rid of the `left` and `right` macros in the prelude. Also, get rid of their highlighting in `lux-mode`.
 0. Dissolve `math/random` into the rest of the standard library.
 0. Dissolve `injection/.../text` into the rest of the standard library.
 
 ## Done
 
-0. Make type-normalization no longer confuse local type parameters with globally-defined types/macros.
+0. Re-name the `left` and `right` macros in the prelude. Also, get rid of their highlighting in `lux-mode`.
+0. [(Commit)](https://github.com/LuxLang/lux/commit/6de33f8b2c7b3804be4bd5ec04fb3c4b0a3efe79) Make type-normalization no longer confuse local type parameters with globally-defined types/macros.
    * Remove instances of `(.except left right)`.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/c7daf84dfd365df8da5b381dfb1d3fca9afd62a7) Favor partial calls over successive calls when compiling function application.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/b7fb27e49cba22cdbad5ffc034b32963b35c05f4) Re-name `Codec` to `Embedding`. Alternatively, re-name to `Format`.
