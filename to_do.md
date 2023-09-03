@@ -36,13 +36,15 @@
 0. Polytypic Binary format machinery.
 0. Go from having I32 variant tags to I8 tags.
 0. Implement extensible pattern-matching in the compiler, guided by the experiment in `control/pattern`.
-0. Better syntax for `.when#`.
 0. Dissolve `math/random` into the rest of the standard library.
 0. Dissolve `injection/.../text` into the rest of the standard library.
+0. Add a `=` definition to every module that has an `Equivalence`.
+0. Add `<`, `<=`, `>`, `>=` definitions to every module that has an `Order`.
 
 ## Done
 
-0. Re-name the `left` and `right` macros in the prelude. Also, get rid of their highlighting in `lux-mode`.
+0. Better syntax for the `.when#` extension.
+0. [(Commit)](https://github.com/LuxLang/lux/commit/3b9cad357e2dcc44a42d5fa01cc380908b08970a) Re-name the `left` and `right` macros in the prelude. Also, get rid of their highlighting in `lux-mode`.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/6de33f8b2c7b3804be4bd5ec04fb3c4b0a3efe79) Make type-normalization no longer confuse local type parameters with globally-defined types/macros.
    * Remove instances of `(.except left right)`.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/c7daf84dfd365df8da5b381dfb1d3fca9afd62a7) Favor partial calls over successive calls when compiling function application.

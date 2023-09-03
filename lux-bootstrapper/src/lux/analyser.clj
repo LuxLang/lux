@@ -141,7 +141,7 @@
 
         ;; Pattern-matching syntax.
         (&/$Identifier "library/lux" "when#")
-        (|let [(&/$Item [_ (&/$Variant ?pattern-matching)] (&/$Item ?input (&/$End))) parameters]
+        (|let [(&/$Item ?input ?pattern-matching) parameters]
           (if (even? (&/|length ?pattern-matching))
             (&/with-analysis-meta location exo-type
               (&&lux/analyse-case analyse exo-type ?input (&/|as-pairs ?pattern-matching)))
