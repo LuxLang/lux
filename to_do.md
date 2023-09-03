@@ -43,7 +43,7 @@
 
 ## Done
 
-0. Better syntax for the `.when#` extension.
+0. [(Commit)](https://github.com/LuxLang/lux/commit/90bdd8c16e6864f36dfe44b716c48266a44549c4) Better syntax for the `.when#` extension.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/3b9cad357e2dcc44a42d5fa01cc380908b08970a) Re-name the `left` and `right` macros in the prelude. Also, get rid of their highlighting in `lux-mode`.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/6de33f8b2c7b3804be4bd5ec04fb3c4b0a3efe79) Make type-normalization no longer confuse local type parameters with globally-defined types/macros.
    * Remove instances of `(.except left right)`.
