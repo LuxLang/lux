@@ -38,15 +38,17 @@
 0. Dissolve `math/random` into the rest of the standard library.
 0. Dissolve `injection/.../text` into the rest of the standard library.
 0. Add `<`, `<=`, `>`, `>=` definitions to every module that has an `Order`.
-0. Unsafe text module.
 0. Optimize compilation of pattern-matching expressions like (case <input> <literal> <then> _ <else>) into if expressions that test the literal, instead of full-blown pattern-matching.
    * Add if_i64 & if_f64 & if_text synthesis nodes.
-0. Full names for number modules. `nat` => `natural`, `int` => `integer`, `rev` => `revolution`, `dec` => `decimal`, `frac` => `fraction`, `rat` => `rational`.
-   * Also, big-name aliases for the types.
+0. Inject the type-names of the different primitive types in the prelude using analysis extensions.
+0. `Number` alias in all the `math/number` modules.
+0. Unsafe text module.
 
 ## Done
 
-0. Fix bug wherein two imported modules can have the same alias.
+0. Full names for number modules. `nat` => `natural`, `int` => `integer`, `rev` => `revolution`, `dec` => `decimal`, `frac` => `fraction`, `rat` => `rational`, `char` => `character`.
+   * Also, big-name aliases for the types.
+0. [(Commit)](https://github.com/LuxLang/lux/commit/b678ef8420f19d0b52854731d3b1a2b8a3ff3ce5) Fix bug wherein two imported modules can have the same alias.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/1bead83039b77e360ba3c8bb8237115fefc2bc2e) Add a `=` definition to every module that has an `Equivalence`.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/ad2bd2abad4d7e014791257af066aa964c5c5aa5) Eliminated the bootstrapping compiler
 0. [(Commit)](https://github.com/LuxLang/lux/commit/90bdd8c16e6864f36dfe44b716c48266a44549c4) Better syntax for the `.when#` extension.
