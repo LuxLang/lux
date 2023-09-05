@@ -47,7 +47,7 @@
 
 ## Done
 
-0. Full names for number modules. `nat` => `natural`, `dec` => `decimal`, `int` => `integer`, `rev` => `revolution`, `frac` => `fraction`, `rat` => `rational`, `char` => `character`.
+0. Full names for number modules. `nat` => `natural`, `dec` => `decimal`, `rat` => `rational`, `int` => `integer`, `rev` => `revolution`, `frac` => `fraction`, `char` => `character`.
    * Also, big-name aliases for the types.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/b678ef8420f19d0b52854731d3b1a2b8a3ff3ce5) Fix bug wherein two imported modules can have the same alias.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/1bead83039b77e360ba3c8bb8237115fefc2bc2e) Add a `=` definition to every module that has an `Equivalence`.
