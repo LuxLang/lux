@@ -32,18 +32,22 @@
    * It may also make the de-normalized zeroes and infinities carry useful information, instead of losing it through normalization.
 0. Unify the handling of globals between extensions, analysis & declaration.
 0. Replace the usages of single-use variables with the expressions they are bound to, in order to eliminate unnecessary register allocations.
-0. Unsafe text module.
 0. Polytypic Binary format machinery.
 0. Go from having I32 variant tags to I8 tags.
 0. Implement extensible pattern-matching in the compiler, guided by the experiment in `control/pattern`.
 0. Dissolve `math/random` into the rest of the standard library.
 0. Dissolve `injection/.../text` into the rest of the standard library.
 0. Add `<`, `<=`, `>`, `>=` definitions to every module that has an `Order`.
-0. Fix bug wherein two imported modules can have the same alias.
+0. Unsafe text module.
+0. Optimize compilation of pattern-matching expressions like (case <input> <literal> <then> _ <else>) into if expressions that test the literal, instead of full-blown pattern-matching.
+   * Add if_i64 & if_f64 & if_text synthesis nodes.
+0. Full names for number modules. `nat` => `natural`, `int` => `integer`, `rev` => `revolution`, `dec` => `decimal`, `frac` => `fraction`, `rat` => `rational`.
+   * Also, big-name aliases for the types.
 
 ## Done
 
-0. Add a `=` definition to every module that has an `Equivalence`.
+0. Fix bug wherein two imported modules can have the same alias.
+0. [(Commit)](https://github.com/LuxLang/lux/commit/1bead83039b77e360ba3c8bb8237115fefc2bc2e) Add a `=` definition to every module that has an `Equivalence`.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/ad2bd2abad4d7e014791257af066aa964c5c5aa5) Eliminated the bootstrapping compiler
 0. [(Commit)](https://github.com/LuxLang/lux/commit/90bdd8c16e6864f36dfe44b716c48266a44549c4) Better syntax for the `.when#` extension.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/3b9cad357e2dcc44a42d5fa01cc380908b08970a) Re-name the `left` and `right` macros in the prelude. Also, get rid of their highlighting in `lux-mode`.

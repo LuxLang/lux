@@ -3,6 +3,10 @@
 cd ~/lux/lux-js/ \
 && lux clean \
 && lux with js auto build
+
+cd ~/lux/lux-js/ \
+&& lux clean \
+&& lux with jvm auto build
 ```
 
 # Build

@@ -26,7 +26,7 @@
    ["[0]" phase]]])
 
 (exception.the .public (unknown_module module)
-  (Exception Text)
+  (Exception module.Name)
   (exception.report
    (list ["Module" module])))
 
@@ -45,7 +45,7 @@
                        (%.message "default " (symbol.as_text name)))])))
 
 (exception.the .public (can_only_change_state_of_active_module [module state])
-  (Exception [Text Module_State])
+  (Exception [module.Name Module_State])
   (exception.report
    (list ["Module" module]
          ["Desired state" (when state
@@ -63,7 +63,7 @@
    .#module_state   {.#Active}])
 
 (the .public (import module)
-  (-> Text
+  (-> module.Name
       (Operation Any))
   (do phase.monad
     [[self_name _] module.current]
@@ -77,20 +77,45 @@
                               state)
                      []]})))
 
+(the .public (by_alias it origin)
+  (-> Text module.Name
+      (Operation [module.Name Module]))
+  (do phase.monad
+    [modules module.all
+     name (phase.of_try
+           (do try.monad
+             [origin (property.value origin modules)]
+             (property.value it (its .#module_aliases origin))))
+     module (module.by_name name)]
+    (in [name module])))
+
+(exception.the .public (cannot_re-use_alias [alias for origin])
+  (Exception [Text module.Name module.Name])
+  (exception.report
+   (list ["Alias" (%.text alias)]
+         ["For" (%.text for)]
+         ["In module" (%.text origin)])))
+
 (the .public (alias it module)
-  (-> Text Text
+  (-> Text module.Name
       (Operation Any))
   (do phase.monad
-    [[self_name _] module.current]
-    (function (_ state)
-      {try.#Success [(revised .#modules
-                              (property.revised self_name (revised .#module_aliases (is (-> (List [Text Text]) (List [Text Text]))
+    [[current _] module.current
+     previous (phase.try (by_alias it current))]
+    (when previous
+      {try.#Success _}
+      (/.except ..cannot_re-use_alias [it module current])
+      
+      {try.#Failure _}
+      (function (_ state)
+        {try.#Success [(revised .#modules
+                                (property.revised current (revised .#module_aliases (is (-> (List [Text Text]) (List [Text Text]))
                                                                                         (|>> {.#Item [it module]}))))
-                              state)
-                     []]})))
+                                state)
+                       []]}))))
 
 (the .public (exists? module)
-  (-> Text
+  (-> module.Name
       (Operation Bit))
   (function (_ state)
     (|> state
@@ -139,7 +164,7 @@
                    []]}))
 
 (the .public (create hash name)
-  (-> Nat Text
+  (-> Nat module.Name
       (Operation Any))
   (function (_ state)
     {try.#Success [(revised .#modules
@@ -149,7 +174,7 @@
 
 (the .public (with hash name action)
   (for_any (_ of)
-    (-> Nat Text (Operation of)
+    (-> Nat module.Name (Operation of)
         (Operation [Module of])))
   (do phase.monad
     [_ (..create hash name)
@@ -160,7 +185,7 @@
 
 (template.with [<setter> <asker> <tag>]
   [(the .public (<setter> module_name)
-     (-> Text
+     (-> module.Name
          (Operation Any))
      (function (_ state)
        (when (|> state
@@ -186,7 +211,7 @@
           state))))
    
    (the .public (<asker> module_name)
-     (-> Text
+     (-> module.Name
          (Operation Bit))
      (function (_ state)
        (when (|> state
