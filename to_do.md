@@ -44,6 +44,7 @@
 0. `Number` alias in all the `math/number` modules.
 0. Unsafe text module.
 0. Re-name `panic!` to `halt` in honor of The Halting Problem.
+0. Re-name `I8` to `I08`
 
 ## Done
 
