@@ -391,7 +391,7 @@ Called by `imenu--generic-function'."
 							(code//macro (altRE "macro"))
 							;; Miscellaneous
 							(jvm-host (altRE "import" "export" "class" "interface" "object" "synchronized" "class_for"))
-							(alternative-format (altRE "char" "bin" "oct" "hex"))
+							(alternative-format (altRE "character" "bin" "oct" "hex"))
 							(documentation (altRE "comment"))
 							(function-application (altRE "|>" "<|" "all"))
 							(function-definition (altRE "function" "|>>" "<<|"
