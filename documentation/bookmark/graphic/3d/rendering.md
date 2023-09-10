@@ -12,5 +12,6 @@
 
 # Reference
 
+0. [Triangle Rasterization](https://www.youtube.com/watch?v=k5wtuKWmV48)
 0. [Geometry Types for Graphics Programming](https://www.cs.cornell.edu/~asampson/media/papers/gator-oopsla2020-preprint.pdf)
 

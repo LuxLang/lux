@@ -193,6 +193,7 @@
 
 ## General
 
+0. [Lesser Known Terminal Editors](https://codeberg.org/CoopCoding/Lesser-Known-Terminal-Editors)
 0. [Gamut: The Idea Editor](https://gamut.ink/)
 0. [How to Build a Text Editor With Java](https://www.youtube.com/playlist?list=PLIRBoI92yManB1eHCupZ6iG61qMTA9hWe)
 0. [Hard vs. Soft Line Wrap](https://martin-ueding.de/posts/hard-vs-soft-line-wrap/)

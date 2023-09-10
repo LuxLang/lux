@@ -1,5 +1,6 @@
 # Reference
 
+0. [Why is logging so damn hard?](https://baselime.io/blog/why-is-logging-hard)
 0. [High-Level Event Mining: A Framework](https://arxiv.org/abs/2211.00006)
 0. [Better Java logging, inspired by Clojure and Rust](https://mccue.dev/pages/9-25-22-better-java-logging)
 0. [Spans - a key concept of distributed tracing](https://signoz.io/blog/distributed-tracing-span/)

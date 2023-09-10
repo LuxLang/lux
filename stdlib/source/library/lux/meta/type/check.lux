@@ -11,7 +11,9 @@
    [control
     ["[0]" maybe]
     ["[0]" try (.only Try)]
-    ["[0]" exception (.only Exception)]]
+    ["[0]" exception (.only Exception)]
+    [function
+     ["[0]" mixin (.only Mixin)]]]
    [data
     ["[0]" product]
     ["[0]" text (.use "[1]#[0]" monoid)]
@@ -28,25 +30,25 @@
  ["[0]" //])
 
 (the !n#=
-  (template.macro (_ expected actual)
-    [(.i64_=# expected actual)]))
+  (template.macro (_ super sub)
+    [(.i64_=# super sub)]))
 
 (the !text#=
-  (template.macro (_ expected actual)
-    [(.text_=# expected actual)]))
+  (template.macro (_ super sub)
+    [(.text_=# super sub)]))
+
+(every .public Variable
+  Natural)
 
 (template.with [<name>]
-  [(exception.the .public (<name> id)
-     (Exception Natural)
+  [(exception.the .public (<name> [it])
+     (Exception Variable)
      (exception.report
-      (list ["ID" (n#injection id)])))]
+      (list ["Variable" (n#injection it)])))]
 
   [unknown_type_var]
   [unbound_type_var]
   )
-
-(every .public Var
-  Natural)
 
 (exception.the .public (invalid_type_application [funcT argT])
   (Exception [Type Type])
@@ -55,29 +57,38 @@
          ["Type argument" (//.absolute_injection argT)])))
 
 (exception.the .public (cannot_rebind_var [id type bound])
-  (Exception [Var Type Type])
+  (Exception [Variable Type Type])
   (exception.report
-   (list ["Var" (n#injection id)]
+   (list ["Variable" (n#injection id)]
          ["Wanted type" (//.absolute_injection type)]
          ["Current type" (//.absolute_injection bound)])))
 
-(exception.the .public (type_check_failed [expected actual])
+(exception.the .public (type_check_failed [super sub])
   (Exception [Type Type])
   (exception.report
-   (list ["Expected" (//.absolute_injection expected)]
-         ["Actual" (//.absolute_injection actual)])))
+   (list ["Super" (//.absolute_injection super)]
+         ["Sub" (//.absolute_injection sub)])))
 
 (every Assumption
-  [Type Type])
+  (Record
+   [#super Type
+    #sub Type]))
 
-(every .public (Check a)
-  (-> Type_Context (Try [Type_Context a])))
+(every .public (Check of)
+  (-> Type_Context
+      (Try [Type_Context of])))
 
-(every (Checker a)
-  (-> (List Assumption) a a (Check (List Assumption))))
+... https://en.wikipedia.org/wiki/Subsumption
+(every (Subsumption of)
+  (Mixin [(List Assumption) of of]
+         (Check (List Assumption))))
 
-(every Type_Vars
-  (List [Var (Maybe Type)]))
+(every (Checker of)
+  (-> [(List Assumption) of of]
+      (Check (List Assumption))))
+
+(every Environment
+  (List [Variable (Maybe Type)]))
 
 (the .public functor
   (Functor Check)
@@ -131,38 +142,43 @@
 
 (use "check#[0]" ..monad)
 
-(the (var::new id property_list)
-  (-> Var Type_Vars Type_Vars)
-  {.#Item [id {.#None}] property_list})
+(the (var::new id it)
+  (-> Variable Environment
+      Environment)
+  {.#Item [id {.#None}] it})
 
-(the (var::get id property_list)
-  (-> Var Type_Vars (Maybe (Maybe Type)))
-  (when property_list
+(the (var::get id it)
+  (-> Variable Environment
+      (Maybe (Maybe Type)))
+  (when it
     {.#Item [var_id var_type]
-            property_list'}
+            it'}
     (if (!n#= id var_id)
       {.#Some var_type}
-      (var::get id property_list'))
+      (var::get id it'))
 
     {.#End}
     {.#None}))
 
-(the (var::put id value property_list)
-  (-> Var (Maybe Type) Type_Vars Type_Vars)
-  (when property_list
+(the (var::put id value it)
+  (-> Variable (Maybe Type) Environment
+      Environment)
+  (when it
     {.#End}
     (list [id value])
 
     {.#Item [var_id var_type]
-            property_list'}
+            it'}
     (if (!n#= id var_id)
       {.#Item [var_id value]
-              property_list'}
+              it'}
       {.#Item [var_id var_type]
-              (var::put id value property_list')})))
+              (var::put id value it')})))
 
 (the .public (value context proc)
-  (for_any (_ a) (-> Type_Context (Check a) (Try a)))
+  (for_any (_ of)
+    (-> Type_Context (Check of)
+        (Try of)))
   (when (proc context)
     {try.#Success [context' output]}
     {try.#Success output}
@@ -171,19 +187,24 @@
     {try.#Failure error}))
 
 (the .public (failure message)
-  (for_any (_ a) (-> Text (Check a)))
+  (for_any (_ of)
+    (-> Text
+        (Check of)))
   (function (_ context)
     {try.#Failure message}))
 
 (the .public (assertion message test)
-  (-> Text Bit (Check Any))
+  (-> Text Bit
+      (Check Any))
   (function (_ context)
     (if test
       {try.#Success [context []]}
       {try.#Failure message})))
 
 (the .public (except exception message)
-  (for_any (_ e a) (-> (Exception e) e (Check a)))
+  (for_any (_ ex of)
+    (-> (Exception ex) ex
+        (Check of)))
   (..failure (exception.error exception message)))
 
 (the .public existential
@@ -195,10 +216,11 @@
 
 (template.with [<name> <outputT> <fail> <succeed>]
   [(the .public (<name> id)
-     (-> Var (Check <outputT>))
+     (-> Variable
+         (Check <outputT>))
      (function (_ context)
        (when (|> context (its .#var_bindings) (var::get id))
-         (^.or {.#Some {.#Some {.#Var _}}}
+         (^.or {.#Some {.#Some {.#Variable _}}}
                {.#Some {.#None}})
          {try.#Success [context <fail>]}
          
@@ -213,7 +235,8 @@
   )
 
 (the .public (read id)
-  (-> Var (Check Type))
+  (-> Variable
+      (Check Type))
   (do ..monad
     [?type (peek id)]
     (when ?type
@@ -224,7 +247,8 @@
       (..except ..unbound_type_var id))))
 
 (the (bound id)
-  (-> Var (Check Type))
+  (-> Variable
+      (Check Type))
   (function (_ context)
     (when (|> context (its .#var_bindings) (var::get id))
       {.#Some {.#Some bound}}
@@ -237,7 +261,8 @@
       (exception.except ..unknown_type_var id))))
 
 (the .public (bind type id)
-  (-> Type Var (Check Any))
+  (-> Type Variable
+      (Check Any))
   (function (_ context)
     (when (|> context (its .#var_bindings) (var::get id))
       {.#Some {.#None}}
@@ -251,7 +276,8 @@
       (exception.except ..unknown_type_var id))))
 
 (the (re_bind' ?type id)
-  (-> (Maybe Type) Var (Check Any))
+  (-> (Maybe Type) Variable
+      (Check Any))
   (function (_ context)
     (when (|> context (its .#var_bindings) (var::get id))
       {.#Some _}
@@ -262,22 +288,24 @@
       (exception.except ..unknown_type_var id))))
 
 (the (re_bind type id)
-  (-> Type Var (Check Any))
+  (-> Type Variable
+      (Check Any))
   (re_bind' {.#Some type} id))
 
 (the .public var
-  (Check [Var Type])
+  (Check [Variable Type])
   (function (_ context)
     (let [id (its .#var_counter context)]
       {try.#Success [(|> context
                          (revised .#var_counter ++)
                          (revised .#var_bindings (var::new id)))
-                     [id {.#Var id}]]})))
+                     [id {.#Variable id}]]})))
 
 (the (on argT funcT)
-  (-> Type Type (Check Type))
+  (-> Type Type
+      (Check Type))
   (when funcT
-    {.#Var func_id}
+    {.#Variable func_id}
     (do ..monad
       [?funcT' (peek func_id)]
       (when ?funcT'
@@ -301,14 +329,15 @@
       (except ..invalid_type_application [funcT argT]))))
 
 (the .public (ring' start)
-  (-> Var (Check (List Var)))
+  (-> Variable
+      (Check (List Variable)))
   (function (_ context)
     (loop (again [current start
                   output (list start)])
       (when (|> context (its .#var_bindings) (var::get current))
         {.#Some {.#Some type}}
         (when type
-          {.#Var next}
+          {.#Variable next}
           (if (!n#= start next)
             {try.#Success [context output]}
             (again next (list.partial next output)))
@@ -324,23 +353,26 @@
 
 ... TODO: Optimize this by not using sets anymore.
 (the ring
-  (-> Var (Check (Set Var)))
+  (-> Variable
+      (Check (Set Variable)))
   (|>> ..ring'
        (check#each (set.of_list n.hash))))
 
 (the .public (linked? @0 @1)
-  (-> Var Var (Check Bit))
+  (-> Variable Variable
+      (Check Bit))
   (check#each (function (_ it)
                 (set.member? it @1))
               (..ring @0)))
 
 (exception.the .public (cannot_identify var)
-  (Exception Var)
+  (Exception Variable)
   (exception.report
-   (list ["Var" (n#injection var)])))
+   (list ["Variable" (n#injection var)])))
 
 (the .public (identity aliases @)
-  (-> (List Var) Var (Check Type))
+  (-> (List Variable) Variable
+      (Check Type))
   (do [! ..monad]
     [:bound: (..peek @)]
     (when :bound:
@@ -357,13 +389,14 @@
                    allowed_aliases (set.difference forbidden_aliases existing_aliases)]]
             (when (set.list allowed_aliases)
               {.#Item identity _}
-              (in {.#Var identity})
+              (in {.#Variable identity})
               
               {.#None}
               (..except ..cannot_identify [@]))))))))
 
 (the (erase! @)
-  (-> Var (Check Any))
+  (-> Variable
+      (Check Any))
   (function (_ context)
     {try.#Success [(revised .#var_bindings
                             (list#mix (is (//.let [binding [Natural (Maybe Type)]]
@@ -381,7 +414,8 @@
                    []]}))
 
 (the .public (forget! @)
-  (-> Var (Check Any))
+  (-> Variable
+      (Check Any))
   (do [! ..monad]
     [ring (..ring' @)]
     (when ring
@@ -400,15 +434,17 @@
       (when (list.reversed ring)
         (list.partial @me @next _)
         (do !
-          [_ (re_bind {.#Var @next} @prev)
-           _ (re_bind {.#Var @prev} @next)]
+          [_ (re_bind {.#Variable @next} @prev)
+           _ (re_bind {.#Variable @prev} @next)]
           (erase! @me))
 
         _
         (undefined)))))
 
 (the .public (try it)
-  (for_any (_ a) (-> (Check a) (Check (Try a))))
+  (for_any (_ of)
+    (-> (Check of)
+        (Check (Try of))))
   (function (_ context)
     (when (it context)
       {try.#Success [context' output]}
@@ -424,7 +460,9 @@
    .#var_bindings (list)])
 
 (the (either left right)
-  (for_any (_ a) (-> (Check a) (Check a) (Check a)))
+  (for_any (_ of)
+    (-> (Check of) (Check of)
+        (Check of)))
   (function (_ context)
     (when (left context)
       {try.#Failure _}
@@ -434,7 +472,8 @@
       output)))
 
 (the (assumed? [e a] assumptions)
-  (-> Assumption (List Assumption) Bit)
+  (-> Assumption (List Assumption)
+      Bit)
   (list.any? (function (_ [e' a'])
                (and (//.= e e')
                     (//.= a a')))
@@ -442,9 +481,9 @@
 
 ... TODO: "if_can_bind" can be optimized...
 (the (if_can_bind id type then else)
-  (for_any (_ a)
-    (-> Var Type (Check a) (-> Type (Check a))
-        (Check a)))
+  (for_any (_ of)
+    (-> Variable Type (Check of) (-> Type (Check of))
+        (Check of)))
   (all either
        (do ..monad
          [_ (..bind type id)]
@@ -456,25 +495,28 @@
          then)
        (do ..monad
          [?bound (peek id)]
-         (else (maybe.else {.#Var id} ?bound)))))
+         (else (maybe.else {.#Variable id} ?bound)))))
 
 ... TODO: "link/2" can be optimized...
 (the (link/2 left right)
-  (-> Var Var (Check Any))
+  (-> Variable Variable
+      (Check Any))
   (do ..monad
-    [_ (..bind {.#Var right} left)]
-    (..bind {.#Var left} right)))
+    [_ (..bind {.#Variable right} left)]
+    (..bind {.#Variable left} right)))
 
 ... TODO: "link/3" can be optimized...
 (the (link/3 interpose to from)
-  (-> Var Var Var (Check Any))
+  (-> Variable Variable Variable
+      (Check Any))
   (do ..monad
-    [_ (re_bind {.#Var interpose} from)]
-    (re_bind {.#Var to} interpose)))
+    [_ (re_bind {.#Variable interpose} from)]
+    (re_bind {.#Variable to} interpose)))
 
 ... TODO: "check_vars" can be optimized...
-(the (check_vars check' assumptions idE idA)
-  (-> (Checker Type) (Checker Var))
+(the (check_vars complete [assumptions idE idA])
+  (-> (Checker Type)
+      (Checker Variable))
   (if (!n#= idE idA)
     (check#in assumptions)
     (do [! ..monad]
@@ -490,28 +532,28 @@
         ... Interpose new variable between 2 existing links
         [{try.#Success etype} {try.#Failure _}]
         (when etype
-          {.#Var targetE}
+          {.#Variable targetE}
           (do !
             [_ (link/3 idA targetE idE)]
             (in assumptions))
 
           _
-          (check' assumptions etype {.#Var idA}))
+          (complete [assumptions etype {.#Variable idA}]))
 
         ... Interpose new variable between 2 existing links
         [{try.#Failure _} {try.#Success atype}]
         (when atype
-          {.#Var targetA}
+          {.#Variable targetA}
           (do !
             [_ (link/3 idE targetA idA)]
             (in assumptions))
 
           _
-          (check' assumptions {.#Var idE} atype))
+          (complete [assumptions {.#Variable idE} atype]))
 
         [{try.#Success etype} {try.#Success atype}]
         (`` (when [etype atype]
-              [{.#Var targetE} {.#Var targetA}]
+              [{.#Variable targetE} {.#Variable targetA}]
               (do !
                 [ringE (..ring idE)
                  ringA (..ring idA)]
@@ -534,166 +576,241 @@
                         _ (monad.each ! (re_bind <type>) (set.list ring))]
                        (in assumptions))]
 
-                    [[{.#Var _} _] idE atype]
-                    [[_ {.#Var _}] idA etype]))
+                    [[{.#Variable _} _] idE atype]
+                    [[_ {.#Variable _}] idA etype]))
               
               _
-              (check' assumptions etype atype)))))))
+              (complete [assumptions etype atype])))))))
 
 (the silent_failure!
-  (for_any (_ a) (Check a))
+  Check
   (..failure ""))
 
 ... TODO: "check_apply" can be optimized...
-(the (check_apply check' assumptions expected actual)
-  (-> (Checker Type) (Checker [Type Type]))
-  (let [[expected_input expected_function] expected
-        [actual_input actual_function] actual]
-    (when [expected_function actual_function]
+(the (check_apply complete [assumptions super sub])
+  (-> (Checker Type)
+      (Checker [Type Type]))
+  (let [[super_input super_function] super
+        [sub_input sub_function] sub]
+    (when [super_function sub_function]
       [{.#Opaque exE} {.#Opaque exA}]
       (if (!n#= exE exA)
-        (check' assumptions expected_input actual_input)
+        (complete [assumptions super_input sub_input])
         ..silent_failure!)
 
       [{.#Universal _ _} {.#Opaque _}]
       (do ..monad
-        [expected' (..on expected_input expected_function)]
-        (check' assumptions expected' {.#Apply actual}))
+        [super' (..on super_input super_function)]
+        (complete [assumptions super' {.#Apply sub}]))
 
       [{.#Opaque _} {.#Universal _ _}]
       (do ..monad
-        [actual' (..on actual_input actual_function)]
-        (check' assumptions {.#Apply expected} actual'))
+        [sub' (..on sub_input sub_function)]
+        (complete [assumptions {.#Apply super} sub']))
 
-      [{.#Apply [expected_input' expected_function']} {.#Opaque _}]
+      [{.#Apply [super_input' super_function']} {.#Opaque _}]
       (do ..monad
-        [expected_function'' (..on expected_input' expected_function')]
-        (check' assumptions {.#Apply [expected_input expected_function'']} {.#Apply actual}))
+        [super_function'' (..on super_input' super_function')]
+        (complete [assumptions {.#Apply [super_input super_function'']} {.#Apply sub}]))
 
-      [{.#Opaque _} {.#Apply [actual_input' actual_function']}]
+      [{.#Opaque _} {.#Apply [sub_input' sub_function']}]
       (do ..monad
-        [actual_function'' (..on actual_input' actual_function')]
-        (check' assumptions {.#Apply expected} {.#Apply [actual_input actual_function'']}))
+        [sub_function'' (..on sub_input' sub_function')]
+        (complete [assumptions {.#Apply super} {.#Apply [sub_input sub_function'']}]))
 
       (^.or [{.#Opaque _} _] [_ {.#Opaque _}])
       (do ..monad
-        [assumptions (check' assumptions expected_function actual_function)]
-        (check' assumptions expected_input actual_input))
+        [assumptions (complete [assumptions super_function sub_function])]
+        (complete [assumptions super_input sub_input]))
 
-      [{.#Var id} _]
+      [{.#Variable id} _]
       (function (_ context)
         (when ((do ..monad
-                 [expected_function' (..read id)]
-                 (check' assumptions {.#Apply expected_input expected_function'} {.#Apply actual}))
+                 [super_function' (..read id)]
+                 (complete [assumptions {.#Apply super_input super_function'} {.#Apply sub}]))
                context)
           {try.#Success output}
           {try.#Success output}
 
           {try.#Failure _}
-          (when actual_function
+          (when sub_function
             {.#Universal _ _}
             ((do ..monad
-               [actual' (..on actual_input actual_function)]
-               (check' assumptions {.#Apply expected} actual'))
+               [sub' (..on sub_input sub_function)]
+               (complete [assumptions {.#Apply super} sub']))
              context)
             
             {.#Opaque exA}
             ((do ..monad
-               [assumptions (check' assumptions expected_function actual_function)]
-               (check' assumptions expected_input actual_input))
+               [assumptions (complete [assumptions super_function sub_function])]
+               (complete [assumptions super_input sub_input]))
              context)
 
             _
             ((do ..monad
-               [assumptions (check' assumptions expected_function actual_function)
-                expected' (..on expected_input actual_function)
-                actual' (..on actual_input actual_function)]
-               (check' assumptions expected' actual'))
+               [assumptions (complete [assumptions super_function sub_function])
+                super' (..on super_input sub_function)
+                sub' (..on sub_input sub_function)]
+               (complete [assumptions super' sub']))
              context))))
 
-      [_ {.#Var id}]
+      [_ {.#Variable id}]
       (function (_ context)
         (when ((do ..monad
-                 [actual_function' (read id)]
-                 (check' assumptions {.#Apply expected} {.#Apply actual_input actual_function'}))
+                 [sub_function' (read id)]
+                 (complete [assumptions {.#Apply super} {.#Apply sub_input sub_function'}]))
                context)
           {try.#Success output}
           {try.#Success output}
 
           _
           ((do ..monad
-             [assumptions (check' assumptions expected_function actual_function)
-              expected' (..on expected_input expected_function)
-              actual' (..on actual_input expected_function)]
-             (check' assumptions expected' actual'))
+             [assumptions (complete [assumptions super_function sub_function])
+              super' (..on super_input super_function)
+              sub' (..on sub_input super_function)]
+             (complete [assumptions super' sub']))
            context)))
 
       _
       ..silent_failure!)))
 
-(the (with_exception exception parameter check)
-  (for_any (_ e a)
-    (-> (Exception e) e (Check a)
-        (Check a)))
-  (|>> check
-       (exception.with exception parameter)))
+(the same
+  (Subsumption Type)
+  (function (_ partial complete it)
+    (let [[assumptions super sub] it]
+      (if (for .php
+               ... TODO: Remove this once JPHP is gone.
+               false
+               (or (same? super sub)
+                   (//.= super sub)))
+        (check#in assumptions)
+        (<<| (exception.with ..type_check_failed [super sub])
+             (partial it))))))
 
-... TODO: "check'" can be optimized...
-... Type-check to ensure that the 'expected' type subsumes the 'actual' type.
-(the (check' assumptions expected actual)
-  (Checker Type)
-  (if (for .php
-           ... TODO: Remove this once JPHP is gone.
-           false
-           (or (same? expected actual)
-               (//.= expected actual)))
-    (check#in assumptions)
-    (with_exception ..type_check_failed [expected actual]
-      (`` (when [expected actual]
-            [{.#Var idE} {.#Var idA}]
-            (check_vars check' assumptions idE idA)
-            
-            [{.#Var id} _]
-            (if_can_bind id actual
-                         (check#in assumptions)
-                         (function (_ bound)
-                           (check' assumptions bound actual)))
-            
-            [_ {.#Var id}]
-            (if_can_bind id expected
-                         (check#in assumptions)
-                         (function (_ bound)
-                           (check' assumptions expected bound)))
+(the composite
+  (Subsumption Type)
+  (function (_ partial complete it)
+    (let [[assumptions super sub] it]
+      (`` (when [super sub]
+            (,, (template.with [<composite>]
+                  [[{<composite> eL eR} {<composite> aL aR}]
+                   (do ..monad
+                     [assumptions (complete [assumptions eL aL])]
+                     (complete [assumptions eR aR]))]
 
+                  [.#Sum]
+                  [.#Product]))
+            
+            [{.#Function eI eO} {.#Function aI aO}]
+            (do ..monad
+              [assumptions (complete [assumptions aI eI])]
+              (complete [assumptions eO aO]))
+
+            _
+            (partial it))))))
+
+(the variable
+  (Subsumption Type)
+  (function (_ partial complete it)
+    (let [[assumptions super sub] it]
+      (when [super sub]
+        [{.#Variable idE} {.#Variable idA}]
+        (check_vars complete [assumptions idE idA])
+        
+        [{.#Variable id} _]
+        (if_can_bind id sub
+                     (check#in assumptions)
+                     (function (_ bound)
+                       (complete [assumptions bound sub])))
+        
+        [_ {.#Variable id}]
+        (if_can_bind id super
+                     (check#in assumptions)
+                     (function (_ bound)
+                       (complete [assumptions super bound])))
+
+        _
+        (partial it)))))
+
+(the opaque
+  (Subsumption Type)
+  (function (_ partial complete it)
+    (let [[assumptions super sub] it]
+      (when [super sub]
+        [{.#Nominal e_name e_params} {.#Nominal a_name a_params}]
+        (if (!text#= e_name a_name)
+          (loop (again [assumptions assumptions
+                        e_params e_params
+                        a_params a_params])
+            (when [e_params a_params]
+              [{.#End} {.#End}]
+              (check#in assumptions)
+              
+              [{.#Item e_head e_tail} {.#Item a_head a_tail}]
+              (do ..monad
+                [assumptions' (complete [assumptions e_head a_head])]
+                (again assumptions' e_tail a_tail))
+
+              _
+              ..silent_failure!))
+          ..silent_failure!)
+
+        [{.#Opaque e!id} {.#Opaque a!id}]
+        (if (!n#= e!id a!id)
+          (check#in assumptions)
+          ..silent_failure!)
+
+        [{.#Named _ ?etype} _]
+        (complete [assumptions ?etype sub])
+
+        [_ {.#Named _ ?atype}]
+        (complete [assumptions super ?atype])
+
+        _
+        (partial it)))))
+
+(the application
+  (Subsumption Type)
+  (function (_ partial complete it)
+    (let [[assumptions super sub] it]
+      (`` (when [super sub]
             (,, (template.with [<fE> <fA>]
                   [[{.#Apply aE <fE>} {.#Apply aA <fA>}]
-                   (check_apply check' assumptions [aE <fE>] [aA <fA>])]
+                   (check_apply complete [assumptions [aE <fE>] [aA <fA>]])]
 
                   [F1 {.#Opaque ex}]
                   [{.#Opaque exE} fA]
-                  [fE {.#Var idA}]
-                  [{.#Var idE} fA]))
+                  [fE {.#Variable idA}]
+                  [{.#Variable idE} fA]))
             
             [{.#Apply A F} _]
-            (let [new_assumption [expected actual]]
+            (let [new_assumption [super sub]]
               (if (assumed? new_assumption assumptions)
                 (check#in assumptions)
                 (do ..monad
-                  [expected' (..on A F)]
-                  (check' {.#Item new_assumption assumptions} expected' actual))))
+                  [super' (..on A F)]
+                  (complete [{.#Item new_assumption assumptions} super' sub]))))
 
             [_ {.#Apply A F}]
             (do ..monad
-              [actual' (..on A F)]
-              (check' assumptions expected actual'))
+              [sub' (..on A F)]
+              (complete [assumptions super sub']))
 
+            _
+            (partial it))))))
+
+(the quantification
+  (Subsumption Type)
+  (function (_ partial complete it)
+    (let [[assumptions super sub] it]
+      (`` (when [super sub]
             ... TODO: Refactor-away as cold-code
             (,, (template.with [<tag> <instancer>]
                   [[{<tag> _} _]
                    (do ..monad
                      [[_ paramT] <instancer>
-                      expected' (..on paramT expected)]
-                     (check' assumptions expected' actual))]
+                      super' (..on paramT super)]
+                     (complete [assumptions super' sub]))]
 
                   [.#Universal ..existential]
                   [.#Existential ..var]))
@@ -703,66 +820,43 @@
                   [[_ {<tag> _}]
                    (do ..monad
                      [[_ paramT] <instancer>
-                      actual' (..on paramT actual)]
-                     (check' assumptions expected actual'))]
+                      sub' (..on paramT sub)]
+                     (complete [assumptions super sub']))]
 
                   [.#Universal ..var]
                   [.#Existential ..existential]))
 
-            [{.#Nominal e_name e_params} {.#Nominal a_name a_params}]
-            (if (!text#= e_name a_name)
-              (loop (again [assumptions assumptions
-                            e_params e_params
-                            a_params a_params])
-                (when [e_params a_params]
-                  [{.#End} {.#End}]
-                  (check#in assumptions)
-                  
-                  [{.#Item e_head e_tail} {.#Item a_head a_tail}]
-                  (do ..monad
-                    [assumptions' (check' assumptions e_head a_head)]
-                    (again assumptions' e_tail a_tail))
-
-                  _
-                  ..silent_failure!))
-              ..silent_failure!)
-
-            (,, (template.with [<composite>]
-                  [[{<composite> eL eR} {<composite> aL aR}]
-                   (do ..monad
-                     [assumptions (check' assumptions eL aL)]
-                     (check' assumptions eR aR))]
-
-                  [.#Sum]
-                  [.#Product]))
-            
-            [{.#Function eI eO} {.#Function aI aO}]
-            (do ..monad
-              [assumptions (check' assumptions aI eI)]
-              (check' assumptions eO aO))
-
-            [{.#Opaque e!id} {.#Opaque a!id}]
-            (if (!n#= e!id a!id)
-              (check#in assumptions)
-              ..silent_failure!)
-
-            [{.#Named _ ?etype} _]
-            (check' assumptions ?etype actual)
-
-            [_ {.#Named _ ?atype}]
-            (check' assumptions expected ?atype)
-
             _
-            ..silent_failure!)))))
+            (partial it))))))
 
-(the .public (check expected actual)
-  (-> Type Type (Check Any))
-  (check' (list) expected actual))
+(the else
+  (Subsumption Type)
+  (function (_ partial complete it)
+    ..silent_failure!))
 
-(the .public (subsumed? expected actual)
-  (-> Type Type Bit)
+(the subsumption
+  (Checker Type)
+  (<| mixin.fixed
+      (all mixin.mixed
+           ..same
+           ..composite
+           ..variable
+           ..opaque
+           ..application
+           ..quantification
+           ..else
+           )))
+
+(the .public (check super sub)
+  (-> Type Type
+      (Check Any))
+  (..subsumption [(list) super sub]))
+
+(the .public (subsumed? super sub)
+  (-> Type Type
+      Bit)
   (when (..value ..fresh_context
-                 (..check expected actual))
+                 (..check super sub))
     {try.#Failure _}
     false
 
@@ -775,12 +869,14 @@
     {try.#Success [context context]}))
 
 (the .public (with context)
-  (-> Type_Context (Check Any))
+  (-> Type_Context
+      (Check Any))
   (function (_ _)
     {try.#Success [context []]}))
 
 (the .public (clean aliases inputT)
-  (-> (List Var) Type (Check Type))
+  (-> (List Variable) Type
+      (Check Type))
   (`` (when inputT
         {.#Nominal name paramsT+}
         (|> paramsT+
@@ -804,14 +900,14 @@
               [.#Function]
               [.#Apply]))
 
-        {.#Var @it}
+        {.#Variable @it}
         (when aliases
           (list)
           (do ..monad
-            [?actualT (..peek @it)]
-            (when ?actualT
-              {.#Some actualT}
-              (clean aliases actualT)
+            [?subT (..peek @it)]
+            (when ?subT
+              {.#Some subT}
+              (clean aliases subT)
 
               _
               (in inputT)))
@@ -822,7 +918,7 @@
             (when :it:
               {try.#Success :it:}
               (when :it:
-                {.#Var _}
+                {.#Variable _}
                 (in inputT)
 
                 _
