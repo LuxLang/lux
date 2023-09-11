@@ -5,6 +5,7 @@
  [library
   [lux (.except try except with type)
    [abstract
+    [equivalence (.only Equivalence)]
     [functor (.only Functor)]
     [apply (.only Apply)]
     ["[0]" monad (.only Monad do)]]
@@ -35,13 +36,13 @@
     [(.i64_=# (.is .Natural ,super)
               (.is .Natural ,sub))]))
 
-(exception.the .public (invalid_reification [abstraction parameter])
-  (Exception [Type Type])
+(exception.the .public (invalid_reification [abstraction parameters])
+  (Exception [Type (List Type)])
   (exception.report
    (list ["Abstraction" (//.absolute_injection abstraction)]
-         ["Parameter" (//.absolute_injection parameter)])))
+         ["Parameter" (exception.listing //.absolute_injection parameters)])))
 
-(exception.the .public (type_check_failed [super sub])
+(exception.the .public (does_not_subsume [super sub])
   (Exception [Type Type])
   (exception.report
    (list ["Super type" (//.absolute_injection super)]
@@ -108,10 +109,6 @@
   (Record
    [#super Type
     #sub Type]))
-
-(the equivalence
-  (product.equivalence //.equivalence
-                       //.equivalence))
 
 ... https://en.wikipedia.org/wiki/Subsumption
 (every (Subsumption of)
@@ -218,8 +215,8 @@
                          (revised .#var_bindings (environment.has id)))
                      [id {.#Variable id}]]})))
 
-(the (on parameter abstraction)
-  (-> Type Type
+(the (on parameters abstraction)
+  (-> (List Type) Type
       (Check Type))
   (when abstraction
     {.#Variable func_id}
@@ -227,23 +224,21 @@
       [?abstraction' (..binding func_id)]
       (when ?abstraction'
         {.#Some abstraction'}
-        (on parameter abstraction')
+        (on parameters abstraction')
 
         _
-        (except ..invalid_reification [abstraction parameter])))
+        (except ..invalid_reification [abstraction parameters])))
 
     {.#Apply parameter' abstraction'}
-    (do ..monad
-      [abstraction'' (on parameter' abstraction')]
-      (on parameter abstraction''))
+    (on (list.partial parameter' parameters) abstraction')
 
     _
-    (when (//.applied (list parameter) abstraction)
+    (when (//.applied parameters abstraction)
       {.#Some output}
       (/#in output)
 
       _
-      (except ..invalid_reification [abstraction parameter]))))
+      (except ..invalid_reification [abstraction parameters]))))
 
 (the ring
   (-> //.Variable
@@ -365,10 +360,17 @@
       output
       output)))
 
+(the hypothesis_equivalence
+  (Equivalence Hypothesis)
+  (all product.equivalence
+       //.equivalence
+       //.equivalence
+       ))
+
 (the (hypothesized? expected hypotheses)
   (-> Hypothesis (List Hypothesis)
       Bit)
-  (list.any? (of ..equivalence = expected) hypotheses))
+  (list.any? (of ..hypothesis_equivalence = expected) hypotheses))
 
 ... TODO: "if_can_bind" can be optimized...
 (the (if_can_bind id type then else)
@@ -491,22 +493,22 @@
 
       [{.#Universal _ _} {.#Opaque _}]
       (do ..monad
-        [super' (..on super_parameter super_abstraction)]
+        [super' (..on (list super_parameter) super_abstraction)]
         (complete [hypotheses super' {.#Apply sub}]))
 
       [{.#Opaque _} {.#Universal _ _}]
       (do ..monad
-        [sub' (..on sub_parameter sub_abstraction)]
+        [sub' (..on (list sub_parameter) sub_abstraction)]
         (complete [hypotheses {.#Apply super} sub']))
 
       [{.#Apply [super_parameter' super_abstraction']} {.#Opaque _}]
       (do ..monad
-        [super_abstraction'' (..on super_parameter' super_abstraction')]
+        [super_abstraction'' (..on (list super_parameter') super_abstraction')]
         (complete [hypotheses {.#Apply [super_parameter super_abstraction'']} {.#Apply sub}]))
 
       [{.#Opaque _} {.#Apply [sub_parameter' sub_abstraction']}]
       (do ..monad
-        [sub_abstraction'' (..on sub_parameter' sub_abstraction')]
+        [sub_abstraction'' (..on (list sub_parameter') sub_abstraction')]
         (complete [hypotheses {.#Apply super} {.#Apply [sub_parameter sub_abstraction'']}]))
 
       (^.or [{.#Opaque _} _] [_ {.#Opaque _}])
@@ -522,7 +524,7 @@
            (when sub_abstraction
              {.#Universal _ _}
              (do ..monad
-               [sub' (..on sub_parameter sub_abstraction)]
+               [sub' (..on (list sub_parameter) sub_abstraction)]
                (complete [hypotheses {.#Apply super} sub']))
              
              {.#Opaque exA}
@@ -533,8 +535,8 @@
              _
              (do ..monad
                [hypotheses (complete [hypotheses super_abstraction sub_abstraction])
-                super' (..on super_parameter sub_abstraction)
-                sub' (..on sub_parameter sub_abstraction)]
+                super' (..on (list super_parameter) sub_abstraction)
+                sub' (..on (list sub_parameter) sub_abstraction)]
                (complete [hypotheses super' sub']))))
 
       [_ {.#Variable id}]
@@ -544,8 +546,8 @@
              (complete [hypotheses {.#Apply super} {.#Apply sub_parameter sub_abstraction'}]))
            (do ..monad
              [hypotheses (complete [hypotheses super_abstraction sub_abstraction])
-              super' (..on super_parameter super_abstraction)
-              sub' (..on sub_parameter super_abstraction)]
+              super' (..on (list super_parameter) super_abstraction)
+              sub' (..on (list sub_parameter) super_abstraction)]
              (complete [hypotheses super' sub'])))
 
       _
@@ -561,7 +563,7 @@
                (or (same? super sub)
                    (//.= super sub)))
         (/#in hypotheses)
-        (<<| (exception.with ..type_check_failed [super sub])
+        (<<| (exception.with ..does_not_subsume [super sub])
              (partial it))))))
 
 (the composite
@@ -670,12 +672,12 @@
               (if (hypothesized? new_hypothesis hypotheses)
                 (/#in hypotheses)
                 (do ..monad
-                  [super' (..on A F)]
+                  [super' (..on (list A) F)]
                   (complete [{.#Item new_hypothesis hypotheses} super' sub]))))
 
             [_ {.#Apply A F}]
             (do ..monad
-              [sub' (..on A F)]
+              [sub' (..on (list A) F)]
               (complete [hypotheses super sub']))
 
             _
@@ -691,7 +693,7 @@
                   [[{<tag> _} _]
                    (do ..monad
                      [[_ paramT] <instancer>
-                      super' (..on paramT super)]
+                      super' (..on (list paramT) super)]
                      (complete [hypotheses super' sub]))]
 
                   [.#Universal ..existential]
@@ -702,7 +704,7 @@
                   [[_ {<tag> _}]
                    (do ..monad
                      [[_ paramT] <instancer>
-                      sub' (..on paramT sub)]
+                      sub' (..on (list paramT) sub)]
                      (complete [hypotheses super sub']))]
 
                   [.#Universal ..var]
