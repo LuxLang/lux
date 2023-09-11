@@ -45,6 +45,7 @@
 0. Re-name `panic!` to `halt` in honor of The Halting Problem.
 0. Re-name `I8` to `I08`
 0. Unsafe text module.
+0. Eta-conversion in the synthesis phase for inlining/code-fusion optimizations.
 
 ## Done
 

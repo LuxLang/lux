@@ -35,17 +35,17 @@
     [(.i64_=# (.is .Natural ,super)
               (.is .Natural ,sub))]))
 
-(exception.the .public (invalid_type_reification [funcT argT])
+(exception.the .public (invalid_reification [abstraction parameter])
   (Exception [Type Type])
   (exception.report
-   (list ["Type function" (//.absolute_injection funcT)]
-         ["Type argument" (//.absolute_injection argT)])))
+   (list ["Abstraction" (//.absolute_injection abstraction)]
+         ["Parameter" (//.absolute_injection parameter)])))
 
 (exception.the .public (type_check_failed [super sub])
   (Exception [Type Type])
   (exception.report
-   (list ["Super" (//.absolute_injection super)]
-         ["Sub" (//.absolute_injection sub)])))
+   (list ["Super type" (//.absolute_injection super)]
+         ["Sub type" (//.absolute_injection sub)])))
 
 (every .public (Check of)
   (-> Type_Context
@@ -101,21 +101,26 @@
          {try.#Failure error}
          {try.#Failure error})))))
 
-(use "check#[0]" ..monad)
+(use "/#[0]" ..monad)
 
-(every Assumption
+... https://en.wikipedia.org/wiki/Hypothesis
+(every Hypothesis
   (Record
    [#super Type
     #sub Type]))
 
+(the equivalence
+  (product.equivalence //.equivalence
+                       //.equivalence))
+
 ... https://en.wikipedia.org/wiki/Subsumption
 (every (Subsumption of)
-  (Mixin [(List Assumption) of of]
-         (Check (List Assumption))))
+  (Mixin [(List Hypothesis) of of]
+         (Check (List Hypothesis))))
 
 (every (Checker of)
-  (-> [(List Assumption) of of]
-      (Check (List Assumption))))
+  (-> [(List Hypothesis) of of]
+      (Check (List Hypothesis))))
 
 (the .public (value context check)
   (for_any (_ of)
@@ -175,6 +180,12 @@
   (|>> environment.type
        ..query))
 
+(the .public bound?
+  (-> //.Variable
+      (Check Bit))
+  (|>> environment.bound?
+       ..query))
+
 (the (change it)
   (-> environment.Change
       (Check Any))
@@ -207,47 +218,45 @@
                          (revised .#var_bindings (environment.has id)))
                      [id {.#Variable id}]]})))
 
-(the (on argT funcT)
+(the (on parameter abstraction)
   (-> Type Type
       (Check Type))
-  (when funcT
+  (when abstraction
     {.#Variable func_id}
     (do ..monad
-      [?funcT' (..binding func_id)]
-      (when ?funcT'
-        {.#Some funcT'}
-        (on argT funcT')
+      [?abstraction' (..binding func_id)]
+      (when ?abstraction'
+        {.#Some abstraction'}
+        (on parameter abstraction')
 
         _
-        (except ..invalid_type_reification [funcT argT])))
+        (except ..invalid_reification [abstraction parameter])))
 
-    {.#Apply argT' funcT'}
+    {.#Apply parameter' abstraction'}
     (do ..monad
-      [funcT'' (on argT' funcT')]
-      (on argT funcT''))
+      [abstraction'' (on parameter' abstraction')]
+      (on parameter abstraction''))
 
     _
-    (when (//.applied (list argT) funcT)
+    (when (//.applied (list parameter) abstraction)
       {.#Some output}
-      (check#in output)
+      (/#in output)
 
       _
-      (except ..invalid_type_reification [funcT argT]))))
+      (except ..invalid_reification [abstraction parameter]))))
 
-... TODO: Optimize this by not using sets anymore.
 (the ring
   (-> //.Variable
-      (Check (Set //.Variable)))
+      (Check environment.Ring))
   (|>> environment.ring
-       ..query
-       (check#each (set.of_list n.hash))))
+       ..query))
 
 (the .public (linked? @0 @1)
   (-> //.Variable //.Variable
       (Check Bit))
-  (check#each (function (_ it)
-                (set.member? it @1))
-              (..ring @0)))
+  (/#each (function (_ it)
+            (list.member? n.equivalence it @1))
+          (..ring @0)))
 
 (exception.the .public (cannot_identify var)
   (Exception //.Variable)
@@ -260,17 +269,17 @@
   (do [! ..monad]
     [:bound: (..binding @)]
     (when :bound:
-      {.#Some :bound:}
+      (environment.bound :bound:)
       (in :bound:)
 
-      {.#None}
+      (environment.un_bound)
       (do !
         [existing_aliases (..ring @)]
-        (if (n.< 2 (set.size existing_aliases))
+        (if (n.< 2 (list.size existing_aliases))
           (..except ..cannot_identify [@])
           (do !
             [.let [forbidden_aliases (set.of_list n.hash (list.partial @ aliases))
-                   allowed_aliases (set.difference forbidden_aliases existing_aliases)]]
+                   allowed_aliases (set.difference forbidden_aliases (set.of_list n.hash existing_aliases))]]
             (when (set.list allowed_aliases)
               {.#Item identity _}
               (in {.#Variable identity})
@@ -356,13 +365,10 @@
       output
       output)))
 
-(the (assumed? [e a] assumptions)
-  (-> Assumption (List Assumption)
+(the (hypothesized? expected hypotheses)
+  (-> Hypothesis (List Hypothesis)
       Bit)
-  (list.any? (function (_ [e' a'])
-               (and (//.= e e')
-                    (//.= a a')))
-             assumptions))
+  (list.any? (of ..equivalence = expected) hypotheses))
 
 ... TODO: "if_can_bind" can be optimized...
 (the (if_can_bind id type then else)
@@ -375,10 +381,10 @@
          then)
        (do [! ..monad]
          [ring (..ring id)
-          _ (..assertion "" (n.> 1 (set.size ring)))
+          _ (..assertion "" (n.> 1 (list.size ring)))
           _ (monad.each ! (function (_ variable)
                             (..changed variable (environment.bound type)))
-                        (set.list ring))]
+                        ring)]
          then)
        (do ..monad
          [?bound (..binding id)]
@@ -397,11 +403,11 @@
       ..change))
 
 ... TODO: Can be optimized...
-(the (variable_on_variable complete [assumptions idE idA])
+(the (variable_on_variable complete [hypotheses idE idA])
   (-> (Checker Type)
       (Checker //.Variable))
   (if (!n#= idE idA)
-    (check#in assumptions)
+    (/#in hypotheses)
     (do [! ..monad]
       [ebound (..query (environment.its idE))
        abound (..query (environment.its idA))]
@@ -410,7 +416,7 @@
         [(environment.un_bound) (environment.un_bound)]
         (do !
           [_ (..two idE idA)]
-          (in assumptions))
+          (in hypotheses))
 
         ... Interpose new variable between 2 existing links
         [(environment.bound etype) (environment.un_bound)]
@@ -418,10 +424,10 @@
           {.#Variable targetE}
           (do !
             [_ (..three idA targetE idE)]
-            (in assumptions))
+            (in hypotheses))
 
           _
-          (complete [assumptions etype {.#Variable idA}]))
+          (complete [hypotheses etype {.#Variable idA}]))
 
         ... Interpose new variable between 2 existing links
         [(environment.un_bound) (environment.bound atype)]
@@ -429,10 +435,10 @@
           {.#Variable targetA}
           (do !
             [_ (..three idE targetA idA)]
-            (in assumptions))
+            (in hypotheses))
 
           _
-          (complete [assumptions {.#Variable idE} atype]))
+          (complete [hypotheses {.#Variable idE} atype]))
 
         [(environment.bound etype) (environment.bound atype)]
         (`` (when [etype atype]
@@ -440,8 +446,8 @@
               (do !
                 [ringE (..ring idE)
                  ringA (..ring idA)]
-                (if (of set.equivalence = ringE ringA)
-                  (in assumptions)
+                (if (of set.equivalence = (set.of_list n.hash ringE) (set.of_list n.hash ringA))
+                  (in hypotheses)
                   ... Fuse 2 rings
                   (do !
                     [_ (monad.mix ! (function (_ interpose to)
@@ -449,8 +455,8 @@
                                         [_ (..three interpose to idE)]
                                         (in interpose)))
                                   targetE
-                                  (set.list ringA))]
-                    (in assumptions))))
+                                  ringA)]
+                    (in hypotheses))))
 
               (,, (template.with [<pattern> <id> <type>]
                     [<pattern>
@@ -458,21 +464,21 @@
                        [ring (..ring <id>)
                         _ (monad.each ! (function (_ variable)
                                           (..changed variable (environment.bound <type>)))
-                                      (set.list ring))]
-                       (in assumptions))]
+                                      ring)]
+                       (in hypotheses))]
 
                     [[{.#Variable _} _] idE atype]
                     [[_ {.#Variable _}] idA etype]))
               
               _
-              (complete [assumptions etype atype])))))))
+              (complete [hypotheses etype atype])))))))
 
 (the silent_failure!
   Check
   (..failure ""))
 
 ... TODO: Can be optimized...
-(the (reification_on_reification complete [assumptions super sub])
+(the (reification_on_reification complete [hypotheses super sub])
   (-> (Checker Type)
       (Checker [Type Type]))
   (let [[super_parameter super_abstraction] super
@@ -480,67 +486,67 @@
     (when [super_abstraction sub_abstraction]
       [{.#Opaque exE} {.#Opaque exA}]
       (if (!n#= exE exA)
-        (complete [assumptions super_parameter sub_parameter])
+        (complete [hypotheses super_parameter sub_parameter])
         ..silent_failure!)
 
       [{.#Universal _ _} {.#Opaque _}]
       (do ..monad
         [super' (..on super_parameter super_abstraction)]
-        (complete [assumptions super' {.#Apply sub}]))
+        (complete [hypotheses super' {.#Apply sub}]))
 
       [{.#Opaque _} {.#Universal _ _}]
       (do ..monad
         [sub' (..on sub_parameter sub_abstraction)]
-        (complete [assumptions {.#Apply super} sub']))
+        (complete [hypotheses {.#Apply super} sub']))
 
       [{.#Apply [super_parameter' super_abstraction']} {.#Opaque _}]
       (do ..monad
         [super_abstraction'' (..on super_parameter' super_abstraction')]
-        (complete [assumptions {.#Apply [super_parameter super_abstraction'']} {.#Apply sub}]))
+        (complete [hypotheses {.#Apply [super_parameter super_abstraction'']} {.#Apply sub}]))
 
       [{.#Opaque _} {.#Apply [sub_parameter' sub_abstraction']}]
       (do ..monad
         [sub_abstraction'' (..on sub_parameter' sub_abstraction')]
-        (complete [assumptions {.#Apply super} {.#Apply [sub_parameter sub_abstraction'']}]))
+        (complete [hypotheses {.#Apply super} {.#Apply [sub_parameter sub_abstraction'']}]))
 
       (^.or [{.#Opaque _} _] [_ {.#Opaque _}])
       (do ..monad
-        [assumptions (complete [assumptions super_abstraction sub_abstraction])]
-        (complete [assumptions super_parameter sub_parameter]))
+        [hypotheses (complete [hypotheses super_abstraction sub_abstraction])]
+        (complete [hypotheses super_parameter sub_parameter]))
 
       [{.#Variable id} _]
       (all ..either
            (do ..monad
              [super_abstraction' (..type id)]
-             (complete [assumptions {.#Apply super_parameter super_abstraction'} {.#Apply sub}]))
+             (complete [hypotheses {.#Apply super_parameter super_abstraction'} {.#Apply sub}]))
            (when sub_abstraction
              {.#Universal _ _}
              (do ..monad
                [sub' (..on sub_parameter sub_abstraction)]
-               (complete [assumptions {.#Apply super} sub']))
+               (complete [hypotheses {.#Apply super} sub']))
              
              {.#Opaque exA}
              (do ..monad
-               [assumptions (complete [assumptions super_abstraction sub_abstraction])]
-               (complete [assumptions super_parameter sub_parameter]))
+               [hypotheses (complete [hypotheses super_abstraction sub_abstraction])]
+               (complete [hypotheses super_parameter sub_parameter]))
 
              _
              (do ..monad
-               [assumptions (complete [assumptions super_abstraction sub_abstraction])
+               [hypotheses (complete [hypotheses super_abstraction sub_abstraction])
                 super' (..on super_parameter sub_abstraction)
                 sub' (..on sub_parameter sub_abstraction)]
-               (complete [assumptions super' sub']))))
+               (complete [hypotheses super' sub']))))
 
       [_ {.#Variable id}]
       (all ..either
            (do ..monad
              [sub_abstraction' (..type id)]
-             (complete [assumptions {.#Apply super} {.#Apply sub_parameter sub_abstraction'}]))
+             (complete [hypotheses {.#Apply super} {.#Apply sub_parameter sub_abstraction'}]))
            (do ..monad
-             [assumptions (complete [assumptions super_abstraction sub_abstraction])
+             [hypotheses (complete [hypotheses super_abstraction sub_abstraction])
               super' (..on super_parameter super_abstraction)
               sub' (..on sub_parameter super_abstraction)]
-             (complete [assumptions super' sub'])))
+             (complete [hypotheses super' sub'])))
 
       _
       ..silent_failure!)))
@@ -548,34 +554,34 @@
 (the same
   (Subsumption Type)
   (function (_ partial complete it)
-    (let [[assumptions super sub] it]
+    (let [[hypotheses super sub] it]
       (if (for .php
                ... TODO: Remove this once JPHP is gone.
                false
                (or (same? super sub)
                    (//.= super sub)))
-        (check#in assumptions)
+        (/#in hypotheses)
         (<<| (exception.with ..type_check_failed [super sub])
              (partial it))))))
 
 (the composite
   (Subsumption Type)
   (function (_ partial complete it)
-    (let [[assumptions super sub] it]
+    (let [[hypotheses super sub] it]
       (`` (when [super sub]
             (,, (template.with [<composite>]
                   [[{<composite> eL eR} {<composite> aL aR}]
                    (do ..monad
-                     [assumptions (complete [assumptions eL aL])]
-                     (complete [assumptions eR aR]))]
+                     [hypotheses (complete [hypotheses eL aL])]
+                     (complete [hypotheses eR aR]))]
 
                   [.#Sum]
                   [.#Product]))
             
             [{.#Function eI eO} {.#Function aI aO}]
             (do ..monad
-              [assumptions (complete [assumptions aI eI])]
-              (complete [assumptions eO aO]))
+              [hypotheses (complete [hypotheses aI eI])]
+              (complete [hypotheses eO aO]))
 
             _
             (partial it))))))
@@ -583,22 +589,22 @@
 (the variable
   (Subsumption Type)
   (function (_ partial complete it)
-    (let [[assumptions super sub] it]
+    (let [[hypotheses super sub] it]
       (when [super sub]
         [{.#Variable idE} {.#Variable idA}]
-        (variable_on_variable complete [assumptions idE idA])
+        (variable_on_variable complete [hypotheses idE idA])
         
         [{.#Variable id} _]
         (if_can_bind id sub
-                     (check#in assumptions)
+                     (/#in hypotheses)
                      (function (_ bound)
-                       (complete [assumptions bound sub])))
+                       (complete [hypotheses bound sub])))
         
         [_ {.#Variable id}]
         (if_can_bind id super
-                     (check#in assumptions)
+                     (/#in hypotheses)
                      (function (_ bound)
-                       (complete [assumptions super bound])))
+                       (complete [hypotheses super bound])))
 
         _
         (partial it)))))
@@ -610,21 +616,21 @@
 (the opaque
   (Subsumption Type)
   (function (_ partial complete it)
-    (let [[assumptions super sub] it]
+    (let [[hypotheses super sub] it]
       (when [super sub]
         [{.#Nominal e_name e_params} {.#Nominal a_name a_params}]
         (if (!text#= e_name a_name)
-          (loop (again [assumptions assumptions
+          (loop (again [hypotheses hypotheses
                         e_params e_params
                         a_params a_params])
             (when [e_params a_params]
               [{.#End} {.#End}]
-              (check#in assumptions)
+              (/#in hypotheses)
               
               [{.#Item e_head e_tail} {.#Item a_head a_tail}]
               (do ..monad
-                [assumptions' (complete [assumptions e_head a_head])]
-                (again assumptions' e_tail a_tail))
+                [hypotheses' (complete [hypotheses e_head a_head])]
+                (again hypotheses' e_tail a_tail))
 
               _
               ..silent_failure!))
@@ -632,14 +638,14 @@
 
         [{.#Opaque e!id} {.#Opaque a!id}]
         (if (!n#= e!id a!id)
-          (check#in assumptions)
+          (/#in hypotheses)
           ..silent_failure!)
 
         [{.#Named _ ?etype} _]
-        (complete [assumptions ?etype sub])
+        (complete [hypotheses ?etype sub])
 
         [_ {.#Named _ ?atype}]
-        (complete [assumptions super ?atype])
+        (complete [hypotheses super ?atype])
 
         _
         (partial it)))))
@@ -647,11 +653,11 @@
 (the reification
   (Subsumption Type)
   (function (_ partial complete it)
-    (let [[assumptions super sub] it]
+    (let [[hypotheses super sub] it]
       (`` (when [super sub]
             (,, (template.with [<fE> <fA>]
                   [[{.#Apply aE <fE>} {.#Apply aA <fA>}]
-                   (reification_on_reification complete [assumptions [aE <fE>] [aA <fA>]])]
+                   (reification_on_reification complete [hypotheses [aE <fE>] [aA <fA>]])]
 
                   [F1 {.#Opaque ex}]
                   [{.#Opaque exE} fA]
@@ -659,17 +665,18 @@
                   [{.#Variable idE} fA]))
             
             [{.#Apply A F} _]
-            (let [new_assumption [super sub]]
-              (if (assumed? new_assumption assumptions)
-                (check#in assumptions)
+            (let [new_hypothesis [#super super
+                                  #sub sub]]
+              (if (hypothesized? new_hypothesis hypotheses)
+                (/#in hypotheses)
                 (do ..monad
                   [super' (..on A F)]
-                  (complete [{.#Item new_assumption assumptions} super' sub]))))
+                  (complete [{.#Item new_hypothesis hypotheses} super' sub]))))
 
             [_ {.#Apply A F}]
             (do ..monad
               [sub' (..on A F)]
-              (complete [assumptions super sub']))
+              (complete [hypotheses super sub']))
 
             _
             (partial it))))))
@@ -677,7 +684,7 @@
 (the quantification
   (Subsumption Type)
   (function (_ partial complete it)
-    (let [[assumptions super sub] it]
+    (let [[hypotheses super sub] it]
       (`` (when [super sub]
             ... TODO: Refactor-away as cold-code
             (,, (template.with [<tag> <instancer>]
@@ -685,7 +692,7 @@
                    (do ..monad
                      [[_ paramT] <instancer>
                       super' (..on paramT super)]
-                     (complete [assumptions super' sub]))]
+                     (complete [hypotheses super' sub]))]
 
                   [.#Universal ..existential]
                   [.#Existential ..var]))
@@ -696,7 +703,7 @@
                    (do ..monad
                      [[_ paramT] <instancer>
                       sub' (..on paramT sub)]
-                     (complete [assumptions super sub']))]
+                     (complete [hypotheses super sub']))]
 
                   [.#Universal ..var]
                   [.#Existential ..existential]))
@@ -756,19 +763,19 @@
         {.#Nominal name paramsT+}
         (|> paramsT+
             (monad.each ..monad (clean aliases))
-            (check#each (|>> {.#Nominal name})))
+            (/#each (|>> {.#Nominal name})))
 
         (^.or {.#Parameter _}
               {.#Opaque _}
               {.#Named _})
-        (check#in inputT)
+        (/#in inputT)
 
         (,, (template.with [<tag>]
               [{<tag> leftT rightT}
                (do ..monad
                  [leftT' (clean aliases leftT)]
                  (|> (clean aliases rightT)
-                     (check#each (|>> {<tag> leftT'}))))]
+                     (/#each (|>> {<tag> leftT'}))))]
 
               [.#Sum]
               [.#Product]
