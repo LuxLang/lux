@@ -12,7 +12,9 @@
    [control
     ["<>" projection (.only)]
     ["[0]" try (.only Try)]
-    ["[0]" exception]]
+    ["[0]" exception (.only Exception)]
+    [function
+     [predicate (.only Predicate)]]]
    [data
     ["[0]" text (.use "[1]#[0]" monoid)
      ["<[1]>" \\projection (.only Projection)]]]
@@ -27,44 +29,6 @@
     [macro
      ["[0]" template]]]]])
 
-(the (internal year)
-  (-> Integer Integer)
-  (if (i.< +0 year)
-    (++ year)
-    year))
-
-(the (external year)
-  (-> Integer Integer)
-  (if (i.> +0 year)
-    year
-    (-- year)))
-
-(exception.the .public there_is_no_year_0)
-
-... https://en.wikipedia.org/wiki/Gregorian_calendar
-(nominal.every .public Year
-  Integer
-
-  (the .public (year value)
-    (-> Integer (Try Year))
-    (when value
-      +0 (exception.except ..there_is_no_year_0 [])
-      _ {try.#Success (nominal.abstraction (..internal value))}))
-
-  (the .public value
-    (-> Year Integer)
-    (|>> nominal.representation
-         ..external))
-
-  (the .public epoch
-    Year
-    (nominal.abstraction +1970))
-  )
-
-(the .public days
-  Natural
-  365)
-
 (every .public Period
   Natural)
 
@@ -78,26 +42,138 @@
   [400 era]
   )
 
-(the (divisible? factor input)
-  (-> Integer Integer Bit)
-  (|> input (i.% factor) (i.= +0)))
+(the Days
+  Natural)
+
+(the .public days
+  Days
+  365)
+
+(the per_leap
+  Days
+  (++ (n.* ..leap ..days)))
+
+(the per_century
+  Days
+  (-- (n.* (n./ ..leap ..century)
+           ..per_leap)))
+
+(the per_era
+  Days
+  (++ (n.* (n./ ..century ..era)
+           ..per_century)))
+
+(the Internal
+  Integer)
+
+(the External
+  Integer)
+
+(the .public invalid
+  External
+  +0)
+
+(the (internal year)
+  (-> External
+      Internal)
+  (if (i.< ..invalid year)
+    (++ year)
+    year))
+
+(the (external year)
+  (-> Internal
+      External)
+  (if (i.> ..invalid year)
+    year
+    (-- year)))
+
+(exception.the .public there_is_no_year_0)
+
+... https://en.wikipedia.org/wiki/Gregorian_calendar
+(nominal.every .public Year
+  Internal
+
+  (the (of_days days)
+    (-> Integer
+        Internal)
+    (let [[era days] (i./% (.integer ..per_era) days)
+          [century days] (i./% (.integer ..per_century) days)
+          [leap days] (i./% (.integer ..per_leap) days)
+          [years days] (i./% (.integer ..days) days)]
+      (..internal
+       (all i.+
+            (i.* (.integer ..era) era)
+            (i.* (.integer ..century) century)
+            (i.* (.integer ..leap) leap)
+            years))))
+
+  (template.with [,name ,extreme]
+    [(the .public ,name
+       Year
+       (|> (of i.interval ,extreme)
+           ..of_days
+           nominal.abstraction))]
+
+    [first bottom]
+    [last top]
+    )
+
+  (the .public value
+    (-> Year
+        External)
+    (|>> nominal.representation
+         ..external))
+
+  (exception.the .public (beyond_limits [year])
+    (Exception [External])
+    (exception.report
+     (list ["Year" (i#injection year)]
+           ["Minimum" (i#injection (..value first))]
+           ["Maximum" (i#injection (..value last))])))
+
+  (the .public (year value)
+    (-> External
+        (Try Year))
+    (when value
+      ..invalid
+      (exception.except ..there_is_no_year_0 [])
+      
+      external
+      (<| (if (i.< (..value first) external)
+            (exception.except ..beyond_limits [external]))
+          (if (i.> (..value last) external)
+            (exception.except ..beyond_limits [external]))
+          {try.#Success (nominal.abstraction (..internal external))})))
+
+  (the .public epoch
+    Year
+    (nominal.abstraction +1970))
+  )
+
+(the (exact? factor input)
+  (-> Period
+      (Predicate Internal))
+  (|> input
+      (i.% (.integer factor))
+      (i.= +0)))
 
 ... https://en.wikipedia.org/wiki/Leap_year#Algorithm
 (the .public (leap? year)
-  (-> Year Bit)
+  (Predicate Year)
   (let [year (|> year ..value ..internal)]
-    (and (..divisible? (.integer ..leap) year)
-         (or (not (..divisible? (.integer ..century) year))
-             (..divisible? (.integer ..era) year)))))
+    (and (..exact? ..leap year)
+         (or (not (..exact? ..century year))
+             (..exact? ..era year)))))
 
 (the (with_year_0_leap year days)
-  (let [after_year_0? (i.> +0 year)]
+  (let [after_year_0? (i.> ..invalid year)]
     (if after_year_0?
       (i.+ +1 days)
       days)))
 
 (the .public (leaps year)
-  (-> Year Integer)
+  (-> Year
+      Integer)
   (let [year (|> year ..value ..internal)
         limit (if (i.> +0 year)
                 (-- year)
@@ -112,10 +188,10 @@
                   ))
             (..with_year_0_leap year)))))
 
-(the (injection year)
-  (-> Year Text)
+(the .public (as_text year)
+  (text.Injection Year)
   (let [year (..value year)]
-    (if (i.< +0 year)
+    (if (i.< ..invalid year)
       (i#injection year)
       (n#injection (.natural year)))))
 
@@ -132,7 +208,7 @@
 (the .public format
   (Format Text Year)
   (implementation
-   (the injection ..injection)
+   (the injection ..as_text)
    (the projection (<text>.value ..projection))))
 
 (the .public equivalence
@@ -154,5 +230,12 @@
 
 (the .public random
   (Random Year)
-  (random.one (|>> ..year try.maybe)
-              random.integer))
+  (let [first (.natural (i.abs (..value ..first)))
+        last (.natural (..value ..last))
+        span (n.+ first last)]
+    (random.one (|>> (n.% span)
+                     (n.- first)
+                     .integer
+                     ..year
+                     try.maybe)
+                random.natural)))

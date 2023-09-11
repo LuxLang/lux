@@ -3,14 +3,14 @@
 
 (.require
  [library
-  [lux (.except try except with)
+  [lux (.except try except with type)
    [abstract
     [functor (.only Functor)]
     [apply (.only Apply)]
     ["[0]" monad (.only Monad do)]]
    [control
     ["[0]" maybe]
-    ["[0]" try (.only Try)]
+    ["[0]" try (.only Try) (.use "[1]#[0]" functor)]
     ["[0]" exception (.only Exception)]
     [function
      ["[0]" mixin (.only Mixin)]]]
@@ -27,41 +27,19 @@
     [macro
      ["^" pattern]
      ["[0]" template]]]]]
- ["[0]" //])
+ ["[0]" // (.only)
+  ["[0]" environment (.only Environment)]])
 
 (the !n#=
-  (template.macro (_ super sub)
-    [(.i64_=# super sub)]))
+  (template.macro (_ ,super ,sub)
+    [(.i64_=# (.is .Natural ,super)
+              (.is .Natural ,sub))]))
 
-(the !text#=
-  (template.macro (_ super sub)
-    [(.text_=# super sub)]))
-
-(every .public Variable
-  Natural)
-
-(template.with [<name>]
-  [(exception.the .public (<name> [it])
-     (Exception Variable)
-     (exception.report
-      (list ["Variable" (n#injection it)])))]
-
-  [unknown_type_var]
-  [unbound_type_var]
-  )
-
-(exception.the .public (invalid_type_application [funcT argT])
+(exception.the .public (invalid_type_reification [funcT argT])
   (Exception [Type Type])
   (exception.report
    (list ["Type function" (//.absolute_injection funcT)]
          ["Type argument" (//.absolute_injection argT)])))
-
-(exception.the .public (cannot_rebind_var [id type bound])
-  (Exception [Variable Type Type])
-  (exception.report
-   (list ["Variable" (n#injection id)]
-         ["Wanted type" (//.absolute_injection type)]
-         ["Current type" (//.absolute_injection bound)])))
 
 (exception.the .public (type_check_failed [super sub])
   (Exception [Type Type])
@@ -69,26 +47,9 @@
    (list ["Super" (//.absolute_injection super)]
          ["Sub" (//.absolute_injection sub)])))
 
-(every Assumption
-  (Record
-   [#super Type
-    #sub Type]))
-
 (every .public (Check of)
   (-> Type_Context
       (Try [Type_Context of])))
-
-... https://en.wikipedia.org/wiki/Subsumption
-(every (Subsumption of)
-  (Mixin [(List Assumption) of of]
-         (Check (List Assumption))))
-
-(every (Checker of)
-  (-> [(List Assumption) of of]
-      (Check (List Assumption))))
-
-(every Environment
-  (List [Variable (Maybe Type)]))
 
 (the .public functor
   (Functor Check)
@@ -142,49 +103,27 @@
 
 (use "check#[0]" ..monad)
 
-(the (var::new id it)
-  (-> Variable Environment
-      Environment)
-  {.#Item [id {.#None}] it})
+(every Assumption
+  (Record
+   [#super Type
+    #sub Type]))
 
-(the (var::get id it)
-  (-> Variable Environment
-      (Maybe (Maybe Type)))
-  (when it
-    {.#Item [var_id var_type]
-            it'}
-    (if (!n#= id var_id)
-      {.#Some var_type}
-      (var::get id it'))
+... https://en.wikipedia.org/wiki/Subsumption
+(every (Subsumption of)
+  (Mixin [(List Assumption) of of]
+         (Check (List Assumption))))
 
-    {.#End}
-    {.#None}))
+(every (Checker of)
+  (-> [(List Assumption) of of]
+      (Check (List Assumption))))
 
-(the (var::put id value it)
-  (-> Variable (Maybe Type) Environment
-      Environment)
-  (when it
-    {.#End}
-    (list [id value])
-
-    {.#Item [var_id var_type]
-            it'}
-    (if (!n#= id var_id)
-      {.#Item [var_id value]
-              it'}
-      {.#Item [var_id var_type]
-              (var::put id value it')})))
-
-(the .public (value context proc)
+(the .public (value context check)
   (for_any (_ of)
     (-> Type_Context (Check of)
         (Try of)))
-  (when (proc context)
-    {try.#Success [context' output]}
-    {try.#Success output}
-
-    {try.#Failure error}
-    {try.#Failure error}))
+  (|> context
+      check
+      (try#each product.right)))
 
 (the .public (failure message)
   (for_any (_ of)
@@ -214,91 +153,58 @@
       {try.#Success [(revised .#ex_counter ++ context)
                      [id {.#Opaque id}]]})))
 
-(template.with [<name> <outputT> <fail> <succeed>]
-  [(the .public (<name> id)
-     (-> Variable
-         (Check <outputT>))
-     (function (_ context)
-       (when (|> context (its .#var_bindings) (var::get id))
-         (^.or {.#Some {.#Some {.#Variable _}}}
-               {.#Some {.#None}})
-         {try.#Success [context <fail>]}
-         
-         {.#Some {.#Some bound}}
-         {try.#Success [context <succeed>]}
+(the (query it)
+  (All (_ of)
+    (-> (environment.Query of)
+        (Check of)))
+  (function (_ context)
+    (|> context
+        (its .#var_bindings)
+        it
+        (try#each (|>> [context])))))
 
-         {.#None}
-         (exception.except ..unknown_type_var id))))]
+(the binding
+  (-> //.Variable
+      (Check environment.Binding))
+  (|>> environment.binding
+       ..query))
 
-  [bound? Bit          false    true]
-  [peek   (Maybe Type) {.#None} {.#Some bound}]
-  )
-
-(the .public (read id)
-  (-> Variable
+(the .public type
+  (-> //.Variable
       (Check Type))
-  (do ..monad
-    [?type (peek id)]
-    (when ?type
-      {.#Some type}
-      (in type)
+  (|>> environment.type
+       ..query))
 
-      {.#None}
-      (..except ..unbound_type_var id))))
-
-(the (bound id)
-  (-> Variable
-      (Check Type))
-  (function (_ context)
-    (when (|> context (its .#var_bindings) (var::get id))
-      {.#Some {.#Some bound}}
-      {try.#Success [context bound]}
-
-      {.#Some _}
-      (exception.except ..unbound_type_var id)
-
-      _
-      (exception.except ..unknown_type_var id))))
-
-(the .public (bind type id)
-  (-> Type Variable
+(the (change it)
+  (-> environment.Change
       (Check Any))
   (function (_ context)
-    (when (|> context (its .#var_bindings) (var::get id))
-      {.#Some {.#None}}
-      {try.#Success [(revised .#var_bindings (var::put id {.#Some type}) context)
-                     []]}
+    (|> context
+        (its .#var_bindings)
+        it
+        (try#each (function (_ environment)
+                    [(has .#var_bindings environment context)
+                     []])))))
 
-      {.#Some {.#Some bound}}
-      (exception.except ..cannot_rebind_var [id type bound])
-      
-      _
-      (exception.except ..unknown_type_var id))))
-
-(the (re_bind' ?type id)
-  (-> (Maybe Type) Variable
+(the (new variable type)
+  (-> //.Variable Type
       (Check Any))
-  (function (_ context)
-    (when (|> context (its .#var_bindings) (var::get id))
-      {.#Some _}
-      {try.#Success [(revised .#var_bindings (var::put id ?type) context)
-                     []]}
-      
-      _
-      (exception.except ..unknown_type_var id))))
+  (|> (environment.new variable type)
+      ..change))
 
-(the (re_bind type id)
-  (-> Type Variable
+(the (changed type variable)
+  (-> //.Variable environment.Binding
       (Check Any))
-  (re_bind' {.#Some type} id))
+  (|> (environment.changed type variable)
+      ..change))
 
 (the .public var
-  (Check [Variable Type])
+  (Check [//.Variable Type])
   (function (_ context)
     (let [id (its .#var_counter context)]
       {try.#Success [(|> context
                          (revised .#var_counter ++)
-                         (revised .#var_bindings (var::new id)))
+                         (revised .#var_bindings (environment.has id)))
                      [id {.#Variable id}]]})))
 
 (the (on argT funcT)
@@ -307,13 +213,13 @@
   (when funcT
     {.#Variable func_id}
     (do ..monad
-      [?funcT' (peek func_id)]
+      [?funcT' (..binding func_id)]
       (when ?funcT'
         {.#Some funcT'}
         (on argT funcT')
 
         _
-        (except ..invalid_type_application [funcT argT])))
+        (except ..invalid_type_reification [funcT argT])))
 
     {.#Apply argT' funcT'}
     (do ..monad
@@ -326,55 +232,33 @@
       (check#in output)
 
       _
-      (except ..invalid_type_application [funcT argT]))))
-
-(the .public (ring' start)
-  (-> Variable
-      (Check (List Variable)))
-  (function (_ context)
-    (loop (again [current start
-                  output (list start)])
-      (when (|> context (its .#var_bindings) (var::get current))
-        {.#Some {.#Some type}}
-        (when type
-          {.#Variable next}
-          (if (!n#= start next)
-            {try.#Success [context output]}
-            (again next (list.partial next output)))
-          
-          _
-          {try.#Success [context (list)]})
-
-        {.#Some {.#None}}
-        {try.#Success [context output]}
-        
-        {.#None}
-        (exception.except ..unknown_type_var current)))))
+      (except ..invalid_type_reification [funcT argT]))))
 
 ... TODO: Optimize this by not using sets anymore.
 (the ring
-  (-> Variable
-      (Check (Set Variable)))
-  (|>> ..ring'
+  (-> //.Variable
+      (Check (Set //.Variable)))
+  (|>> environment.ring
+       ..query
        (check#each (set.of_list n.hash))))
 
 (the .public (linked? @0 @1)
-  (-> Variable Variable
+  (-> //.Variable //.Variable
       (Check Bit))
   (check#each (function (_ it)
                 (set.member? it @1))
               (..ring @0)))
 
 (exception.the .public (cannot_identify var)
-  (Exception Variable)
+  (Exception //.Variable)
   (exception.report
    (list ["Variable" (n#injection var)])))
 
 (the .public (identity aliases @)
-  (-> (List Variable) Variable
+  (-> (List //.Variable) //.Variable
       (Check Type))
   (do [! ..monad]
-    [:bound: (..peek @)]
+    [:bound: (..binding @)]
     (when :bound:
       {.#Some :bound:}
       (in :bound:)
@@ -395,7 +279,7 @@
               (..except ..cannot_identify [@]))))))))
 
 (the (erase! @)
-  (-> Variable
+  (-> //.Variable
       (Check Any))
   (function (_ context)
     {try.#Success [(revised .#var_bindings
@@ -414,10 +298,11 @@
                    []]}))
 
 (the .public (forget! @)
-  (-> Variable
+  (-> //.Variable
       (Check Any))
   (do [! ..monad]
-    [ring (..ring' @)]
+    [ring (|> (environment.ring @)
+              ..query)]
     (when ring
       (list)
       (in [])
@@ -427,15 +312,15 @@
       
       (list @other @me)
       (do !
-        [_ (re_bind' {.#None} @other)]
+        [_ (..changed @other (environment.un_bound))]
         (erase! @me))
       
       (list.partial @prev _)
       (when (list.reversed ring)
         (list.partial @me @next _)
         (do !
-          [_ (re_bind {.#Variable @next} @prev)
-           _ (re_bind {.#Variable @prev} @next)]
+          [_ (..changed @prev (environment.bound {.#Variable @next}))
+           _ (..changed @next (environment.bound {.#Variable @prev}))]
           (erase! @me))
 
         _
@@ -446,18 +331,18 @@
     (-> (Check of)
         (Check (Try of))))
   (function (_ context)
-    (when (it context)
-      {try.#Success [context' output]}
-      {try.#Success [context' {try.#Success output}]}
+    {try.#Success (when (it context)
+                    {try.#Success [context' output]}
+                    [context' {try.#Success output}]
 
-      {try.#Failure error}
-      {try.#Success [context {try.#Failure error}]})))
+                    {try.#Failure error}
+                    [context {try.#Failure error}])}))
 
 (the .public fresh_context
   Type_Context
   [.#var_counter 0
    .#ex_counter 0
-   .#var_bindings (list)])
+   .#var_bindings environment.empty])
 
 (the (either left right)
   (for_any (_ of)
@@ -482,76 +367,74 @@
 ... TODO: "if_can_bind" can be optimized...
 (the (if_can_bind id type then else)
   (for_any (_ of)
-    (-> Variable Type (Check of) (-> Type (Check of))
+    (-> //.Variable Type (Check of) (-> Type (Check of))
         (Check of)))
   (all either
        (do ..monad
-         [_ (..bind type id)]
+         [_ (..new id type)]
          then)
        (do [! ..monad]
          [ring (..ring id)
           _ (..assertion "" (n.> 1 (set.size ring)))
-          _ (monad.each ! (re_bind type) (set.list ring))]
+          _ (monad.each ! (function (_ variable)
+                            (..changed variable (environment.bound type)))
+                        (set.list ring))]
          then)
        (do ..monad
-         [?bound (peek id)]
+         [?bound (..binding id)]
          (else (maybe.else {.#Variable id} ?bound)))))
 
-... TODO: "link/2" can be optimized...
-(the (link/2 left right)
-  (-> Variable Variable
+(the (two left right)
+  (-> //.Variable //.Variable
       (Check Any))
-  (do ..monad
-    [_ (..bind {.#Variable right} left)]
-    (..bind {.#Variable left} right)))
+  (|> (environment.two left right)
+      ..change))
 
-... TODO: "link/3" can be optimized...
-(the (link/3 interpose to from)
-  (-> Variable Variable Variable
+(the (three interpose to from)
+  (-> //.Variable //.Variable //.Variable
       (Check Any))
-  (do ..monad
-    [_ (re_bind {.#Variable interpose} from)]
-    (re_bind {.#Variable to} interpose)))
+  (|> (environment.three interpose to from)
+      ..change))
 
-... TODO: "check_vars" can be optimized...
-(the (check_vars complete [assumptions idE idA])
+... TODO: Can be optimized...
+(the (variable_on_variable complete [assumptions idE idA])
   (-> (Checker Type)
-      (Checker Variable))
+      (Checker //.Variable))
   (if (!n#= idE idA)
     (check#in assumptions)
     (do [! ..monad]
-      [ebound (..try (..bound idE))
-       abound (..try (..bound idA))]
+      [ebound (..query (environment.its idE))
+       abound (..query (environment.its idA))]
       (when [ebound abound]
         ... Link the 2 variables circularly
-        [{try.#Failure _} {try.#Failure _}]
+        [(environment.un_bound) (environment.un_bound)]
         (do !
-          [_ (link/2 idE idA)]
+          [_ (..two idE idA)]
           (in assumptions))
 
         ... Interpose new variable between 2 existing links
-        [{try.#Success etype} {try.#Failure _}]
+        [(environment.bound etype) (environment.un_bound)]
         (when etype
           {.#Variable targetE}
           (do !
-            [_ (link/3 idA targetE idE)]
+            [_ (..three idA targetE idE)]
             (in assumptions))
 
           _
           (complete [assumptions etype {.#Variable idA}]))
 
         ... Interpose new variable between 2 existing links
-        [{try.#Failure _} {try.#Success atype}]
+        [(environment.un_bound) (environment.bound atype)]
         (when atype
           {.#Variable targetA}
           (do !
-            [_ (link/3 idE targetA idA)]
+            [_ (..three idE targetA idA)]
             (in assumptions))
 
           _
           (complete [assumptions {.#Variable idE} atype]))
 
-        [{try.#Success etype} {try.#Success atype}]
+        [(environment.bound etype) (environment.bound atype)]
         (`` (when [etype atype]
               [{.#Variable targetE} {.#Variable targetA}]
               (do !
@@ -563,7 +446,7 @@
                   (do !
                     [_ (monad.mix ! (function (_ interpose to)
                                       (do !
-                                        [_ (link/3 interpose to idE)]
+                                        [_ (..three interpose to idE)]
                                         (in interpose)))
                                   targetE
                                   (set.list ringA))]
@@ -573,7 +456,9 @@
                     [<pattern>
                      (do !
                        [ring (..ring <id>)
-                        _ (monad.each ! (re_bind <type>) (set.list ring))]
+                        _ (monad.each ! (function (_ variable)
+                                          (..changed variable (environment.bound <type>)))
+                                      (set.list ring))]
                        (in assumptions))]
 
                     [[{.#Variable _} _] idE atype]
@@ -586,90 +471,76 @@
   Check
   (..failure ""))
 
-... TODO: "check_apply" can be optimized...
-(the (check_apply complete [assumptions super sub])
+... TODO: Can be optimized...
+(the (reification_on_reification complete [assumptions super sub])
   (-> (Checker Type)
       (Checker [Type Type]))
-  (let [[super_input super_function] super
-        [sub_input sub_function] sub]
-    (when [super_function sub_function]
+  (let [[super_parameter super_abstraction] super
+        [sub_parameter sub_abstraction] sub]
+    (when [super_abstraction sub_abstraction]
       [{.#Opaque exE} {.#Opaque exA}]
       (if (!n#= exE exA)
-        (complete [assumptions super_input sub_input])
+        (complete [assumptions super_parameter sub_parameter])
         ..silent_failure!)
 
       [{.#Universal _ _} {.#Opaque _}]
       (do ..monad
-        [super' (..on super_input super_function)]
+        [super' (..on super_parameter super_abstraction)]
         (complete [assumptions super' {.#Apply sub}]))
 
       [{.#Opaque _} {.#Universal _ _}]
       (do ..monad
-        [sub' (..on sub_input sub_function)]
+        [sub' (..on sub_parameter sub_abstraction)]
         (complete [assumptions {.#Apply super} sub']))
 
-      [{.#Apply [super_input' super_function']} {.#Opaque _}]
+      [{.#Apply [super_parameter' super_abstraction']} {.#Opaque _}]
       (do ..monad
-        [super_function'' (..on super_input' super_function')]
-        (complete [assumptions {.#Apply [super_input super_function'']} {.#Apply sub}]))
+        [super_abstraction'' (..on super_parameter' super_abstraction')]
+        (complete [assumptions {.#Apply [super_parameter super_abstraction'']} {.#Apply sub}]))
 
-      [{.#Opaque _} {.#Apply [sub_input' sub_function']}]
+      [{.#Opaque _} {.#Apply [sub_parameter' sub_abstraction']}]
       (do ..monad
-        [sub_function'' (..on sub_input' sub_function')]
-        (complete [assumptions {.#Apply super} {.#Apply [sub_input sub_function'']}]))
+        [sub_abstraction'' (..on sub_parameter' sub_abstraction')]
+        (complete [assumptions {.#Apply super} {.#Apply [sub_parameter sub_abstraction'']}]))
 
       (^.or [{.#Opaque _} _] [_ {.#Opaque _}])
       (do ..monad
-        [assumptions (complete [assumptions super_function sub_function])]
-        (complete [assumptions super_input sub_input]))
+        [assumptions (complete [assumptions super_abstraction sub_abstraction])]
+        (complete [assumptions super_parameter sub_parameter]))
 
       [{.#Variable id} _]
-      (function (_ context)
-        (when ((do ..monad
-                 [super_function' (..read id)]
-                 (complete [assumptions {.#Apply super_input super_function'} {.#Apply sub}]))
-               context)
-          {try.#Success output}
-          {try.#Success output}
-
-          {try.#Failure _}
-          (when sub_function
-            {.#Universal _ _}
-            ((do ..monad
-               [sub' (..on sub_input sub_function)]
+      (all ..either
+           (do ..monad
+             [super_abstraction' (..type id)]
+             (complete [assumptions {.#Apply super_parameter super_abstraction'} {.#Apply sub}]))
+           (when sub_abstraction
+             {.#Universal _ _}
+             (do ..monad
+               [sub' (..on sub_parameter sub_abstraction)]
                (complete [assumptions {.#Apply super} sub']))
-             context)
-            
-            {.#Opaque exA}
-            ((do ..monad
-               [assumptions (complete [assumptions super_function sub_function])]
-               (complete [assumptions super_input sub_input]))
-             context)
+             
+             {.#Opaque exA}
+             (do ..monad
+               [assumptions (complete [assumptions super_abstraction sub_abstraction])]
+               (complete [assumptions super_parameter sub_parameter]))
 
-            _
-            ((do ..monad
-               [assumptions (complete [assumptions super_function sub_function])
-                super' (..on super_input sub_function)
-                sub' (..on sub_input sub_function)]
-               (complete [assumptions super' sub']))
-             context))))
+             _
+             (do ..monad
+               [assumptions (complete [assumptions super_abstraction sub_abstraction])
+                super' (..on super_parameter sub_abstraction)
+                sub' (..on sub_parameter sub_abstraction)]
+               (complete [assumptions super' sub']))))
 
       [_ {.#Variable id}]
-      (function (_ context)
-        (when ((do ..monad
-                 [sub_function' (read id)]
-                 (complete [assumptions {.#Apply super} {.#Apply sub_input sub_function'}]))
-               context)
-          {try.#Success output}
-          {try.#Success output}
-
-          _
-          ((do ..monad
-             [assumptions (complete [assumptions super_function sub_function])
-              super' (..on super_input super_function)
-              sub' (..on sub_input super_function)]
-             (complete [assumptions super' sub']))
-           context)))
+      (all ..either
+           (do ..monad
+             [sub_abstraction' (..type id)]
+             (complete [assumptions {.#Apply super} {.#Apply sub_parameter sub_abstraction'}]))
+           (do ..monad
+             [assumptions (complete [assumptions super_abstraction sub_abstraction])
+              super' (..on super_parameter super_abstraction)
+              sub' (..on sub_parameter super_abstraction)]
+             (complete [assumptions super' sub'])))
 
       _
       ..silent_failure!)))
@@ -715,7 +586,7 @@
     (let [[assumptions super sub] it]
       (when [super sub]
         [{.#Variable idE} {.#Variable idA}]
-        (check_vars complete [assumptions idE idA])
+        (variable_on_variable complete [assumptions idE idA])
         
         [{.#Variable id} _]
         (if_can_bind id sub
@@ -731,6 +602,10 @@
 
         _
         (partial it)))))
+
+(the !text#=
+  (template.macro (_ super sub)
+    [(.text_=# super sub)]))
 
 (the opaque
   (Subsumption Type)
@@ -769,14 +644,14 @@
         _
         (partial it)))))
 
-(the application
+(the reification
   (Subsumption Type)
   (function (_ partial complete it)
     (let [[assumptions super sub] it]
       (`` (when [super sub]
             (,, (template.with [<fE> <fA>]
                   [[{.#Apply aE <fE>} {.#Apply aA <fA>}]
-                   (check_apply complete [assumptions [aE <fE>] [aA <fA>]])]
+                   (reification_on_reification complete [assumptions [aE <fE>] [aA <fA>]])]
 
                   [F1 {.#Opaque ex}]
                   [{.#Opaque exE} fA]
@@ -842,7 +717,7 @@
            ..composite
            ..variable
            ..opaque
-           ..application
+           ..reification
            ..quantification
            ..else
            )))
@@ -875,7 +750,7 @@
     {try.#Success [context []]}))
 
 (the .public (clean aliases inputT)
-  (-> (List Variable) Type
+  (-> (List //.Variable) Type
       (Check Type))
   (`` (when inputT
         {.#Nominal name paramsT+}
@@ -904,7 +779,7 @@
         (when aliases
           (list)
           (do ..monad
-            [?subT (..peek @it)]
+            [?subT (..binding @it)]
             (when ?subT
               {.#Some subT}
               (clean aliases subT)

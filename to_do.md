@@ -38,8 +38,8 @@
 0. Dissolve `math/random` into the rest of the standard library.
 0. Dissolve `injection/.../text` into the rest of the standard library.
 0. Add `<`, `<=`, `>`, `>=` definitions to every module that has an `Order`.
-0. Optimize compilation of pattern-matching expressions like (case <input> <literal> <then> _ <else>) into if expressions that test the literal, instead of full-blown pattern-matching.
-   * Add if_i64 & if_f64 & if_text synthesis nodes.
+0. Optimize compilation of pattern-matching expressions like `(when <input> <literal> <then> _ <else>)` into if expressions that test the literal, instead of full-blown pattern-matching.
+   * Add `if_i64` & `if_f64` & `if_text` synthesis `Term`s.
 0. Inject the type-names of the different primitive types in the prelude using analysis extensions.
 0. `Number` alias in all the `math/number` modules.
 0. Re-name `panic!` to `halt` in honor of The Halting Problem.
