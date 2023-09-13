@@ -59,7 +59,7 @@ cd ~/lux/lux-js/ && mvn deploy:deploy-file \
 
 ```
 LUX_PROJECT=lux-js && \
-LUX_VERSION=0.7.0 && \
+LUX_VERSION=0.8.0 && \
 cd ~/lux/$LUX_PROJECT/ && \
 lux pom && \
 mv pom.xml RELEASE/$LUX_PROJECT-$LUX_VERSION.pom && \

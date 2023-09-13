@@ -1,7 +1,7 @@
 ;; This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 ;; If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-(def version "0.8.0-SNAPSHOT")
+(def version "0.8.0")
 (def repo "https://github.com/LuxLang/lux")
 (def sonatype "https://oss.sonatype.org")
 (def sonatype-releases (str sonatype "/service/local/staging/deploy/maven2/"))
@@ -10,9 +10,8 @@
 (defproject com.github.luxlang/lux-jvm #=(identity version)
   :description "A JVM compiler for Lux."
   :url ~repo
-  :license {:name "Lux License v0.1.2"
-            :url ~(str repo "/blob/master/license.txt")}
-  :plugins [[com.github.luxlang/lein-luxc ~version]]
+  :license {:name "Mozilla Public License Version 2.0"
+            :url ~(str repo "/blob/master/license.md")}
   :deploy-repositories [["releases" {:url ~sonatype-releases :creds :gpg}]
                         ["snapshots" {:url ~sonatype-snapshots :creds :gpg}]]
   :pom-addition [:developers [:developer
@@ -22,13 +21,10 @@
   :scm {:name "git"
         :url ~(str repo ".git")}
 
-  :dependencies [[com.github.luxlang/lux-bootstrapper ~version]
-                 [com.github.luxlang/lux-jvm-function "0.6.5"]
+  :dependencies [[com.github.luxlang/lux-jvm-function "0.6.5"]
                  ;; [com.github.luxlang/stdlib ~version]
                  ]
   
   :manifest {"lux" ~version}
   :source-paths ["source"]
-  :lux {:program ["program" "_"]
-        :test ["test/program" "_"]}
   )

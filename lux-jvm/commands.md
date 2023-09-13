@@ -58,7 +58,7 @@ cd ~/lux/lux-jvm/ && mvn deploy:deploy-file \
 # Release
 
 ```
-LUX_VERSION=0.7.0 && \
+LUX_VERSION=0.8.0 && \
 cd ~/lux/lux-jvm/ && \
 lein pom && \
 mv pom.xml RELEASE/lux-jvm-$LUX_VERSION.pom && \

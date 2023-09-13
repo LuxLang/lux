@@ -1,5 +1,6 @@
 # Reference
 
+0. [A C++ Approach to Physical Units - Mateusz Pusz - CppCon 2019](https://www.youtube.com/watch?v=0YW6yxkdhlU)
 0. [uom: Units of measurement -- type-safe zero-cost dimensional analysis](https://github.com/iliekturtles/uom)
 0. [Dimensional analysis](https://en.wikipedia.org/wiki/Dimensional_analysis)
 0. [mp-units - A Units Library for C++](https://github.com/mpusz/units)

@@ -8,6 +8,48 @@
 ### Deprecated
 ### Security
 
+## [0.8.0]
+### Added
+* Logic programming.
+* Dynamic delimited continuation operators.
+* Conditions system.
+* Object-oriented programming.
+* Dynamic-binding and subject-oriented programming.
+* Simple benchmarking machinery.
+* Saturation arithmetic.
+* Generic logging abstraction/machinery.
+* Inline testing.
+* Aspect-oriented programming.
+* Context-oriented programming.
+* Row polymorphism.
+* Predicate-based polymorphism.
+* Behavioral programming.
+* Type-based multiple dispatch.
+* Structured concurrency.
+* Function trampolines.
+* Agent model.
+* Support for time-zones.
+* Incremental computation.
+* Functions with named parameters.
+* Communicating Sequential Processes (CSP).
+* Variadic functions.
+* Event-loop concurrency.
+### Changed
+* Simplified polytypic programming.
+* Re-licensed to MPL 2.0.
+* Added source-tracking annotations when compiling for the JVM.
+* Now doing implicit definition aliasing, instead of requiring explicit aliasing.
+* New syntax for compiler extensions.
+* Made labels (tags & slots) into normal definitions.
+* Made the compiler's caching system sensitive to the build configuration.
+### Removed
+* Leiningen plugin.
+* Bootstrapping compiler.
+* Custom licensing machinery.
+### Fixed
+### Deprecated
+### Security
+
 ## [0.7.0]
 ### Added
 * Inlined functions.

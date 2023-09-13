@@ -44,6 +44,19 @@ cd ~/lux/stdlib/ \
 
 cd ~/lux/stdlib/ \
 && lux deploy releases $NEXUS_USERNAME $NEXUS_PASSWORD
+
+LUX_PROJECT=stdlib && \
+LUX_VERSION=0.8.0 && \
+cd ~/lux/$LUX_PROJECT/ && \
+lux pom && \
+mv pom.xml RELEASE/$LUX_PROJECT-$LUX_VERSION.pom && \
+cd RELEASE && \
+touch README.md && \
+zip $LUX_PROJECT-$LUX_VERSION-sources.jar README.md && \
+zip $LUX_PROJECT-$LUX_VERSION-javadoc.jar README.md && \
+zip $LUX_PROJECT-$LUX_VERSION.jar README.md && \
+rm README.md && \
+for file in *.*; do gpg -ab $file; done
 ```
 
 ## Generate documentation

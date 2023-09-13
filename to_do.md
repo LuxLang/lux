@@ -46,6 +46,8 @@
 0. Re-name `I8` to `I08`
 0. Unsafe text module.
 0. Eta-conversion in the synthesis phase for inlining/code-fusion optimizations.
+0. Add special `origin` parameter to `Exception`s in order to track from which definition they came, in order to disambuiguate between multiple possible origins.
+0. Fix stack-overflow error during TAR compression when trying to deploy with Aedifex.
 
 ## Done
 
