@@ -1,5 +1,6 @@
 # Reference
 
+0. [Matrix Gateway to Geometric Algebra, Spacetime and Spinors](https://www.garretstar.com/gateway31-July-2019.pdf)
 0. [Geometric Algebra for Electrical Engineers.](http://peeterjoot.com/writing/geometric-algebra-for-electrical-engineers/)
 0. [Practical Projective Geometric Algebra](https://terathon.com/gdc23_lengyel.pdf)
 0. [Conformal Geometric Algebra](http://conformalgeometricalgebra.org/wiki/index.php?title=Main_Page)

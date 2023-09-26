@@ -22,6 +22,7 @@
 
 # Reference
 
+0. [CppCon 2018: Tom Poole “Why and How to Roll Your Own std::function Implementation”](https://www.youtube.com/watch?v=VY83afAJUIg)
 0. [Writing custom C++20 coroutine systems](https://www.chiark.greenend.org.uk/~sgtatham/quasiblog/coroutines-c++20/)
 0. [STX](https://lamarrr.github.io/STX/)
 0. [The joys and perils of C and C++ aliasing, Part 1](https://developers.redhat.com/blog/2020/06/02/the-joys-and-perils-of-c-and-c-aliasing-part-1#)
@@ -89,7 +90,8 @@
 
 # Interpreter
 
-0. []()
+0. [CppCon 2018: Juan Manuel Martinez Caamaño “Easy::Jit: A Just-in-Time compilation library for C++”](https://www.youtube.com/watch?v=_WPdof1dTqo)
+	0. [Easy::jit: A just-in-time compiler for C++](https://github.com/jmmartinez/easy-just-in-time)
 0. [Clasp — Bringing Common Lisp and C++ Together](https://github.com/clasp-developers/clasp)
 0. [Cling](https://root.cern/cling/)
 0. [Interactive C++ with Cling](https://blog.llvm.org/posts/2020-11-30-interactive-cpp-with-cling/)

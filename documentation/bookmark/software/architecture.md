@@ -1,5 +1,6 @@
 # Reference
 
+0. [Software architecture tools: The best free and paid software architecture diagramming and design tools](https://softwarearchitecture.tools/)
 0. [How Agility Enhances Software Architecture](https://www.agile-meets-architecture.com/essays/how-agility-enhances-software-architecture)
 0. [Feature-Sliced Design: Architectural methodology for frontend projects](https://feature-sliced.design/)
 0. [Why Do We Create System Architecture Diagrams Anyway?](https://www.ilograph.com/blog/posts/why-create-system-architecture-diagrams/)

@@ -1,3 +1,5 @@
+[0.8.0]: https://github.com/LuxLang/lux/releases/tag/0.8.0
+
 # References
 
 0. [Basic writing and formatting syntax](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax)
@@ -7,11 +9,34 @@
 
 0. [(Commit)](https://github.com/LuxLang/lux/commit/) 
    * []()
+0. []()
 
 # Tasks
 
 ## To Do
 
+0. [Rhombus: A New Spin on Macros Without All the Parentheses](https://gopiandcode.uk/pdfs/rhombus-oopsla23.pdf)
+0. [CppCon 2015: Juan Pedro Bolívar Puente “Transducers: from Clojure to C++"](https://www.youtube.com/watch?v=vohGJjGxtJQ)
+0. [CppCon 2015: Jason Turner “The Current State of (free) Static Analysis"](https://www.youtube.com/watch?v=sn1Vg8A_MPU)
+0. [CppCon 2015: Andrei Alexandrescu “Declarative Control Flow"](https://www.youtube.com/watch?v=WjTrfoiB0MQ)
+0. [CppCon 2015: Neil MacIntosh “Evolving array_view and string_view for safe C++ code"](https://www.youtube.com/watch?v=C4Z3c4Sv52U)
+0. [CppCon 2015: Greg Miller “Time Programming Fundamentals"](https://www.youtube.com/watch?v=2rnIHsqABfM)
+0. [CppCon 2015: Joel Falcou PART 1 “Expression Templates - Past, Present, Future”](https://www.youtube.com/watch?v=IiVl5oSU5B8)
+	0. [CppCon 2015: Joel Falcou PART 2 “Expression Templates: Past, Present, Future"](https://www.youtube.com/watch?v=imU_WfonVr8)
+	0. [CppCon 2015: Joel Falcou PART 3 “Expression Templates: Past, Present, Future”](https://www.youtube.com/watch?v=A9trwnv6k-w)
+	0. [Expression templates](https://en.wikipedia.org/wiki/Expression_templates)
+0. [CppCon 2015: Kyle Markley "Extreme Type Safety with Opaque Typedefs"](https://www.youtube.com/watch?v=jLdSjh8oqmE)
+0. [CppCon 2015: Kostya Serebryany “Beyond Sanitizers...”](https://www.youtube.com/watch?v=qTkYDA0En6U)
+0. [Superscopes: Local, global... is there any more? - Fabian Renn-Giles [ CppCon 2015 ]](https://www.youtube.com/watch?v=B68_bgXYX94)
+0. [CppCon 2015: André Bergner “Faster Complex Numbers”](https://www.youtube.com/watch?v=he-XVt1xIE0)
+0. [CppCon 2016: John McFarlane “fixed_point"](https://www.youtube.com/watch?v=cdaN51rRzSE)
+0. [CppCon 2016: Howard Hinnant “Welcome To The Time Zone"](https://www.youtube.com/watch?v=Vwd3pduVGKY)
+0. [CppCon 2017: Odin Holmes “Agent based class design”](https://www.youtube.com/watch?v=tNXyNa6kf4k)
+0. [CppCon 2017: John McFarlane “CNL: A Compositional Numeric Library”](https://www.youtube.com/watch?v=GEfmV3Xcuok)
+0. [CppCon 2017: Walter E. Brown “Programming with C++ Constraints: Background, Utility, and Gotchas"](https://www.youtube.com/watch?v=n4ie7tPMXOQ)
+0. [CppCon 2018: “Multi-Precision Arithmetic for Cryptology in C++, at Run-Time and at Compile-Time”](https://www.youtube.com/watch?v=G33yF26UGMo)
+0. Safe numerics.
+   * [CppCon 2018: Robert Ramey “Safe Numerics”](https://www.youtube.com/watch?v=93Cjg42bGEw)
 0. Get rid of the `.in_module#` extension. It can be replaced by a macro that piggy-backs on the existing `quoted_module` mechanism.
 0. Replace recursive type calls from `(0 "")` to `(0 0)`
 0. Extract the variable link-ring machinery being used by both the `control/logic` and `meta/type/check` modules into its own module.
@@ -47,9 +72,14 @@
 0. Unsafe text module.
 0. Eta-conversion in the synthesis phase for inlining/code-fusion optimizations.
 0. Add special `origin` parameter to `Exception`s in order to track from which definition they came, in order to disambuiguate between multiple possible origins.
+0. Compile `or`-like pattern-matching, and `and`-like pattern-matching with `||` and `&&` in languages/targets which support it, instead of compiling them as `if`s.
+0. Compile `not`-like pattern-matching with `~` in languages/targets which support it, instead of compiling them as `if`s.
 0. Fix stack-overflow error during TAR compression when trying to deploy with Aedifex.
+0. Fix `Cannot find artifact data.` bug in scripting compilers.
 
 ## Done
+
+### [0.8.0]
 
 0. [(Commit)](https://github.com/LuxLang/lux/commit/3c774078b398dd04f6da37fdafe3c4362b1ef83b) Full names for number modules. `nat` => `natural`, `dec` => `decimal`, `rat` => `rational`, `int` => `integer`, `rev` => `revolution`, `frac` => `fraction`, `char` => `character`.
    * Also, big-name aliases for the types.

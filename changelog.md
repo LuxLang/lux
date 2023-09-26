@@ -85,6 +85,7 @@
 ### Deprecated
 ### Security
 
-[Un-released]: https://github.com/LuxLang/lux/compare/0.7.0...HEAD
+[Un-released]: https://github.com/LuxLang/lux/compare/0.8.0...HEAD
+[0.8.0]: https://github.com/LuxLang/lux/releases/tag/0.8.0
 [0.7.0]: https://github.com/LuxLang/lux/releases/tag/0.7.0
 
