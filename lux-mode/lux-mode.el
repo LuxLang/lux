@@ -361,7 +361,7 @@ Called by `imenu--generic-function'."
 		   (int&decRE (literal (concat integer "\\(\\." natural "\\(\\(e\\|E\\)" integer "\\)?\\)?")))
 		   (revRE (literal (concat "\\." natural)))
 		   (specialRE (let (;; Control
-							(control//flow (altRE "when" "exec" "let" "cond" "loop" "do" "be"
+							(control//flow (altRE "when" "exec" "let" "loop" "do" "be"
 												  "if" "unless"))
 							(control//pattern-matching (altRE "open"))
 							(control//logic (altRE "and" "or"))
@@ -601,7 +601,7 @@ This function also returns nil meaning don't specify the indentation."
   ("by_example" 'defun)
   ("capability" 'defun)
 
-  ("if" 1)
+  ("if" 'defun)
   ("unless" 1)
   
   (let 'defun)
@@ -609,7 +609,6 @@ This function also returns nil meaning don't specify the indentation."
   (do 'defun)
   (exec 'defun)
   (be 'defun)
-  (cond 0)
   (loop 1)
 
   ("All" 'defun)
