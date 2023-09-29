@@ -1,20 +1,9 @@
-# Test
-
-```
-cd ~/lux/lux-jvm/ && lein clean && lein lux auto test
-```
-
 # Build
 
 ```
 cd ~/lux/lux-jvm/ \
 && lux clean \
 && lux auto build
-
-## Use bootstrapping compiler to build new JVM compiler
-cd ~/lux/lux-jvm/ \
-&& lein clean \
-&& lein lux auto build
 ```
 
 # REPL
@@ -35,7 +24,7 @@ cd ~/lux/stdlib/ \
 
 ## Use new JVM compiler to compile tests for the Standard Library
 cd ~/lux/stdlib/ \
-&& lein clean \
+&& lux clean \
 && java -jar ~/lux/lux-jvm/target/program.jar build --host_dependency ~/.m2/repository/com/github/luxlang/lux-jvm-function/0.6.5/lux-jvm-function-0.6.5.jar --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux --program _ \
 && java -jar ~/lux/stdlib/target/program.jar
 ```
@@ -44,14 +33,14 @@ cd ~/lux/stdlib/ \
 
 ```
 cd ~/lux/lux-jvm/ \
-&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-jvm -Dversion=0.8.0-SNAPSHOT -Dpackaging=jar
+&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-jvm -Dversion=0.9.0-SNAPSHOT -Dpackaging=jar
 
 cd ~/lux/lux-jvm/ && mvn deploy:deploy-file \
 -Durl=https://$NEXUS_USERNAME:$NEXUS_PASSWORD@oss.sonatype.org/content/repositories/snapshots/ \
 -Dfile=target/program.jar \
 -DgroupId=com.github.luxlang \
 -DartifactId=lux-jvm \
--Dversion=0.8.0-SNAPSHOT \
+-Dversion=0.9.0-SNAPSHOT \
 -Dpackaging=jar
 ```
 

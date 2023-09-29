@@ -33,6 +33,7 @@
 
 # Reference
 
+0. [horcrux: Split your file into encrypted fragments so that you don't need to remember a passcode](https://github.com/jesseduffield/horcrux)
 0. [A Graduate Course in Applied Cryptography](https://toc.cryptobook.us/)
 0. [Sunjay Cauligi - Constant-time crypto programming with FaCT](https://www.youtube.com/watch?v=SSEHF_u79e4)
 0. https://blog.acolyer.org/2018/07/06/oblix-an-efficient-oblivious-search-index/

@@ -15,6 +15,9 @@
 
 ## To Do
 
+0. [How a durable workflow engine works: you might not need a queue](https://www.inngest.com/blog/how-durable-workflow-engines-work)
+0. [Dag-Calculus: A Calculus for Parallel Computation](https://dl.acm.org/doi/pdf/10.1145/2951913.2951946)
+0. Allow importing profiles into `project.lux` files in order to allow more re-use of configuration.
 0. [Rhombus: A New Spin on Macros Without All the Parentheses](https://gopiandcode.uk/pdfs/rhombus-oopsla23.pdf)
 0. [CppCon 2015: Juan Pedro Bolívar Puente “Transducers: from Clojure to C++"](https://www.youtube.com/watch?v=vohGJjGxtJQ)
 0. [CppCon 2015: Jason Turner “The Current State of (free) Static Analysis"](https://www.youtube.com/watch?v=sn1Vg8A_MPU)

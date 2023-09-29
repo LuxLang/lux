@@ -4,12 +4,12 @@
 
 # Synchronization
 
-0. []()
 0. [Braid: Synchronization for HTTP](https://braid.news/)
 0. [The Braid Protocol: Synchronization for HTTP](https://tools.ietf.org/html/draft-toomim-braid-00)
 
 # Reference
 
+0. [Distributed == Relational](https://frest.substack.com/p/distributed-relational)
 0. ["Formal Modeling and Analysis of Distributed Systems" by Ankush Desai (Strange Loop 2022)](https://www.youtube.com/watch?v=5YjsSDDWFDY)
 0. ["Functional distributed systems beyond request/response" by Melinda Lu](https://www.youtube.com/watch?v=VWrpnT8rwVY)
 0. [FlexiRaft: Flexible Quorums with Raft](https://www.cidrdb.org/cidr2023/papers/p83-yadav.pdf)

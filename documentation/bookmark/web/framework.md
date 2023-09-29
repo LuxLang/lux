@@ -12,11 +12,11 @@
 
 # Input
 
-0. []()
 0. [High-performance input handling on the web](https://nolanlawson.com/2019/08/11/high-performance-input-handling-on-the-web/)
 
 # Reference
 
+0. [The Next Evolution in Frontend Frameworks](https://gushogg-blake.com/posts/next-gen-frontend)
 0. [useSignal() is the Future of Web Frameworks](https://www.builder.io/blog/usesignal-is-the-future-of-web-frameworks)
 0. [JavaScript APIs You Don’t Know About](https://www.smashingmagazine.com/2022/09/javascript-api-guide/)
 0. [JavaScript Hydration Is a Workaround, Not a Solution](https://thenewstack.io/javascript-hydration-is-a-workaround-not-a-solution/)

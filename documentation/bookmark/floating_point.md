@@ -45,6 +45,7 @@
 
 # Reference
 
+0. [Onboarding floating-point](https://www.altdevarts.com/p/onboarding-floating-point)
 0. [Stephan T. Lavavej “Floating-Point ＜charconv＞: Making Your Code 10x Faster With C++17's Final Boss”](https://www.youtube.com/watch?v=4P_kbF0EbZM)
 0. [Arbitrary-Precision Floating-Point Library](https://crates.io/crates/arpfloat)
 0. [How Java’s Floating-Point Hurts Everyone Everywhere](https://people.eecs.berkeley.edu/~wkahan/JAVAhurt.pdf)
@@ -52,7 +53,6 @@
 
 # Algorithm
 
-0. []()
 0. [Block floating point](https://en.wikipedia.org/wiki/Block_floating_point)
 0. [Speeding up atan2f by 50x](https://mazzo.li/posts/vectorized-atan2.html)
 0. [Kahan summation algorithm](https://en.wikipedia.org/wiki/Kahan_summation_algorithm)

@@ -1,5 +1,6 @@
 # Reference
 
+0. [Remodeling Béziers](https://ad8e.pages.dev/curve)
 0. [Bezier Triangles](https://blog.demofox.org/2019/12/07/bezier-triangles/)
 0. [Simplifying Bézier paths](https://raphlinus.github.io/curves/2023/04/18/bezpath-simplify.html)
 0. [Analytic flattening of quadratic Bézier offsets.](https://dragostis.github.io/posts/analytic-quad-offset/)

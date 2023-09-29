@@ -1,5 +1,6 @@
 # Reference
 
+0. [Tracing: structured logging, but better in every way](https://andydote.co.uk/2023/09/19/tracing-is-better/)
 0. [Let's talk Tagged Logging vs Structured Logging in Ruby or Rails](https://prefab.cloud/blog/tagged-logging-vs-structlog-in-ruby-or-rails/)
 0. [Why is logging so damn hard?](https://baselime.io/blog/why-is-logging-hard)
 0. [High-Level Event Mining: A Framework](https://arxiv.org/abs/2211.00006)

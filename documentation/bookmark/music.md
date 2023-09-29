@@ -8,6 +8,7 @@
 
 # Reference
 
+0. [F2P, a new business model for music.](https://danfowler.substack.com/p/f2p-a-new-business-model-for-music)
 0. [](https://oscilloscopemusic.com/)
 0. [Introduction to Music (Theory)](https://soundcloud.com/languagetransfer/sets/introduction-to-music-theory)
 0. [Opusmodus: Music Composition System](https://opusmodus.com/)
