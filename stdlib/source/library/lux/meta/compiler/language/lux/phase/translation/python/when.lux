@@ -58,17 +58,17 @@
 
 (the .public capture
   (-> Register SVar)
-  (|>> (///reference.foreign //reference.system) as_expected)) 
+  (|>> (///reference.foreign //reference.system) as_expected))
 
+... TODO: Find some way to do 'let' without paying the price of the closure.
 (the .public (let expression archive [[register valueS] bodyS])
   (Translator (synthesis.Let synthesis.Term))
   (do phase.monad
     [valueO (expression archive valueS)
      bodyO (expression archive bodyS)]
-    ... TODO: Find some way to do 'let' without paying the price of the closure.
-    (in (_.apply (list valueO)
-                 (_.lambda (list (..register register))
-                           bodyO)))))
+    (in (<| (_.apply (list valueO))
+            (_.lambda (list (..register register)))
+            bodyO))))
 
 (the .public (let! statement expression archive [[register valueS] bodyS])
   (Translator! (synthesis.Let synthesis.Term))
@@ -117,16 +117,18 @@
           then!
           else!))))
 
+(the (projection it)
+  ((.if (its member.#right? it)
+     //runtime.tuple::right
+     //runtime.tuple::left)
+   (_.int (.integer (its member.#lefts it)))))
+
 (the .public (get expression archive [pathP valueS])
   (Translator [(List Member) synthesis.Term])
   (do phase.monad
     [valueO (expression archive valueS)]
     (in (list#mix (function (_ side source)
-                    (.let [method (.if (its member.#right? side)
-                                    //runtime.tuple::right
-                                    //runtime.tuple::left)]
-                      (method (_.int (.integer (its member.#lefts side)))
-                        source)))
+                    ((projection side) source))
                   valueO
                   pathP))))
 
@@ -372,3 +374,34 @@
      _ (/////translation.execute! declaration)
      _ (/////translation.save! when_artifact {.#None} declaration)]
     (in (_.apply @dependencies+ @when))))
+
+(the .public (multi_let! statement expression archive [input bindings body])
+  (Translator! synthesis.Multi_Let)
+  (do phase.monad
+    [input (expression archive input)
+     body (statement expression archive body)
+     'source (..symbol "source")]
+    (in (all _.then
+             (list#mix (function (_ [register member] left)
+                         (all _.then
+                              left
+                              (_.set (list (..register register)) (..projection member 'source))))
+                       (_.set (list 'source) input)
+                       bindings)
+             body))))
+
+(the .public (multi_let expression archive [input bindings body])
+  (Translator synthesis.Multi_Let)
+  (do phase.monad
+    [input (expression archive input)
+     body (expression archive body)
+     'source (..symbol "source")]
+    (in (<| (_.apply (list input))
+            (_.lambda (list 'source))
+            (_.apply (list#each (function (_ [register member])
+                                  (..projection member 'source))
+                                bindings))
+            (_.lambda (list#each (function (_ [register member])
+                                   (..register register))
+                                 bindings))
+            body))))

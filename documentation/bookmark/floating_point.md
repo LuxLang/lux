@@ -11,7 +11,6 @@
 
 # Precision
 
-0. []()
 0. [Calcium](https://fredrikj.net/calcium/)
 0. [Accuracy of Mathematical Functions in Single, Double, Double Extended, and Quadruple Precision](https://members.loria.fr/PZimmermann/papers/accuracy.pdf)
 0. [Supporting half-precision floats is really annoying](https://futhark-lang.org/blog/2021-08-05-half-precision-floats.html)
@@ -45,6 +44,7 @@
 
 # Reference
 
+0. [Subtraction Is Functionally Complete](https://orlp.net/blog/subtraction-is-functionally-complete/)
 0. [Onboarding floating-point](https://www.altdevarts.com/p/onboarding-floating-point)
 0. [Stephan T. Lavavej “Floating-Point ＜charconv＞: Making Your Code 10x Faster With C++17's Final Boss”](https://www.youtube.com/watch?v=4P_kbF0EbZM)
 0. [Arbitrary-Precision Floating-Point Library](https://crates.io/crates/arpfloat)

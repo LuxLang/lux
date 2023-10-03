@@ -45,7 +45,8 @@
 
 (the .public (symbol prefix)
   (-> Text (Operation LVar))
-  (phase#each (|>> %.natural (%.message prefix) _.local) /////translation.next))
+  (phase#each (|>> %.natural (%.message prefix) _.local)
+              /////translation.next))
 
 (the .public register
   (-> Register LVar)
@@ -122,15 +123,17 @@
           then!
           else!))))
 
+(the (projection it)
+  (.if (its member.#right? it)
+    (//runtime.tuple//right (_.int (.integer (its member.#lefts it))))
+    (//runtime.tuple//left (_.int (.integer (its member.#lefts it))))))
+
 (the .public (get expression archive [pathP valueS])
   (Translator [(List Member) synthesis.Term])
   (do phase.monad
     [valueO (expression archive valueS)]
-    (in (list#mix (function (_ side source)
-                    (.let [method (.if (its member.#right? side)
-                                    (//runtime.tuple//right (_.int (.integer (its member.#lefts side))))
-                                    (//runtime.tuple//left (_.int (.integer (its member.#lefts side)))))]
-                      (method source)))
+    (in (list#mix (function (_ member source)
+                    ((projection member) source))
                   valueO
                   pathP))))
 
@@ -190,30 +193,30 @@
   [right_choice //runtime.unit]
   )
 
-(the (with_looping in_closure? g!once g!continue? body!)
+(the (with_looping in_closure? 'once 'continue? body!)
   (-> Bit LVar LVar Statement Statement)
   (.if in_closure?
     (all _.then
          (_.while (_.bool true)
                   body!))
     (all _.then
-         (_.set (list g!once) (_.bool true))
-         (_.set (list g!continue?) (_.bool false))
+         (_.set (list 'once) (_.bool true))
+         (_.set (list 'continue?) (_.bool false))
          (<| (_.while (_.bool true))
-             (_.if g!once
+             (_.if 'once
                (all _.then
-                    (_.set (list g!once) (_.bool false))
+                    (_.set (list 'once) (_.bool false))
                     body!)
                (all _.then
-                    (_.set (list g!continue?) (_.bool true))
+                    (_.set (list 'continue?) (_.bool true))
                     _.break)))
-         (_.when g!continue?
+         (_.when 'continue?
            _.next))))
 
-(the (alternation in_closure? g!once g!continue? pre! post!)
+(the (alternation in_closure? 'once 'continue? pre! post!)
   (-> Bit LVar LVar Statement Statement Statement)
   (all _.then
-       (with_looping in_closure? g!once g!continue?
+       (with_looping in_closure? 'once 'continue?
          (all _.then
               ..save!
               pre!))
@@ -366,18 +369,18 @@
               (do phase.monad
                 [pre! (again preP)
                  post! (again postP)
-                 g!once (..symbol "once")
-                 g!continue? (..symbol "continue")]
-                (in (..alternation in_closure? g!once g!continue? pre! post!)))))))))
+                 'once (..symbol "once")
+                 'continue? (..symbol "continue")]
+                (in (..alternation in_closure? 'once 'continue? pre! post!)))))))))
 
 (the (pattern_matching in_closure? statement expression archive pathP)
   (-> Bit (Translator! Path))
   (do phase.monad
     [pattern_matching! (pattern_matching' in_closure? statement expression archive pathP)
-     g!once (..symbol "once")
-     g!continue? (..symbol "continue")]
+     'once (..symbol "once")
+     'continue? (..symbol "continue")]
     (in (all _.then
-             (..with_looping in_closure? g!once g!continue?
+             (..with_looping in_closure? 'once 'continue?
                pattern_matching!)
              (_.statement (_.raise (_.string when.pattern_matching_error)))))))
 
@@ -399,3 +402,25 @@
       (of phase.monad each
           (|>> [(list)] (_.lambda {.#None})
                (_.apply_lambda (list))))))
+
+(the .public (multi_let! statement expression archive [input bindings body])
+  (Translator! synthesis.Multi_Let)
+  (do phase.monad
+    [input (expression archive input)
+     body (statement expression archive body)
+     'tuple (..symbol "tuple")]
+    (in (all _.then
+             (list#mix (function (_ [register member] left)
+                         (all _.then
+                              left
+                              (_.set (list (..register register)) (..projection member 'tuple))))
+                       (_.set (list 'tuple) input)
+                       bindings)
+             body))))
+
+(the .public (multi_let statement expression archive)
+  (-> Phase! (Translator synthesis.Multi_Let))
+  (|>> (multi_let! statement expression archive)
+       (of phase.monad each
+           (|>> [(list)] (_.lambda {.#None})
+                (_.apply_lambda (list))))))

@@ -1,5 +1,6 @@
 # Reference
 
+0. [NHR PerfLab Seminar: The Linear Algebra Mapping Problem and how programming languages solve it](https://www.youtube.com/watch?v=PDAcuw1oQNs)
 0. [Array Algebra](https://arrayalgebra.info/)
 0. [The Science of Programming Matrix Computations](https://www.cs.utexas.edu/users/rvdg/tmp/TSoPMC.pdf)
 0. [Seven Sins of Numerical Linear Algebra](https://nhigham.com/2022/10/11/seven-sins-of-numerical-linear-algebra/)
