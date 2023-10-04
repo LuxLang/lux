@@ -15,6 +15,7 @@
 
 ## To Do
 
+0. Compile `not`-like pattern-matching with `~` in languages/targets which support it, instead of compiling them as `if`s.
 0. [How a durable workflow engine works: you might not need a queue](https://www.inngest.com/blog/how-durable-workflow-engines-work)
 0. [Dag-Calculus: A Calculus for Parallel Computation](https://dl.acm.org/doi/pdf/10.1145/2951913.2951946)
 0. Allow importing profiles into `project.lux` files in order to allow more re-use of configuration.
@@ -69,18 +70,18 @@
 0. Optimize compilation of pattern-matching expressions like `(when <input> <literal> <then> _ <else>)` into if expressions that test the literal, instead of full-blown pattern-matching.
    * Add `if_i64` & `if_f64` & `if_text` synthesis `Term`s.
 0. Inject the type-names of the different primitive types in the prelude using analysis extensions.
-0. `Number` alias in all the `math/number` modules.
 0. Re-name `panic!` to `halt` in honor of The Halting Problem.
 0. Re-name `I8` to `I08`
 0. Unsafe text module.
 0. Eta-conversion in the synthesis phase for inlining/code-fusion optimizations.
 0. Add special `origin` parameter to `Exception`s in order to track from which definition they came, in order to disambuiguate between multiple possible origins.
-0. Compile `or`-like pattern-matching, and `and`-like pattern-matching with `||` and `&&` in languages/targets which support it, instead of compiling them as `if`s.
-0. Compile `not`-like pattern-matching with `~` in languages/targets which support it, instead of compiling them as `if`s.
 0. Fix stack-overflow error during TAR compression when trying to deploy with Aedifex.
 0. Fix `Cannot find artifact data.` bug in scripting compilers.
 
 ## Done
+
+0. `Number` alias in all the `math/number` modules.
+0. [(Commit)](https://github.com/LuxLang/lux/commit/98587236e7a551804d7b31e927bc069d78a1b96c) Compile `or`-like pattern-matching, and `and`-like pattern-matching with `||` and `&&` in languages/targets which support it, instead of compiling them as `if`s.
 
 ### [0.8.0]
 
