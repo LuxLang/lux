@@ -1,5 +1,6 @@
 # Reference
 
+0. [Eastern & Western Design: How Culture Rewires The Brain](https://www.youtube.com/watch?v=8UAsN9wvePE)
 0. [Dimensions](https://www.dimensions.com/)
 0. [Pixels, Process & Prototypes: UI Design for Engineers](https://www.uidesignforengineers.com/)
 0. [Design Graveyard](https://gwern.net/design-graveyard)

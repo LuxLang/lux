@@ -8,8 +8,7 @@
     ["[0]" monad (.only do)]]
    [data
     ["[0]" product]
-    [text
-     ["%" \\injection]]
+    ["[0]" text]
     [collection
      ["[0]" list (.use "[1]#[0]" monoid functor mix)]]]
    [math
@@ -48,12 +47,14 @@
 (the (procedure_id abstraction_id)
   (-> unit.ID
       unit.ID)
-  [unit.#module (unit.module abstraction_id)
-   unit.#artifact (++ (unit.artifact abstraction_id))])
+  [unit.#module (its unit.#module abstraction_id)
+   unit.#artifact (++ (its unit.#artifact abstraction_id))])
 
-(the (@scope abstraction_id)
-  (-> unit.ID Text)
-  (%.message (///reference.artifact abstraction_id) "_scope"))
+(the @scope
+  (-> unit.ID
+      Text)
+  (|>> ///reference.artifact
+       (text.suffix "_scope")))
 
 (the (procedure environment name arity body)
   (-> (List //runtime.Value) unit.ID Arity _.Statement
@@ -149,16 +150,28 @@
   (-> Phase! (Translator (Abstraction synthesis.Term)))
   (do [! phase.monad]
     [dependencies (cache.dependencies archive bodyS)
-     [abstraction_id procedure_id body!] (<| (translation.with_new_context archive dependencies)
-                                             (translation.with_new_context archive dependencies)
-                                             (do !
-                                               [scope (of ! each ..@scope
-                                                          (translation.context archive))]
-                                               (translation.with_anchor [1 scope]
-                                                 (statement expression archive bodyS))))
+     environment (monad.each ! (expression archive) environment)
+     [abstraction_id @scope body!] (let [abstraction (<| (translation.with_new_context archive dependencies)
+                                                         (do !
+                                                           [scope (of ! each ..@scope
+                                                                      (translation.context archive))
+                                                            body (translation.with_anchor [1 scope]
+                                                                   (statement expression archive bodyS))]
+                                                           (in [scope body])))]
+                                     (when environment
+                                       (list)
+                                       (do !
+                                         [[abstraction_id procedure_id @scope body!] (<| (translation.with_new_context archive dependencies)
+                                                                                         abstraction)
+                                          .let [procedure_definition (..procedure environment procedure_id arity body!)]
+                                          _ (translation.execute! procedure_definition)
+                                          _ (translation.save! (its unit.#artifact procedure_id) {.#None} procedure_definition)]
+                                         (in [abstraction_id @scope body!]))
+
+                                       non_empty
+                                       abstraction))
      .let [arityO (|> arity .integer _.i32)
            @num_args (_.var "num_args")
-           @scope (..@scope procedure_id)
            @self (_.var (///reference.artifact abstraction_id))
            apply_poly (.function (_ args func)
                         (|> func (_.do "apply" (list _.null args))))
@@ -168,18 +181,8 @@
                                         pre!
                                         (_.define (..input post) (_.at (_.i32 (.integer post)) @@arguments))))
                                  initialize_self!
-                                 (list.indices arity))]
-     environment (monad.each ! (expression archive) environment)
-     _ (when environment
-         (list)
-         (do !
-           [.let [procedure_definition (..procedure environment procedure_id arity body!)]
-            _ (translation.execute! procedure_definition)]
-           (translation.save! (unit.artifact procedure_id) {.#None} procedure_definition))
-
-         else
-         (in []))
-     .let [[definition instantiation] (with_closure @self environment
+                                 (list.indices arity))
+           [definition instantiation] (with_closure @self environment
                                         (all _.then
                                              (_.define @num_args (_.its "length" @@arguments))
                                              (<| (_.if (|> @num_args (_.= arityO))

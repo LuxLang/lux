@@ -8,27 +8,23 @@ cd ~/lux && grep -r "" --include *.lux | sort
 
 ```
 cd ~/lux/stdlib/ \
-&& lein clean \
-&& lein with-profile bibliotheca lux auto test
-
-cd ~/lux/stdlib/ \
-&& lux clean \
+&& lux with jvm clean \
 && lux with jvm with bibliotheca auto test
 
 cd ~/lux/stdlib/ \
-&& lux clean \
+&& lux with js clean \
 && lux with js with bibliotheca auto test
 
 cd ~/lux/stdlib/ \
-&& lux clean \
+&& lux with lua clean \
 && lux with lua with bibliotheca auto test
 
 cd ~/lux/stdlib/ \
-&& lux clean \
+&& lux with python clean \
 && lux with python with bibliotheca auto test
 
 cd ~/lux/stdlib/ \
-&& lux clean \
+&& lux with ruby clean \
 && lux with ruby with bibliotheca auto test
 ```
 
@@ -63,40 +59,36 @@ for file in *.*; do gpg -ab $file; done
 
 ```
 cd ~/lux/stdlib/ \
-&& lein clean \
-&& lein with-profile scriptum lux auto build
-
-cd ~/lux/stdlib/ \
-&& lux clean \
+&& lux with jvm clean \
 && lux with jvm with scriptum auto test
 
 ### JVM
 cd ~/lux/stdlib/ \
-&& lux clean \
+&& lux with jvm clean \
 && lux with jvm with scriptum build \
 && java -jar target/program.jar > ~/lux/documentation/library/standard/jvm.md
 
 ### JS
 cd ~/lux/stdlib/ \
-&& lux clean \
+&& lux with js clean \
 && lux with js with scriptum build \
 && node ~/lux/stdlib/target/program.js > ~/lux/documentation/library/standard/js.md
 
 ### Lua
 cd ~/lux/stdlib/ \
-&& lux clean \
+&& lux with lua clean \
 && lux with lua with scriptum build \
 && ~/lua-5.4.2/install/bin/lua ~/lux/stdlib/target/program.lua > ~/lux/documentation/library/standard/lua.md
 
 ### Python
 cd ~/lux/stdlib/ \
-&& lux clean \
+&& lux with python clean \
 && lux with python with scriptum build \
 && python3 ~/lux/stdlib/target/program.py > ~/lux/documentation/library/standard/python.md
 
 ### Ruby
 cd ~/lux/stdlib/ \
-&& lux clean \
+&& lux with ruby clean \
 && lux with ruby with scriptum build \
 && RUBY_THREAD_VM_STACK_SIZE=15700000 ruby ~/lux/stdlib/target/program/main.rb | tee ~/lux/documentation/library/standard/ruby.md
 ```
@@ -115,15 +107,6 @@ cd ~/lux/stdlib/ \
 cd ~/lux/stdlib/ \
 && lux clean \
 && lux with aedifex build \
-&& mv target/program.jar aedifex.jar
-
-cd ~/lux/stdlib/ \
-&& lein clean \
-&& lein with-profile aedifex lux auto build
-
-cd ~/lux/stdlib/ \
-&& lein clean \
-&& lein with-profile aedifex lux build \
 && mv target/program.jar aedifex.jar
 ```
 

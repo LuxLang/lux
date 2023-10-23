@@ -3,14 +3,12 @@
 
 (.require
  [library
-  [lux (.except Label
-                function)
+  [lux (.except function)
    [abstract
     ["[0]" monad (.only do)]]
    [data
     ["[0]" product]
-    [text
-     ["%" \\injection]]
+    ["[0]" text]
     [collection
      ["[0]" list (.use "[1]#[0]" monoid functor mix)]]]
    [math
@@ -19,7 +17,7 @@
    [meta
     [compiler
      [target
-      ["_" lua (.only Var Expression Label Statement)]]]]]]
+      ["_" lua (.only Var Expression Statement)]]]]]]
  ["[0]" //
   ["[1][0]" runtime (.only Operation Phase Phase! Translator)]
   ["[1][0]" reference]
@@ -49,11 +47,18 @@
 (the (procedure_id abstraction_id)
   (-> unit.ID
       unit.ID)
-  [unit.#module (unit.module abstraction_id)
-   unit.#artifact (++ (unit.artifact abstraction_id))])
+  [unit.#module (its unit.#module abstraction_id)
+   unit.#artifact (++ (its unit.#artifact abstraction_id))])
 
-(the (procedure environment name arity @scope body)
-  (-> (List //runtime.Value) unit.ID Arity Label Statement
+(the @scope
+  (-> unit.ID
+      _.Label)
+  (|>> ///reference.artifact
+       (text.suffix "_scope")
+       _.label))
+
+(the (procedure environment name arity body)
+  (-> (List //runtime.Value) unit.ID Arity Statement
       Statement)
   (_.function (_.var (///reference.artifact name))
     (all list#composite
@@ -64,7 +69,7 @@
                     (list.indices arity))
          )
     (all _.then
-         (_.set_label @scope)
+         (_.set_label (..@scope name))
          body)))
 
 (the (arbitrary_reification' expression archive [abstraction parameters])
@@ -136,26 +141,33 @@
 (the input
   (|>> ++ //when.register))
 
-(the (@scope abstraction_id)
-  (-> unit.ID Label)
-  (_.label (%.message (///reference.artifact abstraction_id) "_scope")))
-
 (the .public (function statement expression archive [environment arity bodyS])
   (-> Phase! (Translator (Abstraction synthesis.Term)))
   (do [! phase.monad]
     [dependencies (cache.dependencies archive bodyS)
-     [abstraction_id procedure_id body!] (<| (translation.with_new_context archive dependencies)
-                                             (translation.with_new_context archive dependencies)
-                                             (do !
-                                               [@scope (of ! each ..@scope
-                                                           (translation.context archive))]
-                                               (translation.with_anchor [1 @scope]
-                                                 (statement expression archive bodyS))))
      environment (monad.each ! (expression archive) environment)
+     [abstraction_id @scope body!] (let [abstraction (<| (translation.with_new_context archive dependencies)
+                                                         (do !
+                                                           [@scope (of ! each ..@scope
+                                                                       (translation.context archive))
+                                                            body (translation.with_anchor [1 @scope]
+                                                                   (statement expression archive bodyS))]
+                                                           (in [@scope body])))]
+                                     (when environment
+                                       (list)
+                                       (do !
+                                         [[abstraction_id procedure_id @scope body!] (<| (translation.with_new_context archive dependencies)
+                                                                                         abstraction)
+                                          .let [procedure_definition (..procedure environment procedure_id arity body!)]
+                                          _ (translation.execute! procedure_definition)
+                                          _ (translation.save! (its unit.#artifact procedure_id) {.#None} procedure_definition)]
+                                         (in [abstraction_id @scope body!]))
+
+                                       non_empty
+                                       abstraction))
      .let [@curried (_.var "curried")
            arityO (|> arity .integer _.int)
            @num_args (_.var "num_args")
-           @scope (..@scope procedure_id)
            @self (_.var (///reference.artifact abstraction_id))
            initialize_self! (_.local/1 (//when.register 0) @self)
            initialize! (list#mix (.function (_ post pre!)
@@ -168,17 +180,8 @@
            unpack (is (-> Expression Expression)
                       (.function (_ it)
                         (_.apply (list it) (_.var "table.unpack"))))
-           @var_args (_.var "...")]
-     _ (when environment
-         (list)
-         (do !
-           [.let [procedure_definition (..procedure environment procedure_id arity @scope body!)]
-            _ (translation.execute! procedure_definition)]
-           (translation.save! (unit.artifact procedure_id) {.#None} procedure_definition))
-
-         else
-         (in []))
-     .let [[definition instantiation] (with_closure environment @self (list @var_args)
+           @var_args (_.var "...")
+           [definition instantiation] (with_closure environment @self (list @var_args)
                                         (all _.then
                                              (_.local/1 @curried (pack @var_args))
                                              (_.local/1 @num_args (_.length @curried))
