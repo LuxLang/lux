@@ -78,6 +78,8 @@
 0. Eta-conversion in the synthesis phase for inlining/code-fusion optimizations.
 0. Add special `origin` parameter to `Exception`s in order to track from which definition they came, in order to disambuiguate between multiple possible origins.
 0. Allow inline functions to be partially applied.
+0. Make the denominator in `Rational` a `Natural` number.
+0. Pre-calculate the sizes of pattern-matching stacks and allocate arrays with those sizes, rather than using dynamically-sized stacks.
 0. Fix stack-overflow error during TAR compression when trying to deploy with Aedifex.
 0. When setting nested directories in Aedifex's "target", have the compiler create the nested directories.
 

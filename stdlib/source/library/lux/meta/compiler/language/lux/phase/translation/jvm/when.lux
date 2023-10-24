@@ -29,7 +29,7 @@
   ["[1][0]" value]
   ["[1][0]" complex]
   [////
-   ["[0]" phase (.use "operation#[0]" monad)]
+   ["[0]" phase (.use "[1]#[0]" monad)]
    ["[0]" translation]
    ["[0]" synthesis (.only Path Fork)
     [access
@@ -99,14 +99,14 @@
          method (type.method [(list) (list //type.value) type.boolean (list)])]
     (_.invokevirtual class "equals" method)))
 
-(the (path|bind register)
+(the (bind register)
   (-> Register
       (Operation (Bytecode Any)))
-  (operation#in (all _.composite
-                     ..peek
-                     (_.astore register))))
+  (phase#in (all _.composite
+                 ..peek
+                 (_.astore register))))
 
-(the (path|bit_fork again @else [when thenP elseP])
+(the (bit_pattern_matching again @else [when thenP elseP])
   (-> (-> Path (Operation (Bytecode Any)))
       Label [Bit Path (Maybe Path)]
       (Operation (Bytecode Any)))
@@ -158,107 +158,123 @@
                 <unwrap>
                 fork!))))]
 
-  [path|i64_fork (I64 Any) (//value.primitive type.long) _.dup2 _.pop2 ..long _.lcmp _.ifne]
-  [path|f64_fork Decimal (//value.primitive type.double) _.dup2 _.pop2 _.double _.dcmpl _.ifne]
-  [path|text_fork Text (of _.monad in []) _.dup _.pop _.string ..equals@Object _.ifeq]
+  [i64_pattern_matching (I64 Any) (//value.primitive type.long) _.dup2 _.pop2 ..long _.lcmp _.ifne]
+  [f64_pattern_matching Decimal (//value.primitive type.double) _.dup2 _.pop2 _.double _.dcmpl _.ifne]
+  [text_pattern_matching Text (of _.monad in []) _.dup _.pop _.string ..equals@Object _.ifeq]
   )
 
-(the (path' stack_depth @else @end expression archive)
+(the (optimized_pattern_matching pattern_matching it)
+  (-> (-> Path (Operation (Bytecode Any)))
+      (-> Path (Operation (Maybe (Bytecode Any)))))
+  (`` (.when it
+        (,, (template.with [<pattern> <projection>]
+              [(synthesis.path/seq
+                (<pattern> lefts)
+                (synthesis.!bind_top register then))
+               (do phase.monad
+                 [then (pattern_matching then)]
+                 (in {.#Some (all _.composite
+                                  ..peek
+                                  (<projection> lefts)
+                                  (_.astore register)
+                                  then)}))]
+
+              [synthesis.member/left ..left_projection]
+              [synthesis.member/right ..right_projection]))
+        
+        else
+        (phase#in {.#None}))))
+
+(the (pattern_matching' stack_depth @else @end expression archive)
   (-> Natural Label Label
       (Translator Path))
   (function (again path)
-    (`` (.when path
-          {synthesis.#Pop}
-          (operation#in ..pop)
-          
-          {synthesis.#Bind register}
-          (..path|bind register)
+    (do phase.monad
+      [outcome (optimized_pattern_matching again path)]
+      (.when outcome
+        {.#Some outcome}
+        (in outcome)
 
-          (,, (template.with [<tag> <path>]
-                [{<tag> it}
-                 (<path> again @else it)]
+        else
+        (`` (.when path
+              {synthesis.#Pop}
+              (in ..pop)
+              
+              {synthesis.#Bind register}
+              (..bind register)
 
-                [synthesis.#Bit_Fork ..path|bit_fork]
-                [synthesis.#I64_Fork ..path|i64_fork]
-                [synthesis.#F64_Fork ..path|f64_fork]
-                [synthesis.#Text_Fork ..path|text_fork]))
+              (,, (template.with [<tag> <path>]
+                    [{<tag> it}
+                     (<path> again @else it)]
 
-          {synthesis.#Then bodyS}
-          (do phase.monad
-            [body! (expression archive bodyS)]
-            (in (all _.composite
-                     (..pop_alt stack_depth)
-                     body!
-                     (_.when_continuous (_.goto @end)))))
-          
-          (synthesis.side lefts right?)
-          (operation#in
-           (do _.monad
-             [@success _.new_label]
-             (all _.composite
-                  ..peek
-                  (_.checkcast //type.variant)
-                  (//complex.lefts lefts)
-                  (//complex.right? right?)
-                  //runtime.when
-                  _.dup
-                  (_.ifnonnull @success)
-                  _.pop
-                  (_.goto @else)
-                  (_.set_label @success)
-                  //runtime.push)))
+                    [synthesis.#Bit_Fork ..bit_pattern_matching]
+                    [synthesis.#I64_Fork ..i64_pattern_matching]
+                    [synthesis.#F64_Fork ..f64_pattern_matching]
+                    [synthesis.#Text_Fork ..text_pattern_matching]))
 
-          (,, (template.with [<pattern> <projection>]
-                [(<pattern> lefts)
-                 (operation#in (all _.composite
-                                    ..peek
-                                    (<projection> lefts)
-                                    //runtime.push))
+              {synthesis.#Then bodyS}
+              (do phase.monad
+                [body! (expression archive bodyS)]
+                (in (all _.composite
+                         (..pop_alt stack_depth)
+                         body!
+                         (_.when_continuous (_.goto @end)))))
+              
+              (synthesis.side lefts right?)
+              (in (do _.monad
+                    [@success _.new_label]
+                    (all _.composite
+                         ..peek
+                         (_.checkcast //type.variant)
+                         (//complex.lefts lefts)
+                         (//complex.right? right?)
+                         //runtime.when
+                         _.dup
+                         (_.ifnonnull @success)
+                         _.pop
+                         (_.goto @else)
+                         (_.set_label @success)
+                         //runtime.push)))
 
-                 ... Extra optimization
-                 (synthesis.path/seq
-                  (<pattern> lefts)
-                  (synthesis.!bind_top register thenP))
-                 (do phase.monad
-                   [then! (path' stack_depth @else @end expression archive thenP)]
-                   (in (all _.composite
-                            ..peek
-                            (<projection> lefts)
-                            (_.astore register)
-                            then!)))]
+              (,, (template.with [<pattern> <projection>]
+                    [(<pattern> lefts)
+                     (in (all _.composite
+                              ..peek
+                              (<projection> lefts)
+                              //runtime.push))]
 
-                [synthesis.member/left ..left_projection]
-                [synthesis.member/right ..right_projection]))
-          
-          {synthesis.#Seq leftP rightP}
-          (do phase.monad
-            [left! (path' stack_depth @else @end expression archive leftP)
-             right! (path' stack_depth @else @end expression archive rightP)]
-            (in (all _.composite
-                     left!
-                     right!)))
+                    [synthesis.member/left ..left_projection]
+                    [synthesis.member/right ..right_projection]))
+              
+              {synthesis.#Seq leftP rightP}
+              (do phase.monad
+                [left! (again leftP)
+                 right! (again rightP)]
+                (in (all _.composite
+                         left!
+                         right!)))
 
-          {synthesis.#Alt leftP rightP}
-          (do phase.monad
-            [@alt_else //runtime.forge_label
-             left! (path' (++ stack_depth) @alt_else @end expression archive leftP)
-             right! (path' stack_depth @else @end expression archive rightP)]
-            (in (all _.composite
-                     _.dup
-                     left!
-                     (_.set_label @alt_else)
-                     _.pop
-                     right!)))
-          ))))
+              {synthesis.#Alt leftP rightP}
+              (do phase.monad
+                [@alt_else //runtime.forge_label
+                 left! (pattern_matching' (++ stack_depth) @alt_else @end expression archive leftP)
+                 right! (again rightP)]
+                (in (all _.composite
+                         _.dup
+                         left!
+                         (_.set_label @alt_else)
+                         _.pop
+                         right!)))
+              ))))))
 
-(the (path @end expression archive path)
+(the (pattern_matching @end expression archive path)
   (-> Label
       (Translator Path))
   (do phase.monad
     [@else //runtime.forge_label
-     path! (..path' 1 @else @end expression archive path)]
+     pattern_matching! (..pattern_matching' 1 @else @end expression archive path)]
     (in (all _.composite
-             path!
+             pattern_matching!
              (<| (_.when_acknowledged @else)
                  (all _.composite
                       (_.set_label @else)
@@ -328,12 +344,12 @@
   (do phase.monad
     [@end //runtime.forge_label
      value! (expression archive valueS)
-     path! (..path @end expression archive path)]
+     pattern_matching! (..pattern_matching @end expression archive path)]
     (in (all _.composite
              _.aconst_null
              value!
              //runtime.push
-             path!
+             pattern_matching!
              (<| (_.when_acknowledged @end)
                  (_.set_label @end))))))
 

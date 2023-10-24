@@ -15,6 +15,7 @@
     ["<>" projection]
     ["[0]" function]
     ["[0]" maybe]
+    ["[0]" error]
     ["[0]" try (.only Try)]
     [function
      [predicate (.only Predicate)]]]
@@ -22,14 +23,13 @@
     ["[0]" product]
     ["[0]" text (.use "[1]#[0]" monoid)]]
    [meta
-    ["[0]" location]
     ["[0]" code (.only)
      ["<[1]>" \\projection]]
     [macro
      ["[0]" syntax]
      ["[0]" template]]]]]
  [//
-  ["i" integer (.use "[1]#[0]" base_10)]
+  ["//" integer (.use "[1]#[0]" base_10)]
   ["d" decimal]
   [//
    [arithmetic (.only Arithmetic)]]])
@@ -45,9 +45,7 @@
        ..It)
 
 (the .public not_an_integer
-  Error
-  (location.with (location.here)
-    "Not an integer."))
+  (error.error "Not an integer."))
 
 (the .public (integer value)
   (-> It
@@ -56,12 +54,14 @@
     +1 {try.#Success (its #numerator value)}
     _ {try.#Failure ..not_an_integer}))
 
-(the .public (normal (open "/[0]"))
+(the .public (normal it)
   (-> It
       It)
-  (let [common (i.gcd /#numerator /#denominator)]
-    [..#numerator (i./ common /#numerator)
-     ..#denominator (i./ common /#denominator)]))
+  (let [(open "/[0]") it]
+    (when (//.gcd /#numerator /#denominator)
+      +0 it
+      common [..#numerator (//./ common /#numerator)
+              ..#denominator (//./ common /#denominator)])))
 
 (the .public rational
   (syntax.macro (_ [numerator <code>.any
@@ -72,10 +72,10 @@
 (the .public (= parameter subject)
   (-> It It
       Bit)
-  (i.= (i.* (its #numerator parameter)
-            (its #denominator subject))
-       (i.* (its #denominator parameter)
-            (its #numerator subject))))
+  (//.= (//.* (its #numerator parameter)
+              (its #denominator subject))
+        (//.* (its #denominator parameter)
+              (its #numerator subject))))
 
 (the .public equivalence
   (Equivalence It)
@@ -85,16 +85,16 @@
 (the (equalized parameter subject)
   (-> It It
       [Integer Integer])
-  [(i.* (its #denominator subject)
-        (its #numerator parameter))
-   (i.* (its #denominator parameter)
-        (its #numerator subject))])
+  [(//.* (its #denominator subject)
+         (its #numerator parameter))
+   (//.* (its #denominator parameter)
+         (its #numerator subject))])
 
 (the .public (< parameter subject)
   (-> It It
       Bit)
   (let [[parameter' subject'] (..equalized parameter subject)]
-    (i.< parameter' subject')))
+    (//.< parameter' subject')))
 
 (the .public (<= parameter subject)
   (-> It It
@@ -123,25 +123,25 @@
   (-> It It
       It)
   (let [[parameter' subject'] (..equalized parameter subject)]
-    (normal [(i.+ parameter' subject')
-             (i.* (its #denominator parameter)
-                  (its #denominator subject))])))
+    (normal [(//.+ parameter' subject')
+             (//.* (its #denominator parameter)
+                   (its #denominator subject))])))
 
 (the .public (- parameter subject)
   (-> It It
       It)
   (let [[parameter' subject'] (..equalized parameter subject)]
-    (normal [(i.- parameter' subject')
-             (i.* (its #denominator parameter)
-                  (its #denominator subject))])))
+    (normal [(//.- parameter' subject')
+             (//.* (its #denominator parameter)
+                   (its #denominator subject))])))
 
 (the .public (* parameter subject)
   (-> It It
       It)
-  (normal [(i.* (its #numerator parameter)
-                (its #numerator subject))
-           (i.* (its #denominator parameter)
-                (its #denominator subject))]))
+  (normal [(//.* (its #numerator parameter)
+                 (its #numerator subject))
+           (//.* (its #denominator parameter)
+                 (its #denominator subject))]))
 
 (the .public (/ parameter subject)
   (-> It It
@@ -153,8 +153,8 @@
   (-> It It
       It)
   (let [[parameter' subject'] (..equalized parameter subject)
-        quot (i./ parameter' subject')]
-    (..- (revised #numerator (i.* quot) parameter)
+        quot (//./ parameter' subject')]
+    (..- (revised #numerator (//.* quot) parameter)
          subject)))
 
 (the .public arithmetic
@@ -167,20 +167,24 @@
 
 (the separator "/")
 
+(the .public (as_text (open "/[0]"))
+  (text.Injection It)
+  (all text#composite
+       (//#injection /#numerator)
+       ..separator
+       (//#injection /#denominator)))
+
 (the .public format
   (Format Text It)
   (implementation
-   (the (injection (open "/[0]"))
-     (all text#composite
-          (i#injection /#numerator)
-          ..separator (i#injection /#denominator)))
+   (the injection ..as_text)
 
    (the (projection input)
      (when (text.split_by ..separator input)
        {.#Some [num denom]}
        (do try.monad
-         [numerator (i#projection num)
-          denominator (i#projection denom)]
+         [numerator (//#projection num)
+          denominator (//#projection denom)]
          (in (normal [#numerator numerator
                       #denominator denominator])))
        
@@ -231,32 +235,37 @@
       It)
   (* ..negative))
 
-(template.with [<numerator> <predicate> ,name]
-  [(the .public ,name
+(template.with [<numerator> <fraction>]
+  [(the .public <fraction>
      It
      [#numerator <numerator>
-      #denominator +0])
+      #denominator +0])]
 
-   (the .public <predicate>
-     (Predicate It)
-     (|>> (= ,name)
-          not))]
-
-  [+1 finite? infinity]
+  [+1 infinity]
   ... https://en.wikipedia.org/wiki/Indeterminate_form
-  [+0 determinate? indeterminate]
+  [+0 indeterminate]
   )
 
-(template.with [,/% ,name]
-  [(the .public (,name it)
+(the .public finite?
+  (Predicate It)
+  (|>> (= ..infinity)
+       not))
+
+(the .public (determinate? it)
+  (Predicate It)
+  (not (and (//.= (its #numerator indeterminate) (its #numerator it))
+            (//.= (its #denominator indeterminate) (its #denominator it)))))
+
+(template.with [,/% ,name ,reference]
+  [(the .public (,name (open "/[0]"))
      (-> It
          It)
-     (..rational (,/% (its #denominator it)
-                      (its #numerator it))
-                 (its #denominator it)))]
+     (..rational (,/% /#denominator
+                      /#numerator)
+                 ,reference))]
 
-  [i./ whole]
-  [i.% partial]
+  [//./ whole +1]
+  [//.% partial /#denominator]
   )
 
 ... https://en.wikipedia.org/wiki/Number#Classification
@@ -266,5 +275,5 @@
 (the .public (decimal it)
   (-> It
       Decimal)
-  (d./ (i.decimal (its #denominator it))
-       (i.decimal (its #numerator it))))
+  (d./ (//.decimal (its #denominator it))
+       (//.decimal (its #numerator it))))
