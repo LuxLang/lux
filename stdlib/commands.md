@@ -101,13 +101,13 @@ cd ~/lux/stdlib/ \
 
 ```
 cd ~/lux/stdlib/ \
-&& lux clean \
+&& lux with aedifex clean \
 && lux with aedifex auto build
 
 cd ~/lux/stdlib/ \
-&& lux clean \
+&& lux with aedifex clean \
 && lux with aedifex build \
-&& mv target/program.jar aedifex.jar
+&& mv target/aedifex/program.jar aedifex.jar
 ```
 
 ## Test

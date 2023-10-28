@@ -7,17 +7,19 @@
    [abstract
     ["[0]" monad (.only do)]]
    [control
-    ["[0]" try (.only Try) (.use "[1]#[0]" monad)]
+    ["[0]" exception (.only Exception)]
+    ["[0]" try (.only Try)]
     [concurrency
      ["[0]" async (.only Async) (.use "[1]#[0]" functor)]]]
    [data
     ["[0]" text (.only)
      ["%" \\injection]]
-    ["[0]" binary
-     ["[1]" \\injection]]
+    ["[0]" binary (.only)
+     ["![1]" \\injection]]
     [collection
      ["[0]" dictionary]
-     ["[0]" sequence]]
+     ["[0]" sequence]
+     ["[0]" list (.use "[1]#[0]" mix)]]
     [format
      ["[0]" tar]]]
    [meta
@@ -48,31 +50,50 @@
     [tar.#user commons
      tar.#group commons]))
 
+(exception.the .public (cannot_export [file])
+  (Exception file.Path)
+  (exception.report
+   (list ["File" (%.text file)])))
+
 (the .public (library fs sources)
   (-> (file.System Async) (List Source) (Async (Try tar.Tar)))
   (|> sources
       (io.listing fs)
-      (async#each (|>> (try#each (|>> dictionary.entries
-                                      (monad.each try.monad
-                                                  (function (_ [path source_code])
-                                                    (do try.monad
-                                                      [path (|> path
-                                                                (text.replaced (of fs separator) .module_separator)
-                                                                tar.path)]
-                                                      (try#each (|>> [path
-                                                                      (instant.of_millis +0)
-                                                                      ..mode
-                                                                      ..ownership]
-                                                                     {tar.#Normal})
-                                                                (tar.content source_code)))))
-                                      (try#each sequence.of_list)))
-                       try#conjoint))))
+      (async#each (function (_ listing)
+                    (when listing
+                      {try.#Success listing}
+                      (loop (next [listing (dictionary.entries listing)
+                                   tar (is tar.Tar
+                                           (sequence.sequence))])
+                        (when listing
+                          (list)
+                          {try.#Success tar}
+
+                          (list.partial [path source_code] listing)
+                          (when [(|> path
+                                     (text.replaced (of fs separator) .module_separator)
+                                     tar.path)
+                                 (tar.content source_code)]
+                            [{try.#Success path} {try.#Success content}]
+                            (|> tar
+                                (sequence.suffix {tar.#Normal [path
+                                                               (instant.of_millis +0)
+                                                               ..mode
+                                                               ..ownership
+                                                               content]})
+                                (next listing))
+
+                            else
+                            (exception.except ..cannot_export [path]))))
+
+                      {try.#Failure error}
+                      {try.#Failure error})))))
 
 (the .public (export fs [sources target])
   (-> (file.System Async) Export (Async (Try Any)))
   (do [! (try.with async.monad)]
     [tar (|> sources
              (..library fs)
-             (of ! each (binary.value tar.injection)))
+             (of ! each (!binary.value tar.injection)))
      .let [/ (of fs separator)]]
     (of fs write (%.message target / ..file) tar)))
