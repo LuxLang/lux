@@ -81,10 +81,10 @@
 0. Make the denominator in `Rational` a `Natural` number.
 0. Pre-calculate the sizes of pattern-matching stacks and allocate arrays with those sizes, rather than using dynamically-sized stacks.
 0. Fix stack-overflow error during TAR compression when trying to deploy with Aedifex.
-0. When setting nested directories in Aedifex's "target", have the compiler create the nested directories.
 
 ## Done
 
+0. When setting nested directories in Aedifex's `"target"`, have the compiler create the nested directories.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/32a2a77168a5a047b3178a249e8dfa0f30a6aa57) Fix `Cannot find artifact data.` bug in scripting compilers.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/606f6ad2f954df8334ccddafd36dd6ca4cb06008) `Number` alias in all the `math/number` modules.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/98587236e7a551804d7b31e927bc069d78a1b96c) Compile `or`-like pattern-matching, and `and`-like pattern-matching with `||` and `&&` in languages/targets which support it, instead of compiling them as `if`s.

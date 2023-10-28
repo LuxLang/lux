@@ -1,11 +1,15 @@
 # Develop
 ```
 cd ~/lux/lux-js/ \
-&& lux clean \
+&& lux with js clean \
 && lux with js auto build
 
 cd ~/lux/lux-js/ \
-&& lux clean \
+&& lux with stable clean \
+&& lux with stable auto build
+
+cd ~/lux/lux-js/ \
+&& lux with jvm clean \
 && lux with jvm auto build
 ```
 
