@@ -82,6 +82,7 @@
 0. Pre-calculate the sizes of pattern-matching stacks and allocate arrays with those sizes, rather than using dynamically-sized stacks.
 0. Fix `{library/lux/data/format/tar.invalid_end_of_archive}` error, which makes it impossible to use manually-packaged TAR files.
    * https://github.com/LuxLang/lux/issues/71
+0. The `safe_decimal` random generator should produce `Decimal`s all over the range of safe values, instead of just the `[0, 1]` interval.
 
 ## Done
 
