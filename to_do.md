@@ -80,10 +80,12 @@
 0. Allow inline functions to be partially applied.
 0. Make the denominator in `Rational` a `Natural` number.
 0. Pre-calculate the sizes of pattern-matching stacks and allocate arrays with those sizes, rather than using dynamically-sized stacks.
+0. Fix `{library/lux/data/format/tar.invalid_end_of_archive}` error, which makes it impossible to use manually-packaged TAR files.
+   * https://github.com/LuxLang/lux/issues/71
 
 ## Done
 
-0. Fix stack-overflow error during TAR compression when trying to deploy with Aedifex.
+0. [(Commit)](https://github.com/LuxLang/lux/commit/6a61827dd52419181e549eee8348f112975dca3e) Fix stack-overflow error during TAR compression when trying to deploy with Aedifex.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/9f32a0832d110af918217146852f381854183e8a) When setting nested directories in Aedifex's `"target"`, have the compiler create the nested directories.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/32a2a77168a5a047b3178a249e8dfa0f30a6aa57) Fix `Cannot find artifact data.` bug in scripting compilers.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/606f6ad2f954df8334ccddafd36dd6ca4cb06008) `Number` alias in all the `math/number` modules.
