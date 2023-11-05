@@ -76,16 +76,19 @@
 0. Re-name `I8` to `I08`
 0. Unsafe text module.
 0. Eta-conversion in the synthesis phase for inlining/code-fusion optimizations.
-0. Add special `origin` parameter to `Exception`s in order to track from which definition they came, in order to disambuiguate between multiple possible origins.
+0. Add special `origin` parameter to `Exception`s in order to track from which definition they came, in order to disambiguate between multiple possible origins.
 0. Allow inline functions to be partially applied.
-0. Make the denominator in `Rational` a `Natural` number.
 0. Pre-calculate the sizes of pattern-matching stacks and allocate arrays with those sizes, rather than using dynamically-sized stacks.
 0. Fix `{library/lux/data/format/tar.invalid_end_of_archive}` error, which makes it impossible to use manually-packaged TAR files.
    * https://github.com/LuxLang/lux/issues/71
 0. The `safe_decimal` random generator should produce `Decimal`s all over the range of safe values, instead of just the `[0, 1]` interval.
+0. Aggressively optimize the compiler.
+0. Replace the usage of .tar files in the compiler with a new (more consistent) archiving format. Both for packaging libraries and making cache files.
+0. Unary `-` and `/` for numbers that feature inverses.
 
 ## Done
 
+0. Make the denominator in `Rational` a `Natural` number.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/6a61827dd52419181e549eee8348f112975dca3e) Fix stack-overflow error during TAR compression when trying to deploy with Aedifex.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/9f32a0832d110af918217146852f381854183e8a) When setting nested directories in Aedifex's `"target"`, have the compiler create the nested directories.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/32a2a77168a5a047b3178a249e8dfa0f30a6aa57) Fix `Cannot find artifact data.` bug in scripting compilers.
