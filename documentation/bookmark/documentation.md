@@ -64,6 +64,7 @@
 
 # Reference
 
+0. [An intuitive documentation strategy](https://abstraction.blog/2023/11/22/intuitive-documentation-strategy)
 0. [Histoire: A new way to write stories](https://histoire.dev/)
 0. [Better Explained](https://betterexplained.com/)
 0. [Towards a theory of quality in documentation](https://diataxis.fr/quality/)

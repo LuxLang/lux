@@ -4,6 +4,7 @@
 
 # Reference
 
+0. [CSS Hooks: Inline styles doing what we thought they couldn't](https://css-hooks.com/)
 0. [Fit-to-Width Text](https://kizu.dev/fit-to-width-text/)
 0. [Modern CSS Solutions for Old CSS Problems](https://moderncss.dev/)
 0. [Floating UI](https://floating-ui.com/)

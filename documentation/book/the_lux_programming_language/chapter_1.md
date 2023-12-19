@@ -55,7 +55,7 @@ These are the steps:
 4. Create `my_project/source/main.lux` and add this code to it:
 
 ```clojure
-(.require
+(.using
  [library
   [lux (.except)
    [program (.only program)]

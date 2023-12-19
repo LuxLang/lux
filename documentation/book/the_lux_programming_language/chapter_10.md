@@ -36,7 +36,7 @@ Macros allow you to implement your own features in the language and to have them
 
 I mean, beyond the native syntax for writing numbers, text, variants, tuples and records, every single thing you have written so far has been macros.
 
-`.require` import statements? _Yep, macros_.
+`.using` import statements? _Yep, macros_.
 
 Definition statements? _Yep, macros_.
 

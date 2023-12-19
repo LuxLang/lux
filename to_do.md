@@ -72,7 +72,7 @@
 0. Optimize compilation of pattern-matching expressions like `(when <input> <literal> <then> _ <else>)` into if expressions that test the literal, instead of full-blown pattern-matching.
    * Add `if_i64` & `if_f64` & `if_text` synthesis `Term`s.
 0. Inject the type-names of the different primitive types in the prelude using analysis extensions.
-0. Re-name `panic!` to `halt` in honor of The Halting Problem.
+0. Re-name `panic!` to `halt` in honor of the [halting problem](https://en.wikipedia.org/wiki/Halting_problem).
 0. Re-name `I8` to `I08`
 0. Unsafe text module.
 0. Eta-conversion in the synthesis phase for inlining/code-fusion optimizations.
@@ -85,10 +85,13 @@
 0. Replace the usage of .tar files in the compiler with a new (more consistent) archiving format. Both for packaging libraries and making cache files.
    * https://en.wikipedia.org/wiki/List_of_archive_formats
 0. Unary `-` and `/` for numbers that feature inverses.
+0. `N/D` native parser syntax for `Fraction` numbers.
+0. `(+|-)N/D` native parser syntax for `Rational` numbers.
+0. Allow producing JVM artifacts without source-tracking/debugging information.
 
 ## Done
 
-0. The `safe_decimal` random generator should produce `Decimal`s all over the range of safe values, instead of just the `[0, 1]` interval.
+0. [(Commit)](https://github.com/LuxLang/lux/commit/036b40089a7dc43bb5c7878eeaf7cffe03241327) The `safe_decimal` random generator should produce `Decimal`s all over the range of safe values, instead of just the `[0, 1]` interval.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/4dacca8fe6c165afc5ef428aba728ed37b50be5f) Make the denominator in `Rational` a `Natural` number.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/6a61827dd52419181e549eee8348f112975dca3e) Fix stack-overflow error during TAR compression when trying to deploy with Aedifex.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/9f32a0832d110af918217146852f381854183e8a) When setting nested directories in Aedifex's `"target"`, have the compiler create the nested directories.

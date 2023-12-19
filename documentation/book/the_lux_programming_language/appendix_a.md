@@ -5,7 +5,7 @@ You've already seen some import syntax, but now you'll see all the options avail
 If you recall [Chapter 1](chapter_1.md), there was this example code:
 
 ```clojure
-(.require
+(.using
  [library
   [lux (.except)
    [program (.only program)]
@@ -38,7 +38,7 @@ We also give both of those modules local aliases.
 
 That is what that `"[0]"` syntax does.
 
-The `.require` macro recognizes that syntax for aliases and replaces the `[0]` with the import name directly to the right.
+The `.using` macro recognizes that syntax for aliases and replaces the `[0]` with the import name directly to the right.
 
 That means:
 * `"[0]"` + `debug` = `debug`
@@ -52,10 +52,10 @@ So, for example:
 
 It is also important to note that while imports can be nested for convenience, they don't have to be.
 
-The `.require` declaration could just as easily been written like this:
+The `.using` declaration could just as easily been written like this:
 
 ```clojure
-(.require
+(.using
  [library/lux (.except)]
  [library/lux/program (.only program)]
  ["debug" library/lux/debug]
@@ -68,12 +68,12 @@ Any module-path fragments included in the import syntax without such options wil
 
 ---
 
-It is also possible to have the `.require` macro open interface implementations for you when importing the modules that contain them.
+It is also possible to have the `.using` macro open interface implementations for you when importing the modules that contain them.
 
 For example:
 
 ```clojure
-(.require
+(.using
  [library
   [lux (.except)
    [data
@@ -105,7 +105,7 @@ The `[1]` syntax for aliasing can also be used between modules, and not just whe
 For example:
 
 ```clojure
-(.require
+(.using
  [library
   [lux (.except)
    [data
@@ -125,7 +125,7 @@ Non-aliased paths don't count as context.
 This means:
 
 ```clojure
-(.require
+(.using
  [library
   [lux (.except)
    ["[0]" data
@@ -145,7 +145,7 @@ I should also note that you can **both** locally import definitions and open imp
 For example:
 
 ```clojure
-(.require
+(.using
  [library
   [lux (.except)
    [data
@@ -178,7 +178,7 @@ You can import other modules in the hierarchy like this:
 
 ```clojure
 ... In program/foo/baz
-(.require
+(.using
  [library
   [lux (.except)]]
  ["[0]" /quux] ... program/foo/baz/quux, aliased as /quux
@@ -191,7 +191,7 @@ A single forward slash (`/`) signifies _"this module"_ in the hierarchy, so anyt
 
 Two forward slashes (`//`) signify _"the module above"_, and any forward slash after that allows you to go further **up** the hierarchy.
 
-In the case of `program`, it's enough to just specify three forward slashes (`///`) for the `.require` macro to know which module you're referring to.
+In the case of `program`, it's enough to just specify three forward slashes (`///`) for the `.using` macro to know which module you're referring to.
 
 You can think about it like this:
 
@@ -203,7 +203,7 @@ Also, this relative path syntax can be nested, like so:
 
 ```clojure
 ... In program/foo/baz
-(.require
+(.using
  [library
   [lux (.except)]]
  [/
@@ -219,7 +219,7 @@ Or even:
 
 ```clojure
 ... In program/foo/baz
-(.require
+(.using
  [library
   [lux (.except)]]
  [/
@@ -240,7 +240,7 @@ For the second way to do relative imports, you can see this example:
 
 ```clojure
 ... In program/foo/baz
-(.require
+(.using
  [library
   [lux (.except)]]
  [\\test

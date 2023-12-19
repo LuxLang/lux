@@ -1,5 +1,6 @@
 ```
 cd ~/lux && grep -r "" --include *.lux | sort
+cd ~/lux && grep -RiIl 'BEFORE' | xargs sed -i 's/BEFORE/AFTER/g'
 ```
 
 # Standard Library

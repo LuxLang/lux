@@ -16,7 +16,7 @@ But enough chit-chat.
 
 Let's see them in action.
 
-  **Note**: The following examples assume you `.require` the `["^" library/lux/meta/macro/pattern]` module.
+  **Note**: The following examples assume you `.using` the `["^" library/lux/meta/macro/pattern]` module.
 
 ## Pattern-matching macros in the Standard Library
 

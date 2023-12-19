@@ -26,7 +26,7 @@
 
 # Reference
 
-0. []()
+0. [The best WebAssembly runtime may be no runtime at all](https://00f.net/2023/12/11/webassembly-compilation-to-c/)
 0. [just-in-time code generation within webassembly](https://wingolog.org/archives/2022/08/18/just-in-time-code-generation-within-webassembly)
 0. [TeaVM: Build Fast, Modern Web Apps in Java](https://teavm.org/)
 0. [Recommendations when publishing a Wasm library](https://nickb.dev/blog/recommendations-when-publishing-a-wasm-library)

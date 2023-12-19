@@ -210,7 +210,7 @@ The thing about `Monad` is that, with it, you can use `each` functions that also
 Let's see that in action:
 
 ```clojure
-(.require
+(.using
  [library
    [lux (.except)
      [data
@@ -301,7 +301,7 @@ Time for the VIP treatment.
 These macros always show up at the right time to saves us from our hurdles!
 
 ```clojure
-(.require
+(.using
  [library
    [lux (.except)
      [data

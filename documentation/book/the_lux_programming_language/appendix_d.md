@@ -12,7 +12,7 @@ I try to figure out ways to get my code to be more pipe-sensitive, to see how fa
 
 	My personal record is 14 steps.
 
-  **Note**: The following examples assume that you `.require` the `["|" library/lux/control/pipe]` module.
+  **Note**: The following examples assume that you `.using` the `["|" library/lux/control/pipe]` module.
 
 ## Piping macros in the standard library
 
