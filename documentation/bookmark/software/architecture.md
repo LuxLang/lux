@@ -1,5 +1,6 @@
 # Reference
 
+0. [THE FRUGAL ARCHITECT](http://thefrugalarchitect.com/)
 0. [Architecture Antipatterns](https://architecture-antipatterns.tech/)
 0. [Software architecture tools: The best free and paid software architecture diagramming and design tools](https://softwarearchitecture.tools/)
 0. [How Agility Enhances Software Architecture](https://www.agile-meets-architecture.com/essays/how-agility-enhances-software-architecture)

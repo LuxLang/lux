@@ -88,6 +88,8 @@
 0. `N/D` native parser syntax for `Fraction` numbers.
 0. `(+|-)N/D` native parser syntax for `Rational` numbers.
 0. Allow producing JVM artifacts without source-tracking/debugging information.
+0. Make the JVM compiler use `Byte`s instead of `Integer`s for storing variant/sum tags/lefts.
+0. [multithreading: a tiny runtime that allows you to execute JavaScript functions on separate threads](https://github.com/W4G1/multithreading)
 
 ## Done
 

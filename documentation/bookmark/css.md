@@ -4,6 +4,8 @@
 
 # Reference
 
+0. [StyleX](https://stylexjs.com/)
+   0. [Introducing StyleX](https://stylexjs.com/blog/introducing-stylex/)
 0. [CSS Hooks: Inline styles doing what we thought they couldn't](https://css-hooks.com/)
 0. [Fit-to-Width Text](https://kizu.dev/fit-to-width-text/)
 0. [Modern CSS Solutions for Old CSS Problems](https://moderncss.dev/)

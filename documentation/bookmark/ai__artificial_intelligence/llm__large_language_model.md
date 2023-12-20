@@ -1,5 +1,6 @@
 # Reference
 
+0. [GPT Directory](https://gptdirectory.cc/)
 0. [vLLM: A high-throughput and memory-efficient inference and serving engine for LLMs](https://github.com/vllm-project/vllm)
 0. [Getting started with LLMs locally](https://tales.fromprod.com/2023/099/getting-started-with-llms-locally.html)
 0. [LMQL is a programming language for LLMs](https://lmql.ai/)

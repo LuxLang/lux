@@ -4,17 +4,17 @@
 (.using
  [library
   [lux (.except Target
-                private type also)
+                private also i64 variant tuple)
    ["[0]" ffi (.only import)]
    [abstract
     ["[0]" monad (.only do)]]
    [control
     ["<>" projection]
     ["[0]" pipe]
-    ["[0]" function]
     ["[0]" try (.only Try)]
     ["[0]" exception (.only Exception)]
-    ["[0]" io (.only IO)]]
+    ["[0]" io (.only IO)]
+    ["[0]" function]]
    [data
     ["[0]" bit]
     ["[0]" text (.only)
@@ -27,6 +27,7 @@
     [number
      ["n" natural]
      ["i" integer]
+     ["d" decimal]
      ["[0]" fraction (.only Fraction)]]]
    ["[0]" meta (.only)
     ["[0]" symbol]
@@ -61,6 +62,9 @@
             (import java/lang/Long
               "[1]::[0]")
 
+            (import java/lang/Double
+              "[1]::[0]")
+
             (import java/lang/Number
               "[1]::[0]"
               (doubleValue [] double)))
@@ -77,12 +81,12 @@
      (these (.every PyType
               (Nominal "python_type"))
             
-            (import (type [.Any] PyType))
-            (import (str [.Any] ffi.String)))
+            (import (type "as" python_type [.Any] PyType))
+            (import (str "as" python_text [.Any] ffi.String)))
 
      .lua
-     (these (import (type [.Any] ffi.String))
-            (import (tostring [.Any] ffi.String))
+     (these (import (type "as" lua_type [.Any] ffi.String))
+            (import (tostring "as" lua_text [.Any] ffi.String))
 
             (import math
               "[1]::[0]"
@@ -98,8 +102,8 @@
               (to_s [] ffi.String)))
 
      .php
-     (these (import (gettype [.Any] ffi.String))
-            (import (strval [.Any] ffi.String)))
+     (these (import (gettype "as" php_type [.Any] ffi.String))
+            (import (strval "as" php_text [.Any] ffi.String)))
 
      .scheme
      (these (import (boolean? [.Any] Bit))
@@ -110,7 +114,7 @@
             (import (pair? [.Any] Bit))
             (import (car [.Any] .Any))
             (import (cdr [.Any] .Any))
-            (import (format [Text .Any] Text)))
+            (import (format "as" scheme_text [Text .Any] Text)))
      )
 
 (the Inspector
@@ -139,245 +143,325 @@
              (text.interposed " ")
              (text.enclosed ["[" "]"])))))
 
-(the .public (inspection value)
-  Inspector
-  (for .jvm
-       (let [object (as java/lang/Object value)]
-         (`` (<| (,, (template.with [<class> <processing>]
-                       [(when (ffi.as <class> object)
-                          {.#Some value}
-                          (`` (|> value (,, (template.spliced <processing>))))
-                          
-                          {.#None})]
+(exception.the .public (not_of_type type)
+  (Exception Type)
+  (exception.report
+   (list ["Type" (type.as_text type)])))
 
-                       [java/lang/Boolean [ffi.of_boolean bit.as_text]]
-                       [java/lang/Long [ffi.of_long %.integer]]
-                       [java/lang/Number [(java/lang/Number::doubleValue []) ffi.of_double %.decimal]]
-                       [java/lang/String [ffi.of_string %.text]]
-                       ))
-                 (when (ffi.as [java/lang/Object] object)
-                   {.#Some value}
-                   (let [value (as (array.Array java/lang/Object) value)]
-                     (when (array.item 0 value)
-                       (^.multi {try.#Success tag}
-                                [(ffi.as java/lang/Integer tag)
-                                 {.#Some tag}]
-                                [[(array.item 1 value) (array.item 2 value)]
-                                 [last? {try.#Success choice}]])
-                       (let [last? (when last?
-                                     {try.#Success _} #1
-                                     {try.#Failure _} #0)]
-                         (|> (%.message (%.natural (.natural (ffi.of_long (java/lang/Integer::longValue [] tag))))
-                                        " " (bit.as_text last?)
-                                        " " (inspection choice))
-                             (text.enclosed ["{" "}"])))
+(template.with [,name ,lux_type ,jvm_class ,js_type ,js_fields ,python_tags ,lua_type ,lua_math_types ,ruby_constants ,php_type ,scheme_predicate]
+  [(the .public (,name it)
+     (-> Any
+         (Try ,lux_type))
+     (if (for .jvm
+              (when (ffi.as ,jvm_class (as java/lang/Object it))
+                {.#Some it}
+                true
+                
+                else
+                false)
 
-                       _
-                       (tuple_inspection inspection value)))
-                   {.#None})
-                 (ffi.of_string (java/lang/Object::toString [] object)))))
+              .js
+              (expansion.let [,fields (template.spliced ,js_fields)]
+                (and (text.= ,js_type (ffi.type_of it))
+                     (not (`` (or (,, (template.with [,field]
+                                        [(.js_object_undefined?# (.js_object_get# ,field it))]
 
-       .js
-       (`` (when (ffi.type_of value)
-             (,, (template.with [<type_of> <then>]
-                   [<type_of>
-                    (`` (|> value (,, (template.spliced <then>))))]
+                                        ,fields
+                                        )))))))
 
-                   ["boolean" [(as .Bit) bit.as_text]]
-                   ["number" [(as .Decimal) %.decimal]]
-                   ["string" [(as .Text) %.text]]
-                   ["undefined" [JSON::stringify]]))
-             
-             "object"
-             (let [variant_tag (.js_object_get# "_lux_tag" value)
-                   variant_flag (.js_object_get# "_lux_flag" value)
-                   variant_value (.js_object_get# "_lux_value" value)]
-               (if (not (or (.js_object_undefined?# variant_tag)
-                            (.js_object_undefined?# variant_flag)
-                            (.js_object_undefined?# variant_value)))
-                 (|> (%.message (JSON::stringify variant_tag)
-                                " " (bit.as_text (not (.js_object_null?# variant_flag)))
-                                " " (inspection variant_value))
-                     (text.enclosed ["{" "}"]))
+              .python
+              (let [it (python_text (python_type it))]
+                (expansion.let [,tags (template.spliced ,python_tags)]
+                  (`` (or (,, (template.with [,type]
+                                [(text.= ,type it)]
 
-                 (not (or (.js_object_undefined?# (.js_object_get# "_lux_low" value))
-                          (.js_object_undefined?# (.js_object_get# "_lux_high" value))))
-                 (|> value (as .Integer) %.integer)
+                                ,tags
+                                ))))))
 
-                 (Array::isArray value)
-                 (tuple_inspection inspection value)
-                 
-                 ... else
-                 (JSON::stringify value)))
+              .lua
+              (expansion.let [,math_types (template.spliced ,lua_math_types)]
+                (`` (and (text.= ,lua_type (..lua_type it))
+                         (,, (template.with [,type]
+                               [(when (math::type it)
+                                  {.#Some ,type}
+                                  true
 
-             _
-             (JSON::stringify value)))
+                                  else
+                                  false)]
 
-       .python
-       (`` (when (..str (..type value))
-             (,, (template.with [<type_of> <class_of> <then>]
-                   [(^.or <type_of> <class_of>)
-                    (`` (|> value (,, (template.spliced <then>))))]
+                               ,math_types
+                               )))))
 
-                   ["<type 'bool'>" "<class 'bool'>" [(as .Bit) bit.as_text]]
-                   ["<type 'int'>" "<class 'int'>" [(as .Integer) %.integer]]
-                   ["<type 'float'>" "<class 'float'>" [(as .Decimal) %.decimal]]
-                   ["<type 'str'>" "<class 'str'>" [(as .Text) %.text]]
-                   ["<type 'unicode'>" "<class 'unicode'>" [(as .Text) %.text]]))
+              .ruby
+              (expansion.let [,constants (template.spliced ,ruby_constants)]
+                (template.let [(class <literal>)
+                               [(|> <literal>
+                                    (as ..Object)
+                                    (Object::class []))]]
+                  (let [it_class (class it)]
+                    (`` (or (,, (template.with [<literal>]
+                                  [(same? (class <literal>) it_class)]
 
-             (^.or "<type 'list'>" "<class 'list'>")
-             (tuple_inspection inspection value)
+                                  ,constants
+                                  )))))))
 
-             (^.or "<type 'tuple'>" "<class 'tuple'>")
-             (let [variant (as (array.Array Any) value)]
+              .php
+              (text.= ,php_type (php_type it))
+
+              .scheme
+              (,scheme_predicate it))
+       {try.#Success (as ,lux_type it)}
+       (exception.except ..not_of_type [,lux_type])))]
+
+  [bit .Bit java/lang/Boolean "boolean" [] [["<type 'bool'>"] ["<class 'bool'>"]] "boolean" [] [[#0] [#1]] "boolean" ..boolean?]
+  [i64 .I64 java/lang/Long "object" [["_lux_low"] ["_lux_high"]] [["<type 'int'>"] ["<class 'int'>"]] "number" [["integer"]] [[+1]] "integer" ..integer?]
+  [decimal .Decimal java/lang/Double "number" [] [["<type 'float'>"] ["<class 'float'>"]] "number" [["float"]] [[+1.0]] "double" ..real?]
+  [text .Text java/lang/String "string" [] [["<type 'str'>"] ["<class 'str'>"] ["<type 'unicode'>"] ["<class 'unicode'>"]] "string" [] [[""]] "string" ..string?]
+  )
+
+(the .public (variant it)
+  (-> Any
+      (Try [Natural Bit Any]))
+  (expansion.let [,failure (exception.except ..not_of_type [(type (Or Any Any))])]
+    (for .jvm
+         (when (ffi.as [java/lang/Object] it)
+           {.#Some it}
+           (let [it (as (array.Array java/lang/Object) it)]
+             (when (array.item 0 it)
+               (^.multi {try.#Success tag}
+                        [(ffi.as java/lang/Integer tag)
+                         {.#Some lefts}]
+                        [[(array.item 1 it) (array.item 2 it)]
+                         [right? {try.#Success choice}]])
+               {try.#Success [(.natural (ffi.of_long (java/lang/Integer::longValue [] lefts)))
+                              (when right?
+                                {try.#Success _} #1
+                                {try.#Failure _} #0)
+                              choice]}
+
+               else
+               ,failure))
+           
+           else
+           ,failure)
+
+         .js
+         (when (ffi.type_of it)
+           "object"
+           (let [lefts (.js_object_get# "_lux_tag" it)
+                 right? (.js_object_get# "_lux_flag" it)
+                 choice (.js_object_get# "_lux_value" it)]
+             (if (not (or (.js_object_undefined?# lefts)
+                          (.js_object_undefined?# right?)
+                          (.js_object_undefined?# choice)))
+               {try.#Success [(.natural (d.integer (as Decimal lefts)))
+                              (not (.js_object_null?# right?))
+                              choice]}
+
+               ... else
+               ,failure))
+
+           else
+           ,failure)
+
+         .python
+         (let [tag (python_text (python_type it))]
+           (if (or (text.= "<type 'tuple'>" tag)
+                   (text.= "<class 'tuple'>" tag))
+             (let [variant (as (array.Array Any) it)]
                (when (array.size variant)
-                 3 (let [variant_tag (.python_array_read# 0 variant)
-                         variant_flag (.python_array_read# 1 variant)
-                         variant_value (.python_array_read# 2 variant)]
-                     (if (or (.python_object_none?# variant_tag)
-                             (.python_object_none?# variant_value))
-                       (..str value)
-                       (|> (%.message (|> variant_tag (as .Natural) %.natural)
-                                      " " (|> variant_flag .python_object_none?# not bit.as_text)
-                                      " " (inspection variant_value))
-                           (text.enclosed ["{" "}"]))))
-                 _ (..str value)))
+                 3
+                 (let [lefts (.python_array_read# 0 variant)
+                       right? (.python_array_read# 1 variant)
+                       choice (.python_array_read# 2 variant)]
+                   (if (not (or (.python_object_none?# lefts)
+                                (.python_object_none?# choice)))
+                     {try.#Success [(as .Natural lefts)
+                                    (|> right? .python_object_none?# not)
+                                    choice]}
+                     ,failure))
 
-             _
-             (..str value)))
+                 else
+                 ,failure))
+             ,failure))
 
-       .lua
-       (`` (when (..type value)
-             (,, (template.with [<type_of> <then>]
-                   [<type_of>
-                    (`` (|> value (,, (template.spliced <then>))))]
+         .lua
+         (when (lua_type it)
+           "table"
+           (let [lefts (.lua_object_get# "_lux_tag" it)
+                 right? (.lua_object_get# "_lux_flag" it)
+                 choice (.lua_object_get# "_lux_value" it)]
+             (if (not (or (.lua_object_nil?# lefts)
+                          (.lua_object_nil?# choice)))
+               {try.#Success [(as .Natural lefts)
+                              (|> right? .lua_object_nil?# not)
+                              choice]}
+               ,failure))
 
-                   ["boolean" [(as .Bit) bit.as_text]]
-                   ["string" [(as .Text) %.text]]
-                   ["nil" [(pipe.new "nil" [])]]))
+           else
+           ,failure)
 
-             "number"
-             (when (math::type value)
-               {.#Some "integer"} (|> value (as .Integer) %.integer)
-               {.#Some "float"} (|> value (as .Decimal) %.decimal)
+         .ruby
+         (template.let [(class_of <literal>)
+                        [(|> <literal>
+                             (as ..Object)
+                             (Object::class []))]]
+           (if (same? (class_of {.#None})
+                      (class_of it))
+             (let [lefts (.ruby_object_get# "_lux_tag" it)
+                   right? (.ruby_object_get# "_lux_flag" it)
+                   choice (.ruby_object_get# "_lux_value" it)]
+               (if (not (or (.ruby_object_nil?# lefts)
+                            (.ruby_object_nil?# choice)))
+                 {try.#Success [(as .Natural lefts)
+                                (|> right? .ruby_object_nil?# not)
+                                choice]}
+                 ,failure))
+             ,failure))
+
+         .php
+         (when (php_type it)
+           "object"
+           (let [lefts (.php_object_get# "_lux_tag" it)
+                 right? (.php_object_get# "_lux_flag" it)
+                 choice (.php_object_get# "_lux_value" it)]
+             (if (not (or (.php_object_null?# lefts)
+                          (.php_object_null?# choice)))
+               {try.#Success [(as .Natural lefts)
+                              (|> right? .php_object_null?# not)
+                              choice]}
+               ,failure))
+
+           else
+           ,failure)
+
+         .scheme
+         (if (..pair? it)
+           (let [lefts (..car it)
+                 variant_rest (..cdr it)]
+             (if (and (..integer? lefts)
+                      (i.> +0 (as Integer lefts))
+                      (..pair? variant_rest))
+               (let [right? (..car variant_rest)
+                     choice (..cdr variant_rest)]
+                 {try.#Success [(as .Natural lefts)
+                                (|> right? .scheme_object_nil?# not)
+                                choice]})
+               ,failure))
+           ,failure))))
+
+(expansion.let [,type (these (array.Array Any))]
+  (the .public (tuple it)
+    (-> Any
+        (Try ,type))
+    (if (for .jvm
+             (when (ffi.as [java/lang/Object] (as java/lang/Object it))
+               {.#Some _}
+               (when (variant it)
+                 {try.#Failure _}
+                 true
+
+                 else
+                 false)
                
-               _
-               (..tostring value))
-             
-             "table"
-             (let [variant_tag (.lua_object_get# "_lux_tag" value)
-                   variant_flag (.lua_object_get# "_lux_flag" value)
-                   variant_value (.lua_object_get# "_lux_value" value)]
-               (if (or (.lua_object_nil?# variant_tag)
-                       (.lua_object_nil?# variant_value))
-                 (tuple_inspection inspection value)
-                 (|> (%.message (|> variant_tag (as .Natural) %.natural)
-                                " " (bit.as_text (not (.lua_object_nil?# variant_flag)))
-                                " " (inspection variant_value))
-                     (text.enclosed ["{" "}"]))))
+               {.#None}
+               false)
 
-             _
-             (..tostring value)))
+             .js
+             (when (ffi.type_of it)
+               "object"
+               (Array::isArray it)
 
-       .ruby
-       (template.let [(class_of <literal>)
-                      [(|> <literal>
-                           (as ..Object)
-                           (Object::class []))]
+               else
+               false)
 
-                      (to_s <object>)
-                      [(|> <object>
-                           (as ..Object)
-                           (Object::to_s []))]]
-         (let [value_class (class_of value)]
-           (`` (if (,, (template.with [<literal> <type> <injection>]
-                         [(same? (class_of <literal>) value_class)
-                          (|> value (as <type>) <injection>)]
+             .python
+             (let [tag (python_text (python_type it))]
+               (or (text.= "<type 'list'>" tag)
+                   (text.= "<class 'list'>" tag)))
 
-                         [#0 Bit bit.as_text]
-                         [#1 Bit bit.as_text]
-                         [+1 Integer %.integer]
-                         [+1.0 Decimal %.decimal]
-                         ["" Text %.text]
-                         [(.ruby_object_nil#) Any (pipe.new "nil" [])]
-                         ))
+             .lua
+             (when (lua_type it)
+               "table"
+               (when (variant it)
+                 {try.#Failure _}
+                 true
 
-                 (same? (class_of {.#None}) value_class)
-                 (let [variant_tag (.ruby_object_get# "_lux_tag" value)
-                       variant_flag (.ruby_object_get# "_lux_flag" value)
-                       variant_value (.ruby_object_get# "_lux_value" value)]
-                   (if (or (.ruby_object_nil?# variant_tag)
-                           (.ruby_object_nil?# variant_value))
-                     (tuple_inspection inspection value)
-                     (|> (%.message (|> variant_tag (as .Natural) %.natural)
-                                    " " (bit.as_text (not (.ruby_object_nil?# variant_flag)))
-                                    " " (inspection variant_value))
-                         (text.enclosed ["{" "}"]))))
+                 else
+                 false)
 
-                 (same? (class_of [[] []]) value_class)
-                 (tuple_inspection inspection value)
+               else
+               false)
 
-                 ... else
-                 (to_s value)))))
+             .ruby
+             (template.let [(class_of <literal>)
+                            [(|> <literal>
+                                 (as ..Object)
+                                 (Object::class []))]]
+               (same? (class_of [[] []])
+                      (class_of it)))
 
-       .php
-       (`` (when (..gettype value)
-             (,, (template.with [<type_of> <then>]
-                   [<type_of>
-                    (`` (|> value (,, (template.spliced <then>))))]
+             .php
+             (text.= "array" (php_type it))
 
-                   ["boolean" [(as .Bit) bit.as_text]]
-                   ["integer" [(as .Integer) %.integer]]
-                   ["double" [(as .Decimal) %.decimal]]
-                   ["string" [(as .Text) %.text]]
-                   ["NULL" [(pipe.new "null" [])]]
-                   ["array" [(tuple_inspection inspection)]]))
+             .scheme
+             (..vector? it))
+      {try.#Success (as ,type it)}
+      (exception.except ..not_of_type [(type ,type)]))))
 
-             "object"
-             (let [variant_tag ("php object get" "_lux_tag" value)
-                   variant_flag ("php object get" "_lux_flag" value)
-                   variant_value ("php object get" "_lux_value" value)]
-               (if (or ("php object null?" variant_tag)
-                       ("php object null?" variant_value))
-                 (..strval value)
-                 (|> (%.message (|> variant_tag (as .Natural) %.natural)
-                                " " (bit.as_text (not ("php object null?" variant_flag)))
-                                " " (inspection variant_value))
-                     (text.enclosed ["{" "}"]))))
+(the .public (inspection it)
+  Inspector
+  (`` (<| (,, (template.with [,predicate ,as_text]
+                [(when (,predicate it)
+                   {try.#Success it}
+                   (,as_text it)
 
-             _
-             (..strval value)))
+                   else)]
 
-       .scheme
-       (`` (if (,, (template.with [<when> <then>]
-                     [(<when> value)
-                      (`` (|> value (,, (template.spliced <then>))))]
+                [..bit bit.as_text]
+                [..i64 %.integer]
+                [..decimal %.decimal]
+                [..text %.text]
+                ))
+          (when (..variant it)
+            {try.#Success [lefts right? choice]}
+            (|> (%.message (%.natural lefts)
+                           " " (bit.as_text right?)
+                           " " (inspection choice))
+                (text.enclosed ["{" "}"]))
 
-                     [..boolean? [(as .Bit) bit.as_text]]
-                     [..integer? [(as .Integer) %.integer]]
-                     [..real? [(as .Decimal) %.decimal]]
-                     [..string? [(as .Text) %.text]]
-                     ["scheme object nil?" [(pipe.new "()" [])]]
-                     [..vector? [(tuple_inspection inspection)]]))
+            else)
+          (when (..tuple it)
+            {try.#Success it}
+            (tuple_inspection inspection it)
 
-             (..pair? value)
-             (let [variant_tag (..car value)
-                   variant_rest (..cdr value)]
-               (if (and (..integer? variant_tag)
-                        (i.> +0 (as Integer variant_tag))
-                        (..pair? variant_rest))
-                 (let [variant_flag (..car variant_rest)
-                       variant_value (..cdr variant_rest)]
-                   (|> (%.message (|> variant_tag (as .Natural) %.natural)
-                                  " " (bit.as_text (not ("scheme object nil?" variant_flag)))
-                                  " " (inspection variant_value))
-                       (text.enclosed ["{" "}"])))
-                 (..format ["~s" value])))
+            else)
+          ... else
+          (for .jvm
+               (|> it
+                   (as java/lang/Object)
+                   (java/lang/Object::toString [])
+                   ffi.of_string)
 
-             ... else
-             (..format ["~s" value])
-             ))
-       ))
+               .js
+               (JSON::stringify it)
+
+               .python
+               (python_text it)
+
+               .lua
+               (lua_text it)
+
+               .ruby
+               (|> it
+                   (as ..Object)
+                   (Object::to_s []))
+
+               .php
+               (php_text it)
+
+               .scheme
+               (scheme_text ["~s" it])))))
 
 (exception.the .public (cannot_represent_value type)
   (Exception Type)
