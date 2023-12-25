@@ -1,5 +1,6 @@
 # Reference
 
+0. [CRDTs Turned Inside Out](https://interjectedfuture.com/crdts-turned-inside-out/)
 0. [Trade-offs between Different CRDTs](https://interjectedfuture.com/trade-offs-between-different-crdts/)
 0. [A Framework for Convergence](https://vlcn.io/articles/crdt-substrate)
 0. [You might not need a CRDT](https://driftingin.space/posts/you-might-not-need-a-crdt)
