@@ -26,6 +26,8 @@
 
 # Reference
 
+0. [Chicory Runtime](https://github.com/dylibso/chicory)
+   0. [A zero dependency Wasm runtime for the JVM](https://www.javaadvent.com/2023/12/chicory-wasm-jvm.html)
 0. [The best WebAssembly runtime may be no runtime at all](https://00f.net/2023/12/11/webassembly-compilation-to-c/)
 0. [just-in-time code generation within webassembly](https://wingolog.org/archives/2022/08/18/just-in-time-code-generation-within-webassembly)
 0. [TeaVM: Build Fast, Modern Web Apps in Java](https://teavm.org/)
