@@ -51,13 +51,13 @@
 0. Notation for 2-adic numbers (as a sibling to `Rev`)
    * [Mathematicians Use Numbers Differently From The Rest of Us](https://www.youtube.com/watch?v=tRaq4aYPzCc)
    * [Fractions and p-adic numbers | Real numbers and limits Math Foundations 90 | N J Wildberger](https://www.youtube.com/watch?v=XXRwlo_MHnI)
-0. Have alternative arithmetic operators for `Frac`(tion) that do not
+0. Have alternative arithmetic operators for `Fraction` that do not
  normalize the result after the operation (`+'`, `-'`, `*'`, `/'`).
    * Normalization would obfuscate [an interesting fact about working with infinity](https://youtu.be/pE01mIrsw74?list=PL5A714C94D40392AB&t=1010).
    * ^ Which is: (infinity + point) == (infinity / point) == (infinity * (/ point))
    * It may also obfusface the possibility that there are multiple infinities (and multiple zeroes) which may be equivalente to one another, but not necessarily equal.
    * Such inequality may prove useful in some calculations, but it would be erased during normalization (leading to ambiguities).
-0. Have a special rules for `Frac`(tion)/`Rat`(ional) multiplication that says:
+0. Have a special rules for `Fraction`/`Rational` multiplication that says:
    * `a/b * b/c = a/c` && `a/b * c/a = c/b` && `a/b * c/d = ac/bd`.
    * The above rule can make `a/0 * 0/b = a/b` and `0/a * b/0 = b/a`, bypassing any possibility for `0/0`.
    * It may also make the de-normalized zeroes and infinities carry useful information, instead of losing it through normalization.
@@ -65,6 +65,7 @@
 0. Replace the usages of single-use variables with the expressions they are bound to, in order to eliminate unnecessary register allocations.
 0. Polytypic Binary format machinery.
 0. Go from having I32 variant tags to I8 tags.
+   0. Make the JVM compiler use `Byte`s instead of `Integer`s for storing variant/sum tags/lefts.
 0. Implement extensible pattern-matching in the compiler, guided by the experiment in `control/pattern`.
 0. Dissolve `math/random` into the rest of the standard library.
 0. Dissolve `injection/.../text` into the rest of the standard library.
@@ -88,7 +89,6 @@
 0. `N/D` native parser syntax for `Fraction` numbers.
 0. `(+|-)N/D` native parser syntax for `Rational` numbers.
 0. Allow producing JVM artifacts without source-tracking/debugging information.
-0. Make the JVM compiler use `Byte`s instead of `Integer`s for storing variant/sum tags/lefts.
 0. [multithreading: a tiny runtime that allows you to execute JavaScript functions on separate threads](https://github.com/W4G1/multithreading)
 
 ## Done

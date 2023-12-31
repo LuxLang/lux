@@ -434,7 +434,7 @@ Called by `imenu--generic-function'."
 							extension
 							definition
 							;; ;;;;;;;;;;;;;;;;;;;;;;
-							"undefined" "symbol"
+							"undefined"
 							"for"
 							"io"
 							"infix"

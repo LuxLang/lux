@@ -1,7 +1,6 @@
 ... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 ... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-... [Fraction](https://en.wikipedia.org/wiki/Fraction)
 (.using
  [library
   [lux (.except natural)
@@ -15,12 +14,13 @@
     ["<>" projection]
     ["[0]" maybe]
     ["[0]" error]
-    ["[0]" try (.only Try)]
+    ["[0]" try (.only Try) (.use "[1]#[0]" functor)]
     [function
      [predicate (.only Predicate)]]]
    [data
     ["[0]" text (.use "[1]#[0]" monoid)]]
    [meta
+    ["[0]" location]
     ["[0]" code
      ["<[1]>" \\projection (.only Projection)]]
     [macro
@@ -30,8 +30,10 @@
   ["//" natural (.use "[1]#[0]" base_10)]
   ["[0]" decimal]
   [//
+   ["[0]" unit]
    [arithmetic (.only Arithmetic)]]])
 
+... [Fraction](https://en.wikipedia.org/wiki/Fraction)
 (every .public Fraction
   (Record
    [#numerator Natural
@@ -195,17 +197,6 @@
        {.#None}
        {.#Left (text#composite "Invalid syntax for fraction: " input)}))))
 
-(template.with [<identity> <composite> <name>]
-  [(the .public <name>
-     (Monoid It)
-     (implementation
-      (the identity (..fraction <identity>))
-      (the composite <composite>)))]
-  
-  [0 ..+ addition]
-  [1 ..* multiplication]
-  )
-
 (the .public zero
   It
   [#numerator 0
@@ -215,6 +206,40 @@
   It
   [#numerator 1
    #denominator 1])
+
+(template.with [,name <test>]
+  [(the .public (,name left right)
+     (-> It It
+         It)
+     (if (<test> right left)
+       left
+       right))]
+
+  [min ..<]
+  [max ..>]
+  )
+
+(the .public biggest
+  It
+  (..fraction (of //.interval top)))
+
+(the .public smallest
+  It
+  (..reciprocal ..biggest))
+
+(template.with [,identity ,composite ,name]
+  [(the .public ,name
+     (Monoid It)
+     (implementation
+      (the identity ,identity)
+      (the composite ,composite)))]
+  
+  [..zero ..+ addition]
+  [..one ..* multiplication]
+
+  [..biggest ..min minimum]
+  [..smallest ..max maximum]
+  )
 
 (template.with [<numerator> <fraction>]
   [(the .public <fraction>
@@ -258,3 +283,56 @@
       Decimal)
   (decimal./ (//.decimal (its #denominator it))
              (//.decimal (its #numerator it))))
+
+(the .public cannot_project
+  Error
+  (location.with (location.here)
+    "Cannot project."))
+
+(template.with [<format> <as> <of> ,unit]
+  [(the .public <as>
+     (-> It
+         It)
+     (* (..fraction (its unit.#factor ,unit))))
+   
+   (the .public <of>
+     (-> It
+         It)
+     (/ (..fraction (its unit.#factor ,unit))))
+   
+   (the .public <format>
+     (Format Text It)
+     (let [suffix (its unit.#suffix ,unit)]
+       (implementation
+        (the injection
+          (|>> <as>
+               ..whole
+               ..natural
+               (try.else 0)
+               (of //.base_10 injection)
+               (text.suffix suffix)))
+
+        (the (projection it)
+          (when (text.split_by suffix it)
+            {.#Some [it ""]}
+            (|> it
+                (of //.base_10 projection)
+                (try#each (|>> ..fraction <of>)))
+            
+            _
+            {try.#Failure ..cannot_project})))))]
+
+  [degree as_degree of_degree unit.degree]
+  [gradian as_gradian of_gradian unit.gradian]
+  [percentage as_percentage of_percentage unit.percentage]
+  [permille as_permille of_permille unit.permille]
+  [permyriad as_permyriad of_permyriad unit.permyriad]
+  )
+
+(the .public (approximately? margin_of_error standard value)
+  (-> It It It
+      Bit)
+  (..< margin_of_error
+       (if (..< standard value)
+         (..- value standard)
+         (..- standard value))))
