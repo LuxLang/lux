@@ -15,6 +15,7 @@
 
 ## To Do
 
+0. Allow producing JVM artifacts without source-tracking/debugging information.
 0. [The Design and Implementation of an Extensible System Meta-Programming Language](https://arxiv.org/abs/2309.15416)
 0. [HasChor: Functional Choreographic Programming for All (Functional Pearl)](https://arxiv.org/abs/2303.00924)
 0. Compile `not`-like pattern-matching with `~` in languages/targets which support it, instead of compiling them as `if`s.
@@ -88,7 +89,6 @@
 0. Unary `-` and `/` for numbers that feature inverses.
 0. `N/D` native parser syntax for `Fraction` numbers.
 0. `(+|-)N/D` native parser syntax for `Rational` numbers.
-0. Allow producing JVM artifacts without source-tracking/debugging information.
 0. [multithreading: a tiny runtime that allows you to execute JavaScript functions on separate threads](https://github.com/W4G1/multithreading)
 
 ## Done

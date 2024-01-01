@@ -3,7 +3,7 @@
 
 (.using
  [library
-  [lux (.except Type Label)
+  [lux (.except Type)
    ["[0]" ffi (.only import)]
    [abstract
     [equivalence (.only Equivalence)]
@@ -15,7 +15,8 @@
     ["[0]" function]
     ["[0]" io]
     ["[0]" maybe]
-    ["[0]" try]
+    ["[0]" try (.only Try)]
+    ["[0]" exception]
     [concurrency
      ["[0]" atom]]]
    [data
@@ -60,7 +61,7 @@
     ["[0]" name]
     ["[0]" signed]
     ["[0]" unsigned]]
-   ["[1]" bytecode (.only Label Bytecode) (.use "[1]#[0]" monad)
+   ["[1]" bytecode (.only Bytecode) (.use "[1]#[0]" monad)
     ["[1][0]" instruction]
     ["[0]" environment]]
    ["[0]" type (.only Type)
@@ -80,7 +81,8 @@
    ["[1][0]" tag]
    ["[1][0]" utf8]
    ["[1][0]" class]
-   ["[1][0]" name_and_type]]])
+   ["[1][0]" name_and_type]
+   ["[1][0]" reference]]])
 
 (the method_modifier
   (all /modifier#composite
@@ -1315,7 +1317,7 @@
   (do random.monad
     [expected ..$Long::random
      dummy ..$Long::random
-     .let [if! (is (-> (-> Label (Bytecode Any)) (Bytecode Any) (Random Bit))
+     .let [if! (is (-> (-> /.Label (Bytecode Any)) (Bytecode Any) (Random Bit))
                    (function (_ instruction prelude)
                      (<| (..bytecode ((!::= java/lang/Long .jvm_long_=#) expected))
                          (do /.monad
@@ -1373,7 +1375,7 @@
   (do random.monad
     [expected ..$Long::random
      dummy ..$Long::random
-     .let [jump (is (-> (-> Label (Bytecode Any)) (Random Bit))
+     .let [jump (is (-> (-> /.Label (Bytecode Any)) (Random Bit))
                     (function (_ goto)
                       (<| (..bytecode ((!::= java/lang/Long .jvm_long_=#) expected))
                           (do /.monad
@@ -1387,12 +1389,68 @@
                              _ (/.set_label @value)
                              _ (..$Long::literal expected)
                              _ (/.set_label @end)]
-                            ..$Long::wrap))))]]
+                            ..$Long::wrap))))
+           value (let [method (type.method [(list) (list) (type.class (list) "java.lang.Object") (list)])]
+                   (is (for_any (_ of)
+                         (-> (Bytecode of)
+                             (Try of)))
+                       (function (_ it)
+                         (do try.monad
+                           [environment (environment.static method)
+                            [pool [_ _ _ _ it]] ((/.resolve environment it) pool.empty)]
+                           (in it)))))]]
     (<| (_.for [/.Label
                 /.new_label /.set_label])
         (all _.and
-             (..coverage [/.goto] (jump /.goto))
-             (..coverage [/.goto_w] (jump /.goto_w))))))
+             (..coverage [/.goto]
+               (jump /.goto))
+             (..coverage [/.goto_w]
+               (jump /.goto_w))
+             (_.coverage [/.set?]
+               (|> (do /.monad
+                     [@it /.new_label
+                      _ (/.set_label @it)]
+                     (/.set? @it))
+                   value
+                   (match? {try.#Success _})))
+             (_.coverage [/.unset_label]
+               (|> (do /.monad
+                     [@it /.new_label
+                      _ (/.goto @it)]
+                     (in false))
+                   value
+                   (exception.when /.unset_label
+                     (function.constant true))
+                   (exception.otherwise
+                    (function.constant false))))
+             (_.coverage [/.unknown_label]
+               (let [@it (|> /.new_label
+                             value
+                             (try.else (undefined)))]
+                 (|> (do /.monad
+                       [it (/.set? @it)]
+                       (in (|> (do try.monad
+                                 [_ it]
+                                 (in false))
+                               (exception.when /.unknown_label
+                                 (function.constant true))
+                               (exception.otherwise
+                                (function.constant false)))))
+                     value
+                     (exception.otherwise
+                      (function.constant false)))))
+             (_.coverage [/.label_has_already_been_set]
+               (|> (do /.monad
+                     [@it /.new_label
+                      _ (/.set_label @it)
+                      _ (/.set_label @it)]
+                     (in false))
+                   value
+                   (exception.when /.label_has_already_been_set
+                     (function.constant true))
+                   (exception.otherwise
+                    (function.constant false))))
+             ))))
 
 (the switch
   Test
@@ -1455,7 +1513,7 @@
     [expected ..$Long::random
      dummy ..$Long::random
      exception ..$String::random]
-    (<| (..coverage [/.athrow])
+    (<| (..coverage [/.try /.athrow])
         (..bytecode ((!::= java/lang/Long .jvm_long_=#) expected))
         (do /.monad
           [.let [$Exception (type.class (list) "java.lang.Exception")]
@@ -1680,4 +1738,5 @@
            /utf8.test
            /class.test
            /name_and_type.test
+           /reference.test
            )))
