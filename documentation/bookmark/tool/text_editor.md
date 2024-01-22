@@ -193,6 +193,7 @@
 
 ## General
 
+0. [Byte Positions Are Better Than Line Numbers](https://www.computerenhance.com/p/byte-positions-are-better-than-line)
 0. [Lesser Known Terminal Editors](https://codeberg.org/CoopCoding/Lesser-Known-Terminal-Editors)
 0. [Gamut: The Idea Editor](https://gamut.ink/)
 0. [How to Build a Text Editor With Java](https://www.youtube.com/playlist?list=PLIRBoI92yManB1eHCupZ6iG61qMTA9hWe)

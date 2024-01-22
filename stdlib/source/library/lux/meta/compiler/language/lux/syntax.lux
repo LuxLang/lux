@@ -29,7 +29,7 @@
 ... location, which is helpful for documentation and debugging.
 (.using
  [library
-  [lux (.except prelude)
+  [lux (.except)
    [abstract
     [monad (.only do)]]
    [control
@@ -56,7 +56,9 @@
      ["n" natural]
      ["[0]" integer]
      ["[0]" revolution]
-     ["[0]" decimal]]]]])
+     ["[0]" decimal]
+     ["[0]" fraction]
+     ["[0]" rational]]]]])
 
 (the declaration_name
   (syntax.macro (_ [[name parameters] (<code>.form (<>.and <code>.any (<>.some <code>.any)))])
@@ -84,16 +86,13 @@
 ... producing the locations only involved building them, without any need
 ... for pattern-matching and de-structuring.
 
-(every Character
-  Natural)
-
 (template.with [<extension> <diff> <name>]
   [(the <name>
      (template.macro (_ value)
        [(<extension> <diff> value)]))]
 
-  [.i64_+# 1 !++]
-  [.i64_+# 2 !++/2]
+  [.i64_+# 1 after]
+  [.i64_+# 2 after/2]
   [.i64_-# 1 !--]
   )
 
@@ -125,9 +124,6 @@
 (the .public no_aliases
   Aliases
   (dictionary.empty text.hash))
-
-(the .public prelude
-  .prelude)
 
 (the .public text_delimiter text.double_quote)
 
@@ -229,13 +225,13 @@
 (the !horizontal
   (template.macro (_ where offset source_code)
     [[(revised .#column ++ where)
-      (!++ offset)
+      (after offset)
       source_code]]))
 
 (inlined (!new_line where)
   (-> Location Location)
   (let [[where::file where::line where::column] where]
-    [where::file (!++ where::line) 0]))
+    [where::file (after where::line) 0]))
 
 (inlined (!forward length where)
   (-> Natural Location Location)
@@ -245,18 +241,18 @@
 (the !vertical
   (template.macro (_ where offset source_code)
     [[(!new_line where)
-      (!++ offset)
+      (after offset)
       source_code]]))
 
 (template.with [<name> <close> <tag>]
   [(inlined (<name> parse where offset source_code)
      (-> (Projection Code) Location Offset Text
          (Either [Source Text] [Source Code]))
-     (loop (again [source (is Source [(!forward 1 where) offset source_code])
-                   stack (is (List Code) {.#End})])
+     (loop (<name> [source (is Source [(!forward 1 where) offset source_code])
+                    stack (is (List Code) {.#End})])
        (when (parse source)
          {.#Right [source' top]}
-         (again source' {.#Item top stack})
+         (<name> source' {.#Item top stack})
          
          {.#Left [source' error]}
          (if (same? <close> error)
@@ -278,22 +274,22 @@
        {.#None}
        body
 
-       g!_
+       '_
        {.#Left [[where offset source_code]
                 (exception.error ..text_cannot_contain_new_lines content)]})]))
 
 (the (text_projection where offset source_code)
   (-> Location Offset Text (Either [Source Text] [Source Code]))
   (when (.text_index# offset (static ..text_delimiter) source_code)
-    {.#Some g!end}
-    (<| (let [g!content (!clip offset g!end source_code)])
-        (!guarantee_no_new_lines where offset source_code g!content)
-        {.#Right [[(let [size (!n/- offset g!end)]
+    {.#Some 'end}
+    (<| (let ['content (!clip offset 'end source_code)])
+        (!guarantee_no_new_lines where offset source_code 'content)
+        {.#Right [[(let [size (!n/- offset 'end)]
                      (revised .#column (|>> (!n/+ size) (!n/+ 2)) where))
-                   (!++ g!end)
+                   (after 'end)
                    source_code]
                   [where
-                   {.#Text g!content}]]})
+                   {.#Text 'content}]]})
     
     _
     (!failure ..text_projection where offset source_code)))
@@ -349,6 +345,23 @@
                                @then)]))))
   )
 
+(the !value_output
+  (template.macro (_ ,where <source_code> <start> <end> <format>)
+    [(when (|> <source_code>
+               (!clip <start> <end>)
+               (text.replaced ..digit_separator "")
+               (of <format> projection))
+       {.#Right output}
+       {.#Right [[(let [[where::file where::line where::column] ,where]
+                    [where::file where::line (!n/+ (!n/- <start> <end>) where::column)])
+                  <end>
+                  <source_code>]
+                 output]}
+       
+       {.#Left error}
+       {.#Left [[,where <start> <source_code>]
+                error]})]))
+
 (the !number_output
   (template.macro (_ <source_code> <start> <end> <format> <tag>)
     [(when (|> <source_code>
@@ -374,6 +387,7 @@
                 <decimal_output> (these (!number_output source_code start end decimal.base_10 .#Decimal))
                 <failure> (!failure ..decimal_projection where offset source_code)
                 <decimal_separator> (static ..decimal_separator)
+                ,rational_separator (static rational.separator)
                 <signs> (template.with [<sign>]
                           [(,, (static <sign>))]
 
@@ -386,11 +400,11 @@
                          exponent (static ..no_exponent)])
              (<| (!with_character+ source_code//size source_code end character/0 <decimal_output>)
                  (!if_digit?+ character/0
-                              (again (!++ end) exponent)
+                              (again (after end) exponent)
 
                               [["e" "E"]
                                (if (same? (static ..no_exponent) exponent)
-                                 (<| (!with_character+ source_code//size source_code (!++ end) character/1 <failure>)
+                                 (<| (!with_character+ source_code//size source_code (after end) character/1 <failure>)
                                      (`` (.when_char# character/1
                                                       [[<signs>]
                                                        (<| (!with_character+ source_code//size source_code (!n/+ 2 end) character/2 <failure>)
@@ -404,42 +418,94 @@
 
                               <decimal_output>))))
 
+         (inlined (as_rational where numerator denominator)
+           (-> Location Integer Natural
+               Code)
+           [where {.#Form (list [where {.#Symbol [.prelude rational.extension]}]
+                                [where {.#Integer numerator}]
+                                [where {.#Natural denominator}])}])
+
+         (inlined (rational numerator source_code//size denominator_start where source_code)
+           (-> Integer Natural Natural Location Text
+               (Either [Source Text] [Source Code]))
+           (<| (!letE [[where' denominator_end _] denominator] (..natural_projection source_code//size denominator_start where denominator_start source_code))
+               {.#Right [[where' denominator_end source_code]
+                         (as_rational where numerator denominator)]}))
+
          (inlined (signed_projection source_code//size start where offset source_code)
            (-> Natural Natural Location Offset Text
                (Either [Source Text] [Source Code]))
            (loop (again [end offset])
              (<| (!with_character+ source_code//size source_code end character <integer_output>)
                  (!if_digit?+ character
-                              (again (!++ end))
+                              (again (after end))
 
                               [[<decimal_separator>]
-                               (decimal_projection source_code//size start where (!++ end) source_code)]
+                               (decimal_projection source_code//size start where (after end) source_code)
 
-                              <integer_output>)))))
-  )
+                               [,rational_separator]
+                               (!letE [_ numerator] (..!value_output where source_code start end integer.base_10)
+                                      (..rational numerator source_code//size (after end) where source_code))]
+
+                              <integer_output>))))
+         ))
 
 (template.with [<projection> <format> <tag>]
   [(inlined (<projection> source_code//size start where offset source_code)
      (-> Natural Natural Location Offset Text
          (Either [Source Text] [Source Code]))
-     (loop (again [g!end offset])
-       (<| (!with_character+ source_code//size source_code g!end g!character (!number_output source_code start g!end <format> <tag>))
-           (!if_digit?+ g!character
-                        (again (!++ g!end))
+     (loop (<projection> ['end offset])
+       (<| (!with_character+ source_code//size source_code 'end 'character (!number_output source_code start 'end <format> <tag>))
+           (!if_digit?+ 'character
+                        (<projection> (after 'end))
                         []
-                        (!number_output source_code start g!end <format> <tag>)))))]
+                        (!number_output source_code start 'end <format> <tag>)))))]
 
-  [natural_projection n.base_10 .#Natural]
   [revolution_projection revolution.base_10 .#Revolution]
   )
 
+(inlined (natural_projection source_code//size start where offset source_code)
+  (-> Natural Natural Location Offset Text
+      (Either [Source Text] [Source Nat]))
+  (loop (next ['end offset])
+    (<| (!with_character+ source_code//size source_code 'end 'character (!value_output where source_code start 'end n.base_10))
+        (!if_digit?+ 'character
+                     (next (after 'end))
+                     []
+                     (!value_output where source_code start 'end n.base_10)))))
+
+(inlined (as_fraction where numerator denominator)
+  (-> Location Natural Natural
+      Code)
+  [where {.#Form (list [where {.#Symbol [.prelude fraction.extension]}]
+                       [where {.#Natural numerator}]
+                       [where {.#Natural denominator}])}])
+
+(inlined (fraction numerator source_code//size denominator_start where source_code)
+  (-> Natural Natural Natural Location Text
+      (Either [Source Text] [Source Code]))
+  (<| (!letE [[where' denominator_end _] denominator] (..natural_projection source_code//size denominator_start where denominator_start source_code))
+      {.#Right [[where' denominator_end source_code]
+                (as_fraction where numerator denominator)]}))
+
+(inlined (positive source_code//size start where offset source_code)
+  (-> Natural Natural Location Offset Text
+      (Either [Source Text] [Source Code]))
+  (<| (!letE [[where' numerator_end _] numerator] (..natural_projection source_code//size start where offset source_code))
+      (expansion.let [,natural (!number_output source_code start numerator_end n.base_10 .#Natural)])
+      (!with_character source_code numerator_end potential_separator ,natural)
+      (if (!n/= (`` (character (,, (static fraction.separator))))
+                potential_separator)
+        (..fraction numerator source_code//size (after numerator_end) where' source_code)
+        ,natural)))
+
 (the !signed_projection
   (template.macro (_ source_code//size offset where source_code @aliases @end)
-    [(<| (let [g!offset/1 (!++ offset)])
-         (!with_character+ source_code//size source_code g!offset/1 g!character/1 @end)
-         (!if_digit? g!character/1
-                     (signed_projection source_code//size offset where (!++/2 offset) source_code)
-                     (!full_symbol_projection offset [where (!++ offset) source_code] where @aliases .#Symbol)))]))
+    [(<| (let ['offset/1 (after offset)])
+         (!with_character+ source_code//size source_code 'offset/1 'character/1 @end)
+         (!if_digit? 'character/1
+                     (signed_projection source_code//size offset where (after/2 offset) source_code)
+                     (!full_symbol_projection offset [where (after offset) source_code] where @aliases .#Symbol)))]))
 
 (expansion.let [<output> {.#Right [[(revised .#column (|>> (!n/+ (!n/- start end))) where)
                                     end
@@ -452,13 +518,13 @@
       (loop (again [end offset])
         (<| (!with_character+ source_code//size source_code end character <output>)
             (!if_symbol_character?|tail character
-                                        (again (!++ end))
+                                        (again (after end))
                                         <output>))))))
 
 (the !half_symbol_projection
   (template.macro (_ @offset @character @module)
     [(!if_symbol_character?|head @character
-                                 (!letE [source' symbol] (..symbol_part_projection @offset (!forward 1 where) (!++ @offset) source_code)
+                                 (!letE [source' symbol] (..symbol_part_projection @offset (!forward 1 where) (after @offset) source_code)
                                         {.#Right [source' [@module symbol]]})
                                  (!failure ..!half_symbol_projection where @offset source_code))]))
 
@@ -467,11 +533,11 @@
       (<| (!with_character+ source_code//size source_code offset/0 character/0
                             (!end_of_file where offset/0 source_code current_module))
           (if (!n/= (character (,, (static ..symbol_separator))) character/0)
-            (<| (let [offset/1 (!++ offset/0)])
+            (<| (let [offset/1 (after offset/0)])
                 (!with_character+ source_code//size source_code offset/1 character/1
                                   (!end_of_file where offset/1 source_code current_module))
                 (!half_symbol_projection offset/1 character/1 current_module))
-            (!half_symbol_projection offset/0 character/0 (static ..prelude))))))
+            (!half_symbol_projection offset/0 character/0 (static .prelude))))))
 
 (the !short_symbol_projection
   (template.macro (_ source_code//size @current_module @source @where @tag)
@@ -486,7 +552,7 @@
             (let [[where' offset' source_code'] source'])
             (!with_character source_code' offset' character/separator <simple>)
             (if (!n/= (character (,, (static ..symbol_separator))) character/separator)
-              (<| (let [offset'' (!++ offset')])
+              (<| (let [offset'' (after offset')])
                   (!letE [source'' complex] (..symbol_part_projection offset'' (!forward 1 where') offset'' source_code'))
                   (if (.text_=# "" complex)
                     (let [[where offset source_code] source]
@@ -507,9 +573,9 @@
 ...   (grammar [expression "..."]
 ...            [form "(" [#* expression] ")"]))
 
-(expansion.let [<consume_1> (these where (!++ offset/0) source_code)
-                <move_1> (these [(!forward 1 where) (!++ offset/0) source_code])
-                <move_2> (these [(!forward 1 where) (!++/2 offset/0) source_code])
+(expansion.let [<consume_1> (these where (after offset/0) source_code)
+                <move_1> (these [(!forward 1 where) (after offset/0) source_code])
+                <move_2> (these [(!forward 1 where) (after/2 offset/0) source_code])
                 <again> (these (parse current_module aliases source_code//size))]
 
   (these (the !close
@@ -518,8 +584,8 @@
 
          (the (bit_syntax value [where offset/0 source_code])
            (-> Bit (Projection Code))
-           {.#Right [[(revised .#column (|>> !++/2) where)
-                      (!++/2 offset/0)
+           {.#Right [[(revised .#column (|>> after/2) where)
+                      (after/2 offset/0)
                       source_code]
                      [where {.#Bit value}]]})
          
@@ -556,22 +622,22 @@
 
                                        ... Text
                                        [(,, (static ..text_delimiter))]
-                                       (text_projection where (!++ offset/0) source_code)
+                                       (text_projection where (after offset/0) source_code)
 
                                        ... Coincidentally (= ..symbol_separator ..decimal_separator)
                                        [(,, (static ..symbol_separator))
                                         ... (,, (static ..decimal_separator))
                                         ]
                                        ... It's either a Revolution, a symbol, or a comment.
-                                       (expansion.let [<revolution_projection> (revolution_projection source_code//size offset/0 where (!++ offset/1) source_code)
+                                       (expansion.let [<revolution_projection> (revolution_projection source_code//size offset/0 where (after offset/1) source_code)
                                                        <short_symbol_projection> (!short_symbol_projection source_code//size current_module [where offset/1 source_code] where .#Symbol)
-                                                       <comment_projection> (when (.text_index# (!++ offset/1) (static text.new_line) source_code)
+                                                       <comment_projection> (when (.text_index# (after offset/1) (static text.new_line) source_code)
                                                                               {.#Some end}
                                                                               (again (!vertical where end source_code))
                                                                               
                                                                               _
                                                                               (!end_of_file where offset/1 source_code current_module))]
-                                         (<| (let [offset/1 (!++ offset/0)])
+                                         (<| (let [offset/1 (after offset/0)])
                                              (!with_character+ source_code//size source_code offset/1 character/1
                                                                (!end_of_file where offset/1 source_code current_module))
                                              (!if_digit? character/1
@@ -581,7 +647,7 @@
                                                          (.when_char# character/1
                                                                       [[(,, (static ..symbol_separator))]
                                                                        ... It's either a symbol, or a comment.
-                                                                       (<| (let [offset/2 (!++ offset/1)])
+                                                                       (<| (let [offset/2 (after offset/1)])
                                                                            (!with_character+ source_code//size source_code offset/2 character/2
                                                                                              (!end_of_file where offset/2 source_code current_module))
                                                                            (.when_char# character/2
@@ -599,7 +665,7 @@
                                                            (!end_of_file where offset/0 source_code current_module))
 
                                        [(,, (static ..sigil))]
-                                       (<| (let [offset/1 (!++ offset/0)])
+                                       (<| (let [offset/1 (after offset/0)])
                                            (!with_character+ source_code//size source_code offset/1 character/1
                                                              (!end_of_file where offset/1 source_code current_module))
                                            (.when_char# character/1
@@ -616,7 +682,7 @@
                                       ... else
                                       (!if_digit? character/0
                                                   ... Natural number
-                                                  (natural_projection source_code//size offset/0 where (!++ offset/0) source_code)
+                                                  (..positive source_code//size offset/0 where (after offset/0) source_code)
                                                   ... Symbol
                                                   (!full_symbol_projection offset/0 [<consume_1>] where aliases .#Symbol))
                                       )))

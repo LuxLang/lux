@@ -1,5 +1,6 @@
 # Reference
 
+0. [NO2DIGITALID](https://bigbrotherwatch.org.uk/campaigns/no2digitalid/)
 0. [Choose your browser carefully](https://www.unixsheikh.com/articles/choose-your-browser-carefully.html)
 0. ["Demystifying Privacy Preserving Computing" by Tejas Chopra (Strange Loop 2022)](https://www.youtube.com/watch?v=10Qj0eYqbuo)
 0. [Mullvad Browser](https://mullvad.net/en/browser)

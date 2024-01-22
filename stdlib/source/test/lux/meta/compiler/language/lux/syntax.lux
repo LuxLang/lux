@@ -2,82 +2,87 @@
 ... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 (.using
- [lux (.except)
-  [abstract/monad (.only do)]
-  [data
-   ["%" text/injection]
-   [number
-    ["n" natural]]]
-  ["r" math/random (.only Random) (.use "[1]#[0]" monad)]
-  [control
-   ["[0]" try]
-   [projection
-    ["l" text]]]
-  [data
-   ["[0]" text]
-   [collection
-    ["[0]" list]
-    ["[0]" dictionary (.only Dictionary)]]]
-  [meta
-   ["[0]" code]
-   ["[0]" location]
-   ["[0]" symbol]]
-  [test
-   ["_" property (.only Test)]]]
- [\\
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]]
+   [data
+    ["[0]" text (.only)
+     ["%" \\injection]]
+    [collection
+     ["[0]" dictionary]]]
+   [math
+    ["[0]" random (.only Random) (.use "[1]#[0]" functor)]
+    [number
+     ["n" natural]
+     ["[0]" fraction (.only)
+      ["[1]T" \\test]]
+     ["[0]" rational (.only)
+      ["[1]T" \\test]]]]
+   [meta
+    ["[0]" code]
+    ["[0]" location]
+    ["[0]" symbol]]
+   [test
+    ["_" property (.only Test)]]]]
+ [\\library
   ["[0]" /]])
 
 (the symbol_part^
   (Random Text)
-  (do [! r.monad]
-    [size (|> r.natural (of ! each (|>> (n.% 20) (n.max 1))))]
-    (r.lower_case_alpha size)))
+  (do [! random.monad]
+    [size (|> random.natural (of ! each (|>> (n.% 20) (n.max 1))))]
+    (random.lower_cased size)))
 
 (the symbol^
   (Random Symbol)
-  (r.and symbol_part^ symbol_part^))
+  (random.and symbol_part^
+              symbol_part^))
 
 (the code^
   (Random Code)
   (let [numeric^ (is (Random Code)
-                     (all r.either
-                          (|> r.bit (r#each code.bit))
-                          (|> r.natural (r#each code.natural))
-                          (|> r.integer (r#each code.integer))
-                          (|> r.revolution (r#each code.revolution))
-                          (|> r.unit_decimal (r#each code.decimal))))
+                     (all random.either
+                          (|> random.bit (random#each code.bit))
+                          (|> random.natural (random#each code.natural))
+                          (|> random.integer (random#each code.integer))
+                          (|> random.revolution (random#each code.revolution))
+                          (|> random.unit_decimal (random#each code.decimal))
+                          ))
         textual^ (is (Random Code)
-                     (all r.either
-                          (do r.monad
-                            [size (|> r.natural (r#each (n.% 20)))]
-                            (|> (r.upper_case_alpha size) (r#each code.text)))
-                          (|> symbol^ (r#each code.symbol))
-                          (|> symbol^ (r#each code.tag))))
+                     (all random.either
+                          (do random.monad
+                            [size (|> random.natural (random#each (n.% 20)))]
+                            (|> (random.upper_cased size) (random#each code.text)))
+                          (|> symbol^ (random#each code.symbol))
+                          ))
         simple^ (is (Random Code)
-                    (all r.either
+                    (all random.either
                          numeric^
-                         textual^))]
-    (r.rec
+                         textual^
+                         ))]
+    (random.rec
      (function (_ code^)
-       (let [multi^ (do r.monad
-                      [size (|> r.natural (r#each (n.% 3)))]
-                      (r.list size code^))
+       (let [multi^ (is (Random (List Code))
+                        (do random.monad
+                          [size (|> random.natural (random#each (n.% 3)))]
+                          (random.list size code^)))
              composite^ (is (Random Code)
-                            (all r.either
-                                 (|> multi^ (r#each code.form))
-                                 (|> multi^ (r#each code.tuple))
-                                 (do r.monad
-                                   [size (|> r.natural (r#each (n.% 3)))]
-                                   (|> (r.list size (r.and code^ code^))
-                                       (r#each code.record)))))]
-         (all r.either
+                            (all random.either
+                                 (|> multi^ (random#each code.form))
+                                 (|> multi^ (random#each code.tuple))
+                                 ))]
+         (all random.either
               simple^
-              composite^))))))
+              composite^
+              ))))))
 
 (the code
   Test
-  (do [! r.monad]
-    [sample code^]
+  (do [! random.monad]
+    [sample code^
+     expected_fraction fractionT.random
+     expected_rational rationalT.random]
     (all _.and
          (_.test "Can parse Lux code."
            (when (let [source_code (code.as_text sample)]
@@ -107,24 +112,50 @@
                    {.#Right [_ =other]}
                    (and (of code.equivalence = sample =sample)
                         (of code.equivalence = other =other)))))))
+         (_.coverage [fraction.extension]
+           (when (let [source_code (of fraction.format injection expected_fraction)]
+                   (/.parse "" (dictionary.empty text.hash) (text.size source_code)
+                            [location.dummy 0 source_code]))
+             {.#Left _}
+             false
+
+             {.#Right [_ actual]}
+             (of code.equivalence =
+                 (` ((, (code.symbol [.prelude fraction.extension]))
+                     (, (code.natural (its fraction.#numerator expected_fraction)))
+                     (, (code.natural (its fraction.#denominator expected_fraction)))))
+                 actual)))
+         (_.coverage [rational.extension]
+           (when (let [source_code (of rational.format injection expected_rational)]
+                   (/.parse "" (dictionary.empty text.hash) (text.size source_code)
+                            [location.dummy 0 source_code]))
+             {.#Left _}
+             false
+
+             {.#Right [_ actual]}
+             (of code.equivalence =
+                 (` ((, (code.symbol [.prelude rational.extension]))
+                     (, (code.integer (its rational.#numerator expected_rational)))
+                     (, (code.natural (its rational.#denominator expected_rational)))))
+                 actual)))
          )))
 
 (the comment_text^
   (Random Text)
-  (let [character_gen (|> r.natural (r.only (|>> (n.= (`` (character (,, (static text.new_line))))) not)))]
-    (do r.monad
-      [size (|> r.natural (r#each (n.% 20)))]
-      (r.text character_gen size))))
+  (let [character_gen (|> random.natural (random.only (|>> (n.= (`` (character (,, (static text.new_line))))) not)))]
+    (do random.monad
+      [size (|> random.natural (random#each (n.% 20)))]
+      (random.text character_gen size))))
 
 (the comment^
   (Random Text)
-  (do r.monad
+  (do random.monad
     [comment comment_text^]
     (in (%.message "... " comment text.new_line))))
 
 (the comments
   Test
-  (do r.monad
+  (do random.monad
     [sample code^
      comment comment^]
     (all _.and
@@ -142,7 +173,7 @@
 
 (the .public test
   Test
-  (<| (_.context (symbol.module (symbol /._)))
+  (<| (_.covering /._)
       (all _.and
            ..code
            ..comments

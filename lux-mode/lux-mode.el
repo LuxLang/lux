@@ -348,18 +348,25 @@ Called by `imenu--generic-function'."
 (defconst lux-font-lock-keywords
   (eval-when-compile
 	(let* ((natural "[0-9][0-9,]*")
+
+		   (sign (altRE "-" "\\+"))
+		   (integer (concat sign natural))
+
+		   (decimal_separator "\\.")
+		   (revolution (concat decimal_separator natural))
+		   (decimal (concat integer revolution "\\(\\(e\\|E\\)" integer "\\)?"))
+
+		   (fraction_separator "/")
+		   (fraction (concat natural fraction_separator natural))
+		   (rational (concat integer fraction_separator natural))
+		   
 		   (identifier_h|label "#")
 		   (identifier_h|type "[:upper:]")
 		   ;; https://www.gnu.org/software/emacs/manual/html_node/elisp/Regexp-Special.html
 		   (identifier_t "][)(}{.\"[:space:]")
 		   (identifier_h (concat identifier_t "0-9"))
-		   (sign (altRE "-" "\\+"))
 		   (identifier (concat (-class identifier_h) (-class identifier_t) "*"))
-		   (integer (concat sign natural))
 		   (bitRE (literal (altRE "#0" "#1")))
-		   (natRE (literal natural))
-		   (int&decRE (literal (concat integer "\\(\\." natural "\\(\\(e\\|E\\)" integer "\\)?\\)?")))
-		   (revRE (literal (concat "\\." natural)))
 		   (specialRE (let (;; Control
 							(control//flow (altRE "when" "exec" "let" "loop" "do" "be"
 												  "if" "unless"))
@@ -455,9 +462,12 @@ Called by `imenu--generic-function'."
 		   (typeRE (concat global_prefix (+class identifier_h|type) (-class identifier_t) "*"))
 		   (labelRE (concat global_prefix (+class identifier_h|label) (-class identifier_t) "+"))
 		   (literalRE (altRE bitRE ;; Bit literals
-							 natRE ;; Nat literals
-							 int&decRE ;; Int literals && Dec literals
-							 revRE ;; Rev literals
+							 (literal natural)
+							 (literal integer)
+							 (literal revolution)
+							 (literal decimal)
+							 (literal fraction)
+							 (literal rational)
 							 )))
 	  `(;; Special forms
 		(,specialRE 1 font-lock-builtin-face)
