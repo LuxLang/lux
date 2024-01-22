@@ -87,12 +87,12 @@
 0. Replace the usage of .tar files in the compiler with a new (more consistent) archiving format. Both for packaging libraries and making cache files.
    * https://en.wikipedia.org/wiki/List_of_archive_formats
 0. Unary `-` and `/` for numbers that feature inverses.
-0. `N/D` native parser syntax for `Fraction` numbers.
-0. `(+|-)N/D` native parser syntax for `Rational` numbers.
 0. [multithreading: a tiny runtime that allows you to execute JavaScript functions on separate threads](https://github.com/W4G1/multithreading)
 
 ## Done
 
+0. [(Commit)](https://github.com/LuxLang/lux/commit/cc09e2f0ca62a412304a6a0b059e72e34c2ee1f5) `N/D` native parser syntax for `Fraction` numbers.
+0. [(Commit)](https://github.com/LuxLang/lux/commit/cc09e2f0ca62a412304a6a0b059e72e34c2ee1f5) `(+|-)N/D` native parser syntax for `Rational` numbers.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/036b40089a7dc43bb5c7878eeaf7cffe03241327) The `safe_decimal` random generator should produce `Decimal`s all over the range of safe values, instead of just the `[0, 1]` interval.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/4dacca8fe6c165afc5ef428aba728ed37b50be5f) Make the denominator in `Rational` a `Natural` number.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/6a61827dd52419181e549eee8348f112975dca3e) Fix stack-overflow error during TAR compression when trying to deploy with Aedifex.

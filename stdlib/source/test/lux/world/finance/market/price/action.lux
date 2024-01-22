@@ -1,0 +1,122 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]
+    ["[0]" equivalence
+     ["[1]T" \\test]]
+    ["[0]" order
+     ["[1]T" \\test]]]
+   [data
+    ["[0]" bit]
+    ["[0]" text (.only)
+     ["%" \\injection]]]
+   [math
+    ["[0]" random (.only Random)]
+    [number
+     ["n" natural]
+     ["i" integer]]]
+   [test
+    ["_" property (.only Test)]]]]
+ [\\library
+  ["[0]" / (.only)
+   ["/[1]" // (.only)
+    [///
+     ["[0]" money (.only)
+      ["[1]T" \\test]
+      ["[0]" currency (.only Currency)
+       ["[1]T" \\test]]]]]]])
+
+(the .public (random $ max_sub_units)
+  (for_any (_ $)
+    (-> (Currency $) Natural
+        (Random (/.Action $))))
+  (do random.monad
+    [from (moneyT.random $ max_sub_units)
+     to (moneyT.random $ max_sub_units)]
+    (in (/.action from to))))
+
+(the .public test
+  Test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [$ currencyT.random
+         
+         parameter (..random $ 1000,00)
+         subject (..random $ 1000,00)
+
+         from (moneyT.random $ 1000,00)
+         to (moneyT.random $ 1000,00)
+
+         not_free (moneyT.random $ 1000,00)
+
+         price (of ! each
+                   (|>> i.abs .natural (money.money $))
+                   random.integer)
+         .let [positive (/.action (//.free $)
+                                  price)
+               negative (/.action price
+                                  (//.free $))]])
+      (_.for [/.Action])
+      (all _.and
+           (_.for [/.equivalence /.=]
+                  (equivalenceT.spec /.equivalence (..random $ 1000,00)))
+           (_.for [/.order /.<]
+                  (orderT.spec /.order (..random $ 1000,00)))
+
+           (_.coverage [/.action /.currency /.ticks]
+             (let [it (/.action from to)]
+               (and (same? $ (/.currency it))
+                    (i.= (integer (n.- (money.amount from) (money.amount to)))
+                         (/.ticks it)))))
+           (_.coverage [/.+ /.-]
+             (and (|> subject
+                      (/.+ parameter)
+                      (of /.equivalence = subject)
+                      not)
+                  (|> subject
+                      (/.+ parameter)
+                      (/.- parameter)
+                      (of /.equivalence = subject))))
+           (_.coverage [/.min]
+             (and (/.<= parameter
+                        (/.min parameter subject))
+                  (/.<= subject
+                        (/.min parameter subject))))
+           (_.coverage [/.max]
+             (and (/.>= parameter
+                        (/.max parameter subject))
+                  (/.>= subject
+                        (/.max parameter subject))))
+           (_.coverage [/.>]
+             (bit.= (/.> parameter subject)
+                    (/.< subject parameter)))
+           (_.coverage [/.<= /.>=]
+             (bit.= (/.<= parameter subject)
+                    (/.>= subject parameter)))
+           (_.coverage [/.units /.sub_units
+                        /.of_units /.of_sub_units]
+             (/.= subject
+                  (/.+ (/.of_units $ (/.units subject))
+                       (/.of_sub_units $ (/.sub_units subject)))))
+           ... (do !
+           ...   [it (..random $ 1000,00)]
+           ...   (_.coverage [/.injection]
+           ...     (let [starts_with_quantity!
+           ...           (text.starts_with? (%.integer (/.ticks it))
+           ...                              (text.replaced_once "." "" (/.injection it)))
+
+           ...           ends_with_currency!
+           ...           (text.ends_with? (currency.alphabetic_code (/.currency it))
+           ...                            (/.injection it))]
+           ...       (and starts_with_quantity!
+           ...            ends_with_currency!))))
+           (_.coverage [/.none]
+             (and (/.< positive
+                       (/.none $))
+                  (/.> negative
+                       (/.none $))))
+           )))
