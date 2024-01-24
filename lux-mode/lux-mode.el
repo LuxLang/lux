@@ -347,18 +347,24 @@ Called by `imenu--generic-function'."
 ;; https://www.emacswiki.org/emacs/RegularExpression
 (defconst lux-font-lock-keywords
   (eval-when-compile
-	(let* ((natural "[0-9][0-9,]*")
+	(let* ((unit "[°g%‰‱]")
+
+		   (natural "[0-9][0-9,]*")
 
 		   (sign (altRE "-" "\\+"))
 		   (integer (concat sign natural))
 
 		   (decimal_separator "\\.")
 		   (revolution (concat decimal_separator natural))
-		   (decimal (concat integer revolution "\\(\\(e\\|E\\)" integer "\\)?"))
+		   (decimal (concat integer revolution
+							"\\(\\(e\\|E\\)" integer "\\)?"
+							unit "?"))
 
 		   (fraction_separator "/")
-		   (fraction (concat natural fraction_separator natural))
-		   (rational (concat integer fraction_separator natural))
+		   (fraction (altRE (concat natural fraction_separator natural)
+							(concat natural unit)))
+		   (rational (altRE (concat integer fraction_separator natural)
+							(concat integer unit)))
 		   
 		   (identifier_h|label "#")
 		   (identifier_h|type "[:upper:]")
