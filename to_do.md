@@ -44,11 +44,9 @@
 0. [CppCon 2018: “Multi-Precision Arithmetic for Cryptology in C++, at Run-Time and at Compile-Time”](https://www.youtube.com/watch?v=G33yF26UGMo)
 0. Safe numerics.
    * [CppCon 2018: Robert Ramey “Safe Numerics”](https://www.youtube.com/watch?v=93Cjg42bGEw)
-0. Get rid of the `.in_module#` extension. It can be replaced by a macro that piggy-backs on the existing `quoted_module` mechanism.
 0. Replace recursive type calls from `(0 "")` to `(0 0)`
 0. Extract the variable link-ring machinery being used by both the `control/logic` and `meta/type/check` modules into its own module.
 0. Implement type-level naming ([Ghosts of Dependent Proofs](https://kataskeue.com/gdp.pdf)-style), in order to give unique names to classes, to force distinctions between them beyond their state types.
-0. An anonymous type for un-tagged sums. E.g. `{3 #1 x}` = `(All (_ a b c d) (Or a b c (Or d (type_of x))))` && `{3 #0 x}` = `(All (_ a b c d) (Or a b c (Or (type_of x) d)))`
 0. Notation for 2-adic numbers (as a sibling to `Rev`)
    * [Mathematicians Use Numbers Differently From The Rest of Us](https://www.youtube.com/watch?v=tRaq4aYPzCc)
    * [Fractions and p-adic numbers | Real numbers and limits Math Foundations 90 | N J Wildberger](https://www.youtube.com/watch?v=XXRwlo_MHnI)
@@ -65,18 +63,12 @@
 0. Unify the handling of globals between extensions, analysis & declaration.
 0. Replace the usages of single-use variables with the expressions they are bound to, in order to eliminate unnecessary register allocations.
 0. Polytypic Binary format machinery.
-0. Go from having I32 variant tags to I8 tags.
+0. Go from having I32 variant tags to I08 tags.
    0. Make the JVM compiler use `Byte`s instead of `Integer`s for storing variant/sum tags/lefts.
 0. Implement extensible pattern-matching in the compiler, guided by the experiment in `control/pattern`.
 0. Dissolve `math/random` into the rest of the standard library.
 0. Dissolve `injection/.../text` into the rest of the standard library.
-0. Add `<`, `<=`, `>`, `>=` definitions to every module that has an `Order`.
-0. Optimize compilation of pattern-matching expressions like `(when <input> <literal> <then> _ <else>)` into if expressions that test the literal, instead of full-blown pattern-matching.
-   * Add `if_i64` & `if_f64` & `if_text` synthesis `Term`s.
 0. Inject the type-names of the different primitive types in the prelude using analysis extensions.
-0. Re-name `panic!` to `halt` in honor of the [halting problem](https://en.wikipedia.org/wiki/Halting_problem).
-0. Re-name `I8` to `I08`
-0. Unsafe text module.
 0. Eta-conversion in the synthesis phase for inlining/code-fusion optimizations.
 0. Add special `origin` parameter to `Exception`s in order to track from which definition they came, in order to disambiguate between multiple possible origins.
 0. Allow inline functions to be partially applied.
@@ -88,9 +80,17 @@
    * https://en.wikipedia.org/wiki/List_of_archive_formats
 0. Unary `-` and `/` for numbers that feature inverses.
 0. [multithreading: a tiny runtime that allows you to execute JavaScript functions on separate threads](https://github.com/W4G1/multithreading)
+0. Optimize compilation of pattern-matching expressions like `(when <input> <literal> <then> _ <else>)` into if expressions that test the literal, instead of full-blown pattern-matching.
+   * Add `if_i64` & `if_f64` & `if_text` synthesis `Term`s.
+0. Get rid of the `.in_module#` extension. It can be replaced by a macro that piggy-backs on the existing `quoted_module` mechanism.
+0. An anonymous type for un-tagged sums. E.g. `{3 #1 x}` = `(All (_ a b c d) (Or a b c (Or d (type_of x))))` && `{3 #0 x}` = `(All (_ a b c d) (Or a b c (Or (type_of x) d)))`
+0. Unsafe text module.
 
 ## Done
 
+0. Add `<`, `<=`, `>`, `>=` definitions to every module that has an `Order`.
+0. Re-name `panic!` to `halt!` in honor of the [halting problem](https://en.wikipedia.org/wiki/Halting_problem).
+0. Re-name `I8` to `I08`
 0. [(Commit)](https://github.com/LuxLang/lux/commit/cc09e2f0ca62a412304a6a0b059e72e34c2ee1f5) `N/D` native parser syntax for `Fraction` numbers.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/cc09e2f0ca62a412304a6a0b059e72e34c2ee1f5) `(+|-)N/D` native parser syntax for `Rational` numbers.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/036b40089a7dc43bb5c7878eeaf7cffe03241327) The `safe_decimal` random generator should produce `Decimal`s all over the range of safe values, instead of just the `[0, 1]` interval.
