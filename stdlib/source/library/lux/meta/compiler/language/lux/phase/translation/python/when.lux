@@ -207,120 +207,106 @@
        ..restore!
        post!))
 
-(the (primitive_pattern_matching again pathP)
-  (-> (-> Path (Operation Statement))
-      (-> Path (Operation (Maybe Statement))))
-  (`` (.when pathP
-        {synthesis.#Bit_Fork when thenP elseP}
-        (do [! phase.monad]
-          [then! (again thenP)
-           else! (.when elseP
-                   {.#Some elseP}
-                   (again elseP)
-
-                   {.#None}
-                   (in ..fail_pm!))]
-          (in {.#Some (.if when
-                        (_.if ..peek
-                          then!
-                          else!)
-                        (_.if ..peek
-                          else!
-                          then!))}))
-
-        (,, (template.with [<tag> <injection>]
-              [{<tag> item}
-               (do [! phase.monad]
-                 [clauses (monad.each ! (function (_ [match then])
-                                          (of ! each
-                                              (|>> [(_.= (|> match <injection>)
-                                                         ..peek)])
-                                              (again then)))
-                                      {.#Item item})]
-                 (in {.#Some (list#mix (function (_ [when then] else)
-                                         (_.if when then else))
-                                       ..fail_pm!
-                                       clauses)}))]
-
-              [synthesis.#I64_Fork (<| //primitive.i64 .integer)]
-              [synthesis.#F64_Fork (<| //primitive.f64)]
-              [synthesis.#Text_Fork (<| //primitive.text)]))
-
-        _
-        (of phase.monad in {.#None}))))
-
 (the (pattern_matching' in_closure? statement expression archive)
   (-> Bit Phase! Phase Archive Path (Operation Statement))
   (function (again pathP)
-    (do [! phase.monad]
-      [?output (primitive_pattern_matching again pathP)]
-      (.when ?output
-        {.#Some output}
-        (in output)
+    (`` (.when pathP
+          {synthesis.#Then bodyS}
+          (statement expression archive bodyS)
 
-        {.#None}
-        (`` (.when pathP
-              {synthesis.#Then bodyS}
-              (statement expression archive bodyS)
+          {synthesis.#Pop}
+          (phase#in ..pop!)
 
-              {synthesis.#Pop}
-              (phase#in ..pop!)
+          {synthesis.#Bind register}
+          (phase#in (_.set (list (..register register)) ..peek))
 
-              {synthesis.#Bind register}
-              (phase#in (_.set (list (..register register)) ..peek))
+          {synthesis.#Bit_Fork when thenP elseP}
+          (do [! phase.monad]
+            [then! (again thenP)
+             else! (.when elseP
+                     {.#Some elseP}
+                     (again elseP)
 
-              (,, (template.with [<complex> <simple> <choice>]
-                    [(<complex> idx)
-                     (phase#in (<choice> false idx))
+                     {.#None}
+                     (in ..fail_pm!))]
+            (in (.if when
+                  (_.if ..peek
+                    then!
+                    else!)
+                  (_.if ..peek
+                    else!
+                    then!))))
 
-                     (<simple> idx nextP)
-                     (|> nextP
-                         again
-                         (phase#each (_.then (<choice> true idx))))]
+          (,, (template.with [<tag> <injection>]
+                [{<tag> item}
+                 (do [! phase.monad]
+                   ['input (phase#each _.var (/////translation.symbol "input"))
+                    clauses (monad.each ! (function (_ [when then])
+                                            (of ! each (|>> [when]) (again then)))
+                                        {.#Item item})]
+                   (in (all _.then
+                            (_.set (list 'input) ..peek)
+                            (list#mix (function (_ [when then] else)
+                                        (_.if (_.= (<injection> when)
+                                                   'input)
+                                          then
+                                          else))
+                                      ..fail_pm!
+                                      (list.reversed clauses)))))]
 
-                    [synthesis.side/left  synthesis.simple_left_side  ..left_choice]
-                    [synthesis.side/right synthesis.simple_right_side ..right_choice]))
+                [synthesis.#I64_Fork //primitive.i64]
+                [synthesis.#F64_Fork //primitive.f64]
+                [synthesis.#Text_Fork //primitive.text]))
 
-              (synthesis.member/left 0)
-              (phase#in (|> ..peek (_.item (_.int +0)) ..push!))
-              
-              (,, (template.with [<pm> <getter>]
-                    [(<pm> lefts)
-                     (phase#in (|> ..peek (<getter> (_.int (.integer lefts))) ..push!))]
+          (,, (template.with [<complex> <simple> <choice>]
+                [(<complex> idx)
+                 (phase#in (<choice> false idx))
 
-                    [synthesis.member/left  //runtime.tuple::left]
-                    [synthesis.member/right //runtime.tuple::right]))
+                 (<simple> idx nextP)
+                 (|> nextP
+                     again
+                     (phase#each (_.then (<choice> true idx))))]
 
-              (synthesis.!bind_top register thenP)
-              (do !
-                [then! (again thenP)]
-                (phase#in (all _.then
-                               (_.set (list (..register register)) ..peek_and_pop)
-                               then!)))
+                [synthesis.side/left  synthesis.simple_left_side  ..left_choice]
+                [synthesis.side/right synthesis.simple_right_side ..right_choice]))
 
-              (synthesis.!multi_pop nextP)
-              (.let [[extra_pops nextP'] (when.count_pops nextP)]
-                (do !
-                  [next! (again nextP')]
-                  (phase#in (all _.then
-                                 (..multi_pop! (n.+ 2 extra_pops))
-                                 next!))))
+          (synthesis.member/left 0)
+          (phase#in (|> ..peek (_.item (_.int +0)) ..push!))
+          
+          (,, (template.with [<pm> <getter>]
+                [(<pm> lefts)
+                 (phase#in (|> ..peek (<getter> (_.int (.integer lefts))) ..push!))]
 
-              (synthesis.path/seq preP postP)
-              (do !
-                [pre! (again preP)
-                 post! (again postP)]
-                (in (_.then pre! post!)))
+                [synthesis.member/left  //runtime.tuple::left]
+                [synthesis.member/right //runtime.tuple::right]))
 
-              (synthesis.path/alt preP postP)
-              (do !
-                [pre! (again preP)
-                 post! (again postP)
-                 'once (phase#each _.var (/////translation.symbol "once"))]
-                (in (..alternation in_closure? 'once pre! post!)))
+          (synthesis.!bind_top register thenP)
+          (do [! phase.monad]
+            [then! (again thenP)]
+            (phase#in (all _.then
+                           (_.set (list (..register register)) ..peek_and_pop)
+                           then!)))
 
-              _
-              (undefined)))))))
+          (synthesis.!multi_pop nextP)
+          (.let [[extra_pops nextP'] (when.count_pops nextP)]
+            (do [! phase.monad]
+              [next! (again nextP')]
+              (phase#in (all _.then
+                             (..multi_pop! (n.+ 2 extra_pops))
+                             next!))))
+
+          (synthesis.path/seq preP postP)
+          (do [! phase.monad]
+            [pre! (again preP)
+             post! (again postP)]
+            (in (_.then pre! post!)))
+
+          (synthesis.path/alt preP postP)
+          (do [! phase.monad]
+            [pre! (again preP)
+             post! (again postP)
+             'once (phase#each _.var (/////translation.symbol "once"))]
+            (in (..alternation in_closure? 'once pre! post!)))))))
 
 (the (pattern_matching in_closure? statement expression archive pathP)
   (-> Bit Phase! Phase Archive Path (Operation Statement))
@@ -414,4 +400,48 @@
 
   [or _.or]
   [and _.and]
+  )
+
+(template.with [,expression ,statement ,type ,injection]
+  [(the .public (,statement statement expression archive [input clauses else])
+     (Translator! [synthesis.Term (List [,type synthesis.Term]) synthesis.Term])
+     (do [! phase.monad]
+       [input (expression archive input)
+        'input (phase#each _.var (/////translation.symbol "input"))
+        clauses (monad.each ! (function (_ [when then])
+                                (of ! each (|>> [when]) (statement expression archive then)))
+                            clauses)
+        else (statement expression archive else)]
+       (in (all _.then
+                (_.set (list 'input) input)
+                (list#mix (function (_ [when then] else)
+                            (_.if (_.= (,injection when)
+                                       'input)
+                              then
+                              else))
+                          else
+                          (list.reversed clauses))))))
+
+   (the .public (,expression expression archive [input clauses else])
+     (Translator [synthesis.Term (List [,type synthesis.Term]) synthesis.Term])
+     (do [! phase.monad]
+       [input (expression archive input)
+        'input (phase#each _.var (/////translation.symbol "input"))
+        clauses (monad.each ! (function (_ [when then])
+                                (of ! each (|>> [when]) (expression archive then)))
+                            clauses)
+        else (expression archive else)]
+       (in (|> (list#mix (function (_ [when then] else)
+                           (_.? (_.= (,injection when)
+                                     'input)
+                                then
+                                else))
+                         else
+                         (list.reversed clauses))
+               (_.lambda (list 'input))
+               (_.apply (list input))))))]
+
+  [when_i64 when_i64! I64 //primitive.i64]
+  [when_f64 when_f64! F64 //primitive.f64]
+  [when_text when_text! Text //primitive.text]
   )

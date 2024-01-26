@@ -80,17 +80,17 @@
    * https://en.wikipedia.org/wiki/List_of_archive_formats
 0. Unary `-` and `/` for numbers that feature inverses.
 0. [multithreading: a tiny runtime that allows you to execute JavaScript functions on separate threads](https://github.com/W4G1/multithreading)
-0. Optimize compilation of pattern-matching expressions like `(when <input> <literal> <then> _ <else>)` into if expressions that test the literal, instead of full-blown pattern-matching.
-   * Add `if_i64` & `if_f64` & `if_text` synthesis `Term`s.
 0. Get rid of the `.in_module#` extension. It can be replaced by a macro that piggy-backs on the existing `quoted_module` mechanism.
 0. An anonymous type for un-tagged sums. E.g. `{3 #1 x}` = `(All (_ a b c d) (Or a b c (Or d (type_of x))))` && `{3 #0 x}` = `(All (_ a b c d) (Or a b c (Or (type_of x) d)))`
 0. Unsafe text module.
 
 ## Done
 
-0. Add `<`, `<=`, `>`, `>=` definitions to every module that has an `Order`.
-0. Re-name `panic!` to `halt!` in honor of the [halting problem](https://en.wikipedia.org/wiki/Halting_problem).
-0. Re-name `I8` to `I08`
+0. Optimize compilation of pattern-matching expressions like `(when <input> <literal> <then> _ <else>)` into if expressions that test the literal, instead of full-blown pattern-matching.
+   * Add `if_i64` & `if_f64` & `if_text` synthesis `Term`s.
+0. [(Commit)](https://github.com/LuxLang/lux/commit/68bccd4f87fe514cadc4437447c121e3177646bf) Add `<`, `<=`, `>`, `>=` definitions to every module that has an `Order`.
+0. [(Commit)](https://github.com/LuxLang/lux/commit/68bccd4f87fe514cadc4437447c121e3177646bf) Re-name `panic!` to `halt!` in honor of the [halting problem](https://en.wikipedia.org/wiki/Halting_problem).
+0. [(Commit)](https://github.com/LuxLang/lux/commit/68bccd4f87fe514cadc4437447c121e3177646bf) Re-name `I8` to `I08`
 0. [(Commit)](https://github.com/LuxLang/lux/commit/cc09e2f0ca62a412304a6a0b059e72e34c2ee1f5) `N/D` native parser syntax for `Fraction` numbers.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/cc09e2f0ca62a412304a6a0b059e72e34c2ee1f5) `(+|-)N/D` native parser syntax for `Rational` numbers.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/036b40089a7dc43bb5c7878eeaf7cffe03241327) The `safe_decimal` random generator should produce `Decimal`s all over the range of safe values, instead of just the `[0, 1]` interval.

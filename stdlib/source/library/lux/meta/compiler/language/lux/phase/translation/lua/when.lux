@@ -235,21 +235,24 @@
           (,, (template.with [<tag> <injection>]
                 [{<tag> item}
                  (do [! phase.monad]
-                   [clauses (monad.each ! (function (_ [match then])
+                   ['input (phase#each _.var (/////translation.symbol "input"))
+                    clauses (monad.each ! (function (_ [match then])
                                             (do !
                                               [then! (again then)]
-                                              (in [(_.= (|> match <injection>)
-                                                        ..peek)
+                                              (in [(_.= (<injection> match)
+                                                        'input)
                                                    then!])))
                                         {.#Item item})]
-                   (in (list#mix (function (_ [when then!] else!)
-                                   (_.if when then! else!))
-                                 ..fail!
-                                 clauses)))]
+                   (in (all _.then
+                            (_.local/1 'input ..peek)
+                            (list#mix (function (_ [when then!] else!)
+                                        (_.if when then! else!))
+                                      ..fail!
+                                      (list.reversed clauses)))))]
 
-                [synthesis.#I64_Fork (<| _.int .integer)]
-                [synthesis.#F64_Fork _.float]
-                [synthesis.#Text_Fork _.string]))
+                [synthesis.#I64_Fork //primitive.i64]
+                [synthesis.#F64_Fork //primitive.f64]
+                [synthesis.#Text_Fork //primitive.text]))
 
           (,, (template.with [<complex> <simple> <choice>]
                 [(<complex> idx)
@@ -347,7 +350,8 @@
              body))))
 
 (the .public (multi_let statement expression archive)
-  (-> Phase! (Translator synthesis.Multi_Let))
+  (-> Phase!
+      (Translator synthesis.Multi_Let))
   (|>> (multi_let! statement expression archive)
        (phase#each (|>> (_.closure (list))
                         (_.apply (list))))))
@@ -362,4 +366,36 @@
 
   [or _.or]
   [and _.and]
+  )
+
+(template.with [,expression ,statement ,type ,injection]
+  [(the .public (,statement statement expression archive [input clauses else])
+     (Translator! [synthesis.Term (List [,type synthesis.Term]) synthesis.Term])
+     (do [! phase.monad]
+       [input (expression archive input)
+        'input (phase#each _.var (/////translation.symbol "input"))
+        clauses (monad.each ! (function (_ [when then])
+                                (of ! each (|>> [when]) (statement expression archive then)))
+                            clauses)
+        else (statement expression archive else)]
+       (in (all _.then
+                (_.local/1 'input input)
+                (list#mix (function (_ [when then] else)
+                            (_.if (_.= (,injection when)
+                                       'input)
+                              then
+                              else))
+                          else
+                          (list.reversed clauses))))))
+
+   (the .public (,expression statement expression archive)
+     (-> Phase!
+         (Translator [synthesis.Term (List [,type synthesis.Term]) synthesis.Term]))
+     (|>> (,statement statement expression archive)
+          (phase#each (|>> (_.closure (list))
+                           (_.apply (list))))))]
+
+  [when_i64 when_i64! I64 //primitive.i64]
+  [when_f64 when_f64! F64 //primitive.f64]
+  [when_text when_text! Text //primitive.text]
   )

@@ -4,7 +4,8 @@
 (.using
  [library
   [lux (.except Type Label
-                if let exec when its)
+                let exec when its
+                if or and)
    [abstract
     ["[0]" monad (.only do)]]
    [data
@@ -28,6 +29,7 @@
   ["[1][0]" runtime (.only Operation Phase Translator)]
   ["[1][0]" value]
   ["[1][0]" complex]
+  ["[1][0]" primitive]
   [////
    ["[0]" phase (.use "[1]#[0]" monad)]
    ["[0]" translation]
@@ -54,12 +56,6 @@
   (-> (I64 Any)
       (Bytecode Any))
   (|>> .i64 i32.i32 _.int))
-
-(the long
-  (-> (I64 Any)
-      (Bytecode Any))
-  (|>> .integer
-       _.long))
 
 (the peek
   (Bytecode Any)
@@ -94,7 +90,7 @@
        (..int lefts)
        //runtime.right_projection))
 
-(the equals@Object
+(the object_equals
   (.let [class (type.class (list) "java.lang.Object")
          method (type.method [(list) (list //type.value) type.boolean (list)])]
     (_.invokevirtual class "equals" method)))
@@ -152,15 +148,15 @@
                          (all _.composite
                               <pop>
                               (_.goto @else))
-                         {.#Item cons})]
+                         (list.reversed {.#Item cons}))]
        (in (all _.composite
                 ..peek
                 <unwrap>
                 fork!))))]
 
-  [i64_pattern_matching (I64 Any) (//value.primitive type.long) _.dup2 _.pop2 ..long _.lcmp _.ifne]
-  [f64_pattern_matching Decimal (//value.primitive type.double) _.dup2 _.pop2 _.double _.dcmpl _.ifne]
-  [text_pattern_matching Text (of _.monad in []) _.dup _.pop _.string ..equals@Object _.ifeq]
+  [i64_pattern_matching I64 (//value.primitive type.long) _.dup2 _.pop2 //primitive.i64' _.lcmp _.ifne]
+  [f64_pattern_matching F64 (//value.primitive type.double) _.dup2 _.pop2 //primitive.f64' _.dcmpl _.ifne]
+  [text_pattern_matching Text (of _.monad in []) _.dup _.pop //primitive.text ..object_equals _.ifeq]
   )
 
 (the (optimized_pattern_matching pattern_matching it)
@@ -283,26 +279,6 @@
                       ))
              ))))
 
-(the .public (if expression archive [testS thenS elseS])
-  (Translator [synthesis.Term synthesis.Term synthesis.Term])
-  (do phase.monad
-    [test! (expression archive testS)
-     then! (expression archive thenS)
-     else! (expression archive elseS)]
-    (in (do _.monad
-          [@else _.new_label
-           @end _.new_label]
-          (all _.composite
-               test!
-               (//value.primitive type.boolean)
-               (_.ifeq @else)
-               then!
-               (_.when_continuous (_.goto @end))
-               (_.set_label @else)
-               else!
-               (<| (_.when_acknowledged @end)
-                   (_.set_label @end)))))))
-
 (the .public (exec expression archive [this that])
   (Translator (synthesis.Exec synthesis.Term))
   (do phase.monad
@@ -369,3 +345,64 @@
                        bindings)
              _.pop
              body))))
+
+(the .public (if expression archive [testS thenS elseS])
+  (Translator [synthesis.Term synthesis.Term synthesis.Term])
+  (do phase.monad
+    [test! (expression archive testS)
+     then! (expression archive thenS)
+     else! (expression archive elseS)]
+    (in (do _.monad
+          [@else _.new_label
+           @end _.new_label]
+          (all _.composite
+               test!
+               (//value.primitive type.boolean)
+               (_.ifeq @else)
+               then!
+               (_.when_continuous (_.goto @end))
+               (_.set_label @else)
+               else!
+               (<| (_.when_acknowledged @end)
+                   (_.set_label @end)))))))
+
+(template.with [,name ,type ,un_box ,literal ,dup ,pop ,comparison ,if]
+  [(the .public (,name expression archive [input cases else])
+     (Translator [synthesis.Term (List [,type synthesis.Term]) synthesis.Term])
+     (do [! phase.monad]
+       [input (expression archive input)
+        cases (monad.each ! (function (_ [when then])
+                              (of ! each
+                                  (|>> [when])
+                                  (expression archive then)))
+                          cases)
+        else (expression archive else)]
+       (in (do [! _.monad]
+             [@end _.new_label]
+             (all _.composite
+                  input
+                  ,un_box
+                  (list#mix (function (_ [when then] else)
+                              (do [! _.monad]
+                                [@else _.new_label]
+                                (all _.composite
+                                     ,dup
+                                     (,literal when)
+                                     ,comparison
+                                     (,if @else)
+                                     ,pop
+                                     then
+                                     (_.when_continuous (_.goto @end))
+                                     (_.set_label @else)
+                                     else)))
+                            (all _.composite
+                                 ,pop
+                                 else
+                                 (<| (_.when_acknowledged @end)
+                                     (_.set_label @end)))
+                            (list.reversed cases)))))))]
+
+  [when_i64 I64 (//value.primitive type.long) //primitive.i64' _.dup2 _.pop2 _.lcmp _.ifne]
+  [when_f64 F64 (//value.primitive type.double) //primitive.f64' _.dup2 _.pop2 _.dcmpl _.ifne]
+  [when_text Text (in []) //primitive.text _.dup _.pop ..object_equals _.ifeq]
+  )
