@@ -86,7 +86,7 @@
 
 ## Done
 
-0. Optimize compilation of pattern-matching expressions like `(when <input> <literal> <then> _ <else>)` into if expressions that test the literal, instead of full-blown pattern-matching.
+0. [(Commit)](https://github.com/LuxLang/lux/commit/f53ef960bad9b5e9b1374a8b32485f1e3b4073b9) Optimize compilation of pattern-matching expressions like `(when <input> <literal> <then> _ <else>)` into if expressions that test the literal, instead of full-blown pattern-matching.
    * Add `if_i64` & `if_f64` & `if_text` synthesis `Term`s.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/68bccd4f87fe514cadc4437447c121e3177646bf) Add `<`, `<=`, `>`, `>=` definitions to every module that has an `Order`.
 0. [(Commit)](https://github.com/LuxLang/lux/commit/68bccd4f87fe514cadc4437447c121e3177646bf) Re-name `panic!` to `halt!` in honor of the [halting problem](https://en.wikipedia.org/wiki/Halting_problem).
