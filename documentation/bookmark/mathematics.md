@@ -1,10 +1,10 @@
 # Reference
 
+0. [Lists of Open Problems](https://amathr.org/problems/)
 0. [The L-functions and modular forms database (LMFDB)](https://www.lmfdb.org/)
 
 # Logarithm
 
-0. []()
 0. [Logarithm: The Complete Guide (Theory & Applications)](https://mathvault.ca/logarithm-theory/)
 
 # Ball arithmetic
