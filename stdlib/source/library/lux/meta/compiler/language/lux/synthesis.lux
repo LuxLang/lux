@@ -107,16 +107,6 @@
    [#input of
     #output (Path' of)]))
 
-(every .public (Its of)
-  (Record
-   [#path (List Member)
-    #source of]))
-
-(every .public (Branch of)
-  (Variant
-   {#Its (Its of)}
-   {#When (When of)}))
-
 (every .public (Scope s)
   (Record
    [#start Register
@@ -133,11 +123,11 @@
    {#Abstraction (Abstraction' s)}
    {#Apply (Apply' s)}))
 
-(every .public (Control s)
+(every .public (Control of)
   (Variant
-   {#Branch (Branch s)}
-   {#Loop (Loop s)}
-   {#Function (Function s)}))
+   {#When (When of)}
+   {#Loop (Loop of)}
+   {#Function (Function of)}))
 
 (expansion.let [@ ($ (Term' $))]
   (every .public (Term' $)
@@ -298,6 +288,13 @@
   [foreign  reference.foreign]
   )
 
+(the .public when
+  (template.macro (<name> <@> content)
+    [(.<| [<@>]
+          {..#Control}
+          {..#When}
+          content)]))
+
 (template.with [<name> <family> <tag>]
   [(the .public <name>
      (template.macro (<name> <@> content)
@@ -306,9 +303,6 @@
              {<family>}
              {<tag>}
              content)]))]
-
-  [when        ..#Branch   ..#When]
-  [its         ..#Branch   ..#Its]
 
   [again       ..#Loop     ..#Again]
   [scope       ..#Loop     ..#Scope]
@@ -405,17 +399,9 @@
             (%.message (injection func) " ")
             (text.enclosed ["(" ")"])))
 
-      {#Branch branch}
-      (.when branch
-        {#Its members record}
-        (|> (%.message (%.list (%path' injection)
-                               (list#each (|>> {/access.#Member} {#Access}) members))
-                       " " (injection record))
-            (text.enclosed ["{#get " "}"]))
-        
-        {#When input path}
-        (|> (%.message (injection input) " " (%path' injection path))
-            (text.enclosed ["{#when " "}"])))
+      {#When input path}
+      (|> (%.message (injection input) " " (%path' injection path))
+          (text.enclosed ["{#when " "}"]))
       
       {#Loop loop}
       (.when loop
@@ -541,46 +527,14 @@
            (n.* 29 (by super hash body))
            )))))
 
-(the (branch_equivalence (open "/#[0]"))
+(the (when_equivalence (open "/#[0]"))
   (for_any (_ of)
     (-> (Equivalence of)
-        (Equivalence (Branch of))))
+        (Equivalence (When of))))
   (implementation
-   (the (= expected actual)
-     (.when [expected actual]
-       [{#Its [expected_path expected_record]}
-        {#Its [actual_path actual_record]}]
-       (.and (by (list.equivalence /member.equivalence) = expected_path actual_path)
-             (/#= expected_record actual_record))
-       
-       [{#When [expected_input expected_path]}
-        {#When [actual_input actual_path]}]
-       (.and (/#= expected_input actual_input)
-             (by (path'_equivalence /#=) = expected_path actual_path))
-       
-       _
-       false))))
-
-(the (branch_hash super)
-  (for_any (_ of)
-    (-> (Hash of)
-        (Hash (Branch of))))
-  (implementation
-   (the equivalence
-     (..branch_equivalence (by super equivalence)))
-   
-   (the (hash value)
-     (.when value
-       {#Its [path record]}
-       (all n.* 7
-            (by (list.hash /member.hash) hash path)
-            (by super hash record))
-       
-       {#When [input path]}
-       (all n.* 11
-            (by super hash input)
-            (by (..path'_hash super) hash path))
-       ))))
+   (the (= [expected_input expected_path] [actual_input actual_path])
+     (.and (/#= expected_input actual_input)
+           (by (path'_equivalence /#=) = expected_path actual_path)))))
 
 (the (loop_equivalence (open "/#[0]"))
   (for_any (_ of)
@@ -676,7 +630,7 @@
                  [[{<tag> expected} {<tag> actual}]
                   (by (<equivalence> /#=) = expected actual)]
 
-                 [#Branch ..branch_equivalence]
+                 [#When ..when_equivalence]
                  [#Loop ..loop_equivalence]
                  [#Function ..function_equivalence]))
            
@@ -693,11 +647,15 @@
 
    (the (hash value)
      (`` (.when value
+           {#When [input path]}
+           (all n.* 2
+                (by super hash input)
+                (by (..path'_hash super) hash path))
+           
            (,, (template.with [<factor> <tag> <hash>]
                  [{<tag> value}
                   (n.* <factor> (by (<hash> super) hash value))]
 
-                 [2 #Branch ..branch_hash]
                  [3 #Loop ..loop_hash]
                  [5 #Function ..function_hash]))
            )))))
@@ -875,7 +833,6 @@
   (template.macro (_ ,@ ,register ,value ,body)
     [(<| [,@]
          {..#Control}
-         {..#Branch}
          {..#When}
          [..#input ,value
           ..#output]
@@ -908,7 +865,6 @@
   (template.macro (_ ,@ ,before ,after)
     [(<| [,@]
          {..#Control}
-         {..#Branch}
          {..#When}
          [..#input ,before
           ..#output]
@@ -924,3 +880,36 @@
 
     _
     [(list) after]))
+
+(every .public Its
+  (Record
+   [#its_path (List Member)
+    #its_source Term]))
+
+(the .public (its [source pattern_matching])
+  (-> (When Term)
+      (Maybe Its))
+  (loop (its [path (is (List Member)
+                       (list))
+              pattern_matching pattern_matching])
+    (.when pattern_matching
+      (<| {#Seq {#Access {/access.#Member member}}}
+          {#Seq {#Pop}}
+          tail)
+      (its path tail)
+
+      (<| {#Seq {#Access {/access.#Member member}}}
+          {#Seq {#Bind expected}}
+          {#Then (..local @ actual)})
+      (.if (n.= expected actual)
+        {.#Some [#its_path (list.reversed {.#Item member path})
+                 #its_source source]}
+        {.#None})
+
+      (<| {#Seq {#Access {/access.#Member member}}}
+          tail)
+      (its {.#Item member path}
+           tail)
+
+      _
+      {.#None})))
