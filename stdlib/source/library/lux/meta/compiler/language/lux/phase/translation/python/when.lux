@@ -22,9 +22,9 @@
      ["[0]" template]]
     [compiler
      [target
-      ["_" python (.only Expression SVar Statement)]]]]]]
+      ["_" python (.only SVar)]]]]]]
  ["[0]" //
-  ["[1][0]" runtime (.only Operation Phase Translator Phase! Translator!)]
+  ["[1][0]" runtime (.only Operation Phase Expression Phase! Statement)]
   ["[1][0]" reference]
   ["[1][0]" primitive]
   ["/[1]" //
@@ -60,7 +60,7 @@
 ... https://peps.python.org/pep-0572/
 ... https://docs.python.org/3/whatsnew/3.8.html
 (the .public (let expression archive [register valueS bodyS])
-  (Translator synthesis.Let)
+  (Expression synthesis.Let)
   (do phase.monad
     [valueO (expression archive valueS)
      bodyO (expression archive bodyS)]
@@ -69,7 +69,7 @@
             bodyO))))
 
 (the .public (let! statement expression archive [register valueS bodyS])
-  (Translator! synthesis.Let)
+  (Statement synthesis.Let)
   (do phase.monad
     [valueO (expression archive valueS)
      bodyO (statement expression archive bodyS)]
@@ -78,18 +78,18 @@
              bodyO))))
 
 (the .public (exec next archive it)
-  (Translator (synthesis.Exec synthesis.Term))
+  (Expression synthesis.Exec)
   (do [! phase.monad]
-    [.let [[tail after] (synthesis.flat_exec (its synthesis.#after it))]
+    [.let [[tail after] (synthesis.flat_exec (its synthesis.#exec_after it))]
      all_before (monad.each ! (next archive)
-                            (list.partial (its synthesis.#before it) tail))
+                            (list.partial (its synthesis.#exec_before it) tail))
      after (next archive after)]
     (in (_.item (_.int +1)
                 (_.tuple (list (_.tuple all_before)
                                after))))))
 
 (the .public (exec! statement expression archive [pre post])
-  (Translator! (synthesis.Exec synthesis.Term))
+  (Statement synthesis.Exec)
   (do phase.monad
     [pre (expression archive pre)
      post (statement expression archive post)]
@@ -98,7 +98,7 @@
              post))))
 
 (the .public (if expression archive [testS thenS elseS])
-  (Translator synthesis.If)
+  (Expression synthesis.If)
   (do phase.monad
     [testO (expression archive testS)
      thenO (expression archive thenS)
@@ -106,7 +106,7 @@
     (in (_.? testO thenO elseO))))
 
 (the .public (if! statement expression archive [testS thenS elseS])
-  (Translator! synthesis.If)
+  (Statement synthesis.If)
   (do phase.monad
     [test! (expression archive testS)
      then! (statement expression archive thenS)
@@ -122,7 +122,7 @@
    (_.int (.integer (its member.#lefts it)))))
 
 (the .public (get expression archive [pathP valueS])
-  (Translator [(List Member) synthesis.Term])
+  (Expression [(List Member) synthesis.Term])
   (do phase.monad
     [valueO (expression archive valueS)]
     (in (list#mix (function (_ side source)
@@ -135,39 +135,39 @@
 (the @temp (_.var "lux_pm_temp"))
 
 (the (push! value)
-  (-> Expression Statement)
+  (-> _.Expression _.Statement)
   (_.; (|> @cursor (_.do "append" (list value)))))
 
 (the peek_and_pop
-  Expression
+  _.Expression
   (|> @cursor (_.do "pop" (list))))
 
 (the pop!
-  Statement
+  _.Statement
   (_.; ..peek_and_pop))
 
 (the peek
-  Expression
+  _.Expression
   (_.item (_.int -1) @cursor))
 
 (the save!
-  Statement
+  _.Statement
   (.let [cursor (_.slice_from (_.int +0) @cursor)]
     (_.; (|> @savepoint (_.do "append" (list cursor))))))
 
 (the restore!
-  Statement
+  _.Statement
   (_.set (list @cursor) (|> @savepoint (_.do "pop" (list)))))
 
 (the fail_pm! _.break)
 
 (the (multi_pop! pops)
-  (-> Natural Statement)
+  (-> Natural _.Statement)
   (_.delete (_.slice_from (_.int (i.* -1 (.integer pops))) @cursor)))
 
 (template.with [<name> <flag>]
   [(the (<name> simple? idx)
-     (-> Bit Natural Statement)
+     (-> Bit Natural _.Statement)
      (all _.then
           (_.set (list @temp) (//runtime.sum::get ..peek <flag>
                                                   (|> idx .integer _.int)))
@@ -184,7 +184,7 @@
   )
 
 (the (with_looping in_closure? 'once body!)
-  (-> Bit SVar Statement Statement)
+  (-> Bit SVar _.Statement _.Statement)
   (.if in_closure?
     (_.while (_.bool true)
              body!
@@ -198,7 +198,7 @@
                   {.#Some _.continue}))))
 
 (the (alternation in_closure? 'once pre! post!)
-  (-> Bit SVar Statement Statement Statement)
+  (-> Bit SVar _.Statement _.Statement _.Statement)
   (all _.then
        (..with_looping in_closure? 'once
          (all _.then
@@ -208,7 +208,7 @@
        post!))
 
 (the (pattern_matching' in_closure? statement expression archive)
-  (-> Bit Phase! Phase Archive Path (Operation Statement))
+  (-> Bit Phase! Phase Archive Path (Operation _.Statement))
   (function (again pathP)
     (`` (.when pathP
           {synthesis.#Then bodyS}
@@ -309,7 +309,7 @@
             (in (..alternation in_closure? 'once pre! post!)))))))
 
 (the (pattern_matching in_closure? statement expression archive pathP)
-  (-> Bit Phase! Phase Archive Path (Operation Statement))
+  (-> Bit Phase! Phase Archive Path (Operation _.Statement))
   (do phase.monad
     [pattern_matching! (pattern_matching' in_closure? statement expression archive pathP)
      'once (phase#each _.var (/////translation.symbol "once"))]
@@ -332,7 +332,7 @@
                       (..capture register))))))
 
 (the .public (when! in_closure? statement expression archive [valueS pathP])
-  (-> Bit (Translator! [synthesis.Term Path]))
+  (-> Bit (Statement [synthesis.Term Path]))
   (do phase.monad
     [stack_init (expression archive valueS)
      pattern_matching! (pattern_matching in_closure? statement expression archive pathP)]
@@ -343,7 +343,7 @@
              ))))
 
 (the .public (when statement expression archive [valueS pathP])
-  (-> Phase! (Translator [synthesis.Term Path]))
+  (-> Phase! (Expression [synthesis.Term Path]))
   (do phase.monad
     [dependencies (cache.path_dependencies archive pathP)
      [[when_module when_artifact] pattern_matching!] (/////translation.with_new_context
@@ -360,7 +360,7 @@
     (in (_.apply @dependencies+ @when))))
 
 (the .public (multi_let! statement expression archive [input bindings body])
-  (Translator! synthesis.Multi_Let)
+  (Statement synthesis.Multi_Let)
   (do [! phase.monad]
     [input (expression archive input)
      body (statement expression archive body)
@@ -375,7 +375,7 @@
              body))))
 
 (the .public (multi_let expression archive [input bindings body])
-  (Translator synthesis.Multi_Let)
+  (Expression synthesis.Multi_Let)
   (do phase.monad
     [input (expression archive input)
      body (expression archive body)
@@ -392,7 +392,7 @@
 
 (template.with [,lux ,host]
   [(the .public (,lux expression archive [parameter subject])
-     (Translator [synthesis.Term synthesis.Term])
+     (Expression [synthesis.Term synthesis.Term])
      (do phase.monad
        [parameter (expression archive parameter)
         subject (expression archive subject)]
@@ -404,7 +404,7 @@
 
 (template.with [,expression ,statement ,type ,injection]
   [(the .public (,statement statement expression archive [input clauses else])
-     (Translator! [synthesis.Term (List [,type synthesis.Term]) synthesis.Term])
+     (Statement [synthesis.Term (List [,type synthesis.Term]) synthesis.Term])
      (do [! phase.monad]
        [input (expression archive input)
         'input (phase#each _.var (/////translation.symbol "input"))
@@ -423,7 +423,7 @@
                           (list.reversed clauses))))))
 
    (the .public (,expression expression archive [input clauses else])
-     (Translator [synthesis.Term (List [,type synthesis.Term]) synthesis.Term])
+     (Expression [synthesis.Term (List [,type synthesis.Term]) synthesis.Term])
      (do [! phase.monad]
        [input (expression archive input)
         'input (phase#each _.var (/////translation.symbol "input"))
