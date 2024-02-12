@@ -8,9 +8,7 @@
     ["[0]" monad (.only do)
      ["[1]T" \\test]]
     ["[0]" functor
-     ["[1]T" \\test (.only Injection Comparison)]]
-    ["[0]" apply
-     ["[1]T" \\test]]]
+     ["[1]T" \\test (.only Injection Comparison)]]]
    [control
     ["[0]" try (.only Try) (.use "[1]#[0]" functor)]]
    [data
@@ -186,6 +184,57 @@
                     (!expect (^.multi {try.#Success actual}
                                       (n.= expected actual))))
                 ))
+         (_.coverage [/.or]
+           (and (|> (/.or (by /.monad in expected)
+                          (is (Meta Natural)
+                              (/.failure expected_error)))
+                    (/.value expected_lux)
+                    (!expect (^.multi {try.#Success {.#Left actual}}
+                                      (n.= expected actual))))
+                (|> (/.or (is (Meta Natural)
+                              (/.failure expected_error))
+                          (by /.monad in expected))
+                    (/.value expected_lux)
+                    (!expect (^.multi {try.#Success {.#Right actual}}
+                                      (n.= expected actual))))
+                (|> (/.or (is (Meta Natural)
+                              (/.failure expected_error))
+                          (is (Meta Natural)
+                              (/.failure expected_error)))
+                    (/.value expected_lux)
+                    (!expect (^.multi {try.#Failure actual_error}
+                                      (text.= (location.with location.dummy expected_error)
+                                              actual_error))))
+                (|> (/.or (by /.monad in expected)
+                          (by /.monad in dummy))
+                    (/.value expected_lux)
+                    (!expect (^.multi {try.#Success {.#Left actual}}
+                                      (n.= expected actual))))
+                ))
+         (_.coverage [/.and]
+           (and (|> (/.and (by /.monad in expected)
+                           (is (Meta Natural)
+                               (/.failure expected_error)))
+                    (/.value expected_lux)
+                    (!expect {try.#Failure _}))
+                (|> (/.and (is (Meta Natural)
+                               (/.failure expected_error))
+                           (by /.monad in expected))
+                    (/.value expected_lux)
+                    (!expect {try.#Failure _}))
+                (|> (/.and (is (Meta Natural)
+                               (/.failure expected_error))
+                           (is (Meta Natural)
+                               (/.failure expected_error)))
+                    (/.value expected_lux)
+                    (!expect {try.#Failure _}))
+                (|> (/.and (by /.monad in expected)
+                           (by /.monad in dummy))
+                    (/.value expected_lux)
+                    (!expect (^.multi {try.#Success [actual actual_dummy]}
+                                      (and (same? expected actual)
+                                           (same? dummy actual_dummy)))))
+                ))
          (_.coverage [/.try]
            (and (|> (/.try (/.failure expected_error))
                     (/.value expected_lux)
@@ -221,26 +270,29 @@
      .let [type_context [.#ex_counter 0
                          .#var_counter 0
                          .#var_bindings (list)]
-           expected_lux [.#info            [.#target target
-                                            .#version version
-                                            .#mode {.#Build}
-                                            .#configuration (list)]
-                         .#source          [location.dummy 0 source_code]
-                         .#location         expected_location
-                         .#current_module  {.#Some expected_current_module}
-                         .#modules         (list)
-                         .#scopes          (list)
-                         .#type_context    type_context
-                         .#expected        {.#Some expected_type}
-                         .#seed            expected_seed
-                         .#scope_type_vars (list)
-                         .#extensions      []
-                         .#eval            (as (-> Type Code (Meta Any)) [])
-                         .#host            []]]]
+           expected_lux (is (-> (Maybe Type)
+                                Lux)
+                            (function (_ expected)
+                              [.#info            [.#target target
+                                                  .#version version
+                                                  .#mode {.#Build}
+                                                  .#configuration (list)]
+                               .#source          [location.dummy 0 source_code]
+                               .#location         expected_location
+                               .#current_module  {.#Some expected_current_module}
+                               .#modules         (list)
+                               .#scopes          (list)
+                               .#type_context    type_context
+                               .#expected        expected
+                               .#seed            expected_seed
+                               .#scope_type_vars (list)
+                               .#extensions      []
+                               .#eval            (as (-> Type Code (Meta Any)) [])
+                               .#host            []]))]]
     (all _.and
          (_.coverage [/.target]
            (|> /.target
-               (/.value expected_lux)
+               (/.value (expected_lux {.#Some expected_type}))
                (try#each (same? target))
                (try.else false)))
          (_.coverage [/.seed]
@@ -248,26 +300,31 @@
                  [pre /.seed
                   post /.seed]
                  (in [pre post]))
-               (/.value expected_lux)
+               (/.value (expected_lux {.#Some expected_type}))
                (!expect (^.multi {try.#Success [actual_pre actual_post]}
                                  (and (n.= expected_seed actual_pre)
                                       (n.= (++ expected_seed) actual_post))))))
          (_.coverage [/.location]
            (|> /.location
-               (/.value expected_lux)
+               (/.value (expected_lux {.#Some expected_type}))
                (!expect (^.multi {try.#Success actual_location}
                                  (same? expected_location actual_location)))))
          (_.coverage [/.expected_type]
            (|> /.expected_type
-               (/.value expected_lux)
+               (/.value (expected_lux {.#Some expected_type}))
                (!expect (^.multi {try.#Success actual_type}
                                  (same? expected_type actual_type)))))
+         (_.coverage [/.not_expecting_any_type]
+           (|> /.expected_type
+               (/.value (expected_lux {.#None}))
+               (!expect (^.multi {try.#Failure error}
+                                 (same? /.not_expecting_any_type error)))))
          (_.coverage [.Type_Context
                       .#ex_counter .#var_counter .#var_bindings
 
                       /.type_context]
            (|> /.type_context
-               (/.value expected_lux)
+               (/.value (expected_lux {.#Some expected_type}))
                (try#each (same? type_context))
                (try.else false)))
          )))
@@ -329,8 +386,6 @@
                      (all _.and
                           (_.for [/.functor]
                                  (functorT.spec ..injection (..comparison expected_lux) /.functor))
-                          (_.for [/.apply]
-                                 (applyT.spec ..injection (..comparison expected_lux) /.apply))
                           (_.for [/.monad]
                                  (monadT.spec ..injection (..comparison expected_lux) /.monad))
 

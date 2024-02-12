@@ -70,7 +70,7 @@
 0. Dissolve `injection/.../text` into the rest of the standard library.
 0. Inject the type-names of the different primitive types in the prelude using analysis extensions.
 0. Eta-conversion in the synthesis phase for inlining/code-fusion optimizations.
-0. Add special `origin` parameter to `Exception`s in order to track from which definition they came, in order to disambiguate between multiple possible origins.
+0. Add special `origin/provenance` parameter to `Exception`s in order to track from which definition they came, in order to disambiguate between multiple possible origins.
 0. Allow inline functions to be partially applied.
 0. Pre-calculate the sizes of pattern-matching stacks and allocate arrays with those sizes, rather than using dynamically-sized stacks.
 0. Fix `{library/lux/data/format/tar.invalid_end_of_archive}` error, which makes it impossible to use manually-packaged TAR files.
