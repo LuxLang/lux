@@ -16,15 +16,14 @@
    [data
     ["[0]" bit]
     ["[0]" product]]
-   [meta
-    [macro
-     ["[0]" local]
-     ["[0]" template]]
-    [type (.only sharing)
-     ["[0]" nominal]]]]]
+   [macro
+    ["[0]" local]
+    ["[0]" template]]
+   [type (.only sharing)
+    ["[0]" nominal]]]]
  [//
   ["[0]" atom (.only Atom atom)]
-  ["[0]" async (.only Async Resolver) (.use "[1]#[0]" monad)]
+  ["[0]" future (.only Future Resolver) (.use "[1]#[0]" monad)]
   ["[0]" frp (.only Channel Channel')]])
 
 (exception.the .public poisoned)
@@ -32,21 +31,21 @@
 
 (local.let [<Mail> (template.macro (_ Actor state)
                      [(-> state (Actor state)
-                          (Async (Try state)))])
+                          (Future (Try state)))])
             <Obituary> (template.macro (_ Actor state)
                          [[Text state (List (<Mail> Actor state))]])
             <Mailbox> (template.macro (_ Actor state)
                         [(Rec Mailbox
-                           [(Async [(<Mail> Actor state) Mailbox])
+                           [(Future [(<Mail> Actor state) Mailbox])
                             (Resolver [(<Mail> Actor state) Mailbox])])])]
   (these (the (pending [read write])
            (for_any (_ of)
              (-> (Rec Mailbox
-                   [(Async [of Mailbox])
+                   [(Future [of Mailbox])
                     (Resolver [of Mailbox])])
                  (IO (List of))))
            (do [! io.monad]
-             [current (async.value read)]
+             [current (future.value read)]
              (when current
                {.#Some [head tail]}
                (by ! each (|>> {.#Item head})
@@ -57,7 +56,7 @@
          
          (nominal.every .public (Actor state)
            (Record
-            [#obituary [(Async (<Obituary> Actor state))
+            [#obituary [(Future (<Obituary> Actor state))
                         (Resolver (<Obituary> Actor state))]
              #mailbox (Atom (<Mailbox> Actor state))])
 
@@ -69,7 +68,7 @@
 
            (every .public (Behavior state)
              (-> (Mail state) state (Actor state)
-                 (Async (Try state))))
+                 (Future (Try state))))
 
            (the .public (spawn! behavior init)
              (for_any (_ state)
@@ -77,11 +76,11 @@
                    (IO (Actor state))))
              (io (let [self (`` (is (Actor (,, (type_of init)))
                                     (nominal.abstraction
-                                     [#obituary (async.async [])
-                                      #mailbox (atom (async.async []))])))
+                                     [#obituary (future.future [])
+                                      #mailbox (atom (future.future []))])))
                        process (loop (again [state init
                                              [|mailbox| _] (io.value (atom.read! (its #mailbox (nominal.representation self))))])
-                                 (do [! async.monad]
+                                 (do [! future.monad]
                                    [[head tail] |mailbox|
                                     ?state' (behavior head state self)]
                                    (when ?state'
@@ -104,7 +103,7 @@
                    (IO Bit)))
              (let [[obituary _] (its #obituary (nominal.representation actor))]
                (|> obituary
-                   async.value
+                   future.value
                    (by io.functor each
                        (|>> (pipe.when
                               {.#None}
@@ -118,12 +117,12 @@
                (-> (Actor state)
                    (IO (Maybe (Obituary state)))))
              (let [[obituary _] (its #obituary (nominal.representation actor))]
-               (async.value obituary)))
+               (future.value obituary)))
 
            (the .public obituary
              (for_any (_ state)
                (-> (Actor state)
-                   (Async (Obituary state))))
+                   (Future (Obituary state))))
              (|>> nominal.representation
                   (its #obituary)
                   product.left))
@@ -135,12 +134,12 @@
              (do [! io.monad]
                [alive? (..alive? actor)]
                (if alive?
-                 (let [entry [mail (async.async [])]]
+                 (let [entry [mail (future.future [])]]
                    (do !
                      [|mailbox|&resolve (atom.read! (its #mailbox (nominal.representation actor)))]
                      (loop (again [[|mailbox| resolve] |mailbox|&resolve])
                        (do !
-                         [|mailbox| (async.value |mailbox|)]
+                         [|mailbox| (future.value |mailbox|)]
                          (when |mailbox|
                            {.#None}
                            (do !
@@ -157,44 +156,44 @@
 
            (every .public (Message state of)
              (-> state (Actor state)
-                 (Async (Try [state of]))))
+                 (Future (Try [state of]))))
 
            (the (mail message)
              (for_any (_ state of)
                (-> (Message state of)
-                   [(Async (Try of))
+                   [(Future (Try of))
                     (Mail state)]))
-             (let [[async resolve] (sharing [state of]
-                                     (is (Message state of)
-                                         message)
-                                     (is [(Async (Try of))
-                                          (Resolver (Try of))]
-                                         (async.async [])))]
-               [async
+             (let [[future resolve] (sharing [state of]
+                                      (is (Message state of)
+                                          message)
+                                      (is [(Future (Try of))
+                                           (Resolver (Try of))]
+                                          (future.future [])))]
+               [future
                 (function (_ state self)
-                  (do [! async.monad]
+                  (do [! future.monad]
                     [outcome (message state self)]
                     (when outcome
                       {try.#Success [state' return]}
                       (exec
                         (io.value (resolve {try.#Success return}))
-                        (async.resolved {try.#Success state'}))
+                        (future.resolved {try.#Success state'}))
                       
                       {try.#Failure error}
                       (exec
                         (io.value (resolve {try.#Failure error}))
-                        (async.resolved {try.#Failure error})))))]))
+                        (future.resolved {try.#Failure error})))))]))
 
            (the .public (request! message actor)
              (for_any (_ state of)
                (-> (Message state of) (Actor state)
-                   (Async (Try of))))
-             (let [[async mail] (..mail message)]
-               (do async.monad
-                 [outcome (async.future (..mail! mail actor))]
+                   (Future (Try of))))
+             (let [[future mail] (..mail message)]
+               (do future.monad
+                 [outcome (future.soon (..mail! mail actor))]
                  (when outcome
                    {try.#Success _}
-                   async
+                   future
                    
                    {try.#Failure error}
                    (in {try.#Failure error})))))
@@ -210,7 +209,7 @@
     (-> (Actor state)
         (IO (Try Any))))
   (..mail! (function (_ state self)
-             (async.resolved (exception.except ..poisoned [])))
+             (future.resolved (exception.except ..poisoned [])))
            actor))
 
 (every .public Stop
@@ -247,17 +246,17 @@
     (-> (Predicate state) (Behavior state)
         (Behavior state)))
   (function (_ mail before actor)
-    (do (try.with async.monad)
+    (do (try.with future.monad)
       [after (mail before actor)]
       (if (? after)
         (in after)
-        (async#in (exception.except ..invalid []))))))
+        (future#in (exception.except ..invalid []))))))
 
 (the .public state
   (for_any (_ state)
     (Message state state))
   (function (_ state self)
-    (async#in {try.#Success [state state]})))
+    (future#in {try.#Success [state state]})))
 
 (the .public (update $)
   (for_any (_ state)
@@ -265,11 +264,11 @@
         (Message state [state state])))
   (function (_ before self)
     (let [after ($ before)]
-      (async#in {try.#Success [after [before after]]}))))
+      (future#in {try.#Success [after [before after]]}))))
 
 (the .public (reset after)
   (for_any (_ state)
     (-> state
         (Message state state)))
   (function (_ before self)
-    (async#in {try.#Success [after before]})))
+    (future#in {try.#Success [after before]})))

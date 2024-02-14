@@ -4,6 +4,7 @@
 
 # Reference
 
+0. [CSS is Logical](https://geoffgraham.me/css-is-logical/)
 0. [Flexbugs: A community-curated list of flexbox issues and cross-browser workarounds for them](https://github.com/philipwalton/flexbugs)
 0. [StyleX](https://stylexjs.com/)
    0. [Introducing StyleX](https://stylexjs.com/blog/introducing-stylex/)

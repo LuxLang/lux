@@ -1,0 +1,220 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except and or)
+   [abstract
+    [functor (.only Functor)]
+    ["[0]" monad (.only Monad do)]]
+   [control
+    ["[0]" pipe]
+    ["[0]" function]
+    ["[0]" io (.only IO io)]
+    ["[0]" maybe (.use "[1]#[0]" functor)]]
+   [data
+    ["[0]" product]]
+   [macro
+    ["^" pattern]
+    ["[0]" expansion]
+    ["[0]" template]]
+   [type (.only sharing)
+    ["[0]" nominal]
+    ["[0]" variance (.only Mutable)]]]]
+ [//
+  ["[0]" thread (.only Delay)]
+  ["[0]" atom (.only Atom atom)]])
+
+(the Value
+  Maybe)
+
+(the Handler
+  (template.macro (_ a)
+    [(-> a (IO Any))]))
+
+(nominal.every (Future'' a)
+  (Atom [(Value a) (List (Handler a))])
+
+  (every .public (Future' r w)
+    (Future'' (Mutable r w)))
+
+  (every .public (Future a)
+    (Future'' (Mutable a a)))
+
+  (every .public (Resolver w)
+    (-> w (IO Bit)))
+
+  ... Sets a future's value if it has not been done yet.
+  (the (resolver future)
+    (for_any (_ r w) (-> (Future' r w) (Resolver w)))
+    (function (resolve value)
+      (let [future (nominal.representation future)]
+        (do [! io.monad]
+          [(^.let old [_value _observers]) (atom.read! future)]
+          (when _value
+            {.#Some _}
+            (in false)
+
+            {.#None}
+            (do !
+              [succeeded? (atom.compare_and_swap! old [{.#Some (variance.write value)} (list)] future)]
+              (if succeeded?
+                (do !
+                  [_ (monad.each ! (function.on (variance.write value))
+                                 _observers)]
+                  (in true))
+                (resolve value))))))))
+
+  (the .public (resolved value)
+    (for_any (_ a) (-> a (Future a)))
+    (nominal.abstraction (atom [{.#Some (variance.write value)} (list)])))
+
+  (the .public (future _)
+    (for_any (_ r w) (-> Any [(Future' r w) (Resolver w)]))
+    (let [future (nominal.abstraction (atom [{.#None} (list)]))]
+      [future (..resolver future)]))
+
+  (the .public value
+    (for_any (_ r w) (-> (Future' r w) (IO (Value r))))
+    (|>> nominal.representation
+         atom.read!
+         (by io.functor each (|>> product.left
+                                  (maybe#each (|>> variance.read))))))
+
+  (the .public (upon! f future)
+    (for_any (_ r w) (-> (Handler r) (Future' r w) (IO Any)))
+    (do [! io.monad]
+      [.let [future (nominal.representation future)]
+       (^.let old [_value _observers]) (atom.read! future)]
+      (when _value
+        {.#Some value}
+        (f (variance.read value))
+
+        {.#None}
+        (do !
+          [swapped? (atom.compare_and_swap! old [_value {.#Item (|>> variance.read f) _observers}] future)]
+          (if swapped?
+            (in [])
+            (upon! f (nominal.abstraction future)))))))
+  )
+
+(the .public resolved?
+  (for_any (_ r w) (-> (Future' r w) (IO Bit)))
+  (|>> ..value
+       (by io.functor each
+           (|>> (pipe.when
+                  {.#None}
+                  false
+
+                  {.#Some _}
+                  true)))))
+
+(the .public functor
+  (Functor Future)
+  (implementation
+   (the (each f fa)
+     (let [[fb resolve] (sharing [a b]
+                          (is (-> a b)
+                              f)
+                          (is [(Future b) (Resolver b)]
+                              (..future [])))]
+       (exec
+         (io.value (..upon! (|>> f resolve) fa))
+         fb)))))
+
+(the .public monad
+  (Monad Future)
+  (implementation
+   (the functor ..functor)
+
+   (the in ..resolved)
+
+   (the (conjoint mma)
+     (let [[ma resolve] (sharing [a]
+                          (is (Future (Future a))
+                              mma)
+                          (is [(Future a) (Resolver a)]
+                              (..future [])))]
+       (exec
+         (io.value (..upon! (..upon! resolve) mma))
+         ma)))))
+
+(the .public (and left right)
+  (for_any (_ lr lw rr rw) (-> (Future' lr lw) (Future' rr rw) (Future [lr rr])))
+  (let [[read! write!] (sharing [lr lw rr rw]
+                         (is [(Future' lr lw) (Future' rr rw)]
+                             [left right])
+                         (is [(Future [lr rr]) (Resolver [lr rr])]
+                             (..future [])))
+        _ (io.value (..upon! (function (_ left)
+                               (..upon! (function (_ right)
+                                          (write! [left right]))
+                                        right))
+                             left))]
+    read!))
+
+(the .public (or left right)
+  (for_any (_ lr lw rr rw) (-> (Future' lr lw) (Future' rr rw) (Future (Or lr rr))))
+  (let [[left|right resolve] (sharing [lr lw rr rw]
+                               (is [(Future' lr lw) (Future' rr rw)]
+                                   [left right])
+                               (is [(Future (Or lr rr)) (Resolver (Or lr rr))]
+                                   (..future [])))]
+    (expansion.let [<sides> (template.with [<future> <tag>]
+                              [(io.value (upon! (|>> {<tag>} resolve) <future>))]
+
+                              [left  .#Left]
+                              [right .#Right]
+                              )]
+      (exec
+        <sides>
+        left|right))))
+
+(the .public (either left right)
+  (for_any (_ a lw rw) (-> (Future' a lw) (Future' a rw) (Future a)))
+  (let [[left||right resolve] (sharing [a lw rw]
+                                (is [(Future' a lw) (Future' a rw)]
+                                    [left right])
+                                (is [(Future a) (Resolver a)]
+                                    (..future [])))]
+    (`` (exec
+          (,, (template.with [<future>]
+                [(io.value (upon! resolve <future>))]
+
+                [left]
+                [right]))
+          left||right))))
+
+(the .public (schedule! milli_seconds computation)
+  (for_any (_ a) (-> Delay (IO a) (Future a)))
+  (let [[!out resolve] (sharing [a]
+                         (is (IO a)
+                             computation)
+                         (is [(Future a) (Resolver a)]
+                             (..future [])))]
+    (exec
+      (|> (do io.monad
+            [value computation]
+            (resolve value))
+          (thread.schedule! milli_seconds)
+          io.value)
+      !out)))
+
+(the .public soon
+  (for_any (_ of)
+    (-> (IO of)
+        (Future of)))
+  (..schedule! 0))
+
+(the .public (after milli_seconds value)
+  (for_any (_ a) (-> Delay a (Future a)))
+  (..schedule! milli_seconds (io value)))
+
+(the .public (delay milli_seconds)
+  (-> Delay (Future Any))
+  (..after milli_seconds []))
+
+(the .public (within milli_seconds future)
+  (for_any (_ r w) (-> Delay (Future' r w) (Future (Maybe r))))
+  (..or (..delay milli_seconds)
+        future))

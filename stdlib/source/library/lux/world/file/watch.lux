@@ -8,7 +8,7 @@
    [abstract
     ["[0]" monad (.only do)]]
    [concurrency
-    ["[0]" async (.only Async)]
+    ["[0]" future (.only Future)]
     ["[0]" stm (.only STM Var)]]
    [control
     ["[0]" io (.only IO)]
@@ -29,12 +29,11 @@
    [math
     [number
      ["n" natural]]]
-   [meta
-    [type
-     ["[0]" nominal]]
-    [macro
-     ["[0]" expansion]
-     ["[0]" template]]]
+   [macro
+    ["[0]" expansion]
+    ["[0]" template]]
+   [type
+    ["[0]" nominal]]
    [time
     ["[0]" instant (.only Instant)]]]]
  ["[0]" //])
@@ -136,9 +135,9 @@
       (in false))))
 
 (the (file_tracker fs directory)
-  (-> (//.System Async) //.Path
-      (Async (Try File_Tracker)))
-  (do [! (try.with async.monad)]
+  (-> (//.System Future) //.Path
+      (Future (Try File_Tracker)))
+  (do [! (try.with future.monad)]
     [files (by fs directory_files directory)]
     (monad.mix !
                (function (_ file tracker)
@@ -150,9 +149,9 @@
                files)))
 
 (the (available_files fs directory)
-  (-> (//.System Async) //.Path
-      (Async (Try (List [//.Path Instant]))))
-  (do [! (try.with async.monad)]
+  (-> (//.System Future) //.Path
+      (Future (Try (List [//.Path Instant]))))
+  (do [! (try.with future.monad)]
     [files (by fs directory_files directory)]
     (monad.each ! (function (_ file)
                     (|> file
@@ -161,12 +160,12 @@
                 files)))
 
 (the (available_directory_changes fs [directory [the_concern file_tracker]])
-  (-> (//.System Async) [//.Path [Concern File_Tracker]]
-      (Async (Try [[//.Path [Concern File_Tracker]]
-                   [(List [//.Path Instant])
-                    (List [//.Path Instant Instant])
-                    (List //.Path)]])))
-  (do [! (try.with async.monad)]
+  (-> (//.System Future) [//.Path [Concern File_Tracker]]
+      (Future (Try [[//.Path [Concern File_Tracker]]
+                    [(List [//.Path Instant])
+                     (List [//.Path Instant Instant])
+                     (List //.Path)]])))
+  (do [! (try.with future.monad)]
     [current_files (..available_files fs directory)
      .let [creations (if (..creation? the_concern)
                        (list.only (|>> product.left (dictionary.key? file_tracker) not)
@@ -202,13 +201,13 @@
           deletions]])))
 
 (the .public (polling fs)
-  (-> (//.System Async)
-      (Watcher Async))
+  (-> (//.System Future)
+      (Watcher Future))
   (let [tracker (is (Var Directory_Tracker)
                     (stm.var (dictionary.empty text.hash)))]
     (implementation
      (the (start new_concern path)
-       (do [! async.monad]
+       (do [! future.monad]
          [exists? (by fs directory? path)]
          (if exists?
            (do !
@@ -244,13 +243,13 @@
             failure
             (in (exception.except ..not_being_watched [path]))))))
      (the (poll _)
-       (do async.monad
+       (do future.monad
          [@tracker (stm.commit! (stm.read tracker))]
-         (do [! (try.with async.monad)]
+         (do [! (try.with future.monad)]
            [changes (|> @tracker
                         dictionary.entries
                         (monad.each ! (..available_directory_changes fs)))
-            _ (do async.monad
+            _ (do future.monad
                 [_ (stm.commit! (stm.write (|> changes
                                                (list#each product.left)
                                                (dictionary.of_list text.hash))
@@ -276,7 +275,7 @@
 
 (the .public (mock delimiter)
   (-> Text
-      [(//.System Async) (Watcher Async)])
+      [(//.System Future) (Watcher Future)])
   (let [fs (//.mock delimiter)]
     [fs
      (..polling fs)]))
@@ -386,13 +385,13 @@
 
             (the (default_start watch_events watcher path)
               (-> (List Watch_Event) java/nio/file/WatchService //.Path
-                  (Async (Try java/nio/file/WatchKey)))
+                  (Future (Try java/nio/file/WatchKey)))
               (let [watch_events' (list#mix (function (_ [index watch_event] watch_events')
                                               (ffi.write! index watch_event watch_events'))
                                             (ffi.array (java/nio/file/WatchEvent$Kind java/lang/Object)
                                                        (list.size watch_events))
                                             (list.enumeration watch_events))]
-                (async.future
+                (future.soon
                  (java/nio/file/Path::register [watcher
                                                 watch_events']
                                                (|> path ffi.as_string [] java/io/File::new (java/io/File::toPath []))))))
@@ -440,42 +439,42 @@
                     ))
 
             (the .public default
-              (IO (Try (Watcher Async)))
+              (IO (Try (Watcher Future)))
               (do (try.with io.monad)
                 [watcher (|> (java/nio/file/FileSystems::getDefault [])
                              (java/nio/file/FileSystem::newWatchService []))
                  .let [tracker (stm.var (is (Dictionary //.Path [Concern java/nio/file/WatchKey])
                                             (dictionary.empty text.hash)))
 
-                       stop (is (-> //.Path (Async (Try Concern)))
+                       stop (is (-> //.Path (Future (Try Concern)))
                                 (function (_ path)
-                                  (do [! async.monad]
+                                  (do [! future.monad]
                                     [@tracker (stm.commit! (stm.read tracker))]
                                     (when (dictionary.value path @tracker)
                                       {try.#Success [the_concern key]}
                                       (do !
-                                        [_ (async.future
+                                        [_ (future.soon
                                             (java/nio/file/WatchKey::cancel [] key))
                                          _ (stm.commit! (stm.update (dictionary.lacks path) tracker))]
                                         (in {try.#Success the_concern}))
 
                                       failure
                                       (in (exception.except ..not_being_watched [path]))))))]]
-                (in (is (Watcher Async)
+                (in (is (Watcher Future)
                         (implementation
                          (the (start the_concern path)
-                           (do async.monad
+                           (do future.monad
                              [?concern (stop path)]
-                             (do (try.with async.monad)
+                             (do (try.with future.monad)
                                [key (..default_start (..watch_events (..and (try.else ..none ?concern)
                                                                             the_concern))
                                                      watcher
                                                      path)]
-                               (do async.monad
+                               (do future.monad
                                  [_ (stm.commit! (stm.update (dictionary.has path [the_concern key]) tracker))]
                                  (in {try.#Success []})))))
                          (the (concern path)
-                           (do async.monad
+                           (do future.monad
                              [@tracker (stm.commit! (stm.read tracker))]
                              (when (dictionary.value path @tracker)
                                {try.#Success [it key]}
@@ -485,7 +484,7 @@
                                (in (exception.except ..not_being_watched [path])))))
                          (the stop stop)
                          (the (poll _)
-                           (async.future (..default_poll watcher)))
+                           (future.soon (..default_poll watcher)))
                          )))))
             )
 

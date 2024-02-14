@@ -9,7 +9,7 @@
     ["[0]" monad (.only Monad
                         do)]]
    [concurrency
-    ["[0]" async (.only Async) (.use "[1]#[0]" monad)]]
+    ["[0]" future (.only Future) (.use "[1]#[0]" monad)]]
    [control
     ["[0]" io (.only IO
                      io)]
@@ -26,11 +26,11 @@
      ["[0]" list (.use "[1]#[0]" mix)]]
     [format
      ["[0]" tar (.only Tar)]]]
+   [type (.only sharing)]
+   [macro
+    ["[0]" expansion]
+    ["[0]" template]]
    [meta
-    [type (.only sharing)]
-    [macro
-     ["[0]" expansion]
-     ["[0]" template]]
     ["[0]" compiler
      [default
       ["[0]" platform (.only Platform)]]
@@ -62,20 +62,20 @@
        ["ioW" archive]]]]
     ... ["[0]" interpreter]
     ]
+   [time
+    ["[0]" instant]
+    ["[0]" duration]]
    ["[0]" world
     ["[0]" console]
     ["[1]/[0]" environment]
     ["[0]" file (.only)
-     ["[1]/[0]" extension]]
-    [time
-     ["[0]" instant]
-     ["[0]" duration]]]]])
+     ["[1]/[0]" extension]]]]])
 
 (the (or_crash! failure_description action)
   (for_any (_ of)
-    (-> Text (Async (Try of))
-        (Async of)))
-  (do [! async.monad]
+    (-> Text (Future (Try of))
+        (Future of)))
+  (do [! future.monad]
     [?output action]
     (when ?output
       {try.#Failure error}
@@ -84,14 +84,14 @@
                               error text.new_line)]
         (do !
           [_ (expansion.let [<else> (in {try.#Success (debug.log! report)})]
-               (for .js (is (Async (Try Any))
+               (for .js (is (Future (Try Any))
                             (when console.default
                               {.#None}
                               <else>
 
                               {.#Some console}
                               (console.write_line report console)))
-                    (is (Async (Try Any))
+                    (is (Future (Try Any))
                         <else>)))]
           (io.value (by world/environment.default exit +1))))
 
@@ -100,9 +100,9 @@
 
 (the (timed process)
   (for_any (_ of)
-    (-> (Async (Try of))
-        (Async (Try of))))
-  (do async.monad
+    (-> (Future (Try of))
+        (Future (Try of))))
+  (do future.monad
     [.let [start (io.value instant.now)]
      output process
      .let [_ (debug.log! (|> (io.value instant.now)
@@ -112,8 +112,8 @@
     (in output)))
 
 (the (package! file_context fs host_dependencies [packager package] archive context)
-  (-> Context (file.System Async) (Dictionary file.Path Binary) [Packager file.Path] Archive (Maybe unit.ID)
-      (Async (Try Any)))
+  (-> Context (file.System Future) (Dictionary file.Path Binary) [Packager file.Path] Archive (Maybe unit.ID)
+      (Future (Try Any)))
   (let [target_root (its context.#target file_context)
         package (file.rooted fs target_root package)]
     (when (packager host_dependencies archive context)
@@ -123,7 +123,7 @@
         (by fs write package content)
         
         {.#Right content}
-        (do [! (try.with async.monad)]
+        (do [! (try.with future.monad)]
           [_ (by fs make_directory package)
            _ (monad.each ! (function (_ [name content])
                              (by fs write (file.rooted fs package name) content))
@@ -131,12 +131,12 @@
           (in [])))
       
       {try.#Failure error}
-      (by async.monad in {try.#Failure error}))))
+      (by future.monad in {try.#Failure error}))))
 
 (the (load_host_dependencies fs host_dependencies)
-  (-> (file.System Async) (List file.Path)
-      (Async (Try (Dictionary file.Path Binary))))
-  (do [! (try.with async.monad)]
+  (-> (file.System Future) (List file.Path)
+      (Future (Try (Dictionary file.Path Binary))))
+  (do [! (try.with future.monad)]
     []
     (loop (again [pending host_dependencies
                   output (is (Dictionary file.Path Binary)
@@ -152,14 +152,14 @@
                  (dictionary.has head content output)))))))
 
 (the (hybrid_fs cache host)
-  (-> (file.System Async) (file.System Async)
-      (file.System Async))
+  (-> (file.System Future) (file.System Future)
+      (file.System Future))
   (`` (implementation
        (the delimiter
          (by host delimiter))
        (,, (template.with [<name>]
              [(the (<name> path)
-                (do async.monad
+                (do future.monad
                   [?/0 (by cache <name> path)
                    ?/1 (by host <name> path)]
                   (in (or ?/0 ?/1))))]
@@ -181,7 +181,7 @@
              [delete]
              ))
        (the (read path)
-         (do async.monad
+         (do future.monad
            [it (by cache read path)]
            (when it
              {try.#Failure _}
@@ -221,16 +221,16 @@
        ))
 
 (every (Action of)
-  (Async (Try of)))
+  (Future (Try of)))
 
 (the monad
   (is (Monad Action)
-      (as_expected (try.with async.monad))))
+      (as_expected (try.with future.monad))))
 
 (the (cache_tar_entry fs path)
-  (-> (file.System Async) file.Path
+  (-> (file.System Future) file.Path
       (Action tar.Entry))
-  (do async.monad
+  (do future.monad
     [content (by fs read path)]
     (in (do try.monad
           [content content
@@ -239,7 +239,7 @@
           (in {tar.#Normal [path instant.epoch ..cache_mode tar.no_ownership content]})))))
 
 (the (cache_tar context fs)
-  (-> Context (file.System Async)
+  (-> Context (file.System Future)
       (Action Tar))
   (loop (again [root cache.path])
     (do [! ..monad]
@@ -252,7 +252,7 @@
                     subs)))))
 
 (the (cache_path fs context)
-  (-> (file.System Async) Context
+  (-> (file.System Future) Context
       file.Path)
   (%.message (its context.#target context)
              (by fs delimiter)
@@ -260,7 +260,7 @@
              file/extension.tape_archive))
 
 (the (cached_file_path fs full_path)
-  (-> (file.System Async) file.Path
+  (-> (file.System Future) file.Path
       [file.Path file.Path])
   (<| maybe.trusted
       (do maybe.monad
@@ -271,9 +271,9 @@
 
 (expansion.let [<parameters> (these anchor expression artifact)]
   (these (the (load_cache! host_fs cache_fs context)
-           (-> (file.System Async) (file.System Async) Context
-               (Async (Try Any)))
-           (do [! async.monad]
+           (-> (file.System Future) (file.System Future) Context
+               (Future (Try Any)))
+           (do [! future.monad]
              [tar (by host_fs read (cache_path host_fs context))]
              (when tar
                {try.#Failure _}
@@ -281,7 +281,7 @@
 
                {try.#Success tar}
                (do [! (try.with !)]
-                 [tar (async#in (by tar.format projection tar))
+                 [tar (future#in (by tar.format projection tar))
                   _ (sequence#mix (function (_ entry then)
                                     (when entry
                                       {tar.#Normal [path instant mode ownership content]}
@@ -289,8 +289,8 @@
                                         [_ then
                                          .let [path (tar.from_path path)
                                                directory (maybe.else path (file.parent cache_fs path))]
-                                         _ (is (Async (Try Any))
-                                               (file.make_directories async.monad cache_fs directory))]
+                                         _ (is (Future (Try Any))
+                                               (file.make_directories future.monad cache_fs directory))]
                                         (by cache_fs write path (tar.data content)))
 
                                       _
@@ -301,9 +301,9 @@
 
          (the (cache! original_fs context platform)
            (for_any (_ <parameters>)
-             (-> (file.System Async) Context (Platform <parameters>)
-                 (Async (Try Any))))
-           (do (try.with async.monad)
+             (-> (file.System Future) Context (Platform <parameters>)
+                 (Future (Try Any))))
+           (do (try.with future.monad)
              [cache (cache_tar context (its platform.#file_system platform))]
              (by original_fs write
                  (cache_path original_fs context)
@@ -312,16 +312,16 @@
          (the (with_caching it)
            (for_any (_ <parameters>)
              (-> (Platform <parameters>)
-                 [(file.System Async) (Platform <parameters>)]))
+                 [(file.System Future) (Platform <parameters>)]))
            (let [cache_fs (file.mock (by (its platform.#file_system it) delimiter))
                  it (revised platform.#file_system (hybrid_fs cache_fs) it)]
              [cache_fs it]))
 
          (the (enable_output! original_fs context)
-           (-> (file.System Async) Context
-               (Async (Try Any)))
+           (-> (file.System Future) Context
+               (Future (Try Any)))
            (let [target_root (its context.#target context)]
-             (do [! async.monad]
+             (do [! future.monad]
                [? (by original_fs directory? target_root)]
                (if ?
                  (in {try.#Success []})
@@ -343,9 +343,9 @@
                  Extender
                  Service
                  [Packager file.Path]
-                 (Async Any)))
-           (do [! async.monad]
-             [platform (async.future platform)]
+                 (Future Any)))
+           (do [! future.monad]
+             [platform (future.soon platform)]
              (when service
                {cli.#Compilation compilation}
                (<| (or_crash! "Compilation failed:")
@@ -363,9 +363,9 @@
                       [state archive phase_wrapper] (sharing [<parameters>]
                                                       (is (Platform <parameters>)
                                                           platform)
-                                                      (is (Async (Try [(declaration.State <parameters>)
-                                                                       Archive
-                                                                       phase.Wrapper]))
+                                                      (is (Future (Try [(declaration.State <parameters>)
+                                                                        Archive
+                                                                        phase.Wrapper]))
                                                           (as_expected (platform.initialize file_context
                                                                                             (its cli.#module compilation)
                                                                                             expander
@@ -376,11 +376,11 @@
                                                                                             (its cli.#sources compilation)
                                                                                             (its cli.#configuration compilation)
                                                                                             all_extensions))))
-                      archive,state (do async.monad
+                      archive,state (do future.monad
                                       [archive,state (sharing [<parameters>]
                                                        (is (Platform <parameters>)
                                                            platform)
-                                                       (is (Async (Try [Archive (declaration.State <parameters>)]))
+                                                       (is (Future (Try [Archive (declaration.State <parameters>)]))
                                                            (as_expected (platform.compile program
                                                                                           global
                                                                                           lux_compiler
@@ -413,7 +413,7 @@
                        {try.#Failure error}
                        (do !
                          [_ (cache! original_fs file_context platform)]
-                         (async#in {try.#Failure error})))))
+                         (future#in {try.#Failure error})))))
 
                {cli.#Export export}
                (<| (or_crash! "Export failed:")
@@ -428,8 +428,8 @@
                ... (<| (or_crash! "Interpretation failed:")
                ...     (do !
                ...       [console (|> console.default
-               ...                    async.future
-               ...                    (by ! each (|>> try.trusted console.async)))]
-               ...       (interpreter.value (try.with async.monad) console platform interpretation translation_bundle)))
+               ...                    future.soon
+               ...                    (by ! each (|>> try.trusted console.future)))]
+               ...       (interpreter.value (try.with future.monad) console platform interpretation translation_bundle)))
                )))
          ))

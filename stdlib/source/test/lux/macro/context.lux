@@ -1,0 +1,163 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["[0]" try]
+    ["[0]" exception]]
+   [data
+    ["[0]" text (.only)
+     ["%" \\injection]]]
+   [math
+    [number
+     ["n" natural]]]
+   [macro
+    ["[0]" syntax]
+    ["[0]" expansion]
+    ["[0]" template]]
+   ["[0]" meta (.only)
+    ["[0]" static]
+    ["[0]" code (.only)
+     ["<[1]>" \\projection]]]
+   [test
+    ["_" property (.only Test)]]]]
+ [\\library
+  ["[0]" /]])
+
+(the macro_error
+  (syntax.macro (_ [macro <code>.any])
+    (function (_ compiler)
+      (when ((expansion.complete macro) compiler)
+        {try.#Failure error}
+        {try.#Success [compiler (list (code.text error))]}
+        
+        {try.#Success _}
+        {try.#Failure "OOPS!"}))))
+
+(template.with_locals [<real_stack>' <real_expression> <real_declaration>
+                       <fake_stack>' <fake_expression> <fake_declaration>]
+  (these (/.def
+          [<real_stack>']
+          [<real_expression>]
+          [<real_declaration>]
+          Natural)
+
+         (expansion.let [<real_stack> (template.name [.._] [<real_stack>'])
+                         <fake_stack> (template.name [.._] [<fake_stack>'])]
+           (these (expansion.let [<top> (static.random_natural)]
+                    (<| static.expansion
+                        (<real_declaration> <top>)
+                        (` (the (,' declaration!) true))))
+
+                  (the .public test
+                    Test
+                    (<| (_.covering /._)
+                        (_.for [/.Stack])
+                        (all _.and
+                             (_.coverage [/.def]
+                               (and declaration!
+                                    (expansion.let [<top> (static.random_natural)]
+                                      (<| static.expansion
+                                          (do meta.monad
+                                            [it (<real_expression> <top> (` true))]
+                                            (in (list it)))))))
+                             (_.coverage [/.peek /.peek'
+                                          /.push /.push']
+                               (expansion.let [<expected> (static.random_natural)]
+                                 (n.= <expected>
+                                      (<| static.expansion
+                                          (do meta.monad
+                                            [_ (/.push <expected> <real_stack>)
+                                             actual (/.peek <real_stack>)
+                                             _ (/.pop <real_stack>)]
+                                            (in (list (code.natural actual))))))))
+                             (_.coverage [/.no_active_context]
+                               (<| (text.contains? (its exception.#label /.no_active_context))
+                                   macro_error
+                                   static.expansion
+                                   (do meta.monad
+                                     [top (/.peek <real_stack>)]
+                                     (in (list (code.natural top))))))
+                             (_.coverage [/.pop /.pop' /.pop'']
+                               (expansion.let [<dummy> (static.random_natural)
+                                               <expected> (static.natural (++ <dummy>))]
+                                 (n.= <expected>
+                                      (<| static.expansion
+                                          (do meta.monad
+                                            [_ (/.push <dummy> <real_stack>)
+                                             _ (/.pop <real_stack>)
+                                             _ (/.push <expected> <real_stack>)
+                                             actual (/.peek <real_stack>)
+                                             _ (/.pop <real_stack>)]
+                                            (in (list (code.natural actual))))))))
+                             (_.coverage [/.search /.search']
+                               (expansion.let [<expected> (static.random_natural)]
+                                 (n.= <expected>
+                                      (<| static.expansion
+                                          (do meta.monad
+                                            [_ (/.push <expected> <real_stack>)
+                                             actual (/.search (n.= <expected>) <real_stack>)
+                                             _ (/.pop <real_stack>)]
+                                            (in (list (code.natural actual))))))))
+                             (_.coverage [/.no_example]
+                               (expansion.let [<expected> (static.random_natural)]
+                                 (and (<| (text.contains? (its exception.#label /.no_example))
+                                          macro_error
+                                          static.expansion
+                                          (do meta.monad
+                                            [_ (/.push <expected> <real_stack>)
+                                             actual (/.search (|>> (n.= <expected>) not) <real_stack>)
+                                             _ (/.pop <real_stack>)]
+                                            (in (list (code.natural actual)))))
+                                      (<| (text.contains? (its exception.#label /.no_example))
+                                          macro_error
+                                          static.expansion
+                                          (do meta.monad
+                                            [_ (/.revised {.#None} ++ <real_stack>)]
+                                            (in (list)))))))
+                             (_.coverage [/.not_a_definition]
+                               (<| (text.contains? (its exception.#label /.not_a_definition))
+                                   macro_error
+                                   static.expansion
+                                   (do meta.monad
+                                     [actual (/.peek' [<real_stack> (name <fake_stack>)])]
+                                     (in (list)))))
+                             (_.coverage [/.not_a_global]
+                               (expansion.let [<expected> (static.random_natural)]
+                                 (<| (text.contains? (its exception.#label /.not_a_global))
+                                     macro_error
+                                     static.expansion
+                                     (do meta.monad
+                                       [_ (/.push' <expected> [<real_stack> (name <fake_stack>)])]
+                                       (in (list))))))
+                             (_.coverage [/.not_a_module]
+                               (expansion.let [<expected> (static.random_natural)]
+                                 (<| (text.contains? (its exception.#label /.not_a_module))
+                                     macro_error
+                                     static.expansion
+                                     (do meta.monad
+                                       [_ (/.push' <expected> [<real_stack> [(%.natural <expected>) (%.natural <expected>)]])]
+                                       (in (list))))))
+                             (_.coverage [/.revised /.revised']
+                               (expansion.let [<expected> (static.random_natural)]
+                                 (and (n.= (++ <expected>)
+                                           (<| static.expansion
+                                               (do meta.monad
+                                                 [_ (/.push <expected> <real_stack>)
+                                                  _ (/.revised {.#None} ++ <real_stack>)
+                                                  actual (/.peek <real_stack>)
+                                                  _ (/.pop <real_stack>)]
+                                                 (in (list (code.natural actual))))))
+                                      (n.= (++ <expected>)
+                                           (<| static.expansion
+                                               (do meta.monad
+                                                 [_ (/.push <expected> <real_stack>)
+                                                  _ (/.revised {.#Some (n.= <expected>)} ++ <real_stack>)
+                                                  actual (/.peek <real_stack>)
+                                                  _ (/.pop <real_stack>)]
+                                                 (in (list (code.natural actual)))))))))
+                             )))))))

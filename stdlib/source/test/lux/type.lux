@@ -1,0 +1,629 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except name)
+   [abstract
+    ["[0]" monad (.only do)]
+    ["[0]" equivalence
+     ["[1]T" \\test]]]
+   [control
+    ["<>" projection]
+    ["[0]" pipe]
+    ["[0]" maybe]
+    ["[0]" try]
+    ["[0]" exception]]
+   [data
+    ["[0]" bit]
+    ["[0]" text]
+    [collection
+     ["[0]" list]
+     ["[0]" array]]]
+   [math
+    ["[0]" random (.only Random) (.use "[1]#[0]" monad)]
+    [number
+     ["n" natural]]]
+   [macro
+    ["^" pattern]
+    ["[0]" expansion]
+    ["[0]" template]]
+   [meta
+    ["[0]" name]
+    ["[0]" code]
+    ["[0]" static]]
+   [test
+    ["_" property (.only Test)]]]]
+ ["[0]" \\projection]
+ [\\library
+  ["[0]" /]]
+ ["[0]" /
+  ["[1][0]" nominal]
+  ["[1][0]" check]
+  ["[1][0]" dynamic]
+  ["[1][0]" implicit]
+  ["[1][0]" quotient]
+  ["[1][0]" refinement]
+  ["[1][0]" linear]
+  ["[1][0]" unit]
+  ["[1][0]" variance]
+  ["[1][0]" poly]
+  ["[1][0]" row]
+  ["[1][0]" brand]
+  ["[1][0]" object]
+  ["[1][0]" record]
+  ["[1][0]" function]
+  ["[1][0]" environment]])
+
+(the !expect
+  (template.macro (_ <pattern> <value>)
+    [(when <value>
+       <pattern>
+       true
+       
+       _
+       false)]))
+
+(the nominal
+  (Random Type)
+  (|> (random.alpha_numeric 1)
+      (by random.monad each (function (_ name)
+                              {.#Nominal name (list)}))))
+
+(the test|matches
+  Test
+  (<| (_.for [\\projection.types_do_not_match])
+      (do [! random.monad]
+        [expected ..nominal
+         dummy (random.only (|>> (/.= expected) not)
+                            ..nominal)])
+      (all _.and
+           (_.coverage [\\projection.exactly]
+             (and (|> (\\projection.value (\\projection.exactly expected) expected)
+                      (!expect {try.#Success []}))
+                  (|> (\\projection.value (\\projection.exactly expected) dummy)
+                      (!expect (^.multi {try.#Failure error}
+                                        (exception.is? \\projection.types_do_not_match error))))))
+           (_.coverage [\\projection.sub]
+             (and (|> (\\projection.value (\\projection.sub expected) expected)
+                      (!expect {try.#Success []}))
+                  (|> (\\projection.value (\\projection.sub Any) expected)
+                      (!expect {try.#Success []}))
+                  (|> (\\projection.value (\\projection.sub expected) Nothing)
+                      (!expect {try.#Success []}))
+                  (|> (\\projection.value (\\projection.sub expected) dummy)
+                      (!expect (^.multi {try.#Failure error}
+                                        (exception.is? \\projection.types_do_not_match error))))))
+           (_.coverage [\\projection.super]
+             (and (|> (\\projection.value (\\projection.super expected) expected)
+                      (!expect {try.#Success []}))
+                  (|> (\\projection.value (\\projection.super expected) Any)
+                      (!expect {try.#Success []}))
+                  (|> (\\projection.value (\\projection.super Nothing) expected)
+                      (!expect {try.#Success []}))
+                  (|> (\\projection.value (\\projection.super expected) dummy)
+                      (!expect (^.multi {try.#Failure error}
+                                        (exception.is? \\projection.types_do_not_match error))))))
+           )))
+
+(the test|aggregate
+  Test
+  (do [! random.monad]
+    [expected_left ..nominal
+     expected_middle ..nominal
+     expected_right ..nominal]
+    (`` (all _.and
+             (,, (template.with [<projection> <exception> <good_constructor> <bad_constructor>]
+                   [(_.coverage [<projection> <exception>]
+                      (and (|> (\\projection.value (<projection> (all <>.and \\projection.any \\projection.any \\projection.any))
+                                                   (<good_constructor> (list expected_left expected_middle expected_right)))
+                               (!expect (^.multi {try.#Success [actual_left actual_middle actual_right]}
+                                                 (and (/.= expected_left actual_left)
+                                                      (/.= expected_middle actual_middle)
+                                                      (/.= expected_right actual_right)))))
+                           (|> (\\projection.value (<projection> (all <>.and \\projection.any \\projection.any \\projection.any))
+                                                   (<bad_constructor> (list expected_left expected_middle expected_right)))
+                               (!expect (^.multi {try.#Failure error}
+                                                 (exception.is? <exception> error))))))]
+
+                   [\\projection.variant \\projection.not_variant /.variant /.tuple]
+                   [\\projection.tuple \\projection.not_tuple /.tuple /.variant]
+                   ))
+
+             (_.coverage [\\projection.function \\projection.not_function]
+               (and (|> (\\projection.value (\\projection.function (all <>.and \\projection.any \\projection.any) \\projection.any)
+                                            (/.function (list expected_left expected_middle) expected_right))
+                        (!expect (^.multi {try.#Success [[actual_left actual_middle] actual_right]}
+                                          (and (/.= expected_left actual_left)
+                                               (/.= expected_middle actual_middle)
+                                               (/.= expected_right actual_right)))))
+                    (|> (\\projection.value (\\projection.function (all <>.and \\projection.any \\projection.any) \\projection.any)
+                                            (/.variant (list expected_left expected_middle expected_right)))
+                        (!expect (^.multi {try.#Failure error}
+                                          (exception.is? \\projection.not_function error))))))
+             (_.coverage [\\projection.applied \\projection.not_application]
+               (and (|> (\\projection.value (\\projection.applied (all <>.and \\projection.any \\projection.any \\projection.any))
+                                            (/.application (list expected_middle expected_right) expected_left))
+                        (!expect (^.multi {try.#Success [actual_left actual_middle actual_right]}
+                                          (and (/.= expected_left actual_left)
+                                               (/.= expected_middle actual_middle)
+                                               (/.= expected_right actual_right)))))
+                    (|> (\\projection.value (\\projection.applied (all <>.and \\projection.any \\projection.any \\projection.any))
+                                            (/.variant (list expected_left expected_middle expected_right)))
+                        (!expect (^.multi {try.#Failure error}
+                                          (exception.is? \\projection.not_application error))))))
+             ))))
+
+(the test|parameter
+  Test
+  (do random.monad
+    [quantification ..nominal
+     argument ..nominal
+     not_parameter ..nominal
+     parameter random.natural]
+    (all _.and
+         (_.coverage [\\projection.not_parameter]
+           (|> (\\projection.value \\projection.parameter not_parameter)
+               (!expect (^.multi {try.#Failure error}
+                                 (exception.is? \\projection.not_parameter error)))))
+         (_.coverage [\\projection.unknown_parameter]
+           (|> (\\projection.value \\projection.parameter {.#Parameter parameter})
+               (!expect (^.multi {try.#Failure error}
+                                 (exception.is? \\projection.unknown_parameter error)))))
+         (_.coverage [\\projection.with_extension]
+           (|> (\\projection.value (<| (\\projection.with_extension quantification)
+                                       (\\projection.with_extension argument)
+                                       \\projection.any)
+                                   not_parameter)
+               (!expect (^.multi {try.#Success [quantification::binding argument::binding actual]}
+                                 (same? not_parameter actual)))))
+         (_.coverage [\\projection.parameter]
+           (|> (\\projection.value (<| (\\projection.with_extension quantification)
+                                       (\\projection.with_extension argument)
+                                       \\projection.parameter)
+                                   {.#Parameter 0})
+               (!expect {try.#Success [quantification::binding argument::binding _]})))
+         (_.coverage [\\projection.argument]
+           (let [argument? (is (-> Natural Natural Bit)
+                               (function (_ @ expected)
+                                 (|> (\\projection.value (<| (\\projection.with_extension quantification)
+                                                             (\\projection.with_extension argument)
+                                                             (\\projection.with_extension quantification)
+                                                             (\\projection.with_extension argument)
+                                                             (do <>.monad
+                                                               [env \\projection.env
+                                                                _ \\projection.any]
+                                                               (in (\\projection.argument env @))))
+                                                         not_parameter)
+                                     (!expect (^.multi {try.#Success [_ _ _ _ actual]}
+                                                       (n.= expected actual))))))]
+             (and (argument? 0 2)
+                  (argument? 1 3)
+                  (argument? 2 0))))
+         (_.coverage [\\projection.wrong_parameter]
+           (|> (\\projection.value (<| (\\projection.with_extension quantification)
+                                       (\\projection.with_extension argument)
+                                       (\\projection.this_parameter 1))
+                                   {.#Parameter 0})
+               (!expect (^.multi {try.#Failure error}
+                                 (exception.is? \\projection.wrong_parameter error)))))
+         (_.coverage [\\projection.this_parameter]
+           (|> (\\projection.value (<| (\\projection.with_extension quantification)
+                                       (\\projection.with_extension argument)
+                                       (\\projection.this_parameter 0))
+                                   {.#Parameter 0})
+               (!expect {try.#Success [quantification::binding argument::binding _]})))
+         )))
+
+(the test|polymorphic
+  Test
+  (do [! random.monad]
+    [not_polymorphic ..nominal
+     expected_inputs (by ! each (|>> (n.% 10) ++) random.natural)]
+    (all _.and
+         (_.coverage [\\projection.not_polymorphic]
+           (and (|> (\\projection.value (\\projection.polymorphic \\projection.any)
+                                        not_polymorphic)
+                    (!expect (^.multi {try.#Failure error}
+                                      (exception.is? \\projection.not_polymorphic error))))
+                (|> (\\projection.value (\\projection.polymorphic \\projection.any)
+                                        (/.univ_q 0 not_polymorphic))
+                    (!expect (^.multi {try.#Failure error}
+                                      (exception.is? \\projection.not_polymorphic error))))))
+         (_.coverage [\\projection.polymorphic]
+           (|> (\\projection.value (\\projection.polymorphic \\projection.any)
+                                   (/.univ_q expected_inputs not_polymorphic))
+               (!expect (^.multi {try.#Success ['poly actual_inputs bodyT]}
+                                 (and (n.= expected_inputs (list.size actual_inputs))
+                                      (same? not_polymorphic bodyT))))))
+         )))
+
+(the test|recursive
+  Test
+  (do random.monad
+    [expected ..nominal]
+    (all _.and
+         (_.coverage [\\projection.recursive]
+           (|> (type (Rec @ expected))
+               (\\projection.value (\\projection.recursive \\projection.any))
+               (!expect (^.multi {try.#Success [@self actual]}
+                                 (/.= expected actual)))))
+         (_.coverage [\\projection.recursive_self]
+           (|> (type (Rec @ @))
+               (\\projection.value (\\projection.recursive \\projection.recursive_self))
+               (!expect (^.multi {try.#Success [@expected @actual]}
+                                 (same? @expected @actual)))))
+         (_.coverage [\\projection.recursive_call]
+           (|> (type (for_any (self input) (self input)))
+               (\\projection.value (\\projection.polymorphic \\projection.recursive_call))
+               (!expect {try.#Success [@self inputs ???]})))
+         (_.coverage [\\projection.not_recursive]
+           (and (|> expected
+                    (\\projection.value (\\projection.recursive \\projection.any))
+                    (!expect (^.multi {try.#Failure error}
+                                      (exception.is? \\projection.not_recursive error))))
+                (|> expected
+                    (\\projection.value \\projection.recursive_self)
+                    (!expect (^.multi {try.#Failure error}
+                                      (exception.is? \\projection.not_recursive error))))))
+         )))
+
+(the \\projection
+  Test
+  (<| (_.covering \\projection._)
+      (_.for [\\projection.Projection])
+      (all _.and
+           (do [! random.monad]
+             [expected ..nominal]
+             (_.coverage [\\projection.value \\projection.any]
+               (|> (\\projection.value \\projection.any expected)
+                   (!expect (^.multi {try.#Success actual}
+                                     (/.= expected actual))))))
+           (do [! random.monad]
+             [expected ..nominal]
+             (_.coverage [\\projection.next \\projection.unconsumed_input]
+               (and (|> (\\projection.value (do <>.monad
+                                              [actual \\projection.next
+                                               _ \\projection.any]
+                                              (in actual))
+                                            expected)
+                        (!expect (^.multi {try.#Success actual}
+                                          (/.= expected actual))))
+                    (|> (\\projection.value \\projection.next expected)
+                        (!expect (^.multi {try.#Failure error}
+                                          (exception.is? \\projection.unconsumed_input error)))))))
+           (do [! random.monad]
+             [expected ..nominal]
+             (_.coverage [\\projection.empty_input]
+               (`` (and (,, (template.with [<projection>]
+                              [(|> (\\projection.value (do <>.monad
+                                                         [_ \\projection.any]
+                                                         <projection>)
+                                                       expected)
+                                   (!expect (^.multi {try.#Failure error}
+                                                     (exception.is? \\projection.empty_input error))))]
+
+                              [\\projection.any]
+                              [\\projection.next]
+                              ))))))
+           (do [! random.monad]
+             [expected ..nominal]
+             (_.coverage [\\projection.Env \\projection.env \\projection.fresh]
+               (|> (\\projection.value (do <>.monad
+                                         [env \\projection.env
+                                          _ \\projection.any]
+                                         (in env))
+                                       expected)
+                   (!expect (^.multi {try.#Success environment}
+                                     (same? \\projection.fresh environment))))))
+           (do [! random.monad]
+             [expected ..nominal
+              dummy (random.only (|>> (/.= expected) not)
+                                 ..nominal)]
+             (_.coverage [\\projection.local]
+               (|> (\\projection.value (do <>.monad
+                                         [_ \\projection.any]
+                                         (\\projection.local (list expected)
+                                                             \\projection.any))
+                                       dummy)
+                   (!expect (^.multi {try.#Success actual}
+                                     (/.= expected actual))))))
+           (do [! random.monad]
+             [expected random.natural]
+             (_.coverage [\\projection.existential \\projection.not_existential]
+               (|> (\\projection.value \\projection.existential
+                                       {.#Opaque expected})
+                   (!expect (^.multi {try.#Success actual}
+                                     (n.= expected actual))))))
+           (do [! random.monad]
+             [expected_name (random.and (random.alpha_numeric 1)
+                                        (random.alpha_numeric 1))
+              expected_type ..nominal]
+             (_.coverage [\\projection.named \\projection.not_named]
+               (|> (\\projection.value \\projection.named
+                                       {.#Named expected_name expected_type})
+                   (!expect (^.multi {try.#Success [actual_name actual_type]}
+                                     (and (name.= expected_name actual_name)
+                                          (/.= expected_type actual_type)))))))
+           ..test|aggregate
+           ..test|matches
+           ..test|parameter
+           ..test|polymorphic
+           ..test|recursive
+           )))
+
+(the proper
+  (Random Text)
+  (do [! random.monad]
+    [size (|> random.natural (by ! each (n.% 10)))]
+    (random.unicode size)))
+
+(the name
+  (Random Name)
+  (random.and ..proper ..proper))
+
+(the (random' parameters)
+  (-> Natural (Random Type))
+  (random.rec
+   (function (_ again)
+     (let [pairG (random.and again again)
+           un_parameterized (is (Random Type)
+                                (all random.either
+                                     (random#each (|>> {.#Nominal}) (random.and ..proper (random.list 0 again)))
+                                     (random#each (|>> {.#Nominal}) (random.and ..proper (random.list 1 again)))
+                                     (random#each (|>> {.#Nominal}) (random.and ..proper (random.list 2 again)))
+                                     (random#each (|>> {.#Sum}) pairG)
+                                     (random#each (|>> {.#Product}) pairG)
+                                     (random#each (|>> {.#Function}) pairG)
+                                     ))]
+       (when parameters
+         0 un_parameterized
+         _ (|> random.natural
+               (random#each (|>> (n.% parameters) {.#Parameter}))
+               (random.either un_parameterized)))))))
+
+(the .public (random parameters)
+  (-> Natural
+      (Random Type))
+  (all random.either
+       (random#each (/.univ_q parameters) (random' parameters))
+       (random#each (/.ex_q parameters) (random' parameters))
+       ))
+
+(the (generalized_function _ _)
+  (for_any (_ parameter return)
+    (-> parameter parameter
+        return))
+  (undefined))
+
+(the .public test
+  Test
+  (<| (_.covering /._)
+      (all _.and
+           (_.for [/.equivalence /.=]
+                  (static.when (same? /.equivalence /.=)
+                    (equivalenceT.spec /.equivalence (..random 0))))
+           
+           (do [! random.monad]
+             [anonymousT (random.only (|>> (pipe.when {.#Named _ _} false
+                                             _ true))
+                                      (..random 0))
+              name/0 ..name
+              name/1 ..name
+              .let [namedT {.#Named name/0 anonymousT}
+                    aliasedT {.#Named name/1 namedT}]]
+             (all _.and
+                  (_.coverage [/.de_aliased]
+                    (by /.equivalence = namedT (/.de_aliased aliasedT)))
+                  (_.coverage [/.anonymous]
+                    (by /.equivalence = anonymousT (/.anonymous aliasedT)))))
+           (do [! random.monad]
+             [size (|> random.natural (by ! each (n.% 3)))
+              members (|> (..random 0)
+                          (random.only (function (_ type)
+                                         (when type
+                                           (^.or {.#Sum _} {.#Product _})
+                                           false
+
+                                           _
+                                           true)))
+                          (list.repeated size)
+                          (monad.all !))
+              .let [(open "/#[0]") /.equivalence
+                    (open "list#[0]") (list.equivalence /.equivalence)]]
+             (`` (all _.and
+                      (,, (template.with [<ctor> <dtor> <unit>]
+                            [(_.coverage [<ctor> <dtor>]
+                               (let [flat (|> members <ctor> <dtor>)]
+                                 (or (list#= members flat)
+                                     (and (list#= (list) members)
+                                          (list#= (list <unit>) flat)))))]
+
+                            [/.variant /.flat_variant Nothing]
+                            [/.tuple   /.flat_tuple   Any]
+                            ))
+                      )))
+           (_.coverage [/.applied]
+             (and (<| (maybe.else false)
+                      (do maybe.monad
+                        [partial (/.applied (list Bit) Annotated)
+                         full (/.applied (list Integer) partial)]
+                        (in (by /.equivalence = full {.#Product Bit Integer}))))
+                  (|> (/.applied (list Bit) Text)
+                      (pipe.when
+                        {.#None}
+                        true
+                        
+                        _
+                        false))))
+           (do [! random.monad]
+             [size (|> random.natural (by ! each (n.% 3)))
+              members (monad.all ! (list.repeated size (..random 0)))
+              extra (|> (..random 0)
+                        (random.only (function (_ type)
+                                       (when type
+                                         (^.or {.#Function _} {.#Reification _})
+                                         false
+
+                                         _
+                                         true))))
+              .let [(open "/#[0]") /.equivalence
+                    (open "list#[0]") (list.equivalence /.equivalence)]]
+             (all _.and
+                  (_.coverage [/.function /.flat_function]
+                    (let [[inputs output] (|> (/.function members extra) /.flat_function)]
+                      (and (list#= members inputs)
+                           (/.= extra output))))
+                  (_.coverage [/.application /.flat_application]
+                    (let [[tfunc tparams] (|> extra (/.application members) /.flat_application)]
+                      (n.= (list.size members) (list.size tparams))))
+                  ))
+           (do [! random.monad]
+             [size (|> random.natural (by ! each (|>> (n.% 3) ++)))
+              body_type (|> (..random 0)
+                            (random.only (function (_ type)
+                                           (when type
+                                             (^.or {.#Universal _} {.#Existential _})
+                                             false
+
+                                             _
+                                             true))))
+              .let [(open "/#[0]") /.equivalence]]
+             (`` (all _.and
+                      (,, (template.with [<ctor> <dtor>]
+                            [(_.coverage [<ctor> <dtor>]
+                               (let [[flat_size flat_body] (|> body_type (<ctor> size) <dtor>)]
+                                 (and (n.= size flat_size)
+                                      (/.= body_type flat_body))))]
+
+                            [/.univ_q /.flat_univ_q]
+                            [/.ex_q   /.flat_ex_q]
+                            ))
+                      (_.coverage [/.quantified?]
+                        (and (not (/.quantified? body_type))
+                             (|> body_type (/.univ_q size) /.quantified?)
+                             (|> body_type (/.ex_q size) /.quantified?)))
+                      )))
+           (do [! random.monad]
+             [depth (|> random.natural (by ! each (|>> (n.% 3) ++)))
+              element_type (|> (..random 0)
+                               (random.only (function (_ type)
+                                              (when type
+                                                {.#Nominal name (list element_type)}
+                                                (not (text.= array.nominal name))
+
+                                                _
+                                                true))))
+              .let [(open "/#[0]") /.equivalence]]
+             (all _.and
+                  (_.coverage [/.array /.flat_array]
+                    (let [[flat_depth flat_element] (|> element_type (/.array depth) /.flat_array)]
+                      (and (n.= depth flat_depth)
+                           (/.= element_type flat_element))))
+                  (_.coverage [/.array?]
+                    (and (not (/.array? element_type))
+                         (/.array? (/.array depth element_type))))
+                  ))
+           (_.coverage [/.by_example]
+             (let [example (is (Maybe Natural)
+                               {.#None})]
+               (/.= (type (List Natural))
+                    (/.by_example [a]
+                      (is (Maybe a)
+                          example)
+                      (List a)))))
+           (do random.monad
+             [sample random.natural]
+             (_.coverage [/.log!]
+               (exec
+                 (/.log! sample)
+                 true)))
+           (do random.monad
+             [left random.natural
+              right (random.lower_cased 1)
+              .let [left,right [left right]]]
+             (_.coverage [/.as]
+               (|> left,right
+                   (/.as [l r] (And l r) (Or l r))
+                   (/.as [l r] (Or l r) (And l r))
+                   (same? left,right))))
+           (do random.monad
+             [expected random.natural]
+             (_.coverage [/.sharing]
+               (n.= expected
+                    (/.sharing [a]
+                      (is (I64 a)
+                          expected)
+                      (is (I64 a)
+                          (.i64 expected))))))
+           (do random.monad
+             [expected_left random.natural
+              expected_right random.natural]
+             (_.coverage [/.let]
+               (let [[actual_left actual_right]
+                     (is (/.let [side Natural]
+                           [side side])
+                         [expected_left expected_right])]
+                 (and (same? expected_left actual_left)
+                      (same? expected_right actual_right)))))
+           (do random.monad
+             [.let [(open "/#[0]") /.equivalence]
+              left (..random 0)
+              right (..random 0)]
+             (all _.and
+                  (_.coverage [/.code]
+                    (bit.= (/.= left right)
+                           (code.= (/.code left) (/.code right))))
+                  (_.coverage [/.absolute_injection]
+                    (bit.= (/.= left right)
+                           (text.= (/.absolute_injection left) (/.absolute_injection right))))
+                  ))
+           ... (_.coverage [.type]
+           ...   (and (when (type [expected/0 expected/1])
+           ...          {.#Product actual/0 actual/1}
+           ...          (and (same? expected/0 actual/0)
+           ...               (same? expected/1 actual/1))
+
+           ...          _
+           ...          false)
+           ...        (when (type (/.Or expected/0 expected/1))
+           ...          {.#Sum actual/0 actual/1}
+           ...          (and (same? expected/0 actual/0)
+           ...               (same? expected/1 actual/1))
+
+           ...          _
+           ...          false)
+           ...        (when (type (-> expected/0 expected/1))
+           ...          {.#Function actual/0 actual/1}
+           ...          (and (same? expected/0 actual/0)
+           ...               (same? expected/1 actual/1))
+
+           ...          _
+           ...          false)
+           ...        (when (type (expected/0 expected/1))
+           ...          {.#Reification actual/1 actual/0}
+           ...          (and (same? expected/0 actual/0)
+           ...               (same? expected/1 actual/1))
+
+           ...          _
+           ...          false)))
+
+           ..\\projection
+
+           /nominal.test
+           /check.test
+           /dynamic.test
+           /implicit.test
+           /quotient.test
+           /refinement.test
+           /linear.test
+           /unit.test
+           /variance.test
+           /poly.test
+           /row.test
+           /brand.test
+           /object.test
+           /record.test
+           /function.test
+           (/environment.test (..random 0))
+           )))
