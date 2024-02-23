@@ -347,7 +347,9 @@ Called by `imenu--generic-function'."
 ;; https://www.emacswiki.org/emacs/RegularExpression
 (defconst lux-font-lock-keywords
   (eval-when-compile
-	(let* ((unit "[°g%‰‱]")
+	(let* ((natural_unit "[°g%‰‱]")
+		   (decimal_unit (altRE natural_unit
+								"[πτ]"))
 
 		   (natural "[0-9][0-9,]*")
 
@@ -358,13 +360,13 @@ Called by `imenu--generic-function'."
 		   (revolution (concat decimal_separator natural))
 		   (decimal (concat integer revolution
 							"\\(\\(e\\|E\\)" integer "\\)?"
-							unit "?"))
+							decimal_unit "?"))
 
 		   (fraction_separator "/")
 		   (fraction (altRE (concat natural fraction_separator natural)
-							(concat natural unit)))
+							(concat natural natural_unit)))
 		   (rational (altRE (concat integer fraction_separator natural)
-							(concat integer unit)))
+							(concat integer natural_unit)))
 		   
 		   (identifier_h|label "#")
 		   (identifier_h|type "[:upper:]")
