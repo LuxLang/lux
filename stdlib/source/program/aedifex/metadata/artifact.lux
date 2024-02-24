@@ -3,7 +3,7 @@
 
 (.using
  [library
-  [lux (.except)
+  [lux (.except Name)
    [abstract
     [monad (.only do)]
     [equivalence (.only Equivalence)]]
@@ -56,23 +56,23 @@
     (%.message "0" (%.natural value))
     (%.natural value)))
 
-(the (date_injection value)
+(the (date_text value)
   (text.Injection Date)
   (%.message (|> value date.year year.value .natural %.natural)
              (|> value date.month month.number ..pad)
              (|> value date.day_of_month ..pad)))
 
-(the (time_injection value)
+(the (time_text value)
   (text.Injection Time)
   (let [(open "[0]") (time.clock value)]
     (%.message (..pad #hour)
                (..pad #minute)
                (..pad #second))))
 
-(the (instant_injection value)
+(the (instant_text value)
   (text.Injection Instant)
-  (%.message (..date_injection (instant.date value))
-             (..time_injection (instant.time value))))
+  (%.message (..date_text (instant.date value))
+             (..time_text (instant.time value))))
 
 (template.with [<definition> <tag>]
   [(the <definition> xml.Tag ["" <tag>])]
@@ -91,63 +91,64 @@
      (-> <type> XML)
      (|>> <pre> {xml.#Text} list {xml.#Node <tag> xml.attributes}))]
 
-  [group_injection Group ..<group> (|>)]
-  [name_injection Name ..<name> (|>)]
-  [version_injection Version ..<version> (|>)]
-  [last_updated_injection Instant ..<last_updated> ..instant_injection]
+  [group_xml Group ..<group> (|>)]
+  [name_xml Name ..<name> (|>)]
+  [version_xml Version ..<version> (|>)]
+  [last_updated_xml Instant ..<last_updated> ..instant_text]
   )
 
-(the versions_injection
+(the versions_xml
   (-> (List Version) XML)
-  (|>> (list#each ..version_injection) {xml.#Node ..<versions> xml.attributes}))
+  (|>> (list#each ..version_xml) {xml.#Node ..<versions> xml.attributes}))
 
-(the .public (injection value)
-  (-> Metadata XML)
+(the .public (as_xml value)
+  (-> Metadata
+      XML)
   {xml.#Node ..<metadata>
              xml.attributes
-             (list (..group_injection (its #group value))
-                   (..name_injection (its #name value))
+             (list (..group_xml (its #group value))
+                   (..name_xml (its #name value))
                    {xml.#Node ..<versioning>
                               xml.attributes
-                              (list (..versions_injection (its #versions value))
-                                    (..last_updated_injection (its #last_updated value)))})})
+                              (list (..versions_xml (its #versions value))
+                                    (..last_updated_xml (its #last_updated value)))})})
 
 (the (text tag)
   (-> xml.Tag (Projection Text))
   (<| (<xml>.node tag)
       <xml>.text))
 
-(the date_projection
+(the date_of
   (<text>.Projection Date)
   (do <>.monad
-    [year (<>.format n.base_10 (<text>.exactly 4 <text>.decimal))
+    [year (<>.of n.base_10 (<text>.exactly 4 <text>.decimal))
      year (<>.of_try (year.year (.integer year)))
-     month (<>.format n.base_10 (<text>.exactly 2 <text>.decimal))
+     month (<>.of n.base_10 (<text>.exactly 2 <text>.decimal))
      month (<>.of_try (month.by_number month))
-     day_of_month (<>.format n.base_10 (<text>.exactly 2 <text>.decimal))]
+     day_of_month (<>.of n.base_10 (<text>.exactly 2 <text>.decimal))]
     (<>.of_try (date.date year month day_of_month))))
 
-(the time_projection
+(the time_of
   (<text>.Projection Time)
   (do <>.monad
-    [hour (<>.format n.base_10 (<text>.exactly 2 <text>.decimal))
-     minute (<>.format n.base_10 (<text>.exactly 2 <text>.decimal))
-     second (<>.format n.base_10 (<text>.exactly 2 <text>.decimal))]
+    [hour (<>.of n.base_10 (<text>.exactly 2 <text>.decimal))
+     minute (<>.of n.base_10 (<text>.exactly 2 <text>.decimal))
+     second (<>.of n.base_10 (<text>.exactly 2 <text>.decimal))]
     (<>.of_try (time.time
                 [time.#hour hour
                  time.#minute minute
                  time.#second second
                  time.#milli_second 0]))))
 
-(the last_updated_projection
+(the last_updated_of
   (Projection Instant)
   (<text>.then (do <>.monad
-                 [date ..date_projection
-                  time ..time_projection]
+                 [date ..date_of
+                  time ..time_of]
                  (in (instant.of_date_time date time)))
                (..text ..<last_updated>)))
 
-(the .public projection
+(the .public of_xml
   (Projection Metadata)
   (<| (<xml>.node ..<metadata>)
       (all <>.and
@@ -160,7 +161,7 @@
                     (<| <xml>.somewhere
                         (<xml>.node ..<versions>)
                         (<>.many (..text ..<version>)))
-                    (<xml>.somewhere ..last_updated_projection)
+                    (<xml>.somewhere ..last_updated_of)
                     )))))
 
 (the .public equivalence
@@ -191,9 +192,9 @@
       {try.#Success binary_metadata}
       (in (|> binary_metadata
               (pipe.do try.monad
-                [(by utf8.format projection)]
-                [(by xml.format projection)]
-                [list (<xml>.value ..projection)])))
+                [(by utf8.binary of)]
+                [(by xml.text of)]
+                [list (<xml>.value ..of_xml)])))
       
       {try.#Failure error}
       (in {try.#Success
@@ -206,7 +207,7 @@
 (the .public (write repository artifact metadata)
   (-> (Repository Future) Artifact Metadata (Future (Try Any)))
   (|> metadata
-      ..injection
-      (by xml.format injection)
-      (by utf8.format injection)
+      ..as_xml
+      (by xml.text as)
+      (by utf8.binary as)
       (by repository upload (..uri artifact))))

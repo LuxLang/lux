@@ -66,8 +66,6 @@
 0. Go from having I32 variant tags to I08 tags.
    0. Make the JVM compiler use `Byte`s instead of `Integer`s for storing variant/sum tags/lefts.
 0. Implement extensible pattern-matching in the compiler, guided by the experiment in `control/pattern`.
-0. Dissolve `math/random` into the rest of the standard library.
-0. Dissolve `injection/.../text` into the rest of the standard library.
 0. Inject the type-names of the different primitive types in the prelude using analysis extensions.
 0. Eta-conversion in the synthesis phase for inlining/code-fusion optimizations.
 0. Add special `origin/provenance` parameter to `Exception`s in order to track from which definition they came, in order to disambiguate between multiple possible origins.
@@ -83,6 +81,8 @@
 0. Get rid of the `.in_module#` extension. It can be replaced by a macro that piggy-backs on the existing `quoted_module` mechanism.
 0. An anonymous type for un-tagged sums. E.g. `{3 #1 x}` = `(All (_ a b c d) (Or a b c (Or d (type_of x))))` && `{3 #0 x}` = `(All (_ a b c d) (Or a b c (Or (type_of x) d)))`
 0. Unsafe text module.
+0. Dissolve `math/random` into the rest of the standard library.
+0. Dissolve `injection/.../text` into the rest of the standard library.
 
 ## Done
 
