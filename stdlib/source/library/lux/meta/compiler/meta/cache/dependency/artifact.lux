@@ -13,7 +13,7 @@
    [data
     ["[0]" product]
     [collection
-     ["[0]" list (.use "[1]#[0]" monoid mix monad)]
+     ["[0]" stack (.use "[1]#[0]" monoid mix monad)]
      ["[0]" set (.only Set)]
      ["[0]" dictionary (.only Dictionary)]
      ["[0]" sequence]]]
@@ -38,18 +38,18 @@
        ["[0]" unit]]]]]]])
 
 (the (path_references references)
-  (-> (-> synthesis.Term (List Constant))
-      (-> Path (List Constant)))
+  (-> (-> synthesis.Term (Stack Constant))
+      (-> Path (Stack Constant)))
   (function (again path)
     (`` (when path
           (^.or {synthesis.#Pop}
                 {synthesis.#Access _}
                 {synthesis.#Bind _})
-          (list)
+          (stack)
 
           (,, (template.with [<tag>]
                 [{<tag> left right}
-                 (.all list#composite
+                 (.all stack#composite
                        (again left)
                        (again right))]
 
@@ -59,7 +59,7 @@
           {synthesis.#Bit_Fork test then else}
           (when else
             {.#Some else}
-            (.all list#composite
+            (.all stack#composite
                   (again then)
                   (again else))
             
@@ -68,9 +68,9 @@
 
           (,, (template.with [<tag>]
                 [{<tag> fork}
-                 (|> {.#Item fork}
-                     (list#each (|>> product.right again))
-                     list#conjoint)]
+                 (|> {.#Top fork}
+                     (stack#each (|>> product.right again))
+                     stack#conjoint)]
 
                 [synthesis.#I64_Fork]
                 [synthesis.#F64_Fork]
@@ -81,10 +81,10 @@
 
 (the (references [_ value])
   (-> synthesis.Term
-      (List Constant))
+      (Stack Constant))
   (when value
     {synthesis.#Simple value}
-    (list)
+    (stack)
     
     {synthesis.#Structure value}
     (when value
@@ -95,21 +95,21 @@
       
       {analysis/complex.#Tuple value}
       (|> value
-          (list#each references)
-          list#conjoint))
+          (stack#each references)
+          stack#conjoint))
 
     {synthesis.#Reference value}
     (when value
       {reference.#Variable _}
-      (list)
+      (stack)
       
       {reference.#Constant value}
-      (list value))
+      (stack value))
     
     {synthesis.#Control value}
     (when value
       {synthesis.#When input path}
-      (.all list#composite
+      (.all stack#composite
             (references input)
             (path_references references path))
       
@@ -118,16 +118,16 @@
         {synthesis.#Tail_Recursion value}
         (let [of_inits (|> value
                            (its synthesis.#inits)
-                           (list#each references))
+                           (stack#each references))
               of_iteration (|> value
                                (its synthesis.#iteration)
                                references)]
-          (list#conjoint (list.partial of_iteration of_inits)))
+          (stack#conjoint (stack.partial of_iteration of_inits)))
         
         {synthesis.#Tail_Iteration value}
         (|> value
-            (list#each references)
-            list#conjoint))
+            (stack#each references)
+            stack#conjoint))
       
       {synthesis.#Function value}
       (when value
@@ -137,14 +137,14 @@
             references)
         
         {synthesis.#Reification function arguments}
-        (|> (list.partial function arguments)
-            (list#each references)
-            list#conjoint)))
+        (|> (stack.partial function arguments)
+            (stack#each references)
+            stack#conjoint)))
     
     {synthesis.#Extension [name parameters]}
     (|> parameters
-        (list#each references)
-        list#conjoint)))
+        (stack#each references)
+        stack#conjoint)))
 
 (the .public (dependencies archive value)
   (for_any (_ anchor expression declaration)
@@ -153,10 +153,10 @@
   (let [! phase.monad]
     (|> value
         ..references
-        (set.of_list name.hash)
-        set.list
+        (set.of_stack name.hash)
+        set.stack
         (monad.each ! (translation.remember archive))
-        (by ! each (set.of_list unit.hash)))))
+        (by ! each (set.of_stack unit.hash)))))
 
 (the .public (path_dependencies archive value)
   (for_any (_ anchor expression declaration)
@@ -165,40 +165,40 @@
   (let [! phase.monad]
     (|> value
         (..path_references ..references)
-        (set.of_list name.hash)
-        set.list
+        (set.of_stack name.hash)
+        set.stack
         (monad.each ! (translation.remember archive))
-        (by ! each (set.of_list unit.hash)))))
+        (by ! each (set.of_stack unit.hash)))))
 
 (the .public all
-  (-> (List (Set unit.ID))
+  (-> (Stack (Set unit.ID))
       (Set unit.ID))
-  (list#mix set.union unit.none))
+  (stack#mix set.union unit.none))
 
 (the (immediate_dependencies archive)
   (-> Archive
-      [(List unit.ID)
+      [(Stack unit.ID)
        (Dictionary unit.ID (Set unit.ID))])
   (|> archive
       archive.entries
-      (list#each (function (_ [module [module_id [_module output registry]]])
-                   (|> registry
-                       registry.artifacts
-                       sequence.as_list
-                       (list#each (function (_ [artifact dependencies])
-                                    [[module_id (its artifact.#id artifact)]
-                                     (its artifact.#mandatory? artifact)
-                                     dependencies])))))
-      list.together
-      (list#mix (function (_ [artifact_id mandatory? dependencies]
-                             [mandatory_dependencies
-                              all_dependencies])
-                  [(if mandatory?
-                     (list.partial artifact_id mandatory_dependencies)
-                     mandatory_dependencies)
-                   (dictionary.has artifact_id dependencies all_dependencies)])
-                [(list)
-                 (dictionary.empty unit.hash)])))
+      (stack#each (function (_ [module [module_id [_module output registry]]])
+                    (|> registry
+                        registry.artifacts
+                        sequence.as_stack
+                        (stack#each (function (_ [artifact dependencies])
+                                      [[module_id (its artifact.#id artifact)]
+                                       (its artifact.#mandatory? artifact)
+                                       dependencies])))))
+      stack.together
+      (stack#mix (function (_ [artifact_id mandatory? dependencies]
+                              [mandatory_dependencies
+                               all_dependencies])
+                   [(if mandatory?
+                      (stack.partial artifact_id mandatory_dependencies)
+                      mandatory_dependencies)
+                    (dictionary.has artifact_id dependencies all_dependencies)])
+                 [(stack)
+                  (dictionary.empty unit.hash)])))
 
 (the .public (necessary_dependencies archive)
   (-> Archive
@@ -207,16 +207,16 @@
     (loop (again [pending mandatory
                   minimum unit.none])
       (when pending
-        {.#Item head tail}
+        {.#Top head tail}
         (if (set.member? minimum head)
           (again tail minimum)
           (again (when (dictionary.value head immediate)
                    {try.#Success additional}
-                   (list#composite (set.list additional) tail)
+                   (stack#composite (set.stack additional) tail)
 
                    failure
                    tail)
                  (set.has head minimum)))
         
-        {.#End}
+        {.#Empty}
         minimum))))

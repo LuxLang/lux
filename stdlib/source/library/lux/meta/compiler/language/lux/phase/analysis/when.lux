@@ -16,7 +16,7 @@
     [text
      ["%" \\injection]]
     [collection
-     ["[0]" list (.use "[1]#[0]" mix monoid monad)]]]
+     ["[0]" stack (.use "[1]#[0]" mix monoid monad)]]]
    [math
     [number
      ["n" natural]]]
@@ -45,46 +45,46 @@
 (exception.the .public (mismatch [module type pattern])
   (Exception [Text Type Code])
   (exception.report
-   (list ["Type" (type.as_text type)]
-         ["Pattern" (code.relative module pattern)])))
+   (stack ["Type" (type.as_text type)]
+          ["Pattern" (code.relative module pattern)])))
 
 (exception.the .public (sum_has_no_case [case type])
   (Exception [Natural Type])
   (exception.report
-   (list ["Case" (%.natural case)]
-         ["Type" (type.as_text type)])))
+   (stack ["Case" (%.natural case)]
+          ["Type" (type.as_text type)])))
 
 (exception.the .public (invalid [module it])
   (Exception [Text Code])
   (exception.report
-   (list ["Pattern" (code.relative module it)])))
+   (stack ["Pattern" (code.relative module it)])))
 
 (exception.the .public (non_tuple type)
   (Exception Type)
   (exception.report
-   (list ["Type" (type.as_text type)])))
+   (stack ["Type" (type.as_text type)])))
 
 (exception.the .public (non_exhaustive [module input branches coverage])
-  (Exception [Text Code (List [Code Code]) Coverage])
+  (Exception [Text Code (Stack [Code Code]) Coverage])
   (exception.report
-   (list ["Input" (code.relative module input)]
-         ["Branches" (|> branches
-                         (list#each (function (_ [slot value])
-                                      (list slot value)))
-                         list#conjoint
-                         code.tuple
-                         (code.relative module))]
-         ["Coverage" (/coverage.as_text coverage)])))
+   (stack ["Input" (code.relative module input)]
+          ["Branches" (|> branches
+                          (stack#each (function (_ [slot value])
+                                        (stack slot value)))
+                          stack#conjoint
+                          code.tuple
+                          (code.relative module))]
+          ["Coverage" (/coverage.as_text coverage)])))
 
 (exception.the .public empty_branches)
 
 (the (quantified envs baseT)
-  (-> (List (List Type)) Type Type)
+  (-> (Stack (Stack Type)) Type Type)
   (.when envs
-    {.#End}
+    {.#Empty}
     baseT
 
-    {.#Item head tail}
+    {.#Top head tail}
     (quantified tail {.#Universal head baseT})))
 
 ... Type-checking on the input value is done during the analysis of a
@@ -95,9 +95,9 @@
 ... This function makes it easier for "when" analysis to properly
 ... type-check the input with respect to the patterns.
 (the .public (tuple :it:)
-  (-> Type (Check [(List type.Variable) Type]))
-  (loop (again [envs (is (List (List Type))
-                         (list))
+  (-> Type (Check [(Stack type.Variable) Type]))
+  (loop (again [envs (is (Stack (Stack Type))
+                         (stack))
                 :it: :it:])
     (.when :it:
       {.#Variable id}
@@ -114,13 +114,13 @@
       (again envs unnamedT)
 
       {.#Universal env unquantifiedT}
-      (again {.#Item env envs} unquantifiedT)
+      (again {.#Top env envs} unquantifiedT)
 
       {.#Existential _}
       (do check.monad
         [[@head :head:] check.var
-         [tail :tuple:] (again envs (maybe.trusted (type.applied (list :head:) :it:)))]
-        (in [(list.partial @head tail) :tuple:]))
+         [tail :tuple:] (again envs (maybe.trusted (type.applied (stack :head:) :it:)))]
+        (in [(stack.partial @head tail) :tuple:]))
 
       {.#Reification _}
       (do [! check.monad]
@@ -148,13 +148,13 @@
       {.#Product _}
       (|> :it:
           type.flat_tuple
-          (list#each (..quantified envs))
+          (stack#each (..quantified envs))
           type.tuple
-          [(list)]
+          [(stack)]
           (by check.monad in))
 
       _
-      (by check.monad in [(list) (..quantified envs :it:)]))))
+      (by check.monad in [(stack) (..quantified envs :it:)]))))
 
 (the (simple_pattern_analysis type :input: provenance output next)
   (for_any (_ a) (-> Type Type Provenance Pattern (Operation a) (Operation [Pattern a])))
@@ -167,47 +167,47 @@
 (the (tuple_pattern_analysis pattern_analysis :input: sub_patterns next)
   (for_any (_ a)
     (-> (-> Type Code (Operation a) (Operation [Pattern a]))
-        Type (List Code) (Operation a) (Operation [Pattern a])))
+        Type (Stack Code) (Operation a) (Operation [Pattern a])))
   (do [! phase.monad]
     [[@ex_var+ :input:'] (/type.check (..tuple :input:))]
     (.when :input:'
       {.#Product _}
       (let [matches (loop (again [types (type.flat_tuple :input:')
                                   patterns sub_patterns
-                                  output (is (List [Type Code])
-                                             {.#End})])
+                                  output (is (Stack [Type Code])
+                                             {.#Empty})])
                       (.when [types patterns]
-                        [{.#End} {.#End}]
+                        [{.#Empty} {.#Empty}]
                         output
 
-                        [{.#Item headT {.#End}} {.#Item headP {.#End}}]
-                        {.#Item [headT headP] output}
+                        [{.#Top headT {.#Empty}} {.#Top headP {.#Empty}}]
+                        {.#Top [headT headP] output}
 
-                        [remainingT {.#Item headP {.#End}}]
-                        {.#Item [(type.tuple remainingT) headP] output}
+                        [remainingT {.#Top headP {.#Empty}}]
+                        {.#Top [(type.tuple remainingT) headP] output}
 
-                        [{.#Item headT {.#End}} remainingP]
-                        {.#Item [headT (code.tuple remainingP)] output}
+                        [{.#Top headT {.#Empty}} remainingP]
+                        {.#Top [headT (code.tuple remainingP)] output}
                         
-                        [{.#Item headT tailT} {.#Item headP tailP}]
-                        (again tailT tailP {.#Item [headT headP] output})
+                        [{.#Top headT tailT} {.#Top headP tailP}]
+                        (again tailT tailP {.#Top [headT headP] output})
 
                         _
                         (undefined)))]
         (do !
-          [[memberP+ thenA] (list#mix (is (for_any (_ a)
-                                            (-> [Type Code] (Operation [(List Pattern) a])
-                                                (Operation [(List Pattern) a])))
-                                          (function (_ [memberT memberC] then)
-                                            (do !
-                                              [[memberP [memberP+ thenA]] ((as (for_any (_ a) (-> Type Code (Operation a) (Operation [Pattern a])))
-                                                                               pattern_analysis)
-                                                                           memberT memberC then)]
-                                              (in [(list.partial memberP memberP+) thenA]))))
-                                      (do !
-                                        [nextA next]
-                                        (in [(list) nextA]))
-                                      matches)
+          [[memberP+ thenA] (stack#mix (is (for_any (_ a)
+                                             (-> [Type Code] (Operation [(Stack Pattern) a])
+                                                 (Operation [(Stack Pattern) a])))
+                                           (function (_ [memberT memberC] then)
+                                             (do !
+                                               [[memberP [memberP+ thenA]] ((as (for_any (_ a) (-> Type Code (Operation a) (Operation [Pattern a])))
+                                                                                pattern_analysis)
+                                                                            memberT memberC then)]
+                                               (in [(stack.partial memberP memberP+) thenA]))))
+                                       (do !
+                                         [nextA next]
+                                         (in [(stack) nextA]))
+                                       matches)
            _ (/type.check (monad.each check.monad check.forget! @ex_var+))]
           (in [(/pattern.tuple memberP+)
                thenA])))
@@ -227,7 +227,7 @@
   (for_any (_ of)
     (-> (Analysis of)
         Type Code (Operation of)
-        Provenance Natural Bit (List Code)
+        Provenance Natural Bit (Stack Code)
         (Operation [Pattern of])))
   (/.with_provenance provenance
     (do [! phase.monad]
@@ -235,15 +235,15 @@
       (.when :input:'
         {.#Sum _}
         (let [flat_sum (type.flat_variant :input:')
-              size_sum (list.size flat_sum)
+              size_sum (stack.size flat_sum)
               idx (/complex.tag right? lefts)]
-          (.when (list.item idx flat_sum)
+          (.when (stack.item idx flat_sum)
             (^.multi {try.#Success caseT}
                      (n.< size_sum idx))
             (do !
               [[testP nextA] (if (and (n.> size_sum size_sum)
                                       (n.= (-- size_sum) idx))
-                               (pattern_analysis (type.variant (list.after (-- size_sum) flat_sum))
+                               (pattern_analysis (type.variant (stack.after (-- size_sum) flat_sum))
                                                  (` [(,* values)])
                                                  next)
                                (pattern_analysis caseT (` [(,* values)]) next))
@@ -257,7 +257,7 @@
         {.#Universal _}
         (do !
           [[ex_id exT] (/type.check check.existential)
-           it (pattern_analysis (maybe.trusted (type.applied (list exT) :input:'))
+           it (pattern_analysis (maybe.trusted (type.applied (stack exT) :input:'))
                                 pattern
                                 next)
            _ (/type.check (monad.each check.monad check.forget! @ex_var+))]
@@ -305,16 +305,16 @@
               [Revolution {.#Revolution pattern_value} {/simple.#Revolution pattern_value}]
               [Decimal {.#Decimal pattern_value} {/simple.#Decimal pattern_value}]
               [Text {.#Text pattern_value} {/simple.#Text pattern_value}]
-              [Any {.#Tuple {.#End}} {/simple.#Unit}]))
+              [Any {.#Tuple {.#Empty}} {/simple.#Unit}]))
         
-        [provenance {.#Tuple (list singleton)}]
+        [provenance {.#Tuple (stack singleton)}]
         (pattern_analysis :input: singleton next)
         
         [provenance {.#Tuple sub_patterns}]
         (/.with_provenance provenance
           (do [! phase.monad]
             [record (//complex.normal true sub_patterns)
-             record_size,members,recordT (is (Operation (Maybe [Natural (List Code) Type]))
+             record_size,members,recordT (is (Operation (Maybe [Natural (Stack Code) Type]))
                                              (.when record
                                                {.#Some record}
                                                (//complex.order true record)
@@ -335,7 +335,7 @@
                      _
                      (in []))]
                 (.when members
-                  (list singleton)
+                  (stack singleton)
                   (pattern_analysis :input: singleton next)
 
                   _
@@ -344,17 +344,17 @@
               {.#None}
               (..tuple_pattern_analysis pattern_analysis :input: sub_patterns next))))
 
-        [provenance {.#Variant (list.partial [_ {.#Bit right?}] values)}]
+        [provenance {.#Variant (stack.partial [_ {.#Bit right?}] values)}]
         (anonymous_variant pattern_analysis
                            :input: pattern next
                            provenance 0 right? values)
 
-        [provenance {.#Variant (list.partial [_ {.#Natural lefts}] [_ {.#Bit right?}] values)}]
+        [provenance {.#Variant (stack.partial [_ {.#Natural lefts}] [_ {.#Bit right?}] values)}]
         (anonymous_variant pattern_analysis
                            :input: pattern next
                            provenance lefts right? values)
 
-        [provenance {.#Variant (list.partial [_ {.#Name tag}] values)}]
+        [provenance {.#Variant (stack.partial [_ {.#Name tag}] values)}]
         (/.with_provenance provenance
           (do phase.monad
             [tag (binding.normal tag)
@@ -375,9 +375,9 @@
         )))
 
 (the .public (when analyse branches archive inputC)
-  (-> Phase (List [Code Code]) Phase)
+  (-> Phase (Stack [Code Code]) Phase)
   (.when branches
-    {.#Item [patternH bodyH] branchesT}
+    {.#Top [patternH bodyH] branchesT}
     (do [! phase.monad]
       [[:input: inputA] (<| /type.inferring
                             (analyse archive inputC))
@@ -400,5 +400,5 @@
        @ meta.provenance]
       (in [@ {/.#When inputA [outputH outputT]}]))
 
-    {.#End}
+    {.#Empty}
     (/.except ..empty_branches [])))

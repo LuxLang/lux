@@ -17,7 +17,7 @@
       ["[0]" utf8]]]
     [collection
      ["[0]" sequence]
-     ["[0]" list (.use "[1]#[0]" functor mix)]
+     ["[0]" stack (.use "[1]#[0]" functor mix)]
      ["[0]" dictionary (.only Dictionary)]
      ["[0]" set (.only Set)]]]
    [math
@@ -54,10 +54,10 @@
   (do [! try.monad]
     []
     (when (|> output
-              sequence.as_list
-              (list.only (function (_ [artifact_id custom content])
-                           (set.member? necessary_dependencies [module_id artifact_id]))))
-      {.#End}
+              sequence.as_stack
+              (stack.only (function (_ [artifact_id custom content])
+                            (set.member? necessary_dependencies [module_id artifact_id]))))
+      {.#Empty}
       (in {.#None})
       
       artifacts
@@ -85,8 +85,8 @@
 (the (write_module mapping necessary_dependencies [module [module_id entry]] sink)
   (-> (Dictionary descriptor.Module module.ID) (Set unit.ID)
       [descriptor.Module [module.ID (archive.Entry .Module)]]
-      (List [module.ID [Text Binary]])
-      (Try (List [module.ID [Text Binary]])))
+      (Stack [module.ID [Text Binary]])
+      (Try (Stack [module.ID [Text Binary]])))
   (do [! try.monad]
     [bundle (is (Try (Maybe _.Statement))
                 (..bundle_module module module_id necessary_dependencies (its archive.#output entry)))]
@@ -95,52 +95,52 @@
       (in sink)
 
       {.#Some bundle}
-      (let [entry_content (|> (list)
-                              (list#mix _.then bundle)
+      (let [entry_content (|> (stack)
+                              (stack#mix _.then bundle)
                               (is _.Statement)
                               _.code
                               (by utf8.binary as))]
-        (in (list.partial [module_id [(..module_file module_id) entry_content]]
-                          sink))))))
+        (in (stack.partial [module_id [(..module_file module_id) entry_content]]
+                           sink))))))
 
 (the .public main_file
   "main.rb")
 
 (the module_id_mapping
   (-> (Order .Module) (Dictionary descriptor.Module module.ID))
-  (|>> (list#each (function (_ [module [module_id entry]])
-                    [module module_id]))
-       (dictionary.of_list text.hash)))
+  (|>> (stack#each (function (_ [module [module_id entry]])
+                     [module module_id]))
+       (dictionary.of_stack text.hash)))
 
 (the included_modules
   (for_any (_ a)
-    (-> (List [module.ID a])
+    (-> (Stack [module.ID a])
         (Set module.ID)))
-  (|>> (list#each product.left)
-       (list#mix set.has (set.empty natural.hash))))
+  (|>> (stack#each product.left)
+       (stack#mix set.has (set.empty natural.hash))))
 
 (the .public (package host_dependencies archive program)
   Packager
   (do [! try.monad]
     [.let [necessary_dependencies (cache/artifact.necessary_dependencies archive)]
      order (cache/module.load_order $.key archive)
-     entries (monad.mix ! (..write_module (module_id_mapping order) necessary_dependencies) {.#End} order)
+     entries (monad.mix ! (..write_module (module_id_mapping order) necessary_dependencies) {.#Empty} order)
      .let [included_modules (..included_modules entries)
            imports (|> order
-                       (list.only (|>> product.right product.left (set.member? included_modules)))
-                       list.reversed
-                       (list#each (function (_ [module [module_id entry]])
-                                    (let [relative_path (_.do "gsub" (list (_.string main_file)
-                                                                           (_.string (..module_file module_id)))
-                                                          {.#None}
-                                                          (is _.CVar (_.manual "__FILE__")))]
-                                      (_.; (_.require/1 relative_path)))))
-                       (list#mix _.then (_.comment "Lux program"
-                                          (_.; (_.string ""))))
+                       (stack.only (|>> product.right product.left (set.member? included_modules)))
+                       stack.reversed
+                       (stack#each (function (_ [module [module_id entry]])
+                                     (let [relative_path (_.do "gsub" (stack (_.string main_file)
+                                                                             (_.string (..module_file module_id)))
+                                                           {.#None}
+                                                           (is _.CVar (_.manual "__FILE__")))]
+                                       (_.; (_.require/1 relative_path)))))
+                       (stack#mix _.then (_.comment "Lux program"
+                                           (_.; (_.string ""))))
                        (is _.Statement)
                        _.code
                        (by utf8.binary as))]]
     (in (|> entries
-            (list#each product.right)
-            {.#Item [..main_file imports]}
+            (stack#each product.right)
+            {.#Top [..main_file imports]}
             {.#Right}))))

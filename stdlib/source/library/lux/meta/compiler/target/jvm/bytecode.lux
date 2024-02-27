@@ -3,7 +3,8 @@
 
 (.using
  [library
-  [lux (.except Type Label
+  [lux (.except Stack stack
+                Type Label
                 try except)
    ["[0]" ffi (.only import)]
    [abstract
@@ -21,7 +22,7 @@
     [text
      ["%" \\injection]]
     [collection
-     ["[0]" list (.use "[1]#[0]" functor mix)]
+     ["[0]" stack (.use "[1]#[0]" functor mix)]
      ["[0]" dictionary (.only Dictionary)]
      ["[0]" sequence (.only Sequence)]]]
    [math
@@ -150,21 +151,21 @@
 (exception.the .public (label_has_already_been_set label)
   (exception.Exception Label)
   (exception.report
-   (list ["Label" (%.natural label)])))
+   (.stack ["Label" (%.natural label)])))
 
 (exception.the .public (mismatched_environments [instruction label address expected actual])
   (exception.Exception [Name Label Address Stack Stack])
   (exception.report
-   (list ["Instruction" (name.as_text instruction)]
-         ["Label" (%.natural label)]
-         ["Address" (/address.as_text address)]
-         ["Expected" (/stack.as_text expected)]
-         ["Actual" (/stack.as_text actual)])))
+   (.stack ["Instruction" (name.as_text instruction)]
+           ["Label" (%.natural label)]
+           ["Address" (/address.as_text address)]
+           ["Expected" (/stack.as_text expected)]
+           ["Actual" (/stack.as_text actual)])))
 
 (exception.the .public (unknown_label label)
   (exception.Exception Label)
   (exception.report
-   (list ["Label" (%.natural label)])))
+   (.stack ["Label" (%.natural label)])))
 
 (the .public (set? label)
   (-> Label
@@ -750,7 +751,7 @@
 (exception.the .public (invalid_register id)
   (exception.Exception Natural)
   (exception.report
-   (list ["ID" (%.natural id)])))
+   (.stack ["ID" (%.natural id)])))
 
 (the (register id)
   (-> Natural
@@ -857,9 +858,9 @@
 (exception.the .public (cannot_do_a_big_jump [label @from jump])
   (exception.Exception [Label Address jump.Big])
   (exception.report
-   (list ["Label" (%.natural label)]
-         ["Start" (|> @from /address.value //unsigned.value %.natural)]
-         ["Target" (|> jump //signed.value %.integer)])))
+   (.stack ["Label" (%.natural label)]
+           ["Start" (|> @from /address.value //unsigned.value %.natural)]
+           ["Target" (|> jump //signed.value %.integer)])))
 
 (every Any_Jump
   (Either jump.Big
@@ -881,7 +882,7 @@
 (exception.the .public (unset_label label)
   (exception.Exception Label)
   (exception.report
-   (list ["Label" (%.natural label)])))
+   (.stack ["Label" (%.natural label)])))
 
 (the (resolve_label label resolver)
   (-> Label Resolver
@@ -1013,18 +1014,18 @@
 (exception.the .public invalid_tableswitch)
 
 (the .public (tableswitch minimum default [at_minimum afterwards])
-  (-> S4 Label [Label (List Label)]
+  (-> S4 Label [Label (.Stack Label)]
       (Bytecode Any))
   (let [[estimator bytecode] _.tableswitch]
     (function (_ [pool environment tracker])
       (<| (try|do environment' (|> environment
                                    (/environment.consumes $1)))
           (try|do actual (/environment.stack environment'))
-          (try|do program_counter' (step (estimator (list.size afterwards)) (its #program_counter tracker)))
+          (try|do program_counter' (step (estimator (stack.size afterwards)) (its #program_counter tracker)))
           (try|in (let [@from (its #program_counter tracker)]
                     [[pool
                       environment'
-                      (|> (list#mix (..acknowledge_label actual) tracker (list.partial default at_minimum afterwards))
+                      (|> (stack#mix (..acknowledge_label actual) tracker (stack.partial default at_minimum afterwards))
                           (has #program_counter program_counter'))]
                      [(function (_ resolver)
                         (let [address (is (-> Label (Try Address))
@@ -1052,22 +1053,22 @@
 (exception.the .public invalid_lookupswitch)
 
 (the .public (lookupswitch default cases)
-  (-> Label (List [S4 Label])
+  (-> Label (.Stack [S4 Label])
       (Bytecode Any))
-  (let [cases (list.sorted (function (_ [left _] [right _])
-                             (i.< (//signed.value left)
-                                  (//signed.value right)))
-                           cases)
+  (let [cases (stack.sorted (function (_ [left _] [right _])
+                              (i.< (//signed.value left)
+                                   (//signed.value right)))
+                            cases)
         [estimator bytecode] _.lookupswitch]
     (function (_ [pool environment tracker])
       (<| (try|do environment' (|> environment
                                    (/environment.consumes $1)))
           (try|do actual (/environment.stack environment'))
-          (try|do program_counter' (step (estimator (list.size cases)) (its #program_counter tracker)))
+          (try|do program_counter' (step (estimator (stack.size cases)) (its #program_counter tracker)))
           (try|in (let [@from (its #program_counter tracker)]
                     [[pool
                       environment'
-                      (|> (list#mix (..acknowledge_label actual) tracker (list.partial default (list#each product.right cases)))
+                      (|> (stack#mix (..acknowledge_label actual) tracker (stack.partial default (stack#each product.right cases)))
                           (has #program_counter program_counter'))]
                      [(function (_ resolver)
                         (let [address (is (-> Label (Try Address))
@@ -1084,7 +1085,7 @@
                             (<| (try|do >default (try#each ..big_jump (..jump @from @default)))
                                 (try|do >cases (|> @cases
                                                    (monad.each try.monad (|>> (..jump @from) (try#each ..big_jump)))
-                                                   (try#each (|>> (list.zipped_2 (list#each product.left cases))))))
+                                                   (try#each (|>> (stack.zipped_2 (stack#each product.left cases))))))
                                 (try|in [..no_exceptions (bytecode >default >cases)]))
 
                             failure
@@ -1122,7 +1123,7 @@
 (exception.the .public (multiarray_cannot_be_zero_dimensional class)
   (exception.Exception (Type Object))
   (exception.report
-   (list ["Class" (..reflection class)])))
+   (.stack ["Class" (..reflection class)])))
 
 (the .public (multianewarray class dimensions)
   (-> (Type Object) U1
@@ -1159,8 +1160,8 @@
                     [//constant/pool.#name method
                      //constant/pool.#descriptor (type.descriptor type)])
           .let [consumption (|> inputs
-                                (list#each ..type_size)
-                                (list#mix n.+ (if <static?> 0 1))
+                                (stack#each ..type_size)
+                                (stack#mix n.+ (if <static?> 0 1))
                                 //unsigned.u1
                                 try.trusted)
                 production (|> output ..type_size //unsigned.u1 try.trusted)]]
@@ -1214,8 +1215,8 @@
 (exception.the .public (invalid_range_for_try [start end])
   (exception.Exception [Address Address])
   (exception.report
-   (list ["Start" (|> start /address.value //unsigned.value %.natural)]
-         ["End" (|> end /address.value //unsigned.value %.natural)])))
+   (.stack ["Start" (|> start /address.value //unsigned.value %.natural)]
+           ["End" (|> end /address.value //unsigned.value %.natural)])))
 
 (the .public (try @start @end @handler catch)
   (-> Label Label Label (Type Class)

@@ -19,7 +19,7 @@
     ["[0]" text (.use "[1]#[0]" order)
      ["%" \\injection]]
     [collection
-     ["[0]" list (.use "[1]#[0]" functor mix monoid)]
+     ["[0]" stack (.use "[1]#[0]" functor mix monoid)]
      ["[0]" dictionary (.only Dictionary)]
      ["[0]" set]]]
    [math
@@ -62,11 +62,11 @@
 (the (dependency_finder group name)
   (-> Group Name Finder)
   (|>> dictionary.entries
-       (list.one (function (_ [dependency package])
-                   (if (and (text.= group (its [///dependency.#artifact ///artifact.#group] dependency))
-                            (text.= name (its [///dependency.#artifact ///artifact.#name] dependency)))
-                     {.#Some dependency}
-                     {.#None})))))
+       (stack.one (function (_ [dependency package])
+                    (if (and (text.= group (its [///dependency.#artifact ///artifact.#group] dependency))
+                             (text.= name (its [///dependency.#artifact ///artifact.#name] dependency)))
+                      {.#Some dependency}
+                      {.#None})))))
 
 (the .public lux_group
   Group
@@ -98,8 +98,8 @@
 (the (remove_dependency dependency)
   (-> Dependency (-> Resolution Resolution))
   (|>> dictionary.entries
-       (list.only (|>> product.left (same? dependency) not))
-       (dictionary.of_list ///dependency.hash)))
+       (stack.only (|>> product.left (same? dependency) not))
+       (dictionary.of_stack ///dependency.hash)))
 
 (the (lux resolution lux_dependency)
   (-> Resolution Dependency (Try [Resolution Lux]))
@@ -135,11 +135,11 @@
         (text.suffix (text "." (its ///dependency.#type dependency))))))
 
 (the (libraries fs home)
-  (for_any (_ !) (-> (file.System !) Path Resolution (List Path)))
+  (for_any (_ !) (-> (file.System !) Path Resolution (Stack Path)))
   (|>> dictionary.keys
-       (list.only (|>> (its ///dependency.#type)
-                       (text.= ///artifact/type.lux_library)))
-       (list#each (..path fs home))))
+       (stack.only (|>> (its ///dependency.#type)
+                        (text.= ///artifact/type.lux_library)))
+       (stack#each (..path fs home))))
 
 ... https://en.wikipedia.org/wiki/Delimiter
 (the version_delimiter
@@ -155,54 +155,54 @@
      (loop (again [left (text.all_split_by ..version_delimiter left)
                    right (text.all_split_by ..version_delimiter right)])
        (when [left right]
-         [{.#Item leftH leftT} {.#Item rightH rightT}]
+         [{.#Top leftH leftT} {.#Top rightH rightT}]
          (if (text.= leftH rightH)
            (again leftT rightT)
            (or (n.< (text.size leftH) (text.size rightH))
                (text#< leftH rightH)))
 
-         [{.#Item leftH leftT} {.#End}]
+         [{.#Top leftH leftT} {.#Empty}]
          false
 
-         [{.#End} {.#Item rightH rightT}]
+         [{.#Empty} {.#Top rightH rightT}]
          true
 
-         [{.#End} {.#End}]
+         [{.#Empty} {.#Empty}]
          false)))))
 
 (the .public (host_dependencies fs home)
   (for_any (_ !)
     (-> (file.System !) Path Resolution
-        (List Path)))
+        (Stack Path)))
   (|>> dictionary.keys
-       (list.only (|>> (its ///dependency.#type)
-                       (text.= ///artifact/type.lux_library)
-                       not))
-       (list#mix (function (_ dependency uniques)
-                   (let [artifact (its ///dependency.#artifact dependency)
-                         identity [(its ///artifact.#group artifact)
-                                   (its ///artifact.#name artifact)]
-                         version (its ///artifact.#version artifact)]
-                     (when (dictionary.value identity uniques)
-                       {try.#Success [current_version current_path]}
-                       (if (by version_order < version current_version)
-                         (dictionary.has identity [version dependency] uniques)
-                         uniques)
-                       
-                       not_found!
-                       (dictionary.has identity [version dependency] uniques))))
-                 (is (Dictionary [Group Name] [Version Dependency])
-                     (dictionary.empty (product.hash text.hash text.hash))))
+       (stack.only (|>> (its ///dependency.#type)
+                        (text.= ///artifact/type.lux_library)
+                        not))
+       (stack#mix (function (_ dependency uniques)
+                    (let [artifact (its ///dependency.#artifact dependency)
+                          identity [(its ///artifact.#group artifact)
+                                    (its ///artifact.#name artifact)]
+                          version (its ///artifact.#version artifact)]
+                      (when (dictionary.value identity uniques)
+                        {try.#Success [current_version current_path]}
+                        (if (by version_order < version current_version)
+                          (dictionary.has identity [version dependency] uniques)
+                          uniques)
+                        
+                        not_found!
+                        (dictionary.has identity [version dependency] uniques))))
+                  (is (Dictionary [Group Name] [Version Dependency])
+                      (dictionary.empty (product.hash text.hash text.hash))))
        dictionary.values
-       (list#each (|>> product.right (..path fs home)))))
+       (stack#each (|>> product.right (..path fs home)))))
 
 (the (singular name)
-  (-> Text Text (List Text))
-  (|>> (list name)))
+  (-> Text Text (Stack Text))
+  (|>> (stack name)))
 
 (the (plural name)
-  (-> Text (List Text) (List Text))
-  (|>> (list#each (|>> (list name))) list.together))
+  (-> Text (Stack Text) (Stack Text))
+  (|>> (stack#each (|>> (stack name))) stack.together))
 
 (the .public start "[BUILD STARTED]")
 (the .public success "[BUILD ENDED]")
@@ -266,22 +266,22 @@
     ":"))
 
 (the (jvm_class_path host_dependencies)
-  (-> (List Path) Text)
+  (-> (Stack Path) Text)
   (|> host_dependencies
-      {.#Item "."}
+      {.#Top "."}
       (text.interposed ..jvm_class_path_delimiter)))
 
 (the .public (with_jvm_class_path host_dependencies runtime)
-  (-> (List Path) ///runtime.Runtime ///runtime.Runtime)
+  (-> (Stack Path) ///runtime.Runtime ///runtime.Runtime)
   (when host_dependencies
-    {.#End}
+    {.#Empty}
     runtime
 
     _
     (revised ///runtime.#parameters
-             (|>> (list.partial "-cp" (..jvm_class_path host_dependencies)
-                                "-Xss16m"
-                                "--add-opens" "java.base/java.lang=ALL-UNNAMED"))
+             (|>> (stack.partial "-cp" (..jvm_class_path host_dependencies)
+                                 "-Xss16m"
+                                 "--add-opens" "java.base/java.lang=ALL-UNNAMED"))
              runtime)))
 
 (ffi.import java/io/InputStream
@@ -340,8 +340,8 @@
                        {#JVM dependency}
                        (let [path (..path fs home dependency)]
                          [(|> (its ///.#java profile)
-                              (has ///runtime.#parameters (list (jvm_main path)))
-                              (with_jvm_class_path {.#Item path host_dependencies}))
+                              (has ///runtime.#parameters (stack (jvm_main path)))
+                              (with_jvm_class_path {.#Top path host_dependencies}))
                           "program.jar"])
                        
                        (,, (template.with [<tag> <runtime> <program>]
@@ -359,18 +359,18 @@
                  cache_directory (text working_directory / (its ///.#target profile))]
            _ (is (Future (Try Any))
                  (console.write_line ..start console))
-           .let [full_parameters (list.together (list lux_params
-                                                      (list "build")
-                                                      (..plural "--library" (..libraries fs home resolution))
-                                                      (..plural "--host_dependency" host_dependencies)
-                                                      (..plural "--compiler" (list#each compiler.as_text (its ///.#compilers profile)))
-                                                      (..plural "--source" (set.list (its ///.#sources profile)))
-                                                      (..singular "--target" cache_directory)
-                                                      (when program_module
-                                                        "" (..singular "--module" program_definition)
-                                                        _ (list#composite (..singular "--module" program_module)
-                                                                          (..singular "--program" program_definition)))
-                                                      (..singular "--configuration" (configuration.as_text (its ///.#configuration profile)))))]
+           .let [full_parameters (stack.together (stack lux_params
+                                                        (stack "build")
+                                                        (..plural "--library" (..libraries fs home resolution))
+                                                        (..plural "--host_dependency" host_dependencies)
+                                                        (..plural "--compiler" (stack#each compiler.as_text (its ///.#compilers profile)))
+                                                        (..plural "--source" (set.stack (its ///.#sources profile)))
+                                                        (..singular "--target" cache_directory)
+                                                        (when program_module
+                                                          "" (..singular "--module" program_definition)
+                                                          _ (stack#composite (..singular "--module" program_module)
+                                                                             (..singular "--program" program_definition)))
+                                                        (..singular "--configuration" (configuration.as_text (its ///.#configuration profile)))))]
            process (by shell execute [(dictionary.composite environment command_environment)
                                       working_directory
                                       command
