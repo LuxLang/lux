@@ -1,0 +1,1277 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except Stack stack
+                Type Label
+                try except)
+   ["[0]" ffi (.only import)]
+   [abstract
+    [monoid (.only Monoid)]
+    [functor (.only Functor)]
+    ["[0]" monad (.only Monad do)]]
+   [control
+    ["[0]" writer (.only Writer)]
+    ["[0]" state]
+    ["[0]" maybe]]
+   [error
+    ["[0]" try (.only Try) (.use "[1]#[0]" monad)]
+    ["[0]" exception]]
+   [data
+    ["[0]" product]
+    [text
+     ["%" \\injection]]
+    [collection
+     ["[0]" stack (.use "[1]#[0]" functor mix)]
+     ["[0]" dictionary (.only Dictionary)]
+     ["[0]" sequence (.only Sequence)]]]
+   [math
+    [number
+     ["n" natural]
+     ["i" integer]
+     [integer
+      ["i[0]" /32]]]]
+   [macro
+    ["[0]" template]
+    ["[0]" expansion]]
+   [meta
+    ["[0]" name]]]]
+ ["[0]" /
+  ["_" instruction (.only Primitive_Array_Type Instruction Estimator) (.use "[1]#[0]" monoid)]
+  ["[0]" jump (.only Jump)]
+  ["[1][0]" address (.only Address)]
+  ["[1][0]" environment (.only Environment)
+   [limit
+    ["/[0]" registry (.only Register Registry)]
+    ["/[0]" stack (.only Stack)]]]
+  ["/[1]" //
+   ["[1][0]" index (.only Index)]
+   [encoding
+    ["[1][0]" unsigned (.only U1 U2)]
+    ["[1][0]" signed (.only S1 S2 S4)]
+    [name
+     ["[0]" internal]]]
+   ["[1][0]" constant (.only)
+    [utf8 (.only UTF8)]
+    ["[1]/[0]" pool (.only Pool Resource)]
+    ["[1]/[0]" integer]
+    ["[1]/[0]" float (.only Float)]]
+   [attribute
+    ["[0]" line_number_table (.only Line_Number_Table)]
+    [code
+     ["[1][0]" exception (.only Exception)]]]
+   ["[0]" type (.only Type)
+    [category (.only Class Object Value Return Method)]
+    ["[0]" reflection]
+    ["[0]" projection]]]])
+
+(every .public Label
+  Natural)
+
+(every .public Resolver
+  (Dictionary Label [Stack (Maybe Address)]))
+
+(every .public Tracker
+  (Record
+   [#program_counter Address
+    #next Label
+    #known Resolver
+    #line_number_table Line_Number_Table]))
+
+(the fresh
+  Tracker
+  [#program_counter /address.start
+   #next 0
+   #known (dictionary.empty n.hash)
+   #line_number_table line_number_table.empty])
+
+(every .public Relative
+  (-> Resolver
+      (Try [(Sequence Exception)
+            Instruction])))
+
+(the no_exceptions
+  (Sequence Exception)
+  sequence.empty)
+
+(the relative#identity
+  Relative
+  (function (_ _)
+    {try.#Success [..no_exceptions _.empty]}))
+
+(the try|do
+  (template.macro (_ <binding> <term> <then>)
+    [(.when <term>
+       {try.#Success <binding>}
+       <then>
+
+       failure
+       (as_expected failure))]))
+
+(the try|in
+  (template.macro (_ <it>)
+    [{try.#Success <it>}]))
+
+(the (relative#composite left right)
+  (-> Relative Relative
+      Relative)
+  (if (same? ..relative#identity left)
+    right
+
+    (same? ..relative#identity right)
+    left
+
+    ... else
+    (function (_ resolver)
+      (<| (try|do [left_exceptions left_instruction] (left resolver))
+          (try|do [right_exceptions right_instruction] (right resolver))
+          (try|in [(by sequence.monoid composite left_exceptions right_exceptions)
+                   (_#composite left_instruction right_instruction)])))))
+
+(the relative_monoid
+  (Monoid Relative)
+  (implementation
+   (the identity ..relative#identity)
+   (the composite ..relative#composite)))
+
+(every .public (Bytecode of)
+  (state.With [Pool Environment Tracker] Try
+    (Writer Relative of)))
+
+(the .public new_label
+  (Bytecode Label)
+  (function (_ [pool environment tracker])
+    {try.#Success
+     [[pool
+       environment
+       (revised #next ++ tracker)]
+      [..relative#identity
+       (its #next tracker)]]}))
+
+(exception.the .public (label_has_already_been_set label)
+  (exception.Exception Label)
+  (exception.report
+   (.stack ["Label" (%.natural label)])))
+
+(exception.the .public (mismatched_environments [instruction label address expected actual])
+  (exception.Exception [Name Label Address Stack Stack])
+  (exception.report
+   (.stack ["Instruction" (name.as_text instruction)]
+           ["Label" (%.natural label)]
+           ["Address" (/address.as_text address)]
+           ["Expected" (/stack.as_text expected)]
+           ["Actual" (/stack.as_text actual)])))
+
+(exception.the .public (unknown_label label)
+  (exception.Exception Label)
+  (exception.report
+   (.stack ["Label" (%.natural label)])))
+
+(the .public (set? label)
+  (-> Label
+      (Bytecode (Try [Stack Address])))
+  (function (_ state)
+    (let [[pool environment tracker] state]
+      {try.#Success
+       [state
+        [..relative#identity
+         (when (dictionary.value label (its #known tracker))
+           {try.#Success [expected {.#Some address}]}
+           {try.#Success [expected address]}
+           
+           failure
+           (exception.except ..unknown_label [label]))]]})))
+
+(the .public (acknowledged? label)
+  (-> Label
+      (Bytecode (Try Stack)))
+  (function (_ state)
+    (let [[pool environment tracker] state]
+      {try.#Success
+       [state
+        [..relative#identity
+         (when (dictionary.value label (its #known tracker))
+           {try.#Success [expected {.#None}]}
+           {try.#Success expected}
+
+           failure
+           (exception.except ..unknown_label [label]))]]})))
+
+(the .public stack
+  (Bytecode (Maybe Stack))
+  (function (_ state)
+    (let [[pool environment tracker] state]
+      {try.#Success
+       [state
+        [..relative#identity
+         (its /environment.#stack environment)]]})))
+
+(expansion.let [<success> (these (try|in [[pool
+                                           environment
+                                           (revised #known
+                                                    (dictionary.has label [actual {.#Some @here}])
+                                                    tracker)]
+                                          [..relative#identity
+                                           []]]))]
+  (the .public (set_label label)
+    (-> Label
+        (Bytecode Any))
+    (function (_ [pool environment tracker])
+      (let [@here (its #program_counter tracker)]
+        (when (dictionary.value label (its #known tracker))
+          {try.#Success [expected {.#Some address}]}
+          (exception.except ..label_has_already_been_set [label])
+          
+          {try.#Success [expected {.#None}]}
+          (<| (try|do [actual environment] (/environment.continue expected environment))
+              <success>)
+
+          failure
+          (<| (try|do [actual environment] (/environment.continue (|> environment
+                                                                      (its /environment.#stack)
+                                                                      (maybe.else /stack.empty))
+                                                                  environment))
+              <success>))))))
+
+(the .public functor
+  (Functor Bytecode)
+  (implementation
+   (the (each $ it)
+     (function (_ state)
+       (when (it state)
+         {try.#Success [state' [relative it]]}
+         {try.#Success [state' [relative ($ it)]]}
+         
+         ... {try.#Failure error}
+         failure
+         (as_expected failure))))))
+
+(the .public monad
+  (Monad Bytecode)
+  (implementation
+   (the functor ..functor)
+
+   (the (in it)
+     (function (_ state)
+       {try.#Success [state [relative#identity it]]}))
+
+   (the (conjoint ^^it)
+     (function (_ state)
+       (when (^^it state)
+         {try.#Success [state' [left ^it]]}
+         (when (^it state')
+           {try.#Success [state'' [right it]]}
+           {try.#Success [state'' [(relative#composite left right) it]]}
+           
+           ... {try.#Failure error}
+           failure
+           (as_expected failure))
+         
+         ... {try.#Failure error}
+         failure
+         (as_expected failure))))))
+
+(the .public (when_continuous it)
+  (-> (Bytecode Any)
+      (Bytecode Any))
+  (do ..monad
+    [stack ..stack]
+    (.when stack
+      {.#Some _}
+      it
+
+      ... {.#None}
+      _
+      (in []))))
+
+(the .public (when_acknowledged @ it)
+  (-> Label (Bytecode Any)
+      (Bytecode Any))
+  (do ..monad
+    [?@ (..acknowledged? @)]
+    (.when ?@
+      {try.#Success _}
+      it
+
+      failure
+      (in []))))
+
+(the .public (failure error)
+  (-> Text
+      Bytecode)
+  (function (_ _)
+    {try.#Failure error}))
+
+(the .public (except exception value)
+  (for_any (_ of)
+    (-> (exception.Exception of) of
+        Bytecode))
+  (..failure (exception.error exception value)))
+
+(the .public (resolve environment bytecode)
+  (for_any (_ of)
+    (-> Environment (Bytecode of)
+        (Resource [Environment Line_Number_Table (Sequence Exception) Instruction of])))
+  (function (_ pool)
+    (<| (try|do [[pool environment tracker] [relative output]] (bytecode [pool environment ..fresh]))
+        (try|do [exceptions instruction] (relative (its #known tracker)))
+        (try|in [pool [environment
+                       (its #line_number_table tracker)
+                       exceptions
+                       instruction
+                       output]]))))
+
+(the (step estimator counter)
+  (-> Estimator Address
+      (Try Address))
+  (/address.move (estimator counter) counter))
+
+(the (bytecode consumption production registry [estimator bytecode] input)
+  (for_any (_ of)
+    (-> U2 U2 Registry [Estimator (-> of Instruction)] of
+        (Bytecode Any)))
+  (function (_ [pool environment tracker])
+    (<| (try|do environment' (|> environment
+                                 (/environment.consumes consumption)
+                                 (monad.then try.monad (|>> (/environment.produces production)
+                                                            (try#each (/environment.has registry))
+                                                            try#conjoint))))
+        (try|do program_counter' (step estimator (its #program_counter tracker)))
+        (try|in [[pool
+                  environment'
+                  (has #program_counter program_counter' tracker)]
+                 [(function (_ _)
+                    (try|in [..no_exceptions (bytecode input)]))
+                  []]]))))
+
+(template.with [<name> <frames>]
+  [(the <name>
+     U2
+     (|> <frames>
+         //unsigned.u2
+         try.trusted))]
+
+  [$0 0]
+  [$1 1]
+  [$2 2]
+  [$3 3]
+  [$4 4]
+  [$5 5]
+  [$6 6]
+  )
+
+(template.with [<name> <registry>]
+  [(the <name>
+     Registry
+     (|> <registry>
+         //unsigned.u2
+         try.trusted
+         /registry.registry))]
+
+  [@_ 0]
+  [@0 1]
+  [@1 2]
+  [@2 3]
+  [@3 4]
+  [@4 5]
+  )
+
+(template.with [<name> <consumption> <production> <registry> <instruction>]
+  [(the .public <name>
+     (Bytecode Any)
+     (..bytecode <consumption>
+                 <production>
+                 <registry>
+                 <instruction>
+                 []))]
+
+  [nop $0 $0 @_ _.nop]
+  
+  [aconst_null $0 $1 @_ _.aconst_null]
+
+  [iconst_m1 $0 $1 @_ _.iconst_m1]
+  [iconst_0 $0 $1 @_ _.iconst_0]
+  [iconst_1 $0 $1 @_ _.iconst_1]
+  [iconst_2 $0 $1 @_ _.iconst_2]
+  [iconst_3 $0 $1 @_ _.iconst_3]
+  [iconst_4 $0 $1 @_ _.iconst_4]
+  [iconst_5 $0 $1 @_ _.iconst_5]
+
+  [lconst_0 $0 $2 @_ _.lconst_0]
+  [lconst_1 $0 $2 @_ _.lconst_1]
+
+  [fconst_0 $0 $1 @_ _.fconst_0]
+  [fconst_1 $0 $1 @_ _.fconst_1]
+  [fconst_2 $0 $1 @_ _.fconst_2]
+  
+  [dconst_0 $0 $2 @_ _.dconst_0]
+  [dconst_1 $0 $2 @_ _.dconst_1]
+
+  [pop $1 $0 @_ _.pop]
+  [pop2 $2 $0 @_ _.pop2]
+  
+  [dup $1 $2 @_ _.dup]
+  [dup_x1 $2 $3 @_ _.dup_x1]
+  [dup_x2 $3 $4 @_ _.dup_x2]
+  [dup2 $2 $4 @_ _.dup2]
+  [dup2_x1 $3 $5 @_ _.dup2_x1]
+  [dup2_x2 $4 $6 @_ _.dup2_x2]
+  
+  [swap $2 $2 @_ _.swap]
+
+  [iaload $2 $1 @_ _.iaload]
+  [laload $2 $2 @_ _.laload]
+  [faload $2 $1 @_ _.faload]
+  [daload $2 $2 @_ _.daload]
+  [aaload $2 $1 @_ _.aaload]
+  [baload $2 $1 @_ _.baload]
+  [caload $2 $1 @_ _.caload]
+  [saload $2 $1 @_ _.saload]
+
+  [iload_0 $0 $1 @0 _.iload_0]
+  [iload_1 $0 $1 @1 _.iload_1]
+  [iload_2 $0 $1 @2 _.iload_2]
+  [iload_3 $0 $1 @3 _.iload_3]
+
+  [lload_0 $0 $2 @1 _.lload_0]
+  [lload_1 $0 $2 @2 _.lload_1]
+  [lload_2 $0 $2 @3 _.lload_2]
+  [lload_3 $0 $2 @4 _.lload_3]
+  
+  [fload_0 $0 $1 @0 _.fload_0]
+  [fload_1 $0 $1 @1 _.fload_1]
+  [fload_2 $0 $1 @2 _.fload_2]
+  [fload_3 $0 $1 @3 _.fload_3]
+  
+  [dload_0 $0 $2 @1 _.dload_0]
+  [dload_1 $0 $2 @2 _.dload_1]
+  [dload_2 $0 $2 @3 _.dload_2]
+  [dload_3 $0 $2 @4 _.dload_3]
+  
+  [aload_0 $0 $1 @0 _.aload_0]
+  [aload_1 $0 $1 @1 _.aload_1]
+  [aload_2 $0 $1 @2 _.aload_2]
+  [aload_3 $0 $1 @3 _.aload_3]
+
+  [iastore $3 $0 @_ _.iastore]
+  [lastore $4 $0 @_ _.lastore]
+  [fastore $3 $0 @_ _.fastore]
+  [dastore $4 $0 @_ _.dastore]
+  [aastore $3 $0 @_ _.aastore]
+  [bastore $3 $0 @_ _.bastore]
+  [castore $3 $0 @_ _.castore]
+  [sastore $3 $0 @_ _.sastore]
+
+  [istore_0 $1 $0 @0 _.istore_0]
+  [istore_1 $1 $0 @1 _.istore_1]
+  [istore_2 $1 $0 @2 _.istore_2]
+  [istore_3 $1 $0 @3 _.istore_3]
+
+  [lstore_0 $2 $0 @1 _.lstore_0]
+  [lstore_1 $2 $0 @2 _.lstore_1]
+  [lstore_2 $2 $0 @3 _.lstore_2]
+  [lstore_3 $2 $0 @4 _.lstore_3]
+
+  [fstore_0 $1 $0 @0 _.fstore_0]
+  [fstore_1 $1 $0 @1 _.fstore_1]
+  [fstore_2 $1 $0 @2 _.fstore_2]
+  [fstore_3 $1 $0 @3 _.fstore_3]
+
+  [dstore_0 $2 $0 @1 _.dstore_0]
+  [dstore_1 $2 $0 @2 _.dstore_1]
+  [dstore_2 $2 $0 @3 _.dstore_2]
+  [dstore_3 $2 $0 @4 _.dstore_3]
+  
+  [astore_0 $1 $0 @0 _.astore_0]
+  [astore_1 $1 $0 @1 _.astore_1]
+  [astore_2 $1 $0 @2 _.astore_2]
+  [astore_3 $1 $0 @3 _.astore_3]
+
+  [iadd $2 $1 @_ _.iadd]
+  [isub $2 $1 @_ _.isub]
+  [imul $2 $1 @_ _.imul]
+  [idiv $2 $1 @_ _.idiv]
+  [irem $2 $1 @_ _.irem]
+  [ineg $1 $1 @_ _.ineg]
+  [iand $2 $1 @_ _.iand]
+  [ior $2 $1 @_ _.ior]
+  [ixor $2 $1 @_ _.ixor]
+  [ishl $2 $1 @_ _.ishl]
+  [ishr $2 $1 @_ _.ishr]
+  [iushr $2 $1 @_ _.iushr]
+
+  [ladd $4 $2 @_ _.ladd]
+  [lsub $4 $2 @_ _.lsub]
+  [lmul $4 $2 @_ _.lmul]
+  [ldiv $4 $2 @_ _.ldiv]
+  [lrem $4 $2 @_ _.lrem]
+  [lneg $2 $2 @_ _.lneg]
+  [land $4 $2 @_ _.land]
+  [lor $4 $2 @_ _.lor]
+  [lxor $4 $2 @_ _.lxor]
+  [lshl $3 $2 @_ _.lshl]
+  [lshr $3 $2 @_ _.lshr]
+  [lushr $3 $2 @_ _.lushr]
+  
+  [fadd $2 $1 @_ _.fadd]
+  [fsub $2 $1 @_ _.fsub]
+  [fmul $2 $1 @_ _.fmul]
+  [fdiv $2 $1 @_ _.fdiv]
+  [frem $2 $1 @_ _.frem]
+  [fneg $1 $1 @_ _.fneg]
+  
+  [dadd $4 $2 @_ _.dadd]
+  [dsub $4 $2 @_ _.dsub]
+  [dmul $4 $2 @_ _.dmul]
+  [ddiv $4 $2 @_ _.ddiv]
+  [drem $4 $2 @_ _.drem]
+  [dneg $2 $2 @_ _.dneg]
+
+  [l2i $2 $1 @_ _.l2i]
+  [l2f $2 $1 @_ _.l2f]
+  [l2d $2 $2 @_ _.l2d]
+  
+  [f2i $1 $1 @_ _.f2i]
+  [f2l $1 $2 @_ _.f2l]
+  [f2d $1 $2 @_ _.f2d]
+  
+  [d2i $2 $1 @_ _.d2i]
+  [d2l $2 $2 @_ _.d2l]
+  [d2f $2 $1 @_ _.d2f]
+
+  [i2l $1 $2 @_ _.i2l]
+  [i2f $1 $1 @_ _.i2f]
+  [i2d $1 $2 @_ _.i2d]
+  [i2b $1 $1 @_ _.i2b]
+  [i2c $1 $1 @_ _.i2c]
+  [i2s $1 $1 @_ _.i2s]
+
+  [lcmp $4 $1 @_ _.lcmp]
+  
+  [fcmpl $2 $1 @_ _.fcmpl]
+  [fcmpg $2 $1 @_ _.fcmpg]
+
+  [dcmpl $4 $1 @_ _.dcmpl]
+  [dcmpg $4 $1 @_ _.dcmpg]
+
+  [arraylength $1 $1 @_ _.arraylength]
+  
+  [monitorenter $1 $0 @_ _.monitorenter]
+  [monitorexit $1 $0 @_ _.monitorexit]
+  )
+
+(the discontinuity!
+  (Bytecode Any)
+  (function (_ [pool environment tracker])
+    (<| (try|do _ (/environment.stack environment))
+        (try|in [[pool
+                  (/environment.discontinue environment)
+                  tracker]
+                 [..relative#identity
+                  []]]))))
+
+(template.with [<name> <consumption> <instruction>]
+  [(the .public <name>
+     (Bytecode Any)
+     (do ..monad
+       [_ (..bytecode <consumption> $0 @_ <instruction> [])]
+       ..discontinuity!))]
+
+  [ireturn $1 _.ireturn]
+  [lreturn $2 _.lreturn]
+  [freturn $1 _.freturn]
+  [dreturn $2 _.dreturn]
+  [areturn $1 _.areturn]
+  [return $0 _.return]
+
+  [athrow $1 _.athrow]
+  )
+
+(the .public (bipush byte)
+  (-> S1
+      (Bytecode Any))
+  (..bytecode $0 $1 @_ _.bipush [byte]))
+
+(the (lifted resource)
+  (for_any (_ of)
+    (-> (Resource of)
+        (Bytecode of)))
+  (function (_ [pool environment tracker])
+    (<| (try|do [pool' output] (resource pool))
+        (try|in [[pool' environment tracker]
+                 [..relative#identity
+                  output]]))))
+
+(the .public (string value)
+  (-> UTF8
+      (Bytecode Any))
+  (do ..monad
+    [index (..lifted (//constant/pool.string value))]
+    (when (|> index //index.value //unsigned.value //unsigned.u1)
+      {try.#Success index}
+      (..bytecode $0 $1 @_ _.ldc [index])
+
+      {try.#Failure _}
+      (..bytecode $0 $1 @_ _.ldc_w/string [index]))))
+
+(import java/lang/Float
+  "[1]::[0]"
+  ("static" floatToRawIntBits "manual" [float] int))
+
+(import java/lang/Double
+  "[1]::[0]"
+  ("static" doubleToRawLongBits "manual" [double] long))
+
+(template.with [<name> <type> <constant> <wide> <to_lux> <specializations>]
+  [(the .public (<name> value)
+     (-> <type>
+         (Bytecode Any))
+     (expansion.let [,*specializations (template.spliced <specializations>)]
+       (`` (when (|> value <to_lux>)
+             (,, (template.with [<special> <instruction>]
+                   [<special> (..bytecode $0 $1 @_ <instruction> [])]
+
+                   ,*specializations))
+             
+             _ (do ..monad
+                 [index (..lifted (<constant> value))]
+                 (when (|> index //index.value //unsigned.value //unsigned.u1)
+                   {try.#Success index}
+                   (..bytecode $0 $1 @_ _.ldc [index])
+
+                   {try.#Failure _}
+                   (..bytecode $0 $1 @_ <wide> [index])))))))]
+
+  [int //constant/integer.Integer //constant/pool.integer _.ldc_w/integer
+   (<| .integer i/32.as)
+   [[-1 _.iconst_m1]
+    [+0 _.iconst_0]
+    [+1 _.iconst_1]
+    [+2 _.iconst_2]
+    [+3 _.iconst_3]
+    [+4 _.iconst_4]
+    [+5 _.iconst_5]]]
+  )
+
+(template.with [<name> <type> <constant> <wide> <to_lux> <specializations>]
+  [(the .public (<name> value)
+     (-> <type>
+         (Bytecode Any))
+     (expansion.let [,*specializations (template.spliced <specializations>)]
+       (`` (when (|> value <to_lux>)
+             (,, (template.with [<special> <instruction>]
+                   [<special> (..bytecode $0 $2 @_ <instruction> [])]
+
+                   ,*specializations))
+             
+             _ (do ..monad
+                 [index (..lifted (<constant> value))]
+                 (..bytecode $0 $2 @_ <wide> [index]))))))]
+
+  [long Integer //constant/pool.long _.ldc2_w/long
+   (<|)
+   [[+0 _.lconst_0]
+    [+1 _.lconst_1]]]
+  )
+
+(the (arbitrary_float value)
+  (-> Float
+      (Bytecode Any))
+  (do ..monad
+    [index (..lifted (//constant/pool.float value))]
+    (when (|> index //index.value //unsigned.value //unsigned.u1)
+      {try.#Success index}
+      (..bytecode $0 $1 @_ _.ldc [index])
+
+      {try.#Failure _}
+      (..bytecode $0 $1 @_ _.ldc_w/float [index]))))
+
+(the float_bits
+  (-> Float
+      Integer)
+  (|>> [] java/lang/Float::floatToRawIntBits
+       ffi.int_to_long
+       (as Integer)))
+
+(the negative_zero_float_bits
+  (|> -0.0
+      (as java/lang/Double)
+      ffi.double_to_float
+      ..float_bits))
+
+(the .public (float value)
+  (-> Float
+      (Bytecode Any))
+  (if (i.= ..negative_zero_float_bits
+           (..float_bits value))
+    (..arbitrary_float value)
+    (`` (when (|> value ffi.float_to_double (as Decimal))
+          (,, (template.with [<special> <instruction>]
+                [<special> (..bytecode $0 $1 @_ <instruction> [])]
+
+                [+0.0 _.fconst_0]
+                [+1.0 _.fconst_1]
+                [+2.0 _.fconst_2]))
+          
+          _
+          (..arbitrary_float value)))))
+
+(the (arbitrary_double value)
+  (-> Decimal
+      (Bytecode Any))
+  (do ..monad
+    [index (..lifted (//constant/pool.double value))]
+    (..bytecode $0 $2 @_ _.ldc2_w/double [index])))
+
+(the double_bits
+  (-> Decimal
+      Integer)
+  (|>> (as java/lang/Double)
+       [] java/lang/Double::doubleToRawLongBits
+       (as Integer)))
+
+(the negative_zero_double_bits
+  (..double_bits -0.0))
+
+(the .public (double value)
+  (-> Decimal
+      (Bytecode Any))
+  (if (i.= ..negative_zero_double_bits
+           (..double_bits value))
+    (..arbitrary_double value)
+    (`` (when (as Decimal value)
+          (,, (template.with [<special> <instruction>]
+                [<special> (..bytecode $0 $2 @_ <instruction> [])]
+
+                [+0.0 _.dconst_0]
+                [+1.0 _.dconst_1]))
+          
+          _ (..arbitrary_double value)))))
+
+(exception.the .public (invalid_register id)
+  (exception.Exception Natural)
+  (exception.report
+   (.stack ["ID" (%.natural id)])))
+
+(the (register id)
+  (-> Natural
+      (Bytecode Register))
+  (when (//unsigned.u1 id)
+    {try.#Success register}
+    (by ..monad in register)
+    
+    {try.#Failure error}
+    (..except ..invalid_register [id])))
+
+(template.with [<for> <size> <name> <general> <specials>]
+  [(the .public (<name> local)
+     (-> Natural
+         (Bytecode Any))
+     (expansion.let [<specials>' (template.spliced <specials>)]
+       (`` (when local
+             (,, (template.with [<case> <instruction> <registry>]
+                   [<case> (..bytecode $0 <size> <registry> <instruction> [])]
+                   
+                   <specials>'))
+             _ (do ..monad
+                 [local (..register local)]
+                 (..bytecode $0 <size> (<for> local) <general> [local]))))))]
+  
+  [/registry.for $1 iload _.iload
+   [[0 _.iload_0 @0]
+    [1 _.iload_1 @1]
+    [2 _.iload_2 @2]
+    [3 _.iload_3 @3]]]
+  [/registry.for_wide $2 lload _.lload
+   [[0 _.lload_0 @1]
+    [1 _.lload_1 @2]
+    [2 _.lload_2 @3]
+    [3 _.lload_3 @4]]]
+  [/registry.for $1 fload _.fload
+   [[0 _.fload_0 @0]
+    [1 _.fload_1 @1]
+    [2 _.fload_2 @2]
+    [3 _.fload_3 @3]]]
+  [/registry.for_wide $2 dload _.dload
+   [[0 _.dload_0 @1]
+    [1 _.dload_1 @2]
+    [2 _.dload_2 @3]
+    [3 _.dload_3 @4]]]
+  [/registry.for $1 aload _.aload
+   [[0 _.aload_0 @0]
+    [1 _.aload_1 @1]
+    [2 _.aload_2 @2]
+    [3 _.aload_3 @3]]]
+  )
+
+(template.with [<for> <size> <name> <general> <specials>]
+  [(the .public (<name> local)
+     (-> Natural
+         (Bytecode Any))
+     (expansion.let [<specials>' (template.spliced <specials>)]
+       (`` (when local
+             (,, (template.with [<case> <instruction> <registry>]
+                   [<case> (..bytecode <size> $0 <registry> <instruction> [])]
+                   
+                   <specials>'))
+             _ (do ..monad
+                 [local (..register local)]
+                 (..bytecode <size> $0 (<for> local) <general> [local]))))))]
+  
+  [/registry.for $1 istore _.istore
+   [[0 _.istore_0 @0]
+    [1 _.istore_1 @1]
+    [2 _.istore_2 @2]
+    [3 _.istore_3 @3]]]
+  [/registry.for_wide $2 lstore _.lstore
+   [[0 _.lstore_0 @1]
+    [1 _.lstore_1 @2]
+    [2 _.lstore_2 @3]
+    [3 _.lstore_3 @4]]]
+  [/registry.for $1 fstore _.fstore
+   [[0 _.fstore_0 @0]
+    [1 _.fstore_1 @1]
+    [2 _.fstore_2 @2]
+    [3 _.fstore_3 @3]]]
+  [/registry.for_wide $2 dstore _.dstore
+   [[0 _.dstore_0 @1]
+    [1 _.dstore_1 @2]
+    [2 _.dstore_2 @3]
+    [3 _.dstore_3 @4]]]
+  [/registry.for $1 astore _.astore
+   [[0 _.astore_0 @0]
+    [1 _.astore_1 @1]
+    [2 _.astore_2 @2]
+    [3 _.astore_3 @3]]]
+  )
+
+(template.with [<consumption> <production> <name> <instruction> <input>]
+  [(the .public <name>
+     (-> <input>
+         (Bytecode Any))
+     (..bytecode <consumption> <production> @_ <instruction>))]
+  
+  [$1 $1 newarray _.newarray Primitive_Array_Type]
+  [$0 $1 sipush _.sipush S2]
+  )
+
+(exception.the .public (cannot_do_a_big_jump [label @from jump])
+  (exception.Exception [Label Address jump.Big])
+  (exception.report
+   (.stack ["Label" (%.natural label)]
+           ["Start" (|> @from /address.value //unsigned.value %.natural)]
+           ["Target" (|> jump //signed.value %.integer)])))
+
+(every Any_Jump
+  (Either jump.Big
+          Jump))
+
+(the (jump @from @to)
+  (-> Address Address
+      (Try Any_Jump))
+  (<| (try|do jump (try#each //signed.value
+                             (/address.jump @from @to)))
+      (let [big? (or (i.> (//signed.value //signed.maximum/2)
+                          jump)
+                     (i.< (//signed.value //signed.minimum/2)
+                          jump))])
+      (if big?
+        (try#each (|>> {.#Left}) (//signed.s4 jump))
+        (try#each (|>> {.#Right}) (//signed.s2 jump)))))
+
+(exception.the .public (unset_label label)
+  (exception.Exception Label)
+  (exception.report
+   (.stack ["Label" (%.natural label)])))
+
+(the (resolve_label label resolver)
+  (-> Label Resolver
+      (Try [Stack Address]))
+  (when (dictionary.value label resolver)
+    {try.#Success [actual {.#Some address}]}
+    {try.#Success [actual address]}
+
+    {try.#Success [actual {.#None}]}
+    (exception.except ..unset_label [label])
+    
+    failure
+    (exception.except ..unknown_label [label])))
+
+(the (acknowledge_label stack label tracker)
+  (-> Stack Label Tracker
+      Tracker)
+  (when (dictionary.value label (its #known tracker))
+    {try.#Success _}
+    tracker
+
+    failure
+    (revised #known (dictionary.has label [stack {.#None}]) tracker)))
+
+(template.with [<consumption> <name> <instruction>]
+  [(the .public (<name> label)
+     (-> Label
+         (Bytecode Any))
+     (let [[estimator bytecode] <instruction>]
+       (function (_ [pool environment tracker])
+         (<| (let [@here (its #program_counter tracker)])
+             (try|do environment' (|> environment
+                                      (/environment.consumes <consumption>)))
+             (try|do actual (/environment.stack environment'))
+             (try|do program_counter' (step estimator @here))
+             (try|in (let [@from @here]
+                       [[pool
+                         environment'
+                         (|> tracker
+                             (..acknowledge_label actual label)
+                             (has #program_counter program_counter'))]
+                        [(function (_ resolver)
+                           (<| (try|do [expected @to] (..resolve_label label resolver))
+                               (try|do _ (exception.assertion ..mismatched_environments [(name <instruction>) label @here expected actual]
+                                                              (by /stack.equivalence = expected actual)))
+                               (try|do jump (..jump @from @to))
+                               (when jump
+                                 {.#Left jump}
+                                 (exception.except ..cannot_do_a_big_jump [label @from jump])
+
+                                 {.#Right jump}
+                                 (try|in [..no_exceptions (bytecode jump)]))))
+                         []]]))))))]
+
+  [$1 ifeq _.ifeq]
+  [$1 ifne _.ifne]
+  [$1 iflt _.iflt]
+  [$1 ifge _.ifge]
+  [$1 ifgt _.ifgt]
+  [$1 ifle _.ifle]
+  
+  [$1 ifnull _.ifnull]
+  [$1 ifnonnull _.ifnonnull]
+
+  [$2 if_icmpeq _.if_icmpeq]
+  [$2 if_icmpne _.if_icmpne]
+  [$2 if_icmplt _.if_icmplt]
+  [$2 if_icmpge _.if_icmpge]
+  [$2 if_icmpgt _.if_icmpgt]
+  [$2 if_icmple _.if_icmple]
+  
+  [$2 if_acmpeq _.if_acmpeq]
+  [$2 if_acmpne _.if_acmpne]
+  )
+
+(template.with [<name> <instruction> <on_long_jump> <on_short_jump>]
+  [(the .public (<name> label)
+     (-> Label
+         (Bytecode Any))
+     (let [[estimator bytecode] <instruction>]
+       (function (_ [pool environment tracker])
+         (<| (try|do actual (/environment.stack environment))
+             (let [@here (its #program_counter tracker)])
+             (try|do program_counter' (step estimator @here))
+             (try|in (let [@from @here]
+                       [[pool
+                         (/environment.discontinue environment)
+                         (|> tracker
+                             (..acknowledge_label actual label)
+                             (has #program_counter program_counter'))]
+                        [(function (_ resolver)
+                           (when (dictionary.value label resolver)
+                             {try.#Success [expected {.#Some @to}]}
+                             (<| (try|do _ (exception.assertion ..mismatched_environments [(name <instruction>) label @here expected actual]
+                                                                (by /stack.equivalence = expected actual)))
+                                 (try|do jump (..jump @from @to))
+                                 (when jump
+                                   {.#Left jump}
+                                   <on_long_jump>
+
+                                   {.#Right jump}
+                                   <on_short_jump>))
+
+                             {try.#Success [expected {.#None}]}
+                             (exception.except ..unset_label [label])
+
+                             failure
+                             (exception.except ..unknown_label [label])))
+                         []]]))))))]
+
+  [goto _.goto
+   (exception.except ..cannot_do_a_big_jump [label @from jump])
+   (try|in [..no_exceptions (bytecode jump)])]
+  [goto_w _.goto_w
+   (try|in [..no_exceptions (bytecode jump)])
+   (try|in [..no_exceptions (bytecode (jump.big jump))])]
+  )
+
+(the (big_jump jump)
+  (-> Any_Jump
+      jump.Big)
+  (when jump
+    {.#Left big}
+    big
+
+    {.#Right small}
+    (jump.big small)))
+
+(exception.the .public invalid_tableswitch)
+
+(the .public (tableswitch minimum default [at_minimum afterwards])
+  (-> S4 Label [Label (.Stack Label)]
+      (Bytecode Any))
+  (let [[estimator bytecode] _.tableswitch]
+    (function (_ [pool environment tracker])
+      (<| (try|do environment' (|> environment
+                                   (/environment.consumes $1)))
+          (try|do actual (/environment.stack environment'))
+          (try|do program_counter' (step (estimator (stack.size afterwards)) (its #program_counter tracker)))
+          (try|in (let [@from (its #program_counter tracker)]
+                    [[pool
+                      environment'
+                      (|> (stack#mix (..acknowledge_label actual) tracker (stack.partial default at_minimum afterwards))
+                          (has #program_counter program_counter'))]
+                     [(function (_ resolver)
+                        (let [address (is (-> Label (Try Address))
+                                          (function (_ label)
+                                            (|> (dictionary.value label resolver)
+                                                (monad.then try.monad (|>> product.right
+                                                                           (try.of_maybe (exception.error ..unknown_label [label])))))))]
+                          (when (do [! try.monad]
+                                  [@default (address default)
+                                   @at_minimum (address at_minimum)]
+                                  (|> afterwards
+                                      (monad.each ! address)
+                                      (by ! each (|>> [@default @at_minimum]))))
+                            {try.#Success [@default @at_minimum @afterwards]}
+                            (<| (try|do >default (try#each ..big_jump (..jump @from @default)))
+                                (try|do >at_minimum (try#each ..big_jump (..jump @from @at_minimum)))
+                                (try|do >afterwards (monad.each try.monad (|>> (..jump @from) (try#each ..big_jump))
+                                                                @afterwards))
+                                (try|in [..no_exceptions (bytecode minimum >default [>at_minimum >afterwards])]))
+
+                            failure
+                            (exception.except ..invalid_tableswitch []))))
+                      []]]))))))
+
+(exception.the .public invalid_lookupswitch)
+
+(the .public (lookupswitch default cases)
+  (-> Label (.Stack [S4 Label])
+      (Bytecode Any))
+  (let [cases (stack.sorted (function (_ [left _] [right _])
+                              (i.< (//signed.value left)
+                                   (//signed.value right)))
+                            cases)
+        [estimator bytecode] _.lookupswitch]
+    (function (_ [pool environment tracker])
+      (<| (try|do environment' (|> environment
+                                   (/environment.consumes $1)))
+          (try|do actual (/environment.stack environment'))
+          (try|do program_counter' (step (estimator (stack.size cases)) (its #program_counter tracker)))
+          (try|in (let [@from (its #program_counter tracker)]
+                    [[pool
+                      environment'
+                      (|> (stack#mix (..acknowledge_label actual) tracker (stack.partial default (stack#each product.right cases)))
+                          (has #program_counter program_counter'))]
+                     [(function (_ resolver)
+                        (let [address (is (-> Label (Try Address))
+                                          (function (_ label)
+                                            (|> (dictionary.value label resolver)
+                                                (monad.then try.monad (|>> product.right
+                                                                           (try.of_maybe (exception.error ..unknown_label [label])))))))]
+                          (when (do [! try.monad]
+                                  [@default (address default)]
+                                  (|> cases
+                                      (monad.each ! (|>> product.right address))
+                                      (by ! each (|>> [@default]))))
+                            {try.#Success [@default @cases]}
+                            (<| (try|do >default (try#each ..big_jump (..jump @from @default)))
+                                (try|do >cases (|> @cases
+                                                   (monad.each try.monad (|>> (..jump @from) (try#each ..big_jump)))
+                                                   (try#each (|>> (stack.zipped_2 (stack#each product.left cases))))))
+                                (try|in [..no_exceptions (bytecode >default >cases)]))
+
+                            failure
+                            (exception.except ..invalid_lookupswitch []))))
+                      []]]))))))
+
+(the reflection
+  (for_any (_ category)
+    (-> (Type (Value category))
+        Text))
+  (|>> type.reflection reflection.reflection))
+
+(template.with [<consumption> <production> <name> <category> <instruction>]
+  [(the .public (<name> class)
+     (-> (Type <category>)
+         (Bytecode Any))
+     (do ..monad
+       [... TODO: Make sure it's impossible to have indexes greater than U2.
+        index (..lifted (//constant/pool.class (internal.name (..reflection class))))]
+       (..bytecode <consumption> <production> @_ <instruction> [index])))]
+
+  [$0 $1 new Class _.new]
+  [$1 $1 anewarray Object _.anewarray]
+  [$1 $1 checkcast Object _.checkcast]
+  [$1 $1 instanceof Object _.instanceof]
+  )
+
+(the .public (iinc register increase)
+  (-> Natural U1
+      (Bytecode Any))
+  (do ..monad
+    [register (..register register)]
+    (..bytecode $0 $0 (/registry.for register) _.iinc [register increase])))
+
+(exception.the .public (multiarray_cannot_be_zero_dimensional class)
+  (exception.Exception (Type Object))
+  (exception.report
+   (.stack ["Class" (..reflection class)])))
+
+(the .public (multianewarray class dimensions)
+  (-> (Type Object) U1
+      (Bytecode Any))
+  (do ..monad
+    [_ (is (Bytecode Any)
+           (when (|> dimensions //unsigned.value)
+             0 (..except ..multiarray_cannot_be_zero_dimensional [class])
+             _ (in [])))
+     index (..lifted (//constant/pool.class (internal.name (..reflection class))))]
+    (..bytecode (//unsigned.lifted/2 dimensions) $1 @_ _.multianewarray [index dimensions])))
+
+(the (type_size type)
+  (-> (Type Return)
+      Natural)
+  (if (same? type.void type)
+    0
+
+    (or (same? type.long type)
+        (same? type.double type))
+    2
+
+    ... else
+    1))
+
+(template.with [<static?> <name> <instruction> <method>]
+  [(the .public (<name> class method type)
+     (-> (Type Class) Text (Type Method)
+         (Bytecode Any))
+     (let [[type_variables inputs output exceptions] (projection.method type)]
+       (do ..monad
+         [index (<| ..lifted
+                    (<method> (..reflection class))
+                    [//constant/pool.#name method
+                     //constant/pool.#descriptor (type.descriptor type)])
+          .let [consumption (|> inputs
+                                (stack#each ..type_size)
+                                (stack#mix n.+ (if <static?> 0 1))
+                                //unsigned.u1
+                                try.trusted)
+                production (|> output ..type_size //unsigned.u1 try.trusted)]]
+         (..bytecode (//unsigned.lifted/2 consumption)
+                     (//unsigned.lifted/2 production)
+                     @_
+                     <instruction> [index consumption production]))))]
+
+  [#1 invokestatic _.invokestatic //constant/pool.method]
+  [#0 invokevirtual _.invokevirtual //constant/pool.method]
+  [#0 invokespecial _.invokespecial //constant/pool.method]
+  [#0 invokeinterface _.invokeinterface //constant/pool.interface_method]
+  )
+
+(template.with [<consumption> <name> <1> <2>]
+  [(the .public (<name> class field type)
+     (-> (Type Class) Text (Type Value)
+         (Bytecode Any))
+     (do ..monad
+       [index (<| ..lifted
+                  (//constant/pool.field (..reflection class))
+                  [//constant/pool.#name field
+                   //constant/pool.#descriptor (type.descriptor type)])]
+       (if (or (same? type.long type)
+               (same? type.double type))
+         (..bytecode <consumption> $2 @_ <2> [index])
+         (..bytecode <consumption> $1 @_ <1> [index]))))]
+
+  [$0 getstatic _.getstatic/1 _.getstatic/2]
+  [$1 getfield  _.getfield/1  _.getfield/2]
+  )
+
+(template.with [<name> <consumption/1> <1> <consumption/2> <2>]
+  [(the .public (<name> class field type)
+     (-> (Type Class) Text (Type Value)
+         (Bytecode Any))
+     (do [! ..monad]
+       [index (<| ..lifted
+                  (//constant/pool.field (..reflection class))
+                  [//constant/pool.#name field
+                   //constant/pool.#descriptor (type.descriptor type)])]
+       (if (or (same? type.long type)
+               (same? type.double type))
+         (..bytecode <consumption/2> $0 @_ <2> [index])
+         (..bytecode <consumption/1> $0 @_ <1> [index]))))]
+
+  [putstatic $1 _.putstatic/1 $2 _.putstatic/2]
+  [putfield  $2 _.putfield/1  $3 _.putfield/2]
+  )
+
+(exception.the .public (invalid_range_for_try [start end])
+  (exception.Exception [Address Address])
+  (exception.report
+   (.stack ["Start" (|> start /address.value //unsigned.value %.natural)]
+           ["End" (|> end /address.value //unsigned.value %.natural)])))
+
+(the .public (try @start @end @handler catch)
+  (-> Label Label Label (Type Class)
+      (Bytecode Any))
+  (do ..monad
+    [@catch (..lifted (//constant/pool.class (internal.name (..reflection catch))))]
+    (function (_ [pool environment tracker])
+      {try.#Success
+       [[pool
+         environment
+         (..acknowledge_label /stack.catch @handler tracker)]
+        [(function (_ resolver)
+           (<| (try|do [_ @start] (..resolve_label @start resolver))
+               (try|do [_ @end] (..resolve_label @end resolver))
+               (try|do _ (if (/address.> @start @end)
+                           (try|in [])
+                           (exception.except ..invalid_range_for_try [@start @end])))
+               (try|do [_ @handler] (..resolve_label @handler resolver))
+               (try|in [(sequence.sequence
+                         [//exception.#start @start
+                          //exception.#end @end
+                          //exception.#handler @handler
+                          //exception.#catch @catch])
+                        _.empty])))
+         []]]})))
+
+(the .public (composite pre post)
+  (for_any (_ pre post)
+    (-> (Bytecode pre) (Bytecode post)
+        (Bytecode post)))
+  (function (_ state)
+    (when (pre state)
+      {try.#Success [state' [left _]]}
+      (when (post state')
+        {try.#Success [state'' [right it]]}
+        {try.#Success [state'' [(relative#composite left right) it]]}
+
+        failure
+        failure)
+      
+      failure
+      (as_expected failure))))
+
+(the .public (map line)
+  (-> Natural
+      (Bytecode Any))
+  (function (_ [pool environment tracker])
+    (<| (let [instruction (/address.value (its #program_counter tracker))])
+        (try|do line (//unsigned.u2 line))
+        (try|in [[pool
+                  environment
+                  (revised #line_number_table
+                           (sequence.suffix [line_number_table.#start_program_counter instruction
+                                             line_number_table.#line_number line])
+                           tracker)]
+                 [..relative#identity
+                  []]]))))

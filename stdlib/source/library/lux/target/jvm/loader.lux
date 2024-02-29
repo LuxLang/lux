@@ -1,0 +1,145 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except)
+   ["[0]" ffi (.only import object to)]
+   [abstract
+    [monad (.only do)]]
+   [concurrency
+    ["[0]" atom (.only Atom)]]
+   [control
+    ["[0]" io (.only IO)]]
+   [error
+    ["[0]" try (.only Try)]
+    ["[0]" exception (.only Exception)]]
+   [data
+    ["[0]" binary (.only Binary)]
+    ["[0]" text]
+    [collection
+     ["[0]" array]
+     ["[0]" dictionary (.only Dictionary)]]]
+   [macro
+    ["[0]" expansion]]]])
+
+(every .public Library
+  (Atom (Dictionary Text Binary)))
+
+(exception.the .public (already_stored class)
+  (Exception Text)
+  (exception.report
+   (stack ["Class" class])))
+
+(exception.the .public (unknown class)
+  (Exception Text)
+  (exception.report
+   (stack ["Class" class])))
+
+(exception.the .public (cannot_define [class error])
+  (Exception [Text Text])
+  (exception.report
+   (stack ["Class" class]
+          ["Error" error])))
+
+(import java/lang/Object
+  "[1]::[0]"
+  (getClass [] (java/lang/Class java/lang/Object)))
+
+(import java/lang/String
+  "[1]::[0]")
+
+(import java/lang/reflect/Method
+  "[1]::[0]"
+  (invoke [java/lang/Object [java/lang/Object]] "try" java/lang/Object))
+
+(import (java/lang/Class a)
+  "[1]::[0]"
+  (getDeclaredMethod [java/lang/String [(java/lang/Class [? < java/lang/Object])]] java/lang/reflect/Method))
+
+(import java/lang/Integer
+  "[1]::[0]"
+  ("read_only" "static" TYPE (java/lang/Class java/lang/Integer)))
+
+(import java/lang/reflect/AccessibleObject
+  "[1]::[0]"
+  (setAccessible [boolean] void))
+
+(import java/lang/ClassLoader
+  "[1]::[0]"
+  (loadClass [java/lang/String]
+             "io" "try" (java/lang/Class java/lang/Object)))
+
+(expansion.let [<elemT> (these (java/lang/Class java/lang/Object))]
+  (the java/lang/ClassLoader::defineClass
+    java/lang/reflect/Method
+    (let [signature (|> (ffi.array <elemT> 4)
+                        (ffi.write! 0 (as <elemT>
+                                          (ffi.class_for java/lang/String)))
+                        (ffi.write! 1 (java/lang/Object::getClass [] (ffi.array byte 0)))
+                        (ffi.write! 2 (as <elemT>
+                                          (java/lang/Integer::TYPE)))
+                        (ffi.write! 3 (as <elemT>
+                                          (java/lang/Integer::TYPE))))]
+      (to (java/lang/Class::getDeclaredMethod [(ffi.as_string "defineClass")
+                                               signature]
+                                              (ffi.class_for java/lang/ClassLoader))
+          (java/lang/reflect/AccessibleObject::setAccessible [true])))))
+
+(the .public (define class_name bytecode loader)
+  (-> Text Binary java/lang/ClassLoader (Try java/lang/Object))
+  (let [signature (array.of_stack (stack (as java/lang/Object
+                                             class_name)
+                                         (as java/lang/Object
+                                             bytecode)
+                                         (as java/lang/Object
+                                             (|> 0
+                                                 (as (Nominal "java.lang.Long"))
+                                                 ffi.long_to_int))
+                                         (as java/lang/Object
+                                             (|> bytecode
+                                                 binary.size
+                                                 (as (Nominal "java.lang.Long"))
+                                                 ffi.long_to_int))))]
+    (java/lang/reflect/Method::invoke [loader signature] java/lang/ClassLoader::defineClass)))
+
+(the .public (new_library _)
+  (-> Any Library)
+  (atom.atom (dictionary.empty text.hash)))
+
+(the .public (memory library)
+  (-> Library java/lang/ClassLoader)
+  (<| .jvm_object_cast#
+      (object [] java/lang/ClassLoader []
+        []
+        (java/lang/ClassLoader (findClass self [class_name java/lang/String])
+                               (java/lang/Class [? < java/lang/Object])
+                               "throws" [java/lang/ClassNotFoundException]
+                               (let [class_name (as Text class_name)
+                                     classes (|> library atom.read! io.value)]
+                                 (when (dictionary.value class_name classes)
+                                   {try.#Success bytecode}
+                                   (when (..define class_name bytecode (<| .jvm_object_cast# self))
+                                     {try.#Success class}
+                                     (as_expected class)
+
+                                     {try.#Failure error}
+                                     (halt! (exception.error ..cannot_define [class_name error])))
+
+                                   failure
+                                   (halt! (exception.error ..unknown [class_name]))))))))
+
+(the .public (store name bytecode library)
+  (-> Text Binary Library (IO (Try Any)))
+  (do [! io.monad]
+    [library' (atom.read! library)]
+    (if (dictionary.key? library' name)
+      (in (exception.except ..already_stored name))
+      (do !
+        [_ (atom.update! (dictionary.has name bytecode) library)]
+        (in {try.#Success []})))))
+
+(the .public (load name loader)
+  (-> Text java/lang/ClassLoader
+      (IO (Try (java/lang/Class java/lang/Object))))
+  (java/lang/ClassLoader::loadClass [(ffi.as_string name)] loader))

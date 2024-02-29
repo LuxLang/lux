@@ -1,0 +1,130 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except Type)
+   [abstract
+    ["<>" projection (.only)]
+    ["[0]" monad (.only do)]]
+   [error
+    ["[0]" try]]
+   [data
+    ["[0]" text (.only)
+     ["<[1]>" \\projection (.only Projection)]]
+    [collection
+     ["[0]" dictionary (.only Dictionary)]]]
+   [macro
+    ["[0]" template]]]]
+ ["[0]" // (.only Type)
+  [category (.only Void Value Return Method Primitive Object Class Array Var Parameter)]
+  ["[1][0]" descriptor]
+  ["[1][0]" signature (.only Signature)]
+  ["[1][0]" reflection]
+  ["[1][0]" projection]])
+
+(every .public Aliasing
+  (Dictionary Text Text))
+
+(the .public fresh
+  Aliasing
+  (dictionary.empty text.hash))
+
+(the (var aliasing)
+  (-> Aliasing (Projection (Type Var)))
+  (do <>.monad
+    [var //projection.var']
+    (in (|> aliasing
+            (dictionary.value var)
+            (try.else var)
+            //.var))))
+
+(the (class parameter)
+  (-> (Projection (Type Parameter)) (Projection (Type Class)))
+  (|> (do <>.monad
+        [name //projection.class_name
+         parameters (|> (<>.some parameter)
+                        (<>.after (<text>.this //signature.parameters_start))
+                        (<>.before (<text>.this //signature.parameters_end))
+                        (<>.else (stack)))]
+        (in (//.class parameters name)))
+      (<>.after (<text>.this //descriptor.class_prefix))
+      (<>.before (<text>.this //descriptor.class_suffix))))
+
+(template.with [<name> <prefix> <bound> <constructor>]
+  [(the <name>
+     (-> (Projection (Type Class)) (Projection (Type Parameter)))
+     (|>> (<>.after (<text>.this <prefix>))
+          (by <>.monad each <bound>)))]
+
+  [lower //signature.lower_prefix //.lower ..Lower]
+  [upper //signature.upper_prefix //.upper ..Upper]
+  )
+
+(the (parameter aliasing)
+  (-> Aliasing (Projection (Type Parameter)))
+  (<>.rec
+   (function (_ parameter)
+     (let [class (..class parameter)]
+       (all <>.either
+            (..var aliasing)
+            //projection.wildcard
+            (..lower class)
+            (..upper class)
+            class
+            )))))
+
+(the (value aliasing)
+  (-> Aliasing (Projection (Type Value)))
+  (<>.rec
+   (function (_ value)
+     (all <>.either
+          //projection.primitive
+          (parameter aliasing)
+          (//projection.array' value)
+          ))))
+
+(the (inputs aliasing)
+  (-> Aliasing (Projection (Stack (Type Value))))
+  (|> (<>.some (..value aliasing))
+      (<>.after (<text>.this //signature.arguments_start))
+      (<>.before (<text>.this //signature.arguments_end))))
+
+(the (return aliasing)
+  (-> Aliasing (Projection (Type Return)))
+  (all <>.either
+       //projection.void
+       (..value aliasing)
+       ))
+
+(the (exception aliasing)
+  (-> Aliasing (Projection (Type Class)))
+  (|> (..class (..parameter aliasing))
+      (<>.after (<text>.this //signature.exception_prefix))))
+
+(the (bound aliasing)
+  (-> Aliasing (Projection (Type Class)))
+  (do <>.monad
+    [_ (<text>.this ":")]
+    (..class (..parameter aliasing))))
+
+(the (bound_type_var aliasing)
+  (-> Aliasing (Projection (Type Var)))
+  (|> //projection.var_name
+      (by <>.monad each //.var)
+      (<>.before (<>.many (..bound aliasing)))))
+
+(the .public (method aliasing)
+  (-> Aliasing (-> (Type Method) (Type Method)))
+  (|>> //.signature
+       //signature.signature
+       (<text>.value (do <>.monad
+                       [type_variables (|> (<>.some (..bound_type_var aliasing))
+                                           (<>.after (<text>.this //signature.parameters_start))
+                                           (<>.before (<text>.this //signature.parameters_end))
+                                           (<>.else (stack)))
+                        inputs (..inputs aliasing)
+                        return (..return aliasing)
+                        exceptions (<>.some (..exception aliasing))]
+                       (in (//.method [type_variables inputs return exceptions]))))
+       try.trusted))

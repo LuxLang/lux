@@ -1,0 +1,1741 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except Type stack)
+   ["[0]" ffi (.only import)]
+   [abstract
+    [equivalence (.only Equivalence)]
+    ["[0]" monad (.only do)
+     ["[1]T" \\test]]
+    ["[0]" functor
+     ["[1]T" \\test]]]
+   [control
+    ["[0]" io]
+    ["[0]" maybe]]
+   [error
+    ["[0]" try (.only Try)]
+    ["[0]" exception]]
+   ["[0]" function]
+   [data
+    ["[0]" bit]
+    ["[0]" text (.only)
+     ["%" \\injection]]
+    ["[0]" binary
+     ["[1]" \\injection]]
+    [collection
+     ["[0]" array]
+     ["[0]" dictionary]
+     ["[0]" set]
+     ["[0]" sequence]
+     ["[0]" stack (.use "[1]#[0]" functor)]]]
+   [math
+    ["[0]" random (.only Random) (.use "[1]#[0]" monad)]
+    [number
+     ["n" natural]
+     ["i" integer]
+     ["d" decimal]
+     ["[0]" i64]
+     [integer
+      ["i[0]" /32]]]]
+   [macro
+    ["[0]" template]]
+   [test
+    ["_" property (.only Test)]
+    ["[0]" unit]]]]
+ [\\library
+  ["[0]" /
+   ["[1][0]" loader (.only Library)]
+   ["[0]" version]
+   ["[1][0]" modifier (.use "[1]#[0]" monoid)]
+   ["[1][0]" field]
+   ["[1][0]" method (.only Method)]
+   ["[0]" class]
+   ["[1][0]" attribute (.only)
+    ["[1]/[0]" code]]
+   [constant
+    ["[0]" pool (.only Resource)]]
+   [encoding
+    ["[0]" signed]
+    ["[0]" unsigned]
+    [name
+     ["[0]" external]
+     ["[0]" internal]]]
+   ["[1]" bytecode (.only Bytecode) (.use "[1]#[0]" monad)
+    ["[1][0]" instruction]
+    ["[0]" environment]]
+   ["[0]" type (.only Type)
+    ["[0]" category (.only Value Object Class)]]]]
+ ["[0]" /
+  ["[1][0]" constant]
+  ["[1][0]" index]
+  ["[1][0]" magic]
+  ["[1][0]" type]
+  ["[1][0]" version]
+  [encoding
+   ["[1][0]" signed]
+   ["[1][0]" unsigned]
+   [name
+    ["[1][0]" external]
+    ["[1][0]" internal]]]
+  [bytecode
+   ["[1][0]" jump]
+   [environment
+    ["[1][0]" limit]]]])
+
+(the method_modifier
+  (all /modifier#composite
+       /method.public
+       /method.static
+       ))
+
+(import java/lang/Boolean
+  "[1]::[0]")
+
+(import java/lang/Byte
+  "[1]::[0]")
+
+(import java/lang/Short
+  "[1]::[0]")
+
+(import java/lang/Integer
+  "[1]::[0]")
+
+(import java/lang/Long
+  "[1]::[0]")
+
+(import java/lang/Float
+  "[1]::[0]")
+
+(import java/lang/Double
+  "[1]::[0]")
+
+(import java/lang/Character
+  "[1]::[0]")
+
+(import java/lang/String
+  "[1]::[0]")
+
+(import java/lang/reflect/Method
+  "[1]::[0]"
+  (invoke [java/lang/Object [java/lang/Object]] "try" java/lang/Object))
+
+(import (java/lang/Class c)
+  "[1]::[0]"
+  (getDeclaredMethod [java/lang/String [(java/lang/Class [? < java/lang/Object])]] java/lang/reflect/Method))
+
+(import java/lang/Object
+  "[1]::[0]")
+
+(the class_name
+  (Random Text)
+  (do random.monad
+    [super_package (random.lower_cased 10)
+     package (random.lower_cased 10)
+     name (random.upper_cased 10)]
+    (in (text super_package
+              external.delimiter package
+              external.delimiter name))))
+
+(the (get_method name class)
+  (-> Text (java/lang/Class java/lang/Object) java/lang/reflect/Method)
+  (java/lang/Class::getDeclaredMethod [(ffi.as_string name)
+                                       (ffi.array (java/lang/Class java/lang/Object) 0)]
+                                      class))
+
+(the $Object (type.class (.stack) "java.lang.Object"))
+
+(the (bytecode test bytecode)
+  (-> (-> Any Bit) (Bytecode Any) (Random Bit))
+  (do random.monad
+    [class_name ..class_name
+     method_name (random.upper_cased 10)]
+    (in (when (do try.monad
+                [class (class.class version.v6_0 class.public
+                         (internal.name class_name)
+                         {.#None}
+                         (internal.name "java.lang.Object")
+                         (.stack)
+                         (.stack)
+                         (.stack (/method.method ..method_modifier
+                                   method_name
+                                   false (type.method [(.stack) (.stack) ..$Object (.stack)])
+                                   (.stack)
+                                   {.#Some (do /.monad
+                                             [_ bytecode]
+                                             /.areturn)}))
+                         (.stack))
+                 .let [bytecode (binary.value class.as_binary class)
+                       loader (/loader.memory (/loader.new_library []))]
+                 _ (/loader.define class_name bytecode loader)
+                 class (io.value (/loader.load class_name loader))
+                 method (try (get_method method_name class))]
+                (java/lang/reflect/Method::invoke [(ffi.null) (ffi.array java/lang/Object 0)] method))
+          {try.#Success actual}
+          (test actual)
+          
+          {try.#Failure error}
+          false))))
+
+(every (Primitive a)
+  (Record
+   [#unboxed (Type category.Return)
+    #boxed (Type category.Class)
+    #wrap (Bytecode Any)
+    #random (Random a)
+    #literal (-> a (Bytecode Any))]))
+
+(the $Boolean
+  (type.class (.stack) "java.lang.Boolean"))
+(the $Boolean::wrap
+  (/.invokestatic ..$Boolean "valueOf" (type.method [(.stack) (.stack type.boolean) ..$Boolean (.stack)])))
+(the $Boolean::random (as (Random java/lang/Boolean) random.bit))
+(the !false (|> 0 .i64 i/32.of /.int))
+(the !true (|> 1 .i64 i/32.of /.int))
+(the ($Boolean::literal value)
+  (-> java/lang/Boolean (Bytecode Any))
+  (if (as Bit value)
+    ..!true
+    ..!false))
+(the $Boolean::primitive
+  (Primitive java/lang/Boolean)
+  [#unboxed type.boolean
+   #boxed ..$Boolean
+   #wrap ..$Boolean::wrap
+   #random ..$Boolean::random
+   #literal ..$Boolean::literal])
+
+(the $Byte
+  (type.class (.stack) "java.lang.Byte"))
+(the $Byte::wrap
+  (/.invokestatic ..$Byte "valueOf" (type.method [(.stack) (.stack type.byte) ..$Byte (.stack)])))
+(the $Byte::random
+  (Random java/lang/Byte)
+  (by random.monad each (|>> (as java/lang/Long) ffi.long_to_byte) random.integer))
+(the $Byte::literal
+  (-> java/lang/Byte (Bytecode Any))
+  (|>> ffi.byte_to_long (as I64) i/32.of /.int))
+(the $Byte::primitive
+  (Primitive java/lang/Byte)
+  [#unboxed type.byte
+   #boxed ..$Byte
+   #wrap ..$Byte::wrap
+   #random ..$Byte::random
+   #literal ..$Byte::literal])
+
+(the $Short
+  (type.class (.stack) "java.lang.Short"))
+(the $Short::wrap
+  (/.invokestatic ..$Short "valueOf" (type.method [(.stack) (.stack type.short) ..$Short (.stack)])))
+(the $Short::random
+  (Random java/lang/Short)
+  (by random.monad each (|>> (as java/lang/Long) ffi.long_to_short) random.integer))
+(the $Short::literal
+  (-> java/lang/Short (Bytecode Any))
+  (|>> ffi.short_to_long (as I64) i/32.of /.int))
+(the $Short::primitive
+  (Primitive java/lang/Short)
+  [#unboxed type.short
+   #boxed ..$Short
+   #wrap ..$Short::wrap
+   #random ..$Short::random
+   #literal ..$Short::literal])
+
+(the $Integer
+  (type.class (.stack) "java.lang.Integer"))
+(the $Integer::wrap
+  (/.invokestatic ..$Integer "valueOf" (type.method [(.stack) (.stack type.int) ..$Integer (.stack)])))
+(the $Integer::random
+  (Random java/lang/Integer)
+  (by random.monad each (|>> (as java/lang/Long) ffi.long_to_int) random.integer))
+(the $Integer::literal
+  (-> java/lang/Integer (Bytecode Any))
+  (|>> ffi.int_to_long (as I64) i/32.of /.int))
+(the $Integer::primitive
+  (Primitive java/lang/Integer)
+  [#unboxed type.int
+   #boxed ..$Integer
+   #wrap ..$Integer::wrap
+   #random ..$Integer::random
+   #literal ..$Integer::literal])
+
+(the $Long (type.class (.stack) "java.lang.Long"))
+(the $Long::wrap (/.invokestatic ..$Long "valueOf" (type.method [(.stack) (.stack type.long) ..$Long (.stack)])))
+(the $Long::random (as (Random java/lang/Long) random.integer))
+(the $Long::literal (-> java/lang/Long (Bytecode Any)) (|>> (as Integer) /.long))
+(the $Long::primitive
+  (Primitive java/lang/Long)
+  [#unboxed type.long
+   #boxed ..$Long
+   #wrap ..$Long::wrap
+   #random ..$Long::random
+   #literal ..$Long::literal])
+
+(the $Float (type.class (.stack) "java.lang.Float"))
+(the $Float::wrap (/.invokestatic ..$Float "valueOf" (type.method [(.stack) (.stack type.float) ..$Float (.stack)])))
+(the $Float::random
+  (Random java/lang/Float)
+  (by random.monad each
+      (|>> (as java/lang/Double) ffi.double_to_float)
+      random.decimal))
+(the valid_float
+  (Random java/lang/Float)
+  (random.only (|>> ffi.float_to_double (as Decimal) d.not_a_number? not)
+               ..$Float::random))
+(the $Float::primitive
+  (Primitive java/lang/Float)
+  [#unboxed type.float
+   #boxed ..$Float
+   #wrap ..$Float::wrap
+   #random ..valid_float
+   #literal /.float])
+
+(the $Double (type.class (.stack) "java.lang.Double"))
+(the $Double::wrap (/.invokestatic ..$Double "valueOf" (type.method [(.stack) (.stack type.double) ..$Double (.stack)])))
+(the $Double::random (as (Random java/lang/Double) random.decimal))
+(the $Double::literal
+  (-> java/lang/Double (Bytecode Any))
+  (|>> (as Decimal) /.double))
+(the valid_double
+  (Random java/lang/Double)
+  (random.only (|>> (as Decimal) d.not_a_number? not)
+               ..$Double::random))
+(the $Double::primitive
+  (Primitive java/lang/Double)
+  [#unboxed type.double
+   #boxed ..$Double
+   #wrap ..$Double::wrap
+   #random ..valid_double
+   #literal ..$Double::literal])
+
+(the $Character
+  (type.class (.stack) "java.lang.Character"))
+(the $Character::wrap
+  (/.invokestatic ..$Character "valueOf" (type.method [(.stack) (.stack type.char) ..$Character (.stack)])))
+(the $Character::random
+  (Random java/lang/Character)
+  (by random.monad each (|>> (as java/lang/Long) ffi.long_to_int ffi.int_to_char) random.integer))
+(the $Character::literal
+  (-> java/lang/Character (Bytecode Any))
+  (|>> ffi.char_to_long (as I64) i/32.of /.int))
+(the $Character::primitive
+  (Primitive java/lang/Character)
+  [#unboxed type.char
+   #boxed ..$Character
+   #wrap ..$Character::wrap
+   #random ..$Character::random
+   #literal ..$Character::literal])
+
+(the $String
+  (type.class (.stack) "java.lang.String"))
+
+(the $String::random
+  (as (Random java/lang/String)
+      (random.alphabetic 10)))
+
+(the $String::literal
+  (-> java/lang/String (Bytecode Any))
+  (|>> (as Text) /.string))
+
+(the $String::primitive
+  (Primitive java/lang/String)
+  [#unboxed ..$String
+   #boxed ..$String
+   #wrap /.nop
+   #random ..$String::random
+   #literal ..$String::literal])
+
+(the coverage
+  (template.macro (_ ,coverage ,condition)
+    [(is Test
+         (do random.monad
+           [verdict ,condition]
+           (in (unit.coverage ,coverage
+                 verdict))))]))
+
+(template.with [<name> <bits> <type> <push> <wrap> <to_long> <signed>]
+  [(the <name>
+     Test
+     (do [! random.monad]
+       [expected (by ! each (i64.and (i64.mask <bits>)) random.natural)]
+       (<| (..coverage [<push>])
+           (..bytecode (|>> (as <type>) <to_long> .jvm_object_cast# (.jvm_long_=# (.jvm_object_cast# (as java/lang/Long expected)))))
+           (do /.monad
+             [_ (<push> (|> expected .integer <signed> try.trusted))]
+             <wrap>))))]
+
+  [byte 7 java/lang/Byte /.bipush ..$Byte::wrap ffi.byte_to_long signed.s1]
+  [short 15 java/lang/Short /.sipush ..$Short::wrap ffi.short_to_long signed.s2]
+  )
+
+(template.with [<name> <type>]
+  [(the <name>
+     (template.macro (_ <old_extension> <new_extension>)
+       [(is (-> <type> <type> <type>)
+            (function (_ parameter subject)
+              (.jvm_object_cast#
+               (<new_extension> (.jvm_object_cast# parameter)
+                                (.jvm_object_cast# subject)))))]))]
+
+  [int/2 java/lang/Integer]
+  [long/2 java/lang/Long]
+  [float/2 java/lang/Float]
+  [double/2 java/lang/Double]
+  )
+
+(the int+long/2
+  (template.macro (_ <old_extension> <new_extension>)
+    [(is (-> java/lang/Integer java/lang/Long java/lang/Long)
+         (function (_ parameter subject)
+           (.jvm_object_cast#
+            (<new_extension> (.jvm_object_cast# parameter)
+                             (.jvm_object_cast# subject)))))]))
+
+(the int
+  Test
+  (let [int (is (-> java/lang/Integer (Bytecode Any) (Random Bit))
+                (function (_ expected bytecode)
+                  (<| (..bytecode (|>> (as java/lang/Integer) .jvm_object_cast# (.jvm_int_=# (.jvm_object_cast# expected))))
+                      (do /.monad
+                        [_ bytecode]
+                        ..$Integer::wrap))))
+        unary (is (-> (-> java/lang/Integer java/lang/Integer) (Bytecode Any) (Random Bit))
+                  (function (_ reference instruction)
+                    (do random.monad
+                      [subject ..$Integer::random]
+                      (int (reference subject)
+                           (do /.monad
+                             [_ (..$Integer::literal subject)]
+                             instruction)))))
+        binary (is (-> (-> java/lang/Integer java/lang/Integer java/lang/Integer)
+                       (Bytecode Any)
+                       (Random Bit))
+                   (function (_ reference instruction)
+                     (do random.monad
+                       [parameter ..$Integer::random
+                        subject ..$Integer::random]
+                       (int (reference parameter subject)
+                            (do /.monad
+                              [_ (..$Integer::literal subject)
+                               _ (..$Integer::literal parameter)]
+                              instruction)))))
+        shift (is (-> (-> java/lang/Integer java/lang/Integer java/lang/Integer) (Bytecode Any) (Random Bit))
+                  (function (_ reference instruction)
+                    (do [! random.monad]
+                      [parameter (by ! each (|>> (n.% 32) .integer (as java/lang/Long) ffi.long_to_int) random.natural)
+                       subject ..$Integer::random]
+                      (int (reference parameter subject)
+                           (do /.monad
+                             [_ (..$Integer::literal subject)
+                              _ (..$Integer::literal parameter)]
+                             instruction)))))
+        literal (all _.and
+                     (..coverage [/.iconst_m1] (int (ffi.long_to_int (as java/lang/Long -1)) /.iconst_m1))
+                     (..coverage [/.iconst_0] (int (ffi.long_to_int (as java/lang/Long +0)) /.iconst_0))
+                     (..coverage [/.iconst_1] (int (ffi.long_to_int (as java/lang/Long +1)) /.iconst_1))
+                     (..coverage [/.iconst_2] (int (ffi.long_to_int (as java/lang/Long +2)) /.iconst_2))
+                     (..coverage [/.iconst_3] (int (ffi.long_to_int (as java/lang/Long +3)) /.iconst_3))
+                     (..coverage [/.iconst_4] (int (ffi.long_to_int (as java/lang/Long +4)) /.iconst_4))
+                     (..coverage [/.iconst_5] (int (ffi.long_to_int (as java/lang/Long +5)) /.iconst_5))
+                     (..coverage [/.int]
+                       (do random.monad
+                         [expected ..$Integer::random]
+                         (int expected (..$Integer::literal expected)))))
+        arithmetic (all _.and
+                        (..coverage [/.iadd] (binary (int/2 "jvm iadd" .jvm_int_+#) /.iadd))
+                        (..coverage [/.isub] (binary (int/2 "jvm isub" .jvm_int_-#) /.isub))
+                        (..coverage [/.imul] (binary (int/2 "jvm imul" .jvm_int_*#) /.imul))
+                        (..coverage [/.idiv] (binary (int/2 "jvm idiv" .jvm_int_/#) /.idiv))
+                        (..coverage [/.irem] (binary (int/2 "jvm irem" .jvm_int_%#) /.irem))
+                        (..coverage [/.ineg] (unary (function (_ value)
+                                                      ((int/2 "jvm isub" .jvm_int_-#)
+                                                       value
+                                                       (ffi.long_to_int (as java/lang/Long +0))))
+                                                    /.ineg)))
+        bitwise (all _.and
+                     (..coverage [/.iand] (binary (int/2 "jvm iand" .jvm_int_and#) /.iand))
+                     (..coverage [/.ior] (binary (int/2 "jvm ior" .jvm_int_or#) /.ior))
+                     (..coverage [/.ixor] (binary (int/2 "jvm ixor" .jvm_int_xor#) /.ixor))
+                     (..coverage [/.ishl] (shift (int/2 "jvm ishl" .jvm_int_shl#) /.ishl))
+                     (..coverage [/.ishr] (shift (int/2 "jvm ishr" .jvm_int_shr#) /.ishr))
+                     (..coverage [/.iushr] (shift (int/2 "jvm iushr" .jvm_int_ushr#) /.iushr)))]
+    (all _.and
+         literal
+         arithmetic
+         bitwise
+         )))
+
+(the long
+  Test
+  (let [long (is (-> java/lang/Long (Bytecode Any) (Random Bit))
+                 (function (_ expected bytecode)
+                   (<| (..bytecode (|>> (as java/lang/Long) .jvm_object_cast# (.jvm_long_=# (.jvm_object_cast# expected))))
+                       (do /.monad
+                         [_ bytecode]
+                         ..$Long::wrap))))
+        unary (is (-> (-> java/lang/Long java/lang/Long) (Bytecode Any) (Random Bit))
+                  (function (_ reference instruction)
+                    (do random.monad
+                      [subject ..$Long::random]
+                      (long (reference subject)
+                            (do /.monad
+                              [_ (..$Long::literal subject)]
+                              instruction)))))
+        binary (is (-> (-> java/lang/Long java/lang/Long java/lang/Long) (Bytecode Any) (Random Bit))
+                   (function (_ reference instruction)
+                     (do random.monad
+                       [parameter ..$Long::random
+                        subject ..$Long::random]
+                       (long (reference parameter subject)
+                             (do /.monad
+                               [_ (..$Long::literal subject)
+                                _ (..$Long::literal parameter)]
+                               instruction)))))
+        shift (is (-> (-> java/lang/Integer java/lang/Long java/lang/Long) (Bytecode Any) (Random Bit))
+                  (function (_ reference instruction)
+                    (do [! random.monad]
+                      [parameter (by ! each (|>> (n.% 64) (as java/lang/Long)) random.natural)
+                       subject ..$Long::random]
+                      (long (reference (ffi.long_to_int parameter) subject)
+                            (do /.monad
+                              [_ (..$Long::literal subject)
+                               _ (..$Integer::literal (ffi.long_to_int parameter))]
+                              instruction)))))
+        literal (all _.and
+                     (..coverage [/.lconst_0] (long (as java/lang/Long +0) /.lconst_0))
+                     (..coverage [/.lconst_1] (long (as java/lang/Long +1) /.lconst_1))
+                     (..coverage [/.long]
+                       (do random.monad
+                         [expected ..$Long::random]
+                         (long expected (..$Long::literal expected)))))
+        arithmetic (all _.and
+                        (..coverage [/.ladd] (binary (long/2 "jvm ladd" .jvm_long_+#) /.ladd))
+                        (..coverage [/.lsub] (binary (long/2 "jvm lsub" .jvm_long_-#) /.lsub))
+                        (..coverage [/.lmul] (binary (long/2 "jvm lmul" .jvm_long_*#) /.lmul))
+                        (..coverage [/.ldiv] (binary (long/2 "jvm ldiv" .jvm_long_/#) /.ldiv))
+                        (..coverage [/.lrem] (binary (long/2 "jvm lrem" .jvm_long_%#) /.lrem))
+                        (..coverage [/.lneg] (unary (function (_ value)
+                                                      ((long/2 "jvm lsub" .jvm_long_-#)
+                                                       value
+                                                       (as java/lang/Long +0)))
+                                                    /.lneg)))
+        bitwise (all _.and
+                     (..coverage [/.land] (binary (long/2 "jvm land" .jvm_long_and#) /.land))
+                     (..coverage [/.lor] (binary (long/2 "jvm lor" .jvm_long_or#) /.lor))
+                     (..coverage [/.lxor] (binary (long/2 "jvm lxor" .jvm_long_xor#) /.lxor))
+                     (..coverage [/.lshl] (shift (int+long/2 "jvm lshl" .jvm_long_shl#) /.lshl))
+                     (..coverage [/.lshr] (shift (int+long/2 "jvm lshr" .jvm_long_shr#) /.lshr))
+                     (..coverage [/.lushr] (shift (int+long/2 "jvm lushr" .jvm_long_ushr#) /.lushr)))
+        comparison (do random.monad
+                     [reference ..$Long::random
+                      subject ..$Long::random
+                      .let [expected (<| (as java/lang/Long)
+                                         (if (i.< (as Integer reference) (as Integer subject))
+                                           -1
+
+                                           (i.> (as Integer reference) (as Integer subject))
+                                           +1
+
+                                           ... (i.= (as Integer expected) (as Integer subject))
+                                           +0))]]
+                     (<| (..bytecode (function (_ actual)
+                                       (|> actual
+                                           (as java/lang/Long)
+                                           .jvm_object_cast#
+                                           (.jvm_long_=# (.jvm_object_cast# expected)))))
+                         (do /.monad
+                           [_ (..$Long::literal subject)
+                            _ (..$Long::literal reference)
+                            _ /.lcmp
+                            _ /.i2l]
+                           ..$Long::wrap)))]
+    (all _.and
+         literal
+         arithmetic
+         bitwise
+         (..coverage [/.lcmp] comparison)
+         )))
+
+(the float
+  Test
+  (let [float (is (-> java/lang/Float (Bytecode Any) (Random Bit))
+                  (function (_ expected bytecode)
+                    (<| (..bytecode (function (_ actual)
+                                      (or (|> actual (as java/lang/Float) .jvm_object_cast# (.jvm_float_=# (.jvm_object_cast# expected)))
+                                          (and (d.not_a_number? (as Decimal (ffi.float_to_double expected)))
+                                               (d.not_a_number? (as Decimal (ffi.float_to_double (as java/lang/Float actual))))))))
+                        (do /.monad
+                          [_ bytecode]
+                          ..$Float::wrap))))
+        unary (is (-> (-> java/lang/Float java/lang/Float)
+                      (Bytecode Any)
+                      (Random Bit))
+                  (function (_ reference instruction)
+                    (do random.monad
+                      [subject ..$Float::random]
+                      (float (reference subject)
+                             (do /.monad
+                               [_ (/.float subject)]
+                               instruction)))))
+        binary (is (-> (-> java/lang/Float java/lang/Float java/lang/Float)
+                       (Bytecode Any)
+                       (Random Bit))
+                   (function (_ reference instruction)
+                     (do random.monad
+                       [parameter ..$Float::random
+                        subject ..$Float::random]
+                       (float (reference parameter subject)
+                              (do /.monad
+                                [_ (/.float subject)
+                                 _ (/.float parameter)]
+                                instruction)))))
+        literal (all _.and
+                     (..coverage [/.fconst_0] (float (ffi.double_to_float (as java/lang/Double +0.0)) /.fconst_0))
+                     (..coverage [/.fconst_1] (float (ffi.double_to_float (as java/lang/Double +1.0)) /.fconst_1))
+                     (..coverage [/.fconst_2] (float (ffi.double_to_float (as java/lang/Double +2.0)) /.fconst_2))
+                     (..coverage [/.float]
+                       (do random.monad
+                         [expected ..$Float::random]
+                         (float expected (/.float expected)))))
+        arithmetic (all _.and
+                        (..coverage [/.fadd] (binary (float/2 "jvm fadd" .jvm_float_+#) /.fadd))
+                        (..coverage [/.fsub] (binary (float/2 "jvm fsub" .jvm_float_-#) /.fsub))
+                        (..coverage [/.fmul] (binary (float/2 "jvm fmul" .jvm_float_*#) /.fmul))
+                        (..coverage [/.fdiv] (binary (float/2 "jvm fdiv" .jvm_float_/#) /.fdiv))
+                        (..coverage [/.frem] (binary (float/2 "jvm frem" .jvm_float_%#) /.frem))
+                        (..coverage [/.fneg] (unary (function (_ value)
+                                                      ((float/2 "jvm fsub" .jvm_float_-#)
+                                                       value
+                                                       (ffi.double_to_float (as java/lang/Double +0.0))))
+                                                    /.fneg)))
+        comparison (is (-> (Bytecode Any) (-> java/lang/Float java/lang/Float Bit) (Random Bit))
+                       (function (_ instruction standard)
+                         (do random.monad
+                           [.let [valid_float (random.only (|>> ffi.float_to_double (as Decimal) d.not_a_number? not)
+                                                           ..$Float::random)]
+                            expected valid_float
+                            actual valid_float
+                            .let [expected_result (if (.jvm_float_=# (.jvm_object_cast# expected) (.jvm_object_cast# actual))
+                                                    +0
+                                                    (if (standard expected actual)
+                                                      +1
+                                                      -1))]]
+                           (<| (..bytecode (|>> (as Integer) (i.= expected_result)))
+                               (do /.monad
+                                 [_ (/.float actual)
+                                  _ (/.float expected)
+                                  _ instruction
+                                  _ /.i2l]
+                                 ..$Long::wrap)))))
+        comparison_standard (is (-> java/lang/Float java/lang/Float Bit)
+                                (function (_ expected actual)
+                                  (.jvm_float_<# (.jvm_object_cast# actual) (.jvm_object_cast# expected))))
+        comparison (all _.and
+                        (..coverage [/.fcmpl] (comparison /.fcmpl comparison_standard))
+                        (..coverage [/.fcmpg] (comparison /.fcmpg comparison_standard)))]
+    (all _.and
+         literal
+         arithmetic
+         comparison
+         )))
+
+(the double
+  Test
+  (let [double (is (-> java/lang/Double (Bytecode Any) (Random Bit))
+                   (function (_ expected bytecode)
+                     (<| (..bytecode (function (_ actual)
+                                       (or (|> actual (as java/lang/Double) .jvm_object_cast# (.jvm_double_=# (.jvm_object_cast# expected)))
+                                           (and (d.not_a_number? (as Decimal expected))
+                                                (d.not_a_number? (as Decimal actual))))))
+                         (do /.monad
+                           [_ bytecode]
+                           ..$Double::wrap))))
+        unary (is (-> (-> java/lang/Double java/lang/Double) (Bytecode Any) (Random Bit))
+                  (function (_ reference instruction)
+                    (do random.monad
+                      [subject ..$Double::random]
+                      (double (reference subject)
+                              (do /.monad
+                                [_ (..$Double::literal subject)]
+                                instruction)))))
+        binary (is (-> (-> java/lang/Double java/lang/Double java/lang/Double) (Bytecode Any) (Random Bit))
+                   (function (_ reference instruction)
+                     (do random.monad
+                       [parameter ..$Double::random
+                        subject ..$Double::random]
+                       (double (reference parameter subject)
+                               (do /.monad
+                                 [_ (..$Double::literal subject)
+                                  _ (..$Double::literal parameter)]
+                                 instruction)))))
+        literal (all _.and
+                     (..coverage [/.dconst_0] (double (as java/lang/Double +0.0) /.dconst_0))
+                     (..coverage [/.dconst_1] (double (as java/lang/Double +1.0) /.dconst_1))
+                     (..coverage [/.double]
+                       (do random.monad
+                         [expected ..$Double::random]
+                         (double expected (..$Double::literal expected)))))
+        arithmetic (all _.and
+                        (..coverage [/.dadd] (binary (double/2 "jvm dadd" .jvm_double_+#) /.dadd))
+                        (..coverage [/.dsub] (binary (double/2 "jvm dsub" .jvm_double_-#) /.dsub))
+                        (..coverage [/.dmul] (binary (double/2 "jvm dmul" .jvm_double_*#) /.dmul))
+                        (..coverage [/.ddiv] (binary (double/2 "jvm ddiv" .jvm_double_/#) /.ddiv))
+                        (..coverage [/.drem] (binary (double/2 "jvm drem" .jvm_double_%#) /.drem))
+                        (..coverage [/.dneg] (unary (function (_ value)
+                                                      ((double/2 "jvm dsub" .jvm_double_-#)
+                                                       value
+                                                       (as java/lang/Double +0.0)))
+                                                    /.dneg)))
+        comparison (is (-> (Bytecode Any) (-> java/lang/Double java/lang/Double Bit) (Random Bit))
+                       (function (_ instruction standard)
+                         (do random.monad
+                           [expected ..valid_double
+                            actual ..valid_double
+                            .let [expected_result (if (.jvm_double_=# (.jvm_object_cast# expected) (.jvm_object_cast# actual))
+                                                    +0
+                                                    (if (standard expected actual)
+                                                      +1
+                                                      -1))]]
+                           (<| (..bytecode (|>> (as Integer) (i.= expected_result)))
+                               (do /.monad
+                                 [_ (..$Double::literal actual)
+                                  _ (..$Double::literal expected)
+                                  _ instruction
+                                  _ /.i2l]
+                                 ..$Long::wrap)))))
+        ... https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-6.html#jvms-6.5.dcmp_op
+        comparison_standard (is (-> java/lang/Double java/lang/Double Bit)
+                                (function (_ expected actual)
+                                  (.jvm_double_<# (.jvm_object_cast# actual) (.jvm_object_cast# expected))))
+        comparison (all _.and
+                        (..coverage [/.dcmpl] (comparison /.dcmpl comparison_standard))
+                        (..coverage [/.dcmpg] (comparison /.dcmpg comparison_standard)))]
+    (all _.and
+         literal
+         arithmetic
+         comparison
+         )))
+
+(the primitive
+  Test
+  (all _.and
+       ..byte
+       ..short
+       ..int
+       ..long
+       ..float
+       ..double
+       ))
+
+(the object
+  Test
+  (let [!object (is (Bytecode Any)
+                    (do /.monad
+                      [_ (/.new ..$Object)
+                       _ /.dup]
+                      (/.invokespecial ..$Object "<init>" (type.method [(.stack) (.stack) type.void (.stack)]))))]
+    (all _.and
+         (<| (..coverage [/.aconst_null])
+             (..bytecode (|>> (as Bit) not))
+             (do /.monad
+               [_ /.aconst_null
+                _ (/.instanceof ..$String)]
+               ..$Boolean::wrap))
+         (<| (..coverage [/.instanceof])
+             (do random.monad
+               [value ..$String::random])
+             (..bytecode (|>> (as Bit)))
+             (do /.monad
+               [_ (/.string (as Text value))
+                _ (/.instanceof ..$String)]
+               ..$Boolean::wrap))
+         (<| (..coverage [/.new])
+             (..bytecode (|>> (as Bit)))
+             (do /.monad
+               [_ !object
+                _ ..!true]
+               ..$Boolean::wrap))
+         (<| (..coverage [/.checkcast])
+             (..bytecode (|>> (as Bit)))
+             (do /.monad
+               [_ !object
+                _ (/.checkcast ..$Object)
+                _ (/.instanceof ..$Object)]
+               ..$Boolean::wrap))
+         (<| (..coverage [/.monitorenter /.monitorexit])
+             (do random.monad
+               [value ..$String::random])
+             (..bytecode (|>> (as Bit)))
+             (do /.monad
+               [_ (/.string (as Text value))
+                _ /.dup _ /.monitorenter
+                _ /.dup _ /.monitorexit
+                _ (/.instanceof ..$String)]
+               ..$Boolean::wrap))
+         )))
+
+(the method
+  Test
+  (all _.and
+       (<| (..coverage [/.invokestatic])
+           (do random.monad
+             [expected (random.only (|>> (as Decimal) d.not_a_number? not)
+                                    ..$Double::random)])
+           (..bytecode (|>> (as java/lang/Double) .jvm_object_cast# (.jvm_double_=# (.jvm_object_cast# expected))))
+           (do /.monad
+             [_ (/.double (as Decimal expected))]
+             (/.invokestatic ..$Double "valueOf" (type.method [(.stack) (.stack type.double) ..$Double (.stack)]))))
+       (<| (..coverage [/.invokevirtual])
+           (do random.monad
+             [expected ..$Double::random])
+           (..bytecode (|>> (as Bit) (bit.= (d.not_a_number? (as Decimal expected)))))
+           (do /.monad
+             [_ (/.double (as Decimal expected))
+              _ ..$Double::wrap
+              _ (/.invokevirtual ..$Double "isNaN" (type.method [(.stack) (.stack) type.boolean (.stack)]))]
+             ..$Boolean::wrap))
+       (<| (..coverage [/.invokespecial])
+           (do random.monad
+             [expected (random.only (|>> (as Decimal) d.not_a_number? not)
+                                    ..$Double::random)])
+           (..bytecode (|>> (as java/lang/Double) .jvm_object_cast# (.jvm_double_=# (.jvm_object_cast# expected))))
+           (do /.monad
+             [_ (/.new ..$Double)
+              _ /.dup
+              _ (/.double (as Decimal expected))]
+             (/.invokespecial ..$Double "<init>" (type.method [(.stack) (.stack type.double) type.void (.stack)]))))
+       (<| (..coverage [/.invokeinterface])
+           (do random.monad
+             [subject ..$String::random])
+           (..bytecode (|>> (as Natural) (n.= (text.size (as Text subject)))))
+           (do /.monad
+             [_ (/.string (as Text subject))
+              _ (/.invokeinterface (type.class (.stack) "java.lang.CharSequence") "length" (type.method [(.stack) (.stack) type.int (.stack)]))
+              _ /.i2l]
+             ..$Long::wrap))
+       ))
+
+(the field
+  Test
+  (do random.monad
+    [class_name ..class_name
+     part0 ..$Long::random
+     part1 ..$Long::random
+     .let [expected (is java/lang/Long
+                        (.jvm_object_cast#
+                         (.jvm_long_+# (.jvm_object_cast# part0) (.jvm_object_cast# part1))))
+           $Self (type.class (.stack) class_name)
+           class_field "class_field"
+           object_field "object_field"
+           constructor "<init>"
+           constructor::type (type.method [(.stack) (.stack type.long) type.void (.stack)])
+           static_method "static_method"
+           bytecode (|> (class.class version.v6_0 class.public
+                          (internal.name class_name)
+                          {.#None}
+                          (internal.name "java.lang.Object")
+                          (.stack)
+                          (.stack (/field.field /field.static class_field false type.long (sequence.sequence))
+                                  (/field.field /field.public object_field false type.long (sequence.sequence)))
+                          (.stack (/method.method /method.private
+                                    constructor
+                                    false constructor::type
+                                    (.stack)
+                                    {.#Some (do /.monad
+                                              [_ /.aload_0
+                                               _ (/.invokespecial ..$Object constructor (type.method [(.stack) (.stack) type.void (.stack)]))
+                                               _ (..$Long::literal part0)
+                                               _ (/.putstatic $Self class_field type.long)
+                                               _ /.aload_0
+                                               _ /.lload_1
+                                               _ (/.putfield $Self object_field type.long)]
+                                              /.return)})
+                                  (/method.method (all /modifier#composite
+                                                       /method.public
+                                                       /method.static)
+                                    static_method
+                                    false (type.method [(.stack) (.stack) ..$Long (.stack)])
+                                    (.stack)
+                                    {.#Some (do /.monad
+                                              [_ (/.new $Self)
+                                               _ /.dup
+                                               _ (..$Long::literal part1)
+                                               _ (/.invokespecial $Self constructor constructor::type)
+                                               _ (/.getfield $Self object_field type.long)
+                                               _ (/.getstatic $Self class_field type.long)
+                                               _ /.ladd
+                                               _ ..$Long::wrap]
+                                              /.areturn)}))
+                          (.stack))
+                        try.trusted
+                        (binary.value class.as_binary))
+           loader (/loader.memory (/loader.new_library []))]]
+    (_.coverage [/.putstatic /.putfield
+                 /.getstatic /.getfield]
+      (when (do try.monad
+              [_ (/loader.define class_name bytecode loader)
+               class (io.value (/loader.load class_name loader))
+               method (try (get_method static_method class))
+               output (java/lang/reflect/Method::invoke [(ffi.null) (ffi.array java/lang/Object 0)] method)]
+              (in (as Integer output)))
+        {try.#Success actual}
+        (i.= (as Integer expected) (as Integer actual))
+
+        {try.#Failure error}
+        false))))
+
+(the array
+  Test
+  (let [!length (is (-> Natural (Bytecode Any))
+                    (function (_ size)
+                      (do /.monad
+                        [_ ($Long::literal (as java/lang/Long size))]
+                        /.l2i)))
+        ?length (is (Bytecode Any)
+                    (do /.monad
+                      [_ /.arraylength]
+                      /.i2l))
+        length (is (-> Natural (Bytecode Any) (Random Bit))
+                   (function (_ size constructor)
+                     (<| (..bytecode (|>> (as Natural) (n.= size)))
+                         (do /.monad
+                           [_ (!length size)
+                            _ constructor
+                            _ ?length]
+                           $Long::wrap))))
+        write_and_read (is (for_any (_ a)
+                             (-> Natural (Bytecode Any)
+                                 a (-> a (Bytecode Any))
+                                 [(Bytecode Any) (Bytecode Any) (Bytecode Any)]
+                                 (-> a Any Bit)
+                                 (Random Bit)))
+                           (function (_ size constructor value literal [*store *load *wrap] test)
+                             (let [!index ($Integer::literal (ffi.long_to_int (as java/lang/Long +0)))]
+                               (<| (..bytecode (test value))
+                                   (do /.monad
+                                     [_ (!length size)
+                                      _ constructor
+                                      _ /.dup _ !index _ (literal value) _ *store
+                                      _ /.dup _ !index _ *load]
+                                     *wrap)))))
+        array (is (for_any (_ a)
+                    (-> (Bytecode Any) (Random a) (-> a (Bytecode Any))
+                        [(Bytecode Any) (Bytecode Any) (Bytecode Any)]
+                        (-> a Any Bit)
+                        (Random Bit)))
+                  (function (_ constructor random literal [*store *load *wrap] test)
+                    (do [! random.monad]
+                      [size (by ! each (|>> (n.% 1024) (n.major 1)) random.natural)
+                       value random
+                       length! (length size constructor)
+                       write_and_read! (write_and_read size constructor value literal [*store *load *wrap] test)]
+                      (in (and length!
+                               write_and_read!)))))]
+    (all _.and
+         (_.for [/.newarray]
+                (all _.and
+                     (..coverage [/.bastore /.baload]
+                       (array (/.newarray /instruction.t_boolean) $Boolean::random $Boolean::literal [/.bastore /.baload $Boolean::wrap]
+                              (function (_ expected) (|>> (as Bit) (bit.= (as Bit expected))))))
+                     (..coverage [/.bastore /.baload]
+                       (array (/.newarray /instruction.t_byte) $Byte::random $Byte::literal [/.bastore /.baload $Byte::wrap]
+                              (function (_ expected)
+                                (|>> (as java/lang/Byte) ffi.byte_to_long .jvm_object_cast# (.jvm_long_=# (.jvm_object_cast# (ffi.byte_to_long (as java/lang/Byte expected))))))))
+                     (..coverage [/.sastore /.saload]
+                       (array (/.newarray /instruction.t_short) $Short::random $Short::literal [/.sastore /.saload $Short::wrap]
+                              (function (_ expected)
+                                (|>> (as java/lang/Short) ffi.short_to_long .jvm_object_cast# (.jvm_long_=# (.jvm_object_cast# (ffi.short_to_long (as java/lang/Short expected))))))))
+                     (..coverage [/.iastore /.iaload]
+                       (array (/.newarray /instruction.t_int) $Integer::random $Integer::literal [/.iastore /.iaload $Integer::wrap]
+                              (function (_ expected)
+                                (|>> (as java/lang/Integer) .jvm_object_cast# (.jvm_int_=# (.jvm_object_cast# (as java/lang/Integer expected)))))))
+                     (..coverage [/.lastore /.laload]
+                       (array (/.newarray /instruction.t_long) $Long::random $Long::literal [/.lastore /.laload $Long::wrap]
+                              (function (_ expected)
+                                (|>> (as java/lang/Long) .jvm_object_cast# (.jvm_long_=# (.jvm_object_cast# (as java/lang/Long expected)))))))
+                     (..coverage [/.fastore /.faload]
+                       (array (/.newarray /instruction.t_float) ..valid_float /.float [/.fastore /.faload $Float::wrap]
+                              (function (_ expected)
+                                (|>> (as java/lang/Float) .jvm_object_cast# (.jvm_float_=# (.jvm_object_cast# (as java/lang/Float expected)))))))
+                     (..coverage [/.dastore /.daload]
+                       (array (/.newarray /instruction.t_double) ..valid_double $Double::literal [/.dastore /.daload $Double::wrap]
+                              (function (_ expected)
+                                (|>> (as java/lang/Double) .jvm_object_cast# (.jvm_double_=# (.jvm_object_cast# (as java/lang/Double expected)))))))
+                     (..coverage [/.castore /.caload]
+                       (array (/.newarray /instruction.t_char) $Character::random $Character::literal [/.castore /.caload $Character::wrap]
+                              (function (_ expected)
+                                (|>> (as java/lang/Character) .jvm_object_cast# (.jvm_char_=# (.jvm_object_cast# (as java/lang/Character expected)))))))
+                     ))
+         (..coverage [/.anewarray /.aastore /.aaload]
+           (array (/.anewarray ..$String) $String::random $String::literal [/.aastore /.aaload /.nop]
+                  (function (_ expected) (|>> (as Text) (text.= (as Text expected))))))
+         (<| (_.context "multi")
+             (do [! random.monad]
+               [.let [size (is (Random Natural)
+                               (by ! each (|>> (n.% 5) (n.+ 1))
+                                   random.natural))]
+                dimensions size
+                sizesH size
+                sizesT (random.stack (-- dimensions) size)
+                .let [type (loop (again [dimensions dimensions
+                                         type (is (Type Object)
+                                                  ..$Object)])
+                             (when dimensions
+                               0 type
+                               _ (again (-- dimensions) (type.array type))))]]
+               (<| (..coverage [/.multianewarray /.arraylength])
+                   (..bytecode (|>> (as Natural) (n.= sizesH)))
+                   (do [! /.monad]
+                     [_ (monad.each ! (|>> (as java/lang/Long) ffi.long_to_int ..$Integer::literal)
+                                    {.#Top sizesH sizesT})
+                      _ (/.multianewarray type (|> dimensions unsigned.u1 try.trusted))
+                      _ ?length]
+                     $Long::wrap))))
+         )))
+
+(the !::=
+  (template.macro (_ <type> <new>)
+    [(is (-> <type> Any Bit)
+         (function (_ expected)
+           (|>> (as <type>) .jvm_object_cast# (<new> (.jvm_object_cast# (as <type> expected))))))]))
+
+(the conversion
+  Test
+  (let [conversion (is (for_any (_ a z)
+                         (-> (Primitive a) (Primitive z) (Bytecode Any) (-> a z) (-> z Any Bit) (Random Bit)))
+                       (function (_ from to instruction convert test)
+                         (do random.monad
+                           [input (its #random from)
+                            .let [expected (convert input)]]
+                           (..bytecode (test expected)
+                                       (do /.monad
+                                         [_ ((its #literal from) input)
+                                          _ instruction]
+                                         (its #wrap to))))))
+        int::= (!::= java/lang/Integer .jvm_int_=#)
+        long::= (!::= java/lang/Long .jvm_long_=#)
+        float::= (!::= java/lang/Float .jvm_float_=#)
+        double::= (!::= java/lang/Double .jvm_double_=#)]
+    (all _.and
+         (..coverage [/.i2l] (conversion ..$Integer::primitive ..$Long::primitive /.i2l (|>> ffi.int_to_long) long::=))
+         (..coverage [/.i2f] (conversion ..$Integer::primitive ..$Float::primitive /.i2f (|>> ffi.int_to_float) float::=))
+         (..coverage [/.i2d] (conversion ..$Integer::primitive ..$Double::primitive /.i2d (|>> ffi.int_to_double) double::=))
+         (..coverage [/.i2b] (conversion ..$Integer::primitive ..$Byte::primitive /.i2b (|>> ffi.int_to_byte)
+                                         (function (_ expected)
+                                           (|>> (as java/lang/Byte) ffi.byte_to_long .jvm_object_cast# (.jvm_long_=# (.jvm_object_cast# (ffi.byte_to_long (as java/lang/Byte expected))))))))
+         (..coverage [/.i2c] (conversion ..$Integer::primitive ..$Character::primitive /.i2c (|>> ffi.int_to_char)
+                                         (!::= java/lang/Character .jvm_char_=#)))
+         (..coverage [/.i2s] (conversion ..$Integer::primitive ..$Short::primitive /.i2s (|>> ffi.int_to_short)
+                                         (function (_ expected)
+                                           (|>> (as java/lang/Short) ffi.short_to_long .jvm_object_cast# (.jvm_long_=# (.jvm_object_cast# (ffi.short_to_long (as java/lang/Short expected))))))))
+
+         (..coverage [/.l2i] (conversion ..$Long::primitive ..$Integer::primitive /.l2i (|>> ffi.long_to_int) int::=))
+         (..coverage [/.l2f] (conversion ..$Long::primitive ..$Float::primitive /.l2f (|>> ffi.long_to_float) float::=))
+         (..coverage [/.l2d] (conversion ..$Long::primitive ..$Double::primitive /.l2d (|>> ffi.long_to_double) double::=))
+
+         (..coverage [/.f2i] (conversion ..$Float::primitive ..$Integer::primitive /.f2i (|>> ffi.float_to_int) int::=))
+         (..coverage [/.f2l] (conversion ..$Float::primitive ..$Long::primitive /.f2l (|>> ffi.float_to_long) long::=))
+         (..coverage [/.f2d] (conversion ..$Float::primitive ..$Double::primitive /.f2d (|>> ffi.float_to_double) double::=))
+
+         (..coverage [/.d2i] (conversion ..$Double::primitive ..$Integer::primitive /.d2i (|>> ffi.double_to_int) int::=))
+         (..coverage [/.d2l] (conversion ..$Double::primitive ..$Long::primitive /.d2l (|>> ffi.double_to_long) long::=))
+         (..coverage [/.d2f] (conversion ..$Double::primitive ..$Float::primitive /.d2f (|>> ffi.double_to_float) float::=))
+         )))
+
+(the value
+  Test
+  (all _.and
+       ..primitive
+       ..object
+       ..method
+       ..field
+       ..array
+       ..conversion
+       ))
+
+(the registry
+  Test
+  (let [store_and_load (is (for_any (_ a)
+                             (-> (Random a) (-> a (Bytecode Any)) (Bytecode Any)
+                                 [(-> Natural (Bytecode Any)) (-> Natural (Bytecode Any))]
+                                 (-> a (-> Any Bit))
+                                 (Random Bit)))
+                           (function (_ random_value literal *wrap [store load] test)
+                             (do [! random.monad]
+                               [expected random_value
+                                register (by ! each (n.% 128) random.natural)]
+                               (<| (..bytecode (test expected))
+                                   (do /.monad
+                                     [_ (literal expected)
+                                      _ (store register)
+                                      _ (load register)]
+                                     *wrap)))))]
+    (all _.and
+         (let [test (!::= java/lang/Integer .jvm_int_=#)]
+           (all _.and
+                (..coverage [/.istore_0 /.iload_0]
+                  (store_and_load ..$Integer::random ..$Integer::literal ..$Integer::wrap [(function.constant /.istore_0) (function.constant /.iload_0)] test))
+                (..coverage [/.istore_1 /.iload_1]
+                  (store_and_load ..$Integer::random ..$Integer::literal ..$Integer::wrap [(function.constant /.istore_1) (function.constant /.iload_1)] test))
+                (..coverage [/.istore_2 /.iload_2]
+                  (store_and_load ..$Integer::random ..$Integer::literal ..$Integer::wrap [(function.constant /.istore_2) (function.constant /.iload_2)] test))
+                (..coverage [/.istore_3 /.iload_3]
+                  (store_and_load ..$Integer::random ..$Integer::literal ..$Integer::wrap [(function.constant /.istore_3) (function.constant /.iload_3)] test))
+                (..coverage [/.istore /.iload]
+                  (store_and_load ..$Integer::random ..$Integer::literal ..$Integer::wrap [/.istore /.iload] test))
+                (..coverage [/.iinc]
+                  (do [! random.monad]
+                    [base ..$Byte::random
+                     increment (by ! each (|>> (n.% 100) unsigned.u1 try.trusted)
+                                   random.natural)
+                     .let [expected (is java/lang/Long
+                                        (.jvm_object_cast#
+                                         (.jvm_long_+# (.jvm_object_cast# (ffi.byte_to_long base))
+                                                       (.jvm_object_cast# (as java/lang/Long (unsigned.value increment))))))]]
+                    (..bytecode (|>> (as Integer) (i.= (as Integer expected)))
+                                (do /.monad
+                                  [_ (..$Byte::literal base)
+                                   _ /.istore_0
+                                   _ (/.iinc 0 increment)
+                                   _ /.iload_0
+                                   _ /.i2l]
+                                  ..$Long::wrap))))))
+         (let [test (!::= java/lang/Long .jvm_long_=#)]
+           (all _.and
+                (..coverage [/.lstore_0 /.lload_0]
+                  (store_and_load ..$Long::random ..$Long::literal ..$Long::wrap [(function.constant /.lstore_0) (function.constant /.lload_0)] test))
+                (..coverage [/.lstore_1 /.lload_1]
+                  (store_and_load ..$Long::random ..$Long::literal ..$Long::wrap [(function.constant /.lstore_1) (function.constant /.lload_1)] test))
+                (..coverage [/.lstore_2 /.lload_2]
+                  (store_and_load ..$Long::random ..$Long::literal ..$Long::wrap [(function.constant /.lstore_2) (function.constant /.lload_2)] test))
+                (..coverage [/.lstore_3 /.lload_3]
+                  (store_and_load ..$Long::random ..$Long::literal ..$Long::wrap [(function.constant /.lstore_3) (function.constant /.lload_3)] test))
+                (..coverage [/.lstore /.lload]
+                  (store_and_load ..$Long::random ..$Long::literal ..$Long::wrap [/.lstore /.lload] test))))
+         (let [test (!::= java/lang/Float .jvm_float_=#)]
+           (all _.and
+                (..coverage [/.fstore_0 /.fload_0]
+                  (store_and_load ..valid_float /.float ..$Float::wrap [(function.constant /.fstore_0) (function.constant /.fload_0)] test))
+                (..coverage [/.fstore_1 /.fload_1]
+                  (store_and_load ..valid_float /.float ..$Float::wrap [(function.constant /.fstore_1) (function.constant /.fload_1)] test))
+                (..coverage [/.fstore_2 /.fload_2]
+                  (store_and_load ..valid_float /.float ..$Float::wrap [(function.constant /.fstore_2) (function.constant /.fload_2)] test))
+                (..coverage [/.fstore_3 /.fload_3]
+                  (store_and_load ..valid_float /.float ..$Float::wrap [(function.constant /.fstore_3) (function.constant /.fload_3)] test))
+                (..coverage [/.fstore /.fload]
+                  (store_and_load ..valid_float /.float ..$Float::wrap [/.fstore /.fload] test))))
+         (let [test (!::= java/lang/Double .jvm_double_=#)]
+           (all _.and
+                (..coverage [/.dstore_0 /.dload_0]
+                  (store_and_load ..valid_double ..$Double::literal ..$Double::wrap [(function.constant /.dstore_0) (function.constant /.dload_0)] test))
+                (..coverage [/.dstore_1 /.dload_1]
+                  (store_and_load ..valid_double ..$Double::literal ..$Double::wrap [(function.constant /.dstore_1) (function.constant /.dload_1)] test))
+                (..coverage [/.dstore_2 /.dload_2]
+                  (store_and_load ..valid_double ..$Double::literal ..$Double::wrap [(function.constant /.dstore_2) (function.constant /.dload_2)] test))
+                (..coverage [/.dstore_3 /.dload_3]
+                  (store_and_load ..valid_double ..$Double::literal ..$Double::wrap [(function.constant /.dstore_3) (function.constant /.dload_3)] test))
+                (..coverage [/.dstore /.dload]
+                  (store_and_load ..valid_double ..$Double::literal ..$Double::wrap [/.dstore /.dload] test))))
+         (let [test (is (-> java/lang/String Any Bit)
+                        (function (_ expected actual)
+                          (|> actual (as Text) (text.= (as Text expected)))))]
+           (all _.and
+                (..coverage [/.astore_0 /.aload_0]
+                  (store_and_load ..$String::random ..$String::literal /.nop [(function.constant /.astore_0) (function.constant /.aload_0)] test))
+                (..coverage [/.astore_1 /.aload_1]
+                  (store_and_load ..$String::random ..$String::literal /.nop [(function.constant /.astore_1) (function.constant /.aload_1)] test))
+                (..coverage [/.astore_2 /.aload_2]
+                  (store_and_load ..$String::random ..$String::literal /.nop [(function.constant /.astore_2) (function.constant /.aload_2)] test))
+                (..coverage [/.astore_3 /.aload_3]
+                  (store_and_load ..$String::random ..$String::literal /.nop [(function.constant /.astore_3) (function.constant /.aload_3)] test))
+                (..coverage [/.astore /.aload]
+                  (store_and_load ..$String::random ..$String::literal /.nop [/.astore /.aload] test))))
+         )))
+
+(the stack
+  Test
+  (do random.monad
+    [expected/1 $String::random
+     .let [object_test (is (-> Any Bit)
+                           (|>> (as Text) (text.= (as Text expected/1))))]
+     dummy/1 $String::random
+     .let [single (all _.and
+                       (<| (..coverage [/.dup /.pop])
+                           (..bytecode object_test)
+                           (do /.monad
+                             [_ ($String::literal expected/1)
+                              _ /.dup]
+                             /.pop))
+                       (<| (..coverage [/.dup_x1 /.pop2])
+                           (..bytecode object_test)
+                           (do /.monad
+                             [_ ($String::literal dummy/1)
+                              _ ($String::literal expected/1)
+                              _ /.dup_x1]
+                             /.pop2))
+                       (<| (..coverage [/.dup_x2])
+                           (..bytecode object_test)
+                           (do /.monad
+                             [_ ($String::literal dummy/1)
+                              _ ($String::literal dummy/1)
+                              _ ($String::literal expected/1)
+                              _ /.dup_x2
+                              _ /.pop2]
+                             /.pop))
+                       (<| (..coverage [/.swap])
+                           (..bytecode object_test)
+                           (do /.monad
+                             [_ ($String::literal dummy/1)
+                              _ ($String::literal expected/1)
+                              _ /.swap]
+                             /.pop))
+                       )]
+     expected/2 $Long::random
+     .let [long_test (is (-> Any Bit)
+                         (|>> (as Integer) (i.= (as Integer expected/2))))]
+     dummy/2 $Long::random
+     .let [double (all _.and
+                       (<| (..coverage [/.dup2])
+                           (..bytecode long_test)
+                           (do /.monad
+                             [_ ($Long::literal expected/2)
+                              _ /.dup2
+                              _ /.pop2]
+                             ..$Long::wrap))
+                       (<| (..coverage [/.dup2_x1])
+                           (..bytecode long_test)
+                           (do /.monad
+                             [_ ($String::literal dummy/1)
+                              _ ($Long::literal expected/2)
+                              _ /.dup2_x1
+                              _ /.pop2
+                              _ /.pop]
+                             ..$Long::wrap))
+                       (<| (..coverage [/.dup2_x2])
+                           (..bytecode long_test)
+                           (do /.monad
+                             [_ ($Long::literal dummy/2)
+                              _ ($Long::literal expected/2)
+                              _ /.dup2_x2
+                              _ /.pop2
+                              _ /.pop2]
+                             ..$Long::wrap))
+                       )]]
+    (all _.and
+         single
+         double
+         )))
+
+(the resource
+  Test
+  (all _.and
+       ..registry
+       ..stack
+       ))
+
+(the return
+  Test
+  (let [primitive_return (is (for_any (_ a)
+                               (-> (Primitive a) (Bytecode Any) (Maybe (-> a (Bytecode Any))) (-> a Any Bit)
+                                   (Random Bit)))
+                             (function (_ primitive return substitute test)
+                               (do random.monad
+                                 [class_name ..class_name
+                                  primitive_method_name (random.upper_cased 10)
+                                  .let [primitive_method_type (type.method [(.stack) (.stack) (its #unboxed primitive) (.stack)])]
+                                  object_method_name (|> (random.upper_cased 10)
+                                                         (random.only (|>> (text.= primitive_method_name) not)))
+                                  expected (its #random primitive)
+                                  .let [$Self (type.class (.stack) class_name)]]
+                                 (in (when (do try.monad
+                                             [class (class.class version.v6_0 class.public
+                                                      (internal.name class_name)
+                                                      {.#None}
+                                                      (internal.name "java.lang.Object")
+                                                      (.stack)
+                                                      (.stack)
+                                                      (.stack (/method.method ..method_modifier
+                                                                primitive_method_name
+                                                                false primitive_method_type
+                                                                (.stack)
+                                                                {.#Some (do /.monad
+                                                                          [_ ((its #literal primitive) expected)]
+                                                                          return)})
+                                                              (/method.method ..method_modifier
+                                                                object_method_name
+                                                                false (type.method [(.stack) (.stack) (its #boxed primitive) (.stack)])
+                                                                (.stack)
+                                                                {.#Some (do /.monad
+                                                                          [_ (/.invokestatic $Self primitive_method_name primitive_method_type)
+                                                                           _ (when substitute
+                                                                               {.#None}
+                                                                               (in [])
+
+                                                                               {.#Some substitute}
+                                                                               (substitute expected))
+                                                                           _ (its #wrap primitive)]
+                                                                          /.areturn)}))
+                                                      (.stack))
+                                              .let [bytecode (binary.value class.as_binary class)
+                                                    loader (/loader.memory (/loader.new_library []))]
+                                              _ (/loader.define class_name bytecode loader)
+                                              class (io.value (/loader.load class_name loader))
+                                              method (try (get_method object_method_name class))]
+                                             (java/lang/reflect/Method::invoke [(ffi.null) (ffi.array java/lang/Object 0)] method))
+                                       {try.#Success actual}
+                                       (test expected actual)
+
+                                       {try.#Failure error}
+                                       false)
+                                     ))))
+        ]
+    (all _.and
+         (..coverage [/.ireturn]
+           (primitive_return ..$Integer::primitive /.ireturn {.#None} (!::= java/lang/Integer .jvm_int_=#)))
+         (..coverage [/.lreturn]
+           (primitive_return ..$Long::primitive /.lreturn {.#None} (!::= java/lang/Long .jvm_long_=#)))
+         (..coverage [/.freturn]
+           (primitive_return ..$Float::primitive /.freturn {.#None} (!::= java/lang/Float .jvm_float_=#)))
+         (..coverage [/.dreturn]
+           (primitive_return ..$Double::primitive /.dreturn {.#None} (!::= java/lang/Double .jvm_double_=#)))
+         (..coverage [/.areturn]
+           (primitive_return ..$String::primitive /.areturn {.#None} (function (_ expected actual) (text.= (as Text expected) (as Text actual)))))
+         (..coverage [/.return]
+           (primitive_return (is (Primitive java/lang/String)
+                                 [#unboxed type.void
+                                  #boxed ..$String
+                                  #wrap /.nop
+                                  #random ..$String::random
+                                  #literal (function.constant /.nop)])
+                             /.return
+                             {.#Some ..$String::literal}
+                             (function (_ expected actual) (text.= (as Text expected) (as Text actual)))))
+         )))
+
+(the branching
+  Test
+  (do random.monad
+    [expected ..$Long::random
+     dummy ..$Long::random
+     .let [if! (is (-> (-> /.Label (Bytecode Any)) (Bytecode Any) (Random Bit))
+                   (function (_ instruction prelude)
+                     (<| (..bytecode ((!::= java/lang/Long .jvm_long_=#) expected))
+                         (do /.monad
+                           [@then /.new_label
+                            @end /.new_label
+                            _ prelude
+                            _ (instruction @then)
+                            _ (..$Long::literal dummy)
+                            _ (/.goto @end)
+                            _ (/.set_label @then)
+                            _ (..$Long::literal expected)
+                            _ (/.set_label @end)]
+                           ..$Long::wrap))))
+           comparison_against_zero (all _.and
+                                        (..coverage [/.ifeq] (if! /.ifeq /.iconst_0))
+                                        (..coverage [/.ifne] (if! /.ifne /.iconst_1))
+                                        (..coverage [/.iflt] (if! /.iflt /.iconst_m1))
+                                        (..coverage [/.ifle] (if! /.ifle /.iconst_0))
+                                        (..coverage [/.ifgt] (if! /.ifgt /.iconst_1))
+                                        (..coverage [/.ifge] (if! /.ifge /.iconst_0)))
+           null_test (all _.and
+                          (..coverage [/.ifnull] (if! /.ifnull /.aconst_null))
+                          (..coverage [/.ifnonnull] (if! /.ifnonnull (/.string ""))))]
+     expected ..$Integer::random
+     actual (|> ..$Integer::random
+                (random.only (|>> ((!::= java/lang/Integer .jvm_int_=#) expected) not)))
+     .let [[lesser greater] (if (.jvm_int_<# (.jvm_object_cast# actual) (.jvm_object_cast# expected))
+                              [expected actual]
+                              [actual expected])
+           int_comparison (all _.and
+                               (..coverage [/.if_icmpeq] (if! /.if_icmpeq (do /.monad [_ (..$Integer::literal expected)] /.dup)))
+                               (..coverage [/.if_icmpne] (if! /.if_icmpne (do /.monad [_ (..$Integer::literal expected)] (..$Integer::literal actual))))
+                               (..coverage [/.if_icmplt] (if! /.if_icmplt (do /.monad [_ (..$Integer::literal lesser)] (..$Integer::literal greater))))
+                               (..coverage [/.if_icmple] (if! /.if_icmple (do /.monad [_ (..$Integer::literal lesser)] (..$Integer::literal greater))))
+                               (..coverage [/.if_icmpgt] (if! /.if_icmpgt (do /.monad [_ (..$Integer::literal greater)] (..$Integer::literal lesser))))
+                               (..coverage [/.if_icmpge] (if! /.if_icmpge (do /.monad [_ (..$Integer::literal greater)] (..$Integer::literal lesser)))))
+           new_object (is (Bytecode Any)
+                          (do /.monad
+                            [_ (/.new ..$Object)
+                             _ /.dup]
+                            (/.invokespecial ..$Object "<init>" (type.method [(.stack) (.stack) type.void (.stack)]))))
+           reference_comparison (all _.and
+                                     (..coverage [/.if_acmpeq] (if! /.if_acmpeq (do /.monad [_ new_object] /.dup)))
+                                     (..coverage [/.if_acmpne] (if! /.if_acmpne (do /.monad [_ new_object] new_object)))
+                                     )]]
+    (all _.and
+         comparison_against_zero
+         null_test
+         int_comparison
+         reference_comparison
+         )))
+
+(the jump
+  Test
+  (do random.monad
+    [expected ..$Long::random
+     dummy ..$Long::random
+     .let [jump (is (-> (-> /.Label (Bytecode Any)) (Random Bit))
+                    (function (_ goto)
+                      (<| (..bytecode ((!::= java/lang/Long .jvm_long_=#) expected))
+                          (do /.monad
+                            [@skipped /.new_label
+                             @value /.new_label
+                             @end /.new_label
+                             _ (goto @value)
+                             _ (/.set_label @skipped)
+                             _ (..$Long::literal dummy)
+                             _ (goto @end)
+                             _ (/.set_label @value)
+                             _ (..$Long::literal expected)
+                             _ (/.set_label @end)]
+                            ..$Long::wrap))))
+           value (let [method (type.method [(.stack) (.stack) (type.class (.stack) "java.lang.Object") (.stack)])]
+                   (is (for_any (_ of)
+                         (-> (Bytecode of)
+                             (Try of)))
+                       (function (_ it)
+                         (do try.monad
+                           [environment (environment.static method)
+                            [pool [_ _ _ _ it]] ((/.resolve environment it) pool.empty)]
+                           (in it)))))]]
+    (<| (_.for [/.Label
+                /.new_label /.set_label])
+        (all _.and
+             (..coverage [/.goto]
+               (jump /.goto))
+             (..coverage [/.goto_w]
+               (jump /.goto_w))
+             (_.coverage [/.set?]
+               (|> (do /.monad
+                     [@it /.new_label
+                      _ (/.set_label @it)]
+                     (/.set? @it))
+                   value
+                   (match? {try.#Success _})))
+             (_.coverage [/.unset_label]
+               (|> (do /.monad
+                     [@it /.new_label
+                      _ (/.goto @it)]
+                     (in false))
+                   value
+                   (exception.when /.unset_label
+                     (function.constant true))
+                   (exception.else
+                    (function.constant false))))
+             (_.coverage [/.unknown_label]
+               (let [@it (|> /.new_label
+                             value
+                             (try.else (undefined)))]
+                 (|> (do /.monad
+                       [it (/.set? @it)]
+                       (in (|> (do try.monad
+                                 [_ it]
+                                 (in false))
+                               (exception.when /.unknown_label
+                                 (function.constant true))
+                               (exception.else
+                                (function.constant false)))))
+                     value
+                     (exception.else
+                      (function.constant false)))))
+             (_.coverage [/.label_has_already_been_set]
+               (|> (do /.monad
+                     [@it /.new_label
+                      _ (/.set_label @it)
+                      _ (/.set_label @it)]
+                     (in false))
+                   value
+                   (exception.when /.label_has_already_been_set
+                     (function.constant true))
+                   (exception.else
+                    (function.constant false))))
+             ))))
+
+(the switch
+  Test
+  (all _.and
+       (<| (..coverage [/.tableswitch])
+           (do [! random.monad]
+             [expected ..$Long::random
+              dummy ..$Long::random
+              minimum (by ! each (|>> (n.% 100) .integer signed.s4 try.trusted)
+                          random.natural)
+              afterwards (by ! each (n.% 10) random.natural)])
+           (..bytecode ((!::= java/lang/Long .jvm_long_=#) expected))
+           (do /.monad
+             [@right /.new_label
+              @wrong /.new_label
+              @return /.new_label
+              _ (/.bipush (|> minimum signed.value .integer signed.s1 try.trusted))
+              _ (/.tableswitch minimum @wrong [@right (stack.repeated afterwards @wrong)])
+              _ (/.set_label @wrong)
+              _ (..$Long::literal dummy)
+              _ (/.goto @return)
+              _ (/.set_label @right)
+              _ (..$Long::literal expected)
+              _ (/.set_label @return)]
+             ..$Long::wrap))
+       (<| (..coverage [/.lookupswitch])
+           (do [! random.monad]
+             [options (by ! each (|>> (n.% 10) (n.+ 1))
+                          random.natural)
+              choice (by ! each (n.% options) random.natural)
+              options (|> random.integer
+                          (by ! each (|>> (as java/lang/Long) ffi.long_to_int ffi.int_to_long (as Integer)))
+                          (random.set i.hash options)
+                          (by ! each set.stack))
+              .let [choice (maybe.trusted (stack.item choice options))]
+              expected ..$Long::random
+              dummy ..$Long::random])
+           (..bytecode ((!::= java/lang/Long .jvm_long_=#) expected))
+           (do /.monad
+             [@right /.new_label
+              @wrong /.new_label
+              @return /.new_label
+              _ (..$Integer::literal (ffi.long_to_int (as java/lang/Long choice)))
+              _ (/.lookupswitch @wrong (stack#each (function (_ option)
+                                                     [(|> option signed.s4 try.trusted)
+                                                      (if (i.= choice option) @right @wrong)])
+                                                   options))
+              _ (/.set_label @wrong)
+              _ (..$Long::literal dummy)
+              _ (/.goto @return)
+              _ (/.set_label @right)
+              _ (..$Long::literal expected)
+              _ (/.set_label @return)]
+             ..$Long::wrap))
+       ))
+
+(the exception
+  Test
+  (do random.monad
+    [expected ..$Long::random
+     dummy ..$Long::random
+     exception ..$String::random]
+    (<| (..coverage [/.try /.athrow])
+        (..bytecode ((!::= java/lang/Long .jvm_long_=#) expected))
+        (do /.monad
+          [.let [$Exception (type.class (.stack) "java.lang.Exception")]
+           @skipped /.new_label
+           @try /.new_label
+           @handler /.new_label
+           @return /.new_label
+           _ (/.try @try @handler @handler $Exception)
+           _ (/.set_label @try)
+           _ (/.new $Exception)
+           _ /.dup
+           _ (..$String::literal exception)
+           _ (/.invokespecial $Exception "<init>" (type.method [(.stack) (.stack ..$String) type.void (.stack)]))
+           _ /.athrow
+           _ (/.set_label @skipped)
+           _ (..$Long::literal dummy)
+           _ (/.goto @return)
+           _ (/.set_label @handler)
+           _ /.pop
+           _ (..$Long::literal expected)
+           _ (/.set_label @return)]
+          ..$Long::wrap))))
+
+(the code
+  Test
+  (all _.and
+       ..return
+       ..branching
+       ..jump
+       ..switch
+       ..exception
+       ))
+
+(the instruction
+  Test
+  (all _.and
+       ..value
+       ..resource
+       ..code
+       ))
+
+(the inheritance
+  Test
+  (do random.monad
+    [abstract_class ..class_name
+     interface_class (|> ..class_name
+                         (random.only (|>> (text.= abstract_class) not)))
+     concrete_class (|> ..class_name
+                        (random.only (function (_ class)
+                                       (not (or (text.= abstract_class class)
+                                                (text.= interface_class class))))))
+     part0 ..$Long::random
+     part1 ..$Long::random
+     part2 ..$Long::random
+     fake_part2 ..$Long::random
+     part3 ..$Long::random
+     part4 ..$Long::random
+     .let [expected (all i.+
+                         (as Integer part0)
+                         (as Integer part1)
+                         (as Integer part2)
+                         (as Integer part3)
+                         (as Integer part4))
+           $Concrete (type.class (.stack) concrete_class)
+           $Abstract (type.class (.stack) abstract_class)
+           $Interface (type.class (.stack) interface_class)
+
+           constructor::type (type.method [(.stack) (.stack) type.void (.stack)])
+           method::type (type.method [(.stack) (.stack) type.long (.stack)])
+
+           inherited_method "inherited_method"
+           overriden_method "overriden_method"
+           abstract_method "abstract_method"
+           interface_method "interface_method"
+           virtual_method "virtual_method"
+           static_method "static_method"
+
+           method (is (-> Text java/lang/Long (Resource Method))
+                      (function (_ name value)
+                        (/method.method /method.public
+                          name
+                          false method::type
+                          (.stack)
+                          {.#Some (do /.monad
+                                    [_ (..$Long::literal value)]
+                                    /.lreturn)})))
+
+           interface_bytecode (|> (class.class version.v6_0 (all /modifier#composite class.public class.abstract class.interface)
+                                    (internal.name interface_class)
+                                    {.#None}
+                                    (internal.name "java.lang.Object")
+                                    (.stack)
+                                    (.stack)
+                                    (.stack (/method.method (all /modifier#composite /method.public /method.abstract)
+                                              interface_method false method::type (.stack) {.#None}))
+                                    (.stack))
+                                  try.trusted
+                                  (binary.value class.as_binary))
+           abstract_bytecode (|> (class.class version.v6_0 (all /modifier#composite class.public class.abstract)
+                                   (internal.name abstract_class)
+                                   {.#None}
+                                   (internal.name "java.lang.Object")
+                                   (.stack)
+                                   (.stack)
+                                   (.stack (/method.method /method.public
+                                             "<init>"
+                                             false constructor::type
+                                             (.stack)
+                                             {.#Some (do /.monad
+                                                       [_ /.aload_0
+                                                        _ (/.invokespecial ..$Object "<init>" constructor::type)]
+                                                       /.return)})
+                                           (method inherited_method part0)
+                                           (method overriden_method fake_part2)
+                                           (/method.method (all /modifier#composite /method.public /method.abstract)
+                                             abstract_method false method::type (.stack) {.#None}))
+                                   (.stack))
+                                 try.trusted
+                                 (binary.value class.as_binary))
+           invoke (is (-> (Type Class) Text (Bytecode Any))
+                      (function (_ class method)
+                        (do /.monad
+                          [_ /.aload_0]
+                          (/.invokevirtual class method method::type))))
+           concrete_bytecode (|> (class.class version.v6_0 class.public
+                                   (internal.name concrete_class)
+                                   {.#None}
+                                   (internal.name abstract_class)
+                                   (.stack (internal.name interface_class))
+                                   (.stack)
+                                   (.stack (/method.method /method.public
+                                             "<init>"
+                                             false constructor::type
+                                             (.stack)
+                                             {.#Some (do /.monad
+                                                       [_ /.aload_0
+                                                        _ (/.invokespecial $Abstract "<init>" constructor::type)]
+                                                       /.return)})
+                                           (method virtual_method part1)
+                                           (method overriden_method part2)
+                                           (method abstract_method part3)
+                                           (method interface_method part4)
+                                           (/method.method (all /modifier#composite
+                                                                /method.public
+                                                                /method.static)
+                                             static_method
+                                             false (type.method [(.stack) (.stack) ..$Long (.stack)])
+                                             (.stack)
+                                             {.#Some (do /.monad
+                                                       [_ (/.new $Concrete)
+                                                        _ /.dup
+                                                        _ (/.invokespecial $Concrete "<init>" constructor::type)
+                                                        _ /.astore_0
+                                                        _ (invoke $Abstract inherited_method)
+                                                        _ (invoke $Concrete virtual_method)
+                                                        _ /.ladd
+                                                        _ (invoke $Abstract overriden_method)
+                                                        _ /.ladd
+                                                        _ /.aload_0 _ (/.invokeinterface $Interface interface_method method::type)
+                                                        _ /.ladd
+                                                        _ (invoke $Abstract abstract_method)
+                                                        _ /.ladd
+                                                        _ ..$Long::wrap]
+                                                       /.areturn)}))
+                                   (.stack))
+                                 try.trusted
+                                 (binary.value class.as_binary))
+           loader (/loader.memory (/loader.new_library []))]]
+    (_.test "Class & interface inheritance"
+      (when (do try.monad
+              [_ (/loader.define abstract_class abstract_bytecode loader)
+               _ (/loader.define interface_class interface_bytecode loader)
+               _ (/loader.define concrete_class concrete_bytecode loader)
+               class (io.value (/loader.load concrete_class loader))
+               method (try (get_method static_method class))
+               output (java/lang/reflect/Method::invoke [(ffi.null) (ffi.array java/lang/Object 0)] method)]
+              (in (as Integer output)))
+        {try.#Success actual}
+        (i.= (as Integer expected) (as Integer actual))
+
+        {try.#Failure error}
+        false))))
+
+(the (equivalence super)
+  (for_any (_ super)
+    (-> (Equivalence super)
+        (Equivalence (/.Bytecode super))))
+  (let [method (type.method [(.stack) (.stack) (type.class (.stack) "java.lang.Object") (.stack)])]
+    (implementation
+     (the (= reference it)
+       (<| (try.else false)
+           (do try.monad
+             [environment (environment.static method)
+              [pool [_ _ _ _ reference]] ((/.resolve environment reference) pool.empty)
+              [pool [_ _ _ _ it]] ((/.resolve environment it) pool)]
+             (in (by super = reference it))))))))
+
+(the .public test
+  Test
+  (<| (_.covering /._)
+      (all _.and
+           (_.for [/.functor]
+                  (functorT.spec /#in ..equivalence /.functor))
+           (_.for [/.monad]
+                  (monadT.spec /#in ..equivalence /.monad))
+
+           ..instruction
+           ..inheritance
+
+           /constant.test
+           /index.test
+           /magic.test
+           /type.test
+           /version.test
+
+           /signed.test
+           /unsigned.test
+           /external.test
+           /internal.test
+
+           /jump.test
+
+           /limit.test
+           )))

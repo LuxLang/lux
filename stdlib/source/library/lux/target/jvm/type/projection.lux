@@ -1,0 +1,297 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except Declaration name)
+   [abstract
+    [monad (.only do)]
+    ["<>" projection (.use "[1]#[0]" monad)]]
+   [error
+    ["[0]" try]]
+   ["[0]" function]
+   [data
+    ["[0]" product]
+    ["[0]" text
+     ["%" \\injection]
+     ["<[1]>" \\projection (.only Projection)]]
+    [collection
+     ["[0]" stack]]]
+   [macro
+    ["[0]" template]]]]
+ ["[0]" // (.only)
+  ["[0]" signature]
+  ["[0]" descriptor]
+  [//
+   [encoding
+    [name
+     ["[0]" external]
+     ["[0]" internal]]]]])
+
+(template.with [<category> <name> <signature> <type>]
+  [(the .public <name>
+     (Projection <category>)
+     (<>.after (<text>.this (signature.signature <signature>))
+               (<>#in <type>)))]
+
+  [//.Void void signature.void //.void]
+  
+  [//.Primitive boolean signature.boolean //.boolean]
+  [//.Primitive byte signature.byte //.byte]
+  [//.Primitive short signature.short //.short]
+  [//.Primitive int signature.int //.int]
+  [//.Primitive long signature.long //.long]
+  [//.Primitive float signature.float //.float]
+  [//.Primitive double signature.double //.double]
+  [//.Primitive char signature.char //.char]
+  
+  [//.Parameter wildcard signature.wildcard //.wildcard]
+  )
+
+(the .public primitive
+  (Projection //.Primitive)
+  (all <>.either
+       ..boolean
+       ..byte
+       ..short
+       ..int
+       ..long
+       ..float
+       ..double
+       ..char
+       ))
+
+(the var/head
+  (text "abcdefghijklmnopqrstuvwxyz"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "_"))
+
+(the var/tail
+  (text var/head
+        "0123456789$"))
+
+(the class/set
+  (text var/tail internal.delimiter))
+
+(template.with [<type> <name> <head> <tail> <adapter>]
+  [(the .public <name>
+     (Projection <type>)
+     (by <>.functor each <adapter>
+         (<text>.slice (<text>.and! (<text>.one_of! <head>)
+                                    (<text>.some! (<text>.one_of! <tail>))))))]
+
+  [external.Name class_name class/set class/set (|>> internal.name internal.external)]
+  [Text          var_name   var/head  var/tail  function.identity]
+  )
+
+(the .public var'
+  (Projection Text)
+  (|> ..var_name
+      (<>.after (<text>.this signature.var_prefix))
+      (<>.before (<text>.this descriptor.class_suffix))))
+
+(the .public var
+  (Projection //.Var)
+  (<>#each //.var ..var'))
+
+(the .public var?
+  (-> //.Value
+      (Maybe Text))
+  (|>> //.signature
+       signature.signature
+       (<text>.value ..var')
+       try.maybe))
+
+(the .public name
+  (-> //.Var
+      Text)
+  (|>> //.signature
+       signature.signature
+       (<text>.value ..var')
+       try.trusted))
+
+(template.with [<name> <prefix> <constructor>]
+  [(the <name>
+     (-> (Projection //.Parameter)
+         (Projection //.Parameter))
+     (|>> (<>.after (<text>.this <prefix>))
+          (<>#each <constructor>)))]
+
+  [lower signature.lower_prefix //.lower]
+  [upper signature.upper_prefix //.upper]
+  )
+
+(the (class'' parameter)
+  (-> (Projection //.Parameter)
+      (Projection [(Stack //.Parameter) external.Name]))
+  (|> (do <>.monad
+        [name ..class_name
+         parameters (|> (<>.some parameter)
+                        (<>.after (<text>.this signature.parameters_start))
+                        (<>.before (<text>.this signature.parameters_end))
+                        (<>.else (stack)))]
+        (in [parameters name]))
+      (<>.after (<text>.this descriptor.class_prefix))
+      (<>.before (<text>.this descriptor.class_suffix))))
+
+(the class'
+  (-> (Projection //.Parameter)
+      (Projection //.Class))
+  (|>> ..class''
+       (by <>.monad each (product.uncurried //.class))))
+
+(the .public array'
+  (-> (Projection //.Value)
+      (Projection //.Array))
+  (|>> (<>.after (<text>.this descriptor.array_prefix))
+       (<>#each //.array)))
+
+(the (parameter' value)
+  (-> (Projection //.Value)
+      (Projection //.Parameter))
+  (<>.rec
+   (function (_ parameter)
+     (let [class (..class' parameter)]
+       (all <>.either
+            ..var
+            ..wildcard
+            (..lower parameter)
+            (..upper parameter)
+            (..array' value)
+            class
+            )))))
+
+(the .public value
+  (Projection //.Value)
+  (<>.rec
+   (function (_ value)
+     (all <>.either
+          ..primitive
+          (..parameter' value)
+          ))))
+
+(the .public parameter
+  (Projection //.Parameter)
+  (..parameter' ..value))
+
+(the .public class
+  (Projection //.Class)
+  (..class' ..parameter))
+
+(template.with [<name> <prefix> <constructor>]
+  [(the .public <name>
+     (-> //.Value
+         (Maybe //.Parameter))
+     (|>> //.signature
+          signature.signature
+          (<text>.value (<>.after (<text>.this <prefix>) ..parameter))
+          try.maybe))]
+
+  [lower? signature.lower_prefix //.lower]
+  [upper? signature.upper_prefix //.upper]
+  )
+
+(the .public read_class
+  (-> //.Class
+      [(Stack //.Parameter) external.Name])
+  (|>> //.signature
+       signature.signature
+       (<text>.value (..class'' ..parameter))
+       try.trusted))
+
+(the .public array
+  (Projection //.Array)
+  (..array' ..value))
+
+(the .public object
+  (Projection //.Object)
+  (all <>.either
+       ..class
+       ..array))
+
+(the inputs
+  (|> (<>.some ..value)
+      (<>.after (<text>.this signature.arguments_start))
+      (<>.before (<text>.this signature.arguments_end))))
+
+(the .public return
+  (Projection //.Return)
+  (<>.either ..void
+             ..value))
+
+(the exception
+  (Projection //.Class)
+  (|> ..class
+      (<>.after (<text>.this signature.exception_prefix))))
+
+(the var_declaration
+  (Projection [//.Var //.Class])
+  (do <>.monad
+    [name ..var_name
+     _ (<text>.this signature.parameter_type_infix)
+     type ..class]
+    (in [(//.var name) type])))
+
+(the .public method
+  (-> //.Method
+      [(Stack //.Var)
+       (Stack //.Value)
+       //.Return
+       (Stack //.Class)])
+  (let [projection (is (Projection [(Stack //.Var)
+                                    (Stack //.Value)
+                                    //.Return
+                                    (Stack //.Class)])
+                       (all <>.and
+                            (|> (<>.some (<>#each product.left ..var_declaration))
+                                (<>.after (<text>.this signature.parameters_start))
+                                (<>.before (<text>.this signature.parameters_end))
+                                (<>.else (stack)))
+                            ..inputs
+                            ..return
+                            (<>.some ..exception)))]
+    (|>> //.signature
+         signature.signature
+         (<text>.value projection)
+         try.trusted)))
+
+(template.with [<name> <category> <projection>]
+  [(the .public <name>
+     (-> //.Value
+         (Maybe <category>))
+     (|>> //.signature
+          signature.signature
+          (<text>.value <projection>)
+          try.maybe))]
+
+  [array? //.Value
+   (do <>.monad
+     [_ (<text>.this descriptor.array_prefix)]
+     ..value)]
+  [class? [(Stack //.Parameter) external.Name]
+   (..class'' ..parameter)]
+
+  [primitive? //.Primitive ..primitive]
+  [wildcard? //.Parameter ..wildcard]
+  [parameter? //.Parameter ..parameter]
+  [object? //.Object ..object]
+  )
+
+(the .public declaration'
+  (Projection [(Stack //.Var) external.Name])
+  (|> (<>.and ..class_name
+              (|> (<>.some ..var)
+                  (<>.after (<text>.this signature.parameters_start))
+                  (<>.before (<text>.this signature.parameters_end))
+                  (<>.else (stack))))
+      (<>#each product.swapped)
+      (<>.after (<text>.this descriptor.class_prefix))
+      (<>.before (<text>.this descriptor.class_suffix))))
+
+(the .public declaration
+  (-> //.Declaration
+      [(Stack //.Var) external.Name])
+  (|>> //.signature
+       signature.signature
+       (<text>.value ..declaration')
+       try.trusted))
