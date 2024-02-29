@@ -1,0 +1,130 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except)
+   [abstract
+    ["?" projection]
+    ["[0]" monad (.only do)]]
+   ["[0]" function]
+   [data
+    [collection
+     ["[0]" dictionary]]]
+   [macro
+    ["[0]" template]]
+   [compiler
+    [target
+     ["_" ruby (.only Var Expression)]]]]]
+ [//
+  [common (.only custom)]
+  [////
+   ["[0]" extension]
+   [translation
+    [extension (.only Nullary Unary Binary Trinary
+                      nullary unary binary trinary)]
+    ["[0]" reference]
+    [ruby
+     ["[0]" runtime (.only Operation Phase Handler Bundle
+                           with_vars)]]]
+   [//
+    ["[0]" phase]
+    ["[0]" synthesis
+     ["?[1]" \\projection]]]]])
+
+(the (array::new [size])
+  (Unary Expression)
+  (_.do "new" (stack size) {.#None} (is _.CVar (_.manual "Array"))))
+
+(the array::length
+  (Unary Expression)
+  (_.its "size"))
+
+(the (array::read [indexG arrayG])
+  (Binary Expression)
+  (_.item indexG arrayG))
+
+(the (array::write [indexG valueG arrayG])
+  (Trinary Expression)
+  (runtime.array//write indexG valueG arrayG))
+
+(the (array::delete [indexG arrayG])
+  (Binary Expression)
+  (runtime.array//write indexG _.nil arrayG))
+
+(the with_array_extensions
+  (-> Bundle Bundle)
+  (|>> (dictionary.has "ruby_array_new#|translation" (unary array::new))
+       (dictionary.has "ruby_array_length#|translation" (unary array::length))
+       (dictionary.has "ruby_array_read#|translation" (binary array::read))
+       (dictionary.has "ruby_array_write#|translation" (trinary array::write))
+       (dictionary.has "ruby_array_delete#|translation" (binary array::delete))
+       ))
+
+(the object::get
+  Handler
+  (custom
+   [(all ?.and ?synthesis.text ?synthesis.any)
+    (function (_ phase archive [fieldS objectS])
+      (do phase.monad
+        [objectG (phase archive objectS)]
+        (in (_.its fieldS objectG))))]))
+
+(the object::do
+  Handler
+  (custom
+   [(all ?.and ?synthesis.text ?synthesis.any (?.some ?synthesis.any))
+    (function (_ phase archive [methodS objectS inputsS])
+      (do [! phase.monad]
+        [objectG (phase archive objectS)
+         inputsG (monad.each ! (phase archive) inputsS)]
+        (in (_.do methodS inputsG {.#None} objectG))))]))
+
+(template.with [<!> <?> <unit>]
+  [(the <!> (Nullary Expression) (function.constant <unit>))
+   (the <?> (Unary Expression) (_.= <unit>))]
+
+  [object::nil object::nil? _.nil]
+  )
+
+(the with_object_extensions
+  (-> Bundle Bundle)
+  (|>> (dictionary.has "ruby_object_get#|translation" object::get)
+       (dictionary.has "ruby_object_do#|translation" object::do)
+       (dictionary.has "ruby_object_nil#|translation" (nullary object::nil))
+       (dictionary.has "ruby_object_nil?#|translation" (unary object::nil?))
+       ))
+
+(the ruby::constant
+  (custom
+   [?synthesis.text
+    (function (_ phase archive name)
+      (by phase.monad in (is _.CVar (_.manual name))))]))
+
+(the ruby::apply
+  (custom
+   [(all ?.and ?synthesis.any (?.some ?synthesis.any))
+    (function (_ phase archive [abstractionS inputsS])
+      (do [! phase.monad]
+        [abstractionG (phase archive abstractionS)
+         inputsG (monad.each ! (phase archive) inputsS)]
+        (in (_.apply inputsG {.#None} abstractionG))))]))
+
+(the ruby::import
+  (custom
+   [?synthesis.text
+    (function (_ phase archive module)
+      (by phase.monad in
+          (_.require/1 (_.string module))))]))
+
+(the .public bundle
+  Bundle
+  (|> extension.empty
+      with_array_extensions
+      with_object_extensions
+
+      (dictionary.has "ruby_constant#|translation" ruby::constant)
+      (dictionary.has "ruby_apply#|translation" ruby::apply)
+      (dictionary.has "ruby_import#|translation" ruby::import)
+      (dictionary.has "ruby_script_universe#|translation" (nullary (function.constant (_.bool reference.universe))))
+      ))

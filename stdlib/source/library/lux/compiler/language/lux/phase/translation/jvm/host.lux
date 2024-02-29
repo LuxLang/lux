@@ -1,0 +1,213 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except Definition)
+   ["[0]" ffi (.only import object)]
+   [abstract
+    [monad (.only do)]]
+   [concurrency
+    ["[0]" atom (.only Atom atom)]]
+   [control
+    ["[0]" maybe]
+    ["[0]" try (.only Try)]
+    ["[0]" exception (.only Exception)]
+    ["[0]" io (.only IO io)]]
+   [data
+    ["[0]" product]
+    [binary (.only Binary)
+     ["[0]" \\injection]]
+    ["[0]" text (.use "[1]#[0]" hash)
+     ["%" \\injection]]
+    [collection
+     ["[0]" array]
+     ["[0]" dictionary (.only Dictionary)]
+     ["[0]" sequence]]]
+   [compiler
+    [meta
+     [archive
+      ["[0]" unit]]]
+    [target
+     [jvm
+      ["_" bytecode (.only Bytecode)]
+      ["[0]" loader (.only Library)]
+      ["[0]" modifier (.only Modifier) (.use "[1]#[0]" monoid)]
+      ["[0]" field (.only Field)]
+      ["[0]" method (.only Method)]
+      ["[0]" version]
+      ["[0]" class (.only Class)]
+      [encoding
+       [name
+        ["[0]" internal]]]
+      ["[0]" type (.only)
+       ["[0]" descriptor]]]]]]]
+ ["[0]" //
+  ["[1][0]" runtime (.only Definition)]
+  ["[1][0]" type]
+  ["[1][0]" value]])
+
+(import java/lang/reflect/Field
+  "[1]::[0]"
+  (get ["?" java/lang/Object] "try" "?" java/lang/Object))
+
+(import (java/lang/Class a)
+  "[1]::[0]"
+  (getField [java/lang/String] "try" java/lang/reflect/Field))
+
+(import java/lang/Object
+  "[1]::[0]")
+
+(import java/lang/ClassLoader
+  "[1]::[0]")
+
+(the value::modifier
+  (all modifier#composite
+       field.public
+       field.final
+       field.static
+       ))
+
+(the init::type
+  (type.method [(stack) (stack) type.void (stack)]))
+
+(the init::modifier
+  (all modifier#composite
+       method.public
+       method.static
+       method.strict
+       ))
+
+(exception.the .public (cannot_load [class error])
+  (Exception [Text Text])
+  (exception.report
+   (stack ["Class" class]
+          ["Error" error])))
+
+(exception.the .public (invalid_field [class field error])
+  (Exception [Text Text Text])
+  (exception.report
+   (stack ["Class" class]
+          ["Field" field]
+          ["Error" error])))
+
+(exception.the .public (invalid_value class)
+  (Exception Text)
+  (exception.report
+   (stack ["Class" class])))
+
+(the (class_value class_name class)
+  (-> Text (java/lang/Class java/lang/Object)
+      (Try Any))
+  (when (java/lang/Class::getField [(ffi.as_string //value.field)] class)
+    {try.#Success field}
+    (when (java/lang/reflect/Field::get [{.#None}] field)
+      {try.#Success ?value}
+      (when ?value
+        {.#Some value}
+        {try.#Success value}
+        
+        {.#None}
+        (exception.except ..invalid_value [class_name]))
+      
+      {try.#Failure error}
+      (exception.except ..cannot_load [class_name error]))
+    
+    {try.#Failure error}
+    (exception.except ..invalid_field [class_name //value.field error])))
+
+... https://en.wikipedia.org/wiki/Delimiter
+(the class_path_delimiter
+  ".")
+
+(the (evaluate! library loader eval_class [@it valueG])
+  (-> Library java/lang/ClassLoader Text [(Maybe unit.ID) (Bytecode Any)]
+      (Try [Any Definition]))
+  (let [bytecode_name (text.replaced ..class_path_delimiter .module_delimiter eval_class)
+        :value: (when @it
+                  {.#Some @it}
+                  (type.class (stack) (//runtime.class_name @it))
+
+                  {.#None}
+                  //type.value)
+        bytecode (class.class version.v6_0
+                   class.public
+                   (internal.name bytecode_name)
+                   {.#None}
+                   (internal.name "java.lang.Object") (stack)
+                   (stack (field.field ..value::modifier //value.field false :value: (sequence.sequence)))
+                   (stack (method.method ..init::modifier "<clinit>"
+                            false ..init::type
+                            (stack)
+                            {.#Some
+                             (all _.composite
+                                  valueG
+                                  (_.putstatic (type.class (stack) bytecode_name) //value.field :value:)
+                                  _.return)}))
+                   (stack))]
+    (io.value (do [! (try.with io.monad)]
+                [bytecode (by ! each (\\injection.value class.as_binary)
+                              (io.io bytecode))
+                 _ (loader.store eval_class bytecode library)
+                 class (loader.load eval_class loader)
+                 value (by io.monad in (class_value eval_class class))]
+                (in [value
+                     [eval_class bytecode]])))))
+
+(the (execute! library loader [class_name class_bytecode])
+  (-> Library java/lang/ClassLoader Definition
+      (Try Any))
+  (io.value (do (try.with io.monad)
+              [existing_class? (|> (atom.read! library)
+                                   (by io.monad each (function (_ library)
+                                                       (dictionary.key? library class_name)))
+                                   (try.lifted io.monad)
+                                   (is (IO (Try Bit))))
+               _ (if existing_class?
+                   (in [])
+                   (loader.store class_name class_bytecode library))]
+              (loader.load class_name loader))))
+
+(the (define! library loader context custom @it,valueG)
+  (-> Library java/lang/ClassLoader unit.ID (Maybe Text) [(Maybe unit.ID) (Bytecode Any)]
+      (Try [Text Any Definition]))
+  (let [class_name (maybe.else (//runtime.class_name context)
+                               custom)]
+    (do try.monad
+      [[value definition] (evaluate! library loader class_name @it,valueG)]
+      (in [class_name value definition]))))
+
+(the .public host
+  (IO [java/lang/ClassLoader //runtime.Host])
+  (io (let [library (loader.new_library [])
+            loader (loader.memory library)
+            id (atom.atom 0)]
+        [loader
+         (is //runtime.Host
+             (implementation
+              (the (evaluate @it,valueG)
+                (let [[id _] (io.value (atom.update! ++ id))]
+                  (by try.monad each product.left
+                      (..evaluate! library loader (text "E" (%.natural id)) @it,valueG))))
+              
+              (the execute
+                (..execute! library loader))
+              
+              (the define
+                (..define! library loader))
+
+              (the (ingest context bytecode)
+                [(//runtime.class_name context) bytecode])
+
+              (the (re_learn context custom [_ bytecode])
+                (io.value (loader.store (maybe.else (//runtime.class_name context) custom) bytecode library)))
+              
+              (the (re_load context custom [declaration_name bytecode])
+                (io.value
+                 (do (try.with io.monad)
+                   [.let [class_name (maybe.else (//runtime.class_name context)
+                                                 custom)]
+                    _ (loader.store class_name bytecode library)
+                    class (loader.load class_name loader)]
+                   (by io.monad in (..class_value class_name class)))))
+              ))])))

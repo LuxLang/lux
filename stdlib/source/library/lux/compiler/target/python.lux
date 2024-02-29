@@ -1,0 +1,566 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except Code
+                not or and if comment exec try its is when tuple)
+   [abstract
+    [equivalence (.only Equivalence)]
+    [hash (.only Hash)]
+    ["[0]" enum]]
+   [control
+    ["[0]" pipe]]
+   [data
+    ["[0]" text (.only \n)
+     ["%" \\injection]]
+    [collection
+     ["[0]" stack (.use "[1]#[0]" functor mix)]]]
+   [math
+    [number
+     ["n" natural]
+     ["d" decimal]]]
+   [macro
+    ["[0]" syntax]
+    ["[0]" template]
+    ["[0]" expansion]]
+   [type
+    ["[0]" nominal]]
+   [meta
+    ["[0]" code (.only)
+     ["<[1]>" \\projection]]]]])
+
+... https://en.wikipedia.org/wiki/Delimiter
+(the input_delimiter
+  ", ")
+
+(the expression
+  (-> Text
+      Text)
+  (text.enclosed ["(" ")"]))
+
+... Added the carriage return for better Windows compatibility.
+(the \n+
+  Text
+  (text text.carriage_return \n))
+
+(the nested
+  (-> Text
+      Text)
+  (.let [nested_new_line (text \n text.tab)]
+    (|>> (text \n+)
+         (text.replaced \n nested_new_line))))
+
+(nominal.every .public (Code brand)
+  Text
+
+  (the .public equivalence
+    (for_any (_ brand)
+      (Equivalence (Code brand)))
+    (implementation
+     (the (= expected actual)
+       (by text.equivalence = (nominal.representation expected) (nominal.representation actual)))))
+
+  (the .public hash
+    (for_any (_ brand)
+      (Hash (Code brand)))
+    (implementation
+     (the equivalence ..equivalence)
+     (the hash (|>> nominal.representation (by text.hash hash)))))
+
+  (the .public manual
+    (-> Text
+        Code)
+    (|>> nominal.abstraction))
+
+  (the .public code
+    (-> (Code Any)
+        Text)
+    (|>> nominal.representation))
+
+  (template.with [<type> <super>+]
+    [(expansion.let [<brand> (template.name [<type> "'"])]
+       (these (nominal.every (<brand> brand) Any)
+              (`` (every .public <type> (|> Any <brand> (,, (template.spliced <super>+)))))))]
+    
+    [Statement [Code]]
+    [Expression [Code]]
+
+    [Loop [Statement' Code]]
+    
+    [Computation [Expression' Code]]
+
+    [Location [Computation' Expression' Code]]
+    [Literal [Computation' Expression' Code]]
+
+    [Var [Location' Computation' Expression' Code]]
+    [Access [Location' Computation' Expression' Code]]
+
+    [SVar [Var' Location' Computation' Expression' Code]]
+    [PVar [Var' Location' Computation' Expression' Code]]
+    [KVar [Var' Location' Computation' Expression' Code]]
+    )
+
+  (the .public var
+    (-> Text
+        SVar)
+    (|>> nominal.abstraction))
+
+  (template.with [,var <name> <prefix>]
+    [(the .public <name>
+       (-> SVar
+           ,var)
+       (|>> nominal.representation
+            (text <prefix>)
+            nominal.abstraction))]
+
+    [PVar poly    "*"]
+    [KVar keyword "**"]
+    )
+
+  (the .public none
+    Literal
+    (nominal.abstraction
+     "None"))
+
+  (the .public bool
+    (-> Bit
+        Literal)
+    (|>> (pipe.when
+           #0 "False"
+           #1 "True")
+         nominal.abstraction))
+
+  (the .public int
+    (-> Integer
+        Literal)
+    (|>> %.integer
+         nominal.abstraction))
+
+  (the .public (long value)
+    (-> Integer
+        Literal)
+    (nominal.abstraction
+     (text (%.integer value) "L")))
+
+  (the .public float
+    (-> Decimal
+        Literal)
+    (`` (|>> (pipe.if (,, (template.with [<test> <python>]
+                            [[<test>]
+                             [(pipe.new (text "float(" text.double_quote <python> text.double_quote ")") [])]]
+
+                            [(d.= d.positive_infinity) "inf"]
+                            [(d.= d.negative_infinity) "-inf"]
+                            [d.not_a_number? "nan"]
+                            ))
+               
+               ... else
+               [%.decimal])
+             nominal.abstraction)))
+
+  (the safe
+    (-> Text
+        Text)
+    (`` (|>> (,, (template.with [<find> <replace>]
+                   [(text.replaced <find> <replace>)]
+
+                   ["\" "\\"]
+                   [text.tab "\t"]
+                   [text.vertical_tab "\v"]
+                   [text.null "\0"]
+                   [text.back_space "\b"]
+                   [text.form_feed "\f"]
+                   [\n "\n"]
+                   [text.carriage_return "\r"]
+                   [text.double_quote (text "\" text.double_quote)]
+                   ))
+             )))
+
+  (the .public string
+    (-> Text
+        Literal)
+    (|>> ..safe
+         (text.enclosed [text.double_quote text.double_quote])
+         nominal.abstraction))
+
+  (the .public unicode
+    (-> Text
+        Literal)
+    (|>> ..string
+         nominal.representation
+         (text "u")
+         nominal.abstraction))
+
+  (the (composite_literal left_delimiter right_delimiter entry_serializer)
+    (for_any (_ of)
+      (-> Text Text (-> of Text)
+          (-> (Stack of)
+              Literal)))
+    (function (_ entries)
+      (<| nominal.abstraction
+          ... ..expression
+          (text left_delimiter
+                (|> entries
+                    (stack#each (|>> entry_serializer (text.suffix ..input_delimiter)))
+                    text.together)
+                right_delimiter))))
+
+  (template.with [<name> <pre> <post>]
+    [(the .public <name>
+       (-> (Stack Expression)
+           Literal)
+       (composite_literal <pre> <post> ..code))]
+
+    [tuple "(" ")"]
+    [list  "[" "]"]
+    )
+
+  (the .public (slice from to list)
+    (-> Expression Expression Expression
+        Access)
+    (<| nominal.abstraction
+        ... ..expression
+        (text (nominal.representation list) "[" (nominal.representation from) ":" (nominal.representation to) "]")))
+
+  (the .public (slice_from from list)
+    (-> Expression Expression
+        Access)
+    (<| nominal.abstraction
+        ... ..expression
+        (text (nominal.representation list) "[" (nominal.representation from) ":]")))
+
+  (the .public dict
+    (-> (Stack [Expression Expression])
+        Computation)
+    (composite_literal "{" "}" (.function (_ [k v]) (text (nominal.representation k) " : " (nominal.representation v)))))
+
+  (the .public (apply args func)
+    (-> (Stack Expression) Expression
+        Computation)
+    (<| nominal.abstraction
+        ... ..expression
+        (text (nominal.representation func)
+              "("
+              (|> args (stack#each ..code) (text.interposed ..input_delimiter))
+              ")")))
+
+  (template.with [<name> <prefix>]
+    [(the .public <name>
+       (-> Expression
+           Expression)
+       (|>> nominal.representation
+            (text <prefix>)
+            nominal.abstraction))]
+
+    [splat_poly    "*"]
+    [splat_keyword "**"]
+    )
+
+  (the .public (its name object)
+    (-> Text Expression
+        Access)
+    (nominal.abstraction
+     (text (nominal.representation object) "." name)))
+
+  (the .public (do method args object)
+    (-> Text (Stack Expression) Expression
+        Computation)
+    (|> object
+        (..its method)
+        (..apply args)))
+
+  (the .public (item idx array)
+    (-> Expression Expression
+        Access)
+    (<| nominal.abstraction
+        ..expression
+        (text (nominal.representation array) "[" (nominal.representation idx) "]")))
+
+  (the .public (? test then else)
+    (-> Expression Expression Expression
+        Computation)
+    (<| nominal.abstraction
+        ..expression
+        (text (nominal.representation then) " if " (nominal.representation test) " else " (nominal.representation else))))
+
+  (template.with [<name> <op>]
+    [(the .public (<name> param subject)
+       (-> Expression Expression
+           Computation)
+       (<| nominal.abstraction
+           ..expression
+           (text (nominal.representation subject) " " <op> " " (nominal.representation param))))]
+
+    [is      "is"]
+    [=       "=="]
+    [<       "<"]
+    [<=      "<="]
+    [>       ">"]
+    [>=      ">="]
+    [+       "+"]
+    [-       "-"]
+    [*       "*"]
+    [/       "/"]
+    [//      "//"]
+    [%       "%"]
+    [**      "**"]
+    [bit_or  "|"]
+    [bit_and "&"]
+    [bit_xor "^"]
+    [bit_shl "<<"]
+    [bit_shr ">>"]
+
+    [or      "or"]
+    [and     "and"]
+
+    [in?     "in"]
+    )
+
+  (template.with [<name> <unary>]
+    [(the .public (<name> subject)
+       (-> Expression
+           Computation)
+       (<| nominal.abstraction
+           ... ..expression
+           (text <unary> " " (nominal.representation subject))))]
+
+    [not "not"]
+    [opposite "-"]
+    )
+
+  (the arguments
+    (-> (Stack Var)
+        Text)
+    (|>> (stack#each ..code)
+         (text.interposed ..input_delimiter)))
+
+  (the .public (lambda arguments body)
+    (-> (Stack Var) Expression
+        Computation)
+    (<| nominal.abstraction
+        ..expression
+        (text "lambda " (..arguments arguments)
+              ": " (nominal.representation body))))
+
+  (the .public (set vars value)
+    (-> (Stack Location) Expression
+        Statement)
+    (nominal.abstraction
+     (text (|> vars (stack#each ..code) (text.interposed ..input_delimiter))
+           " = "
+           (nominal.representation value))))
+
+  (the .public multi
+    (-> (Stack Expression)
+        Expression)
+    (|>> (stack#each ..code)
+         (text.interposed ..input_delimiter)
+         nominal.abstraction))
+
+  (the .public (delete where)
+    (-> Location
+        Statement)
+    (nominal.abstraction
+     (text "del " (nominal.representation where))))
+
+  (the .public (if test then! else!)
+    (-> Expression Statement Statement
+        Statement)
+    (nominal.abstraction
+     (text "if " (nominal.representation test) ":"
+           (..nested (nominal.representation then!))
+           \n+ "else:"
+           (..nested (nominal.representation else!)))))
+
+  (the .public (when test then!)
+    (-> Expression Statement
+        Statement)
+    (nominal.abstraction
+     (text "if " (nominal.representation test) ":"
+           (..nested (nominal.representation then!)))))
+
+  (the .public (then pre! post!)
+    (-> Statement Statement
+        Statement)
+    (nominal.abstraction
+     (text (nominal.representation pre!)
+           \n+
+           (nominal.representation post!))))
+
+  (template.with [<keyword> <0>]
+    [(the .public <0>
+       Statement
+       (nominal.abstraction
+        <keyword>))]
+
+    ["break"    break]
+    ["continue" continue]
+    )
+
+  (the .public (while test body! else!)
+    (-> Expression Statement (Maybe Statement)
+        Loop)
+    (nominal.abstraction
+     (text "while " (nominal.representation test) ":"
+           (..nested (nominal.representation body!))
+           (.when else!
+             {.#Some else!}
+             (text \n+ "else:"
+                   (..nested (nominal.representation else!)))
+             
+             {.#None}
+             ""))))
+
+  (the .public (for_in var inputs body!)
+    (-> SVar Expression Statement
+        Loop)
+    (nominal.abstraction
+     (text "for " (nominal.representation var) " in " (nominal.representation inputs) ":"
+           (..nested (nominal.representation body!)))))
+
+  (the .public ;
+    (-> Expression
+        Statement)
+    (|>> nominal.transmutation))
+
+  (the .public pass
+    Statement
+    (nominal.abstraction
+     "pass"))
+
+  (every .public Except
+    (Record
+     [#classes (Stack Text)
+      #exception SVar
+      #handler Statement]))
+  
+  (the .public (try body! excepts)
+    (-> Statement (Stack Except)
+        Statement)
+    (nominal.abstraction
+     (text "try:"
+           (..nested (nominal.representation body!))
+           (|> excepts
+               (stack#each (function (_ [classes exception catch!])
+                             (text \n+ "except (" (text.interposed ..input_delimiter classes)
+                                   ") as " (nominal.representation exception) ":"
+                                   (..nested (nominal.representation catch!)))))
+               text.together))))
+
+  (template.with [<name> <keyword> <pre>]
+    [(the .public (<name> value)
+       (-> Expression
+           Statement)
+       (nominal.abstraction
+        (text <keyword> (<pre> (nominal.representation value)))))]
+
+    [raise  "raise "  |>]
+    [return "return " |>]
+    [print  "print"   ..expression]
+    )
+
+  (the .public (exec globals code)
+    (-> (Maybe Expression) Expression
+        Statement)
+    (let [extra (.when globals
+                  {.#Some globals}
+                  (.stack globals)
+
+                  {.#None}
+                  (.stack))]
+      (nominal.abstraction
+       (text "exec" (nominal.representation (..tuple (stack.partial code extra)))))))
+
+  (the .public (def name args body)
+    (-> SVar (Stack Var) Statement
+        Statement)
+    (nominal.abstraction
+     (text "def " (nominal.representation name)
+           "("
+           (|> args (stack#each ..code) (text.interposed ..input_delimiter))
+           "):"
+           (..nested (nominal.representation body)))))
+
+  (the .public (import module_name)
+    (-> Text
+        Statement)
+    (nominal.abstraction
+     (text "import " module_name)))
+
+  (the .public (comment commentary on)
+    (for_any (_ brand)
+      (-> Text (Code brand)
+          (Code brand)))
+    (nominal.abstraction
+     (text "# "  (text.replaced text.\n "\n" commentary) \n+
+           (nominal.representation on))))
+
+  ... https://en.wikipedia.org/wiki/List_comprehension
+  (the .public (list_comprehension bindings input body)
+    (-> (Stack Var) Expression Expression
+        Computation)
+    (<| nominal.abstraction
+        ..expression
+        (text.enclosed ["[" "]"])
+        (text (nominal.representation body)
+              " for " (..arguments bindings)
+              " in " (..expression (nominal.representation input)))))
+
+  (the .public (generator bindings input body)
+    (-> (Stack Var) Expression Expression
+        Computation)
+    (<| nominal.abstraction
+        ..expression
+        (text (nominal.representation body)
+              " for " (..arguments bindings)
+              " in " (..expression (nominal.representation input)))))
+  )
+
+(the arity_inputs
+  (syntax.macro (_ [arity <code>.natural])
+    (in (.when arity
+          0 (.stack)
+          _ (|> (-- arity)
+                (enum.range n.enum 0)
+                (stack#each (|>> %.natural code.local)))))))
+
+(the arity_types
+  (syntax.macro (_ [arity <code>.natural])
+    (in (stack.repeated arity (` Expression)))))
+
+(template.with [<arity> <function>+]
+  [(expansion.let [<inputs> (arity_inputs <arity>)
+                   <definitions> (template.spliced <function>+)]
+     (template.with [<function>]
+       [(`` (the .public ((,, (template.name [<function> "/" <arity>])) <inputs>)
+              (-> (,, (arity_types <arity>))
+                  Computation)
+              (..apply (.stack <inputs>) (..var <function>))))]
+
+       <definitions>))]
+
+  [0
+   [["locals"]
+    ["globals"]]]
+
+  [1
+   [["str"]
+    ["ord"]
+    ["float"]
+    ["int"]
+    ["len"]
+    ["chr"]
+    ["unichr"]
+    ["unicode"]
+    ["repr"]
+    ["__import__"]
+    ["Exception"]
+    ["next"]]]
+
+  [2
+   []]
+
+  [3
+   []]
+  )

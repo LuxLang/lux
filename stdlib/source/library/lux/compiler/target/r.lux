@@ -1,0 +1,392 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except Code
+                or and if function not when)
+   [control
+    ["[0]" pipe]
+    ["[0]" maybe (.use "[1]#[0]" functor)]]
+   ["[0]" function]
+   [data
+    ["[0]" text (.only \n)
+     ["%" \\injection]]
+    [collection
+     ["[0]" stack (.use "[1]#[0]" functor mix)]]]
+   [math
+    [number
+     ["d" decimal]]]
+   [macro
+    ["[0]" syntax]
+    ["[0]" template]
+    ["[0]" expansion]]
+   [type
+    ["[0]" nominal]]
+   [meta
+    ["[0]" code (.only)
+     ["<[1]>" \\projection]]]]])
+
+(nominal.every .public (Code kind)
+  Text
+
+  (template.with [<type> <super>+]
+    [(expansion.let [<kind> (template.name [<type> "'"])]
+       (these (nominal.every .public (<kind> kind) Any)
+              (`` (every .public <type> (|> Any <kind> (,, (template.spliced <super>+)))))))]
+    
+    [Expression [Code]]
+    )
+
+  (template.with [<type> <super>+]
+    [(expansion.let [<kind> (template.name [<type> "'"])]
+       (these (nominal.every .public (<kind> kind) Any)
+              (`` (every .public (<type> <brand>) (|> <brand> <kind> (,, (template.spliced <super>+)))))))]
+    
+    [Var [Expression' Code]]
+    )
+
+  (template.with [<var> <kind>]
+    [(nominal.every .public <kind> Any)
+     (every .public <var> (Var <kind>))]
+
+    [SVar Single]
+    [PVar Poly]
+    )
+
+  (the .public var
+    (-> Text SVar)
+    (|>> nominal.abstraction))
+  
+  (the .public var_args
+    PVar
+    (nominal.abstraction "..."))
+
+  (the .public manual
+    (-> Text Code)
+    (|>> nominal.abstraction))
+  
+  (the .public code
+    (-> (Code Any) Text)
+    (|>> nominal.representation))
+
+  (the (self_contained code)
+    (-> Text Expression)
+    (nominal.abstraction
+     (text "(" code ")")))
+
+  ... Added the carriage return for better Windows compatibility.
+  (the \n+
+    Text
+    (text text.carriage_return \n))
+
+  (the nested_new_line
+    (text \n text.tab))
+
+  (the nested
+    (-> Text Text)
+    (|>> (text.replaced \n ..nested_new_line)
+         (text text.carriage_return ..nested_new_line)))
+
+  (the (_block expression)
+    (-> Text Text)
+    (text "{" (nested expression) \n+ "}"))
+
+  (the .public (block expression)
+    (-> Expression Expression)
+    (nominal.abstraction
+     (text "{"
+           (..nested (nominal.representation expression))
+           \n+ "}")))
+
+  (template.with [<name> <r>]
+    [(the .public <name>
+       Expression
+       (nominal.abstraction <r>))]
+
+    [null "NULL"]
+    [n/a "NA"]
+    )
+
+  (template.with [<name>]
+    [(the .public <name> Expression n/a)]
+
+    [not_available]
+    [not_applicable]
+    [no_answer]
+    )
+
+  (the .public bool
+    (-> Bit Expression)
+    (|>> (pipe.when
+           #0 "FALSE"
+           #1 "TRUE")
+         nominal.abstraction))
+
+  (the .public int
+    (-> Integer Expression)
+    (|>> %.integer nominal.abstraction))
+
+  (the .public float
+    (-> Decimal Expression)
+    (|>> (pipe.if [(d.= d.positive_infinity)]
+           [(pipe.new "1.0/0.0" [])]
+           
+           [(d.= d.negative_infinity)]
+           [(pipe.new "-1.0/0.0" [])]
+           
+           [(d.= d.not_a_number)]
+           [(pipe.new "0.0/0.0" [])]
+           
+           ... else
+           [%.decimal])
+         ..self_contained))
+
+  (the safe
+    (-> Text Text)
+    (`` (|>> (,, (template.with [<find> <replace>]
+                   [(text.replaced <find> <replace>)]
+
+                   ["\" "\\"]
+                   ["|" "\|"]
+                   [text.alarm "\a"]
+                   [text.back_space "\b"]
+                   [text.tab "\t"]
+                   [\n "\n"]
+                   [text.carriage_return "\r"]
+                   [text.double_quote (text "\" text.double_quote)]
+                   ))
+             )))
+
+  (the .public string
+    (-> Text Expression)
+    (|>> ..safe %.text nominal.abstraction))
+
+  (the .public (slice from to list)
+    (-> Expression Expression Expression Expression)
+    (..self_contained
+     (text (nominal.representation list)
+           "[" (nominal.representation from) ":" (nominal.representation to) "]")))
+
+  (the .public (slice_from from list)
+    (-> Expression Expression Expression)
+    (..self_contained
+     (text (nominal.representation list)
+           "[-1"  ":-" (nominal.representation from) "]")))
+
+  (the .public (apply args func)
+    (-> (Stack Expression) Expression Expression)
+    (let [func (nominal.representation func)
+          spacing (|> " "
+                      (stack.repeated (text.size func))
+                      text.together)]
+      (nominal.abstraction
+       (text func "("
+             (|> args
+                 (stack#each ..code)
+                 (text.interposed (text "," \n+))
+                 ..nested)
+             ")"))))
+
+  (template.with [<name> <function>]
+    [(the .public (<name> members)
+       (-> (Stack Expression) Expression)
+       (..apply members (..var <function>)))]
+
+    [vector "c"]
+    [list   "list"]
+    )
+
+  (the .public named_list
+    (-> (Stack [Text Expression]) Expression)
+    (|>> (stack#each (.function (_ [key value])
+                       (nominal.abstraction (text key "=" (nominal.representation value)))))
+         ..list))
+
+  (the .public (apply_kw args kw_args func)
+    (-> (Stack Expression) (Stack [Text Expression]) Expression Expression)
+    (..self_contained
+     (text (nominal.representation func)
+           (text "("
+                 (text.interposed "," (stack#each ..code args)) ","
+                 (text.interposed "," (stack#each (.function (_ [key val])
+                                                    (text key "=" (nominal.representation val)))
+                                                  kw_args))
+                 ")"))))
+
+  (the arity_inputs
+    (syntax.macro (_ [arity <code>.natural])
+      (in (.when arity
+            0 (.stack)
+            _ (|> arity
+                  stack.indices
+                  (stack#each (|>> %.natural code.local)))))))
+
+  (the arity_types
+    (syntax.macro (_ [arity <code>.natural])
+      (in (stack.repeated arity (` ..Expression)))))
+
+  (template.with [<arity> <function>+]
+    [(expansion.let [<apply> (template.name ["apply/" <arity>])
+                     <inputs> (arity_inputs <arity>)
+                     <types> (arity_types <arity>)
+                     <definitions> (template.spliced <function>+)]
+       (these (the .public (<apply> function [<inputs>])
+                (-> Expression [<types>] Expression)
+                (..apply (.stack <inputs>) function))
+
+              (template.with [<function>]
+                [(`` (the .public (,, (template.name [<function> "/" <arity>]))
+                       (-> [<types>] Expression)
+                       (<apply> (..var <function>))))]
+
+                <definitions>)))]
+
+    [0
+     [["commandArgs"]]]
+    [1
+     [["intToUtf8"]]]
+    [2
+     [["paste"]]]
+    )
+
+  (the .public as::integer
+    (-> Expression Expression)
+    (..apply/1 (..var "as.integer")))
+
+  (the .public (item idx list)
+    (-> Expression Expression Expression)
+    (..self_contained
+     (text (nominal.representation list) "[[" (nominal.representation idx) "]]")))
+
+  (the .public (if test then else)
+    (-> Expression Expression Expression Expression)
+    (nominal.abstraction
+     (text "if(" (nominal.representation test) ")"
+           " " (.._block (nominal.representation then))
+           " else " (.._block (nominal.representation else)))))
+
+  (the .public (when test then)
+    (-> Expression Expression Expression)
+    (nominal.abstraction
+     (text "if(" (nominal.representation test) ") {"
+           (.._block (nominal.representation then))
+           \n+ "}")))
+
+  (template.with [<name> <op>]
+    [(the .public (<name> param subject)
+       (-> Expression Expression Expression)
+       (..self_contained
+        (text (nominal.representation subject)
+              " " <op> " "
+              (nominal.representation param))))]
+
+    [=       "=="]
+    [<       "<"]
+    [<=      "<="]
+    [>       ">"]
+    [>=      ">="]
+    [+       "+"]
+    [-       "-"]
+    [*       "*"]
+    [/       "/"]
+    [%%      "%%"]
+    [**      "**"]
+    [or      "||"]
+    [and     "&&"]
+    )
+
+  (template.with [<name> <func>]
+    [(the .public (<name> param subject)
+       (-> Expression Expression Expression)
+       (..apply (.stack subject param) (..var <func>)))]
+
+    [bit_or   "bitwOr"]
+    [bit_and  "bitwAnd"]
+    [bit_xor  "bitwXor"]
+    [bit_shl  "bitwShiftL"]
+    [bit_ushr "bitwShiftR"]
+    )
+
+  (the .public (bit_not subject)
+    (-> Expression Expression)
+    (..apply (.stack subject) (..var "bitwNot")))
+
+  (template.with [<name> <op>]
+    [(the .public <name>
+       (-> Expression Expression)
+       (|>> nominal.representation (text <op>) ..self_contained))]
+
+    [not    "!"]
+    [negate "-"]
+    )
+  
+  (the .public (length list)
+    (-> Expression Expression)
+    (..apply (.stack list) (..var "length")))
+
+  (the .public (range from to)
+    (-> Expression Expression Expression)
+    (..self_contained
+     (text (nominal.representation from) ":" (nominal.representation to))))
+
+  (the .public (function inputs body)
+    (-> (Stack (for_some (_ k) (Var k))) Expression Expression)
+    (let [args (|> inputs (stack#each ..code) (text.interposed ", "))]
+      (..self_contained
+       (text "function(" args ") "
+             (.._block (nominal.representation body))))))
+
+  (the .public (try body warning error finally)
+    (-> Expression (Maybe Expression) (Maybe Expression) (Maybe Expression) Expression)
+    (let [optional (is (-> Text (Maybe Expression) (-> Text Text) Text)
+                       (.function (_ parameter value preparation)
+                         (|> value
+                             (maybe#each (|>> nominal.representation preparation (text ", " parameter " = ")))
+                             (maybe.else ""))))]
+      (..self_contained
+       (text "tryCatch("
+             (.._block (nominal.representation body))
+             (optional "warning" warning function.identity)
+             (optional "error" error function.identity)
+             (optional "finally" finally .._block)
+             ")"))))
+
+  (the .public (while test body)
+    (-> Expression Expression Expression)
+    (..self_contained
+     (text "while (" (nominal.representation test) ") "
+           (.._block (nominal.representation body)))))
+
+  (the .public (for_in var inputs body)
+    (-> SVar Expression Expression Expression)
+    (..self_contained
+     (text "for (" (nominal.representation var) " in " (nominal.representation inputs) ")"
+           (.._block (nominal.representation body)))))
+
+  (template.with [<name> <keyword>]
+    [(the .public (<name> message)
+       (-> Expression Expression)
+       (..apply (.stack message) (..var <keyword>)))]
+
+    [stop  "stop"]
+    [print "print"]
+    )
+
+  (the .public (set! var value)
+    (-> SVar Expression Expression)
+    (..self_contained
+     (text (nominal.representation var) " <- " (nominal.representation value))))
+
+  (the .public (set_item! idx value list)
+    (-> Expression Expression SVar Expression)
+    (..self_contained
+     (text (nominal.representation list) "[[" (nominal.representation idx) "]] <- " (nominal.representation value))))
+
+  (the .public (then pre post)
+    (-> Expression Expression Expression)
+    (nominal.abstraction
+     (text (nominal.representation pre)
+           \n+
+           (nominal.representation post))))
+  )

@@ -1,0 +1,98 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except)
+   [abstract
+    ["[0]" monad (.only do)]]
+   ["[0]" function]
+   [data
+    ["[0]" product]
+    [collection
+     ["[0]" stack (.use "[1]#[0]" functor)]]]
+   [math
+    [number
+     ["n" natural]]]
+   [compiler
+    [target
+     [jvm
+      ["_" bytecode (.only Bytecode) (.use "[1]#[0]" monad)]]]]]]
+ ["[0]" //
+  ["[1][0]" runtime (.only Operation Phase Expression)]
+  ["[1][0]" value]
+  [////
+   ["[0]" phase]
+   ["[0]" synthesis (.only Path)]
+   ["[0]" translation]
+   [///
+    [reference
+     [register (.only Register)]]]]])
+
+(the (invariant? register changeS)
+  (-> Register synthesis.Term
+      Bit)
+  (when changeS
+    (synthesis.local @ var)
+    (n.= register var)
+
+    _
+    false))
+
+(the no_op
+  (_#in []))
+
+(the .public (tail_iteration next archive updatesS)
+  (Expression (Stack synthesis.Term))
+  (do [! phase.monad]
+    [[@begin offset] translation.anchor
+     updatesG (|> updatesS
+                  stack.enumeration
+                  (stack#each (function (_ [index updateS])
+                                [(n.+ offset index) updateS]))
+                  (monad.each ! (function (_ [register updateS])
+                                  (if (invariant? register updateS)
+                                    (in [..no_op
+                                         ..no_op])
+                                    (do !
+                                      [fetchG (next archive updateS)
+                                       .let [storeG (_.astore register)]]
+                                      (in [fetchG storeG]))))))]
+    (in (all _.composite
+             ... It may look weird that first I fetch all the values separately,
+             ... and then I store them all.
+             ... It must be done that way in order to avoid a potential bug.
+             ... Let's say that you'll recur with 2 expressions: X and Y.
+             ... If Y depends on the value of X, and you don't perform fetches
+             ... and stores separately, then by the time Y is evaluated, it
+             ... will refer to the new value of X, instead of the old value, as
+             ... should be the case.
+             (|> updatesG
+                 (stack#each product.left)
+                 (monad.all _.monad))
+             (|> updatesG
+                 stack.reversed
+                 (stack#each product.right)
+                 (monad.all _.monad))
+             (_.goto @begin)))))
+
+(the .public (tail_recursion next archive [offset initsS+ iterationS])
+  (Expression [Natural (Stack synthesis.Term) synthesis.Term])
+  (do [! phase.monad]
+    [@begin //runtime.forge_label
+     initsI+ (monad.each ! (next archive) initsS+)
+     iterationG (translation.with_anchor [@begin offset]
+                  (next archive iterationS))
+     .let [initializationG (stack#each (function (_ [index initG])
+                                         [initG (_.astore (n.+ offset index))])
+                                       (stack.enumeration initsI+))]]
+    (in (all _.composite
+             (|> initializationG
+                 (stack#each product.left)
+                 (monad.all _.monad))
+             (|> initializationG
+                 stack.reversed
+                 (stack#each product.right)
+                 (monad.all _.monad))
+             (_.set_label @begin)
+             iterationG))))

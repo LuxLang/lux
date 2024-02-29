@@ -1,0 +1,1001 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except Type Definition Declaration
+                #Variable)
+   ["[0]" ffi (.only import)]
+   [abstract
+    ["<>" projection (.use "[1]#[0]" monad)]
+    ["[0]" monad (.only do)]]
+   [control
+    ["[0]" pipe]
+    ["[0]" try (.only Try) (.use "[1]#[0]" functor)]
+    ["[0]" exception]]
+   [data
+    ["[0]" product]
+    [binary (.only Binary)
+     ["[0]" \\injection]]
+    ["[0]" text
+     ["%" \\injection]
+     ["<[1]>" \\projection]]
+    [collection
+     ["[0]" stack (.use "[1]#[0]" functor mix)]
+     ["[0]" dictionary]
+     ["[0]" sequence]
+     ["[0]" set (.only Set)]]]
+   [math
+    [number
+     ["n" natural]
+     [integer
+      ["i[0]" /32]]]]
+   [macro
+    ["[0]" template]]
+   [type
+    ["[0]" check (.only Check)]]
+   [meta
+    ["[0]" code
+     ["<[1]>" \\projection (.only Projection)]]]
+   [compiler
+    [target
+     [jvm
+      ["_" bytecode (.only Bytecode) (.use "[1]#[0]" monad)]
+      ["[0]" modifier (.only Modifier) (.use "[1]#[0]" monoid)]
+      ["[0]" attribute]
+      ["[0]" field]
+      ["[0]" version]
+      ["[0]" method (.only Method)]
+      ["[0]" class]
+      ["[0]" constant (.only)
+       ["[0]" pool (.only Resource)]]
+      [encoding
+       [name
+        ["[0]" external]
+        ["[0]" internal]]]
+      ["[0]" type (.only Type Constraint Argument Typed)
+       [category (.only Void Value Return Primitive Object Class Array Var Parameter)]
+       ["[0]T" lux (.only Mapping)]
+       ["[0]" signature]
+       ["[0]" reflection]
+       ["[0]" descriptor (.only Descriptor)]
+       ["[0]" projection]]]]
+    [reference
+     [register (.only Register)]]
+    [meta
+     [archive (.only Archive)
+      ["[0]" artifact]
+      ["[0]" unit]]
+     ["[0]" cache
+      [dependency
+       ["[1]" artifact]]]]
+    [language
+     [lux
+      ["[0]" translation]
+      ["[0]" declaration (.only Handler Bundle)]
+      ["[0]" analysis (.only)
+       ["[0]A" type]
+       ["[0]A" scope]]
+      ["[0]" synthesis (.only)
+       ["<[1]>" \\projection]]
+      ["[0]" phase (.only)
+       [translation
+        [jvm
+         ["[0]" runtime (.only Anchor Definition Extender)]
+         ["[0]" value]]]
+       ["[0]" extension (.only)
+        [analysis
+         ["[0]" jvm]]
+        [translation
+         [jvm
+          ["[0]" host]]]
+        [declaration
+         ["/" lux]]]]]]]]])
+
+(every Operation
+  (declaration.Operation Anchor (Bytecode Any) Definition))
+
+(the signature (|>> type.signature signature.signature))
+(the reflection (|>> type.reflection reflection.reflection))
+
+(every Declaration
+  [(Stack (Type Var)) Text])
+
+(the declaration
+  (Projection Declaration)
+  (do <>.monad
+    [[name parameters] (<code>.form (<>.and <code>.text (<>.some jvm.var)))]
+    (in [parameters name])))
+
+(the method_privacy
+  (-> ffi.Privacy
+      (Modifier method.Method))
+  (|>> (pipe.when
+         {ffi.#PublicP} method.public
+         {ffi.#PrivateP} method.private
+         {ffi.#ProtectedP} method.protected
+         {ffi.#DefaultP} modifier.empty)))
+
+(the visibility'
+  (<text>.Projection (Modifier field.Field))
+  (`` (all <>.either
+           (,, (template.with [<label> <modifier>]
+                 [(<>.after (<text>.this <label>) (<>#in <modifier>))]
+
+                 ["public" field.public]
+                 ["private" field.private]
+                 ["protected" field.protected]
+                 ["default" modifier.empty])))))
+
+(the visibility
+  (Projection (Modifier field.Field))
+  (<text>.then ..visibility' <code>.text))
+
+(the inheritance
+  (Projection (Modifier class.Class))
+  (`` (all <>.either
+           (,, (template.with [<label> <modifier>]
+                 [(<>.after (<code>.this_text <label>) (<>#in <modifier>))]
+
+                 ["final" class.final]
+                 ["abstract" class.abstract]
+                 ["default" modifier.empty])))))
+
+(the state
+  (Projection (Modifier field.Field))
+  (`` (all <>.either
+           (,, (template.with [<label> <modifier>]
+                 [(<>.after (<code>.this_text <label>) (<>#in <modifier>))]
+
+                 ["volatile" field.volatile]
+                 ["final" field.final]
+                 ["default" modifier.empty])))))
+
+(every Annotation
+  Any)
+
+(the annotation
+  (Projection Annotation)
+  <code>.any)
+
+(the field_type
+  (Projection (Type Value))
+  (<text>.then projection.value <code>.text))
+
+(every Constant
+  [Text (Stack Annotation) (Type Value) Code])
+
+(the constant
+  (Projection Constant)
+  (<| <code>.form
+      (<>.after (<code>.this_text "constant"))
+      (all <>.and
+           <code>.text
+           (<code>.tuple (<>.some ..annotation))
+           ..field_type
+           <code>.any
+           )))
+
+(every Variable
+  [Text (Modifier field.Field) (Modifier field.Field) Bit (Stack Annotation) (Type Value)])
+
+(the variable
+  (Projection Variable)
+  (<| <code>.form
+      (<>.after (<code>.this_text "variable"))
+      (all <>.and
+           <code>.text
+           ..visibility
+           ..state
+           (<>.parses? (<code>.this_text jvm.static_tag))
+           (<code>.tuple (<>.some ..annotation))
+           ..field_type
+           )))
+
+(every Field
+  (Variant
+   {#Constant Constant}
+   {#Variable Variable}))
+
+(the field
+  (Projection Field)
+  (all <>.or
+       ..constant
+       ..variable
+       ))
+
+(every (Method_Definition a)
+  (Variant
+   {#Constructor (jvm.Constructor a)}
+   {#Virtual_Method (jvm.Virtual_Method a)}
+   {#Static_Method (jvm.Static_Method a)}
+   {#Overriden_Method (jvm.Overriden_Method a)}
+   {#Abstract_Method (jvm.Abstract_Method a)}))
+
+(the method
+  (Projection (Method_Definition Code))
+  (all <>.or
+       jvm.constructor_definition
+       jvm.virtual_method_definition
+       jvm.static_method_definition
+       jvm.overriden_method_definition
+       jvm.abstract_method_definition
+       ))
+
+(the $Object
+  (Type Class)
+  (type.class (stack) "java.lang.Object"))
+
+(the constant::modifier
+  (Modifier field.Field)
+  (all modifier#composite
+       field.public
+       field.static
+       field.final))
+
+(the (field_definition field)
+  (-> Field
+      (Resource field.Field))
+  (when field
+    ... TODO: Handle annotations.
+    {#Constant [name annotations type value]}
+    (`` (when value
+          (,, (template.with [<tag> <type> <constant>]
+                [[_ {<tag> value}]
+                 (do pool.monad
+                   [constant (`` (|> value (,, (template.spliced <constant>))))
+                    attribute (attribute.constant constant)]
+                   (field.field ..constant::modifier name true <type> (sequence.sequence attribute)))]
+
+                [.#Bit type.boolean [(pipe.when #0 +0 #1 +1) i/32.of pool.integer]]
+                ... [.#Integer type.byte [.i64 i/32.of pool.integer]]
+                ... [.#Integer type.short [.i64 i/32.of pool.integer]]
+                ... [.#Integer type.int [.i64 i/32.of pool.integer]]
+                [.#Integer type.long [pool.long]]
+                ... [.#Decimal type.float [ffi.as_double ffi.double_to_float pool.float]]
+                [.#Decimal type.double [pool.double]]
+                [.#Natural type.char [.i64 i/32.of pool.integer]]
+                [.#Text (type.class (stack) "java.lang.String") [pool.string]]
+                ))
+
+          ... TODO: Tighten this pattern-matching so this catch-all clause isn't necessary.
+          _
+          (undefined)))
+
+    ... TODO: Handle annotations.
+    {#Variable [name visibility state static? annotations type]}
+    (field.field (all modifier#composite
+                      (if static?
+                        field.static
+                        modifier.empty)
+                      visibility
+                      state)
+                 name true type sequence.empty)))
+
+(the annotation_parameter_synthesis
+  (<synthesis>.Projection (jvm.Annotation_Parameter synthesis.Term))
+  (<synthesis>.tuple (<>.and <synthesis>.text <synthesis>.any)))
+
+(the annotation_synthesis
+  (<synthesis>.Projection (jvm.Annotation synthesis.Term))
+  (<synthesis>.tuple (<>.and <synthesis>.text (<>.some ..annotation_parameter_synthesis))))
+
+(template.with [<name> <type> <text>]
+  [(the <name>
+     (<synthesis>.Projection (Type <type>))
+     (<text>.then <text> <synthesis>.text))]
+
+  [value_type_synthesis Value projection.value]
+  [class_type_synthesis Class projection.class]
+  [var_type_synthesis Var projection.var]
+  [return_type_synthesis Return projection.return]
+  )
+
+(the argument_synthesis
+  (<synthesis>.Projection Argument)
+  (<synthesis>.tuple (<>.and <synthesis>.text ..value_type_synthesis)))
+
+(the input_synthesis
+  (<synthesis>.Projection (Typed synthesis.Term))
+  (<synthesis>.tuple (<>.and ..value_type_synthesis <synthesis>.any)))
+
+(the (method_body arity)
+  (-> Natural
+      (<synthesis>.Projection synthesis.Term))
+  (<| (<>#each (function (_ [env offset inits it]) it))
+      (<synthesis>.function 1)
+      (<synthesis>.loop (<>.exactly 0 <synthesis>.any))
+      <synthesis>.tuple
+      (all <>.either
+           (<| (<>.after (<synthesis>.this_text ""))
+               (<>#each (host.hidden_method_body arity))
+               <synthesis>.any)
+           <synthesis>.any)))
+
+(the constructor_synthesis
+  (<synthesis>.Projection (jvm.Constructor synthesis.Term))
+  (<| <synthesis>.tuple
+      (<>.after (<synthesis>.this_text jvm.constructor_tag))
+      (all <>.and
+           (<text>.then jvm.visibility' <synthesis>.text)
+           <synthesis>.bit
+           (<synthesis>.tuple (<>.some ..annotation_synthesis))
+           (<synthesis>.tuple (<>.some ..var_type_synthesis))
+           (<synthesis>.tuple (<>.some ..class_type_synthesis))
+           <synthesis>.text
+           (do <>.monad
+             [args (<synthesis>.tuple (<>.some ..argument_synthesis))]
+             (all <>.and
+                  (in args)
+                  (<synthesis>.tuple (<>.some ..input_synthesis))
+                  (..method_body (stack.size args))))
+           )))
+
+(the overriden_method_synthesis
+  (<synthesis>.Projection (jvm.Overriden_Method synthesis.Term))
+  (<| <synthesis>.tuple
+      (<>.after (<synthesis>.this_text jvm.overriden_tag))
+      (all <>.and
+           ..class_type_synthesis
+           <synthesis>.text
+           <synthesis>.bit
+           (<synthesis>.tuple (<>.some ..annotation_synthesis))
+           (<synthesis>.tuple (<>.some ..var_type_synthesis))
+           <synthesis>.text
+           (do [! <>.monad]
+             [args (<synthesis>.tuple (<>.some ..argument_synthesis))]
+             (all <>.and
+                  (in args)
+                  ..return_type_synthesis
+                  (<synthesis>.tuple (<>.some ..class_type_synthesis))
+                  (..method_body (stack.size args))))
+           )))
+
+(the virtual_method_synthesis
+  (<synthesis>.Projection (jvm.Virtual_Method synthesis.Term))
+  (<| <synthesis>.tuple
+      (<>.after (<synthesis>.this_text jvm.virtual_tag))
+      (all <>.and
+           <synthesis>.text
+           (<text>.then jvm.visibility' <synthesis>.text)
+           <synthesis>.bit
+           <synthesis>.bit
+           (<synthesis>.tuple (<>.some ..annotation_synthesis))
+           (<synthesis>.tuple (<>.some ..var_type_synthesis))
+           <synthesis>.text
+           (do <>.monad
+             [args (<synthesis>.tuple (<>.some ..argument_synthesis))]
+             (all <>.and
+                  (in args)
+                  ..return_type_synthesis
+                  (<synthesis>.tuple (<>.some ..class_type_synthesis))
+                  (..method_body (stack.size args))))
+           )))
+
+(the static_method_synthesis
+  (<synthesis>.Projection (jvm.Static_Method synthesis.Term))
+  (<| <synthesis>.tuple
+      (<>.after (<synthesis>.this_text jvm.static_tag))
+      (all <>.and
+           <synthesis>.text
+           (<text>.then jvm.visibility' <synthesis>.text)
+           <synthesis>.bit
+           (<synthesis>.tuple (<>.some ..annotation_synthesis))
+           (<synthesis>.tuple (<>.some ..var_type_synthesis))
+           (do <>.monad
+             [args (<synthesis>.tuple (<>.some ..argument_synthesis))]
+             (all <>.and
+                  (in args)
+                  ..return_type_synthesis
+                  (<synthesis>.tuple (<>.some ..class_type_synthesis))
+                  (..method_body (stack.size args))))
+           )))
+
+(the abstract_method_synthesis
+  (<synthesis>.Projection (jvm.Abstract_Method synthesis.Term))
+  (<| <synthesis>.tuple
+      (<>.after (<synthesis>.this_text jvm.abstract_tag))
+      (all <>.and
+           <synthesis>.text
+           (<text>.then jvm.visibility' <synthesis>.text)
+           (<synthesis>.tuple (<>.some ..annotation_synthesis))
+           (<synthesis>.tuple (<>.some ..var_type_synthesis))
+           (<synthesis>.tuple (<>.some ..argument_synthesis))
+           ..return_type_synthesis
+           (<synthesis>.tuple (<>.some ..class_type_synthesis))
+           )))
+
+(the method_synthesis
+  (<synthesis>.Projection (Method_Definition synthesis.Term))
+  (all <>.or
+       ..constructor_synthesis
+       ..virtual_method_synthesis
+       ..static_method_synthesis
+       ..overriden_method_synthesis
+       ..abstract_method_synthesis
+       ))
+
+(the composite
+  (-> (Stack (Bytecode Any))
+      (Bytecode Any))
+  (|>> stack.reversed
+       (stack#mix _.composite (_#in []))))
+
+(the constructor_name
+  "<init>")
+
+(the (method_argument lux_register argumentT jvm_register)
+  (-> Register (Type Value) Register
+      [Register (Bytecode Any)])
+  (when (type.primitive? argumentT)
+    {.#Left argumentT}
+    [(n.+ 1 jvm_register)
+     (if (n.= lux_register jvm_register)
+       (_#in [])
+       (all _.composite
+            (_.aload jvm_register)
+            (_.astore lux_register)))]
+    
+    {.#Right argumentT}
+    (template.let [(wrap_primitive <shift> <load> <type>)
+                   [[(n.+ <shift> jvm_register)
+                     (all _.composite
+                          (<load> jvm_register)
+                          (value.boxed <type>)
+                          (_.astore lux_register))]]]
+      (`` (if (,, (template.with [<shift> <load> <type>]
+                    [(by type.equivalence = <type> argumentT)
+                     (wrap_primitive <shift> <load> <type>)]
+
+                    [1 _.iload type.boolean]
+                    [1 _.iload type.byte]
+                    [1 _.iload type.short]
+                    [1 _.iload type.int]
+                    [1 _.iload type.char]
+                    [1 _.fload type.float]
+                    [2 _.lload type.long]))
+
+            ... (by type.equivalence = type.double argumentT)
+            (wrap_primitive 2 _.dload type.double))))))
+
+(the .public (method_arguments offset types)
+  (-> Natural (Stack (Type Value))
+      (Bytecode Any))
+  (|> types
+      stack.enumeration
+      (stack#mix (function (_ [lux_register type] [jvm_register before])
+                   (let [[jvm_register' after] (method_argument (n.+ offset lux_register) type jvm_register)]
+                     [jvm_register' (all _.composite before after)]))
+                 (is [Register (Bytecode Any)] [offset (_#in [])]))
+      product.right))
+
+(the (constructor_method_translation translate archive super_class method)
+  (-> (translation.Phase Anchor (Bytecode Any) Definition) Archive (Type Class) (jvm.Constructor synthesis.Term)
+      (Operation (Resource Method)))
+  (<| (let [[privacy strict_floating_point? annotations method_tvars exceptions
+             self arguments constructor_argumentsS
+             bodyS] method
+             bodyS (when (stack.size arguments)
+                     0 (host.without_fake_parameter bodyS)
+                     _ bodyS)])
+      declaration.of_translation
+      (do [! phase.monad]
+        [constructor_argumentsG (monad.each ! (|>> product.right (translate archive))
+                                            constructor_argumentsS)
+         bodyG (translate archive bodyS)
+         .let [[super_vars super_name] (projection.read_class super_class)
+               super_constructorT (type.method [(stack)
+                                                (stack#each product.left constructor_argumentsS)
+                                                type.void
+                                                (stack)])
+               argumentsT (stack#each product.right arguments)]]
+        (in (method.method (all modifier#composite
+                                (..method_privacy privacy)
+                                (if strict_floating_point?
+                                  method.strict
+                                  modifier.empty))
+              ..constructor_name
+              true (type.method [method_tvars argumentsT type.void exceptions])
+              (stack)
+              {.#Some (all _.composite
+                           (_.aload 0)
+                           (..composite constructor_argumentsG)
+                           (_.invokespecial super_class ..constructor_name super_constructorT)
+                           (method_arguments 1 argumentsT)
+                           bodyG
+                           _.return
+                           )})))))
+
+(the (method_return returnT)
+  (-> (Type Return)
+      (Bytecode Any))
+  (when (type.void? returnT)
+    {.#Right returnT}
+    _.return
+
+    {.#Left returnT}
+    (when (type.primitive? returnT)
+      {.#Left returnT}
+      (when (type.class? returnT)
+        {.#Some class_name}
+        (all _.composite
+             (_.checkcast returnT)
+             _.areturn)
+
+        {.#None}
+        _.areturn)
+      
+      {.#Right returnT}
+      (template.let [(unwrap_primitive <return> <type>)
+                     [(all _.composite
+                           (value.primitive <type>)
+                           <return>)]]
+        (`` (if (,, (template.with [<return> <type>]
+                      [(by type.equivalence = <type> returnT)
+                       (unwrap_primitive <return> <type>)]
+
+                      [_.ireturn type.boolean]
+                      [_.ireturn type.byte]
+                      [_.ireturn type.short]
+                      [_.ireturn type.int]
+                      [_.ireturn type.char]
+                      [_.freturn type.float]
+                      [_.lreturn type.long]))
+
+              ... (by type.equivalence = type.double returnT)
+              (unwrap_primitive _.dreturn type.double)))))))
+
+(the (overriden_method_translation translate archive method)
+  (-> (translation.Phase Anchor (Bytecode Any) Definition) Archive (jvm.Overriden_Method synthesis.Term)
+      (Operation (Resource Method)))
+  (<| (let [[super method_name strict_floating_point? annotations
+             method_tvars self arguments returnJ exceptionsJ
+             bodyS] method
+             bodyS (when (stack.size arguments)
+                     0 (host.without_fake_parameter bodyS)
+                     _ bodyS)])
+      declaration.of_translation
+      (do [! phase.monad]
+        [bodyG (translate archive bodyS)
+         .let [argumentsT (stack#each product.right arguments)]]
+        (in (method.method (all modifier#composite
+                                method.public
+                                (if strict_floating_point?
+                                  method.strict
+                                  modifier.empty))
+              method_name
+              true (type.method [method_tvars argumentsT returnJ exceptionsJ])
+              (stack)
+              {.#Some (all _.composite
+                           (method_arguments 1 argumentsT)
+                           bodyG
+                           (method_return returnJ))})))))
+
+(the (virtual_method_translation translate archive method)
+  (-> (translation.Phase Anchor (Bytecode Any) Definition) Archive (jvm.Virtual_Method synthesis.Term)
+      (Operation (Resource Method)))
+  (<| (let [[method_name privacy final? strict_floating_point? annotations method_tvars
+             self arguments returnJ exceptionsJ
+             bodyS] method
+             bodyS (when (stack.size arguments)
+                     0 (host.without_fake_parameter bodyS)
+                     _ bodyS)])
+      declaration.of_translation
+      (do [! phase.monad]
+        [bodyG (translate archive bodyS)
+         .let [argumentsT (stack#each product.right arguments)]]
+        (in (method.method (all modifier#composite
+                                (..method_privacy privacy)
+                                (if strict_floating_point?
+                                  method.strict
+                                  modifier.empty)
+                                (if final?
+                                  method.final
+                                  modifier.empty))
+              method_name
+              true (type.method [method_tvars argumentsT returnJ exceptionsJ])
+              (stack)
+              {.#Some (all _.composite
+                           (method_arguments 1 argumentsT)
+                           bodyG
+                           (method_return returnJ))})))))
+
+(the (static_method_translation translate archive method)
+  (-> (translation.Phase Anchor (Bytecode Any) Definition) Archive (jvm.Static_Method synthesis.Term)
+      (Operation (Resource Method)))
+  (<| (let [[method_name privacy strict_floating_point? annotations method_tvars
+             arguments returnJ exceptionsJ
+             bodyS] method])
+      declaration.of_translation
+      (do [! phase.monad]
+        [bodyG (translate archive bodyS)
+         .let [argumentsT (stack#each product.right arguments)]]
+        (in (method.method (all modifier#composite
+                                (..method_privacy privacy)
+                                method.static
+                                (if strict_floating_point?
+                                  method.strict
+                                  modifier.empty))
+              method_name
+              true (type.method [method_tvars argumentsT returnJ exceptionsJ])
+              (stack)
+              {.#Some (all _.composite
+                           (method_arguments 0 argumentsT)
+                           bodyG
+                           (method_return returnJ))})))))
+
+(the (abstract_method_translation method)
+  (-> (jvm.Abstract_Method synthesis.Term)
+      (Resource Method))
+  (let [[name privacy annotations variables
+         arguments return exceptions] method]
+    (method.method (all modifier#composite
+                        (..method_privacy privacy)
+                        method.abstract)
+      name
+      true (type.method [variables (stack#each product.right arguments) return exceptions])
+      (stack)
+      {.#None})))
+
+(the (method_translation translate archive super_class method)
+  (-> (translation.Phase Anchor (Bytecode Any) Definition) Archive (Type Class) (Method_Definition synthesis.Term)
+      (Operation (Resource Method)))
+  (when method
+    {#Constructor method}
+    (..constructor_method_translation translate archive super_class method)
+    
+    {#Overriden_Method method}
+    (..overriden_method_translation translate archive method)
+    
+    {#Virtual_Method method}
+    (..virtual_method_translation translate archive method)
+    
+    {#Static_Method method}
+    (..static_method_translation translate archive method)
+
+    {#Abstract_Method method}
+    (by phase.monad in (..abstract_method_translation method))))
+
+(the (method_definition archive super interfaces [mapping selfT] [analyse synthesize translate])
+  (-> Archive
+      (Type Class)
+      (Stack (Type Class))
+      [Mapping .Type]
+      [analysis.Phase
+       synthesis.Phase
+       (translation.Phase Anchor (Bytecode Any) Definition)]
+      (-> (Method_Definition Code) (Operation [(Set unit.ID) (Resource Method)])))
+  (function (_ methodC)
+    (do phase.monad
+      [methodA (is (Operation analysis.Term)
+                   (declaration.of_analysis
+                    (when methodC
+                      {#Constructor method}
+                      (jvm.analyse_constructor_method analyse archive selfT mapping method)
+
+                      {#Virtual_Method method}
+                      (jvm.analyse_virtual_method analyse archive selfT mapping method)
+                      
+                      {#Static_Method method}
+                      (jvm.analyse_static_method analyse archive mapping method)
+                      
+                      {#Overriden_Method method}
+                      (jvm.analyse_overriden_method analyse archive selfT mapping (stack.partial super interfaces) method)
+
+                      {#Abstract_Method method}
+                      (jvm.analyse_abstract_method analyse archive method))))
+       methodS (is (Operation synthesis.Term)
+                   (declaration.of_synthesis
+                    (synthesize archive methodA)))
+       dependencies (declaration.of_translation
+                     (cache.dependencies archive methodS))
+       methodS' (|> methodS
+                    stack
+                    (<synthesis>.value ..method_synthesis)
+                    phase.of_try)
+       methodG (method_translation translate archive super methodS')]
+      (in [dependencies methodG]))))
+
+(the class_name
+  (|>> projection.read_class product.right internal.name))
+
+(the (mock_class [parameters name] super interfaces fields methods modifier)
+  (-> Declaration (Type Class) (Stack (Type Class))
+      (Stack (Resource field.Field)) (Stack (Resource method.Method)) (Modifier class.Class)
+      (Try [external.Name Binary]))
+  (let [signature (signature.inheritance (stack#each type.signature parameters)
+                                         (type.signature super)
+                                         (stack#each type.signature interfaces))]
+    (try#each (|>> (\\injection.value class.as_binary)
+                   [name])
+              (class.class version.v6_0
+                (all modifier#composite
+                     class.public
+                     modifier)
+                (internal.name name)
+                {.#Some signature}
+                (..class_name super)
+                (stack#each ..class_name interfaces)
+                fields
+                methods
+                (stack)))))
+
+(the (mock_value valueT)
+  (-> (Type Value)
+      (Bytecode Any))
+  (when (type.primitive? valueT)
+    {.#Left classT}
+    _.aconst_null
+    
+    {.#Right primitiveT}
+    (if (by type.equivalence = type.long primitiveT)
+      _.lconst_0
+
+      (by type.equivalence = type.float primitiveT)
+      _.fconst_0
+
+      (by type.equivalence = type.double primitiveT)
+      _.dconst_0
+
+      ... type.boolean type.byte type.short type.int type.char
+      _.iconst_0)))
+
+(the (mock_return returnT)
+  (-> (Type Return)
+      (Bytecode Any))
+  (when (type.void? returnT)
+    {.#Right returnT}
+    _.return
+
+    {.#Left valueT}
+    (all _.composite
+         (mock_value valueT)
+         (when (type.primitive? valueT)
+           {.#Left classT}
+           _.areturn
+           
+           {.#Right primitiveT}
+           (if (by type.equivalence = type.long primitiveT)
+             _.lreturn
+
+             (by type.equivalence = type.float primitiveT)
+             _.freturn
+
+             (by type.equivalence = type.double primitiveT)
+             _.dreturn
+
+             ... type.boolean type.byte type.short type.int type.char
+             _.ireturn)))))
+
+(the (mock_method super method)
+  (-> (Type Class) (Method_Definition Code)
+      (Resource method.Method))
+  (when method
+    {#Constructor [privacy strict_floating_point? annotations variables exceptions
+                   self arguments constructor_arguments
+                   body]}
+    (method.method (all modifier#composite
+                        (..method_privacy privacy)
+                        (if strict_floating_point?
+                          method.strict
+                          modifier.empty))
+      ..constructor_name
+      true (type.method [variables (stack#each product.right arguments) type.void exceptions])
+      (stack)
+      {.#Some (all _.composite
+                   (_.aload 0)
+                   (|> constructor_arguments
+                       (stack#each (|>> product.left ..mock_value))
+                       (monad.all _.monad))
+                   (|> (type.method [(stack) (stack#each product.left constructor_arguments) type.void (stack)])
+                       (_.invokespecial super ..constructor_name))
+                   _.return
+                   )})
+
+    {#Overriden_Method [super name strict_floating_point? annotations variables
+                        self arguments return exceptions
+                        body]}
+    (method.method (all modifier#composite
+                        method.public
+                        (if strict_floating_point?
+                          method.strict
+                          modifier.empty))
+      name
+      true (type.method [variables (stack#each product.right arguments) return exceptions])
+      (stack)
+      {.#Some (..mock_return return)})
+
+    {#Virtual_Method [name privacy final? strict_floating_point? annotations variables
+                      self arguments return exceptions
+                      body]}
+    (method.method (all modifier#composite
+                        (..method_privacy privacy)
+                        (if strict_floating_point?
+                          method.strict
+                          modifier.empty)
+                        (if final?
+                          method.final
+                          modifier.empty))
+      name
+      true (type.method [variables (stack#each product.right arguments) return exceptions])
+      (stack)
+      {.#Some (..mock_return return)})
+
+    {#Static_Method [name privacy strict_floating_point? annotations
+                     variables arguments return exceptions
+                     body]}
+    (method.method (all modifier#composite
+                        method.static
+                        (..method_privacy privacy)
+                        (if strict_floating_point?
+                          method.strict
+                          modifier.empty))
+      name
+      true (type.method [variables (stack#each product.right arguments) return exceptions])
+      (stack)
+      {.#Some (..mock_return return)})
+
+    {#Abstract_Method [name privacy annotations
+                       variables arguments return exceptions]}
+    (method.method (all modifier#composite
+                        method.abstract
+                        (..method_privacy privacy))
+      name
+      true (type.method [variables (stack#each product.right arguments) return exceptions])
+      (stack)
+      {.#None})
+    ))
+
+(the (mock declaration super interfaces inheritance fields methods)
+  (-> Declaration
+      (Type Class) (Stack (Type Class))
+      (Modifier class.Class) (Stack ..Field) (Stack (Method_Definition Code))
+      (Try [external.Name Binary]))
+  (mock_class declaration super interfaces
+              (stack#each ..field_definition fields)
+              (stack#each (..mock_method super) methods)
+              inheritance))
+
+(template.with [<name> <type> <projection>]
+  [(the <name>
+     (Projection <type>)
+     (do [! <>.monad]
+       [raw <code>.text]
+       (<>.of_try (<text>.value <projection> raw))))]
+
+  [class_declaration [(Stack (Type Var)) external.Name] projection.declaration']
+  )
+
+(the (save_class! name bytecode dependencies)
+  (-> Text Binary (Set unit.ID)
+      (Operation Any))
+  (declaration.of_translation
+   (do [! phase.monad]
+     [.let [artifact [name bytecode]]
+      artifact_id (translation.learn_custom name dependencies)
+      _ (translation.execute! artifact)
+      _ (translation.save! artifact_id {.#Some name} artifact)]
+     (in []))))
+
+(the jvm::class
+  (Handler Anchor (Bytecode Any) Definition)
+  (/.custom
+   [(all <>.and
+         ..class_declaration
+         jvm.class
+         (<code>.tuple (<>.some jvm.class))
+         ..inheritance
+         (<code>.tuple (<>.some ..annotation))
+         (<code>.tuple (<>.some ..field))
+         (<code>.tuple (<>.some ..method)))
+    (function (_ phase archive
+                 [class_declaration
+                  super
+                  interfaces
+                  inheritance
+                  ... TODO: Handle annotations.
+                  annotations
+                  fields
+                  methods])
+      (do [! phase.monad]
+        [.let [[parameters name] class_declaration
+               type_declaration (signature.inheritance (stack#each type.signature parameters)
+                                                       (type.signature super)
+                                                       (stack#each type.signature interfaces))]
+         mock (<| phase.of_try
+                  (..mock class_declaration
+                          super
+                          interfaces
+                          inheritance
+                          fields
+                          methods))
+         ... Necessary for reflection to work properly during analysis.
+         _ (declaration.of_translation
+            (translation.execute! mock))
+         parameters (declaration.of_analysis
+                     (typeA.check (jvm.parameter_types parameters)))
+         .let [mapping (stack#mix (function (_ [parameterJ parameterT] mapping)
+                                    (dictionary.has (projection.name parameterJ) parameterT mapping))
+                                  luxT.fresh
+                                  parameters)
+               selfT {.#Nominal name (stack#each product.right parameters)}]
+         state phase.state
+         methods (monad.each ! (let [analysis_state (its [declaration.#analysis declaration.#state] state)]
+                                 (..method_definition archive super interfaces [mapping selfT]
+                                                      [(its [declaration.#analysis declaration.#phase] state)
+                                                       ((its [declaration.#synthesis declaration.#phase] state) analysis_state)
+                                                       ((its [declaration.#translation declaration.#phase] state) analysis_state)]))
+                             methods)
+         .let [all_dependencies (cache.all (stack#each product.left methods))]
+         bytecode (<| (by ! each (\\injection.value class.as_binary))
+                      phase.of_try
+                      (class.class version.v6_0
+                        (all modifier#composite
+                             class.public
+                             inheritance)
+                        (internal.name name)
+                        {.#Some type_declaration}
+                        (..class_name super)
+                        (stack#each ..class_name interfaces)
+                        (stack#each ..field_definition fields)
+                        (stack#each product.right methods)
+                        (stack)))
+         _ (..save_class! name bytecode all_dependencies)]
+        (in declaration.no_requirements)))]))
+
+(the (method_declaration (open "/[0]"))
+  (-> (jvm.Method_Declaration Code)
+      (Resource Method))
+  (let [type (type.method [/#type_variables /#arguments /#return /#exceptions])]
+    (method.method (all modifier#composite
+                        method.public
+                        method.abstract)
+      /#name
+      true type
+      (stack)
+      {.#None})))
+
+(the jvm::class::interface
+  (Handler Anchor (Bytecode Any) Definition)
+  (/.custom
+   [(all <>.and
+         ..class_declaration
+         (<code>.tuple (<>.some jvm.class))
+         ... TODO: Handle annotations.
+         (<code>.tuple (<>.some ..annotation))
+         (<>.some jvm.method_declaration))
+    (function (_ phase archive [[parameters name] supers annotations method_declarations])
+      (declaration.of_translation
+       (do [! phase.monad]
+         [bytecode (<| (by ! each (\\injection.value class.as_binary))
+                       phase.of_try
+                       (class.class version.v6_0
+                         (all modifier#composite
+                              class.public
+                              class.abstract
+                              class.interface)
+                         (internal.name name)
+                         {.#Some (signature.inheritance (stack#each type.signature parameters)
+                                                        (type.signature $Object)
+                                                        (stack#each type.signature supers))}
+                         (internal.name "java.lang.Object")
+                         (stack#each ..class_name supers)
+                         (stack)
+                         (stack#each ..method_declaration method_declarations)
+                         (stack)))
+          artifact_id (translation.learn_custom name unit.none)
+          .let [artifact [name bytecode]]
+          _ (translation.execute! artifact)
+          _ (translation.save! artifact_id {.#Some name} artifact)]
+         (in declaration.no_requirements))))]))
+
+(import java/lang/ClassLoader
+  "[1]::[0]")
+
+(the .public (bundle class_loader extender)
+  (-> java/lang/ClassLoader Extender
+      (Bundle Anchor (Bytecode Any) Definition))
+  (|> extension.empty
+      (dictionary.has (text "jvm_" "class" "#") jvm::class)
+      (dictionary.has (text "jvm_" "class_" "interface" "#") ..jvm::class::interface)
+      ))

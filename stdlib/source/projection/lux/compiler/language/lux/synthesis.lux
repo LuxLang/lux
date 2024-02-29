@@ -1,0 +1,177 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except function loop i64 local text variant tuple)
+   [abstract
+    [monad (.only do)]
+    ["//" projection]]
+   [control
+    ["[0]" try (.only Try)]
+    ["[0]" exception (.only Exception)]]
+   [data
+    ["[0]" bit]
+    ["[0]" text (.only)
+     ["%" \\injection]]
+    [collection
+     ["[0]" stack]]]
+   [math
+    [number
+     ["n" natural]
+     ["[0]" i64]
+     ["[0]" decimal]]]
+   [macro
+    ["[0]" template]]
+   [meta
+    ["[0]" name]]
+   [compiler
+    [arity (.only Arity)]
+    [reference
+     [register (.only Register)]]
+    [language
+     [lux
+      [analysis (.only Environment)]]]]]]
+ [\\library
+  ["[0]" / (.only Abstraction)]])
+
+(template.with [<name>]
+  [(exception.the .public (<name> input)
+     (Exception (Stack /.Term))
+     (exception.report
+      (stack ["Input" (exception.listing /.as_text input)])))]
+
+  [cannot_parse]
+  [unconsumed_input]
+  [expected_empty_input]
+  )
+
+(exception.the .public (wrong_arity [expected actual])
+  (Exception [Arity Arity])
+  (exception.report
+   (stack ["Expected" (%.natural expected)]
+          ["Actual" (%.natural actual)])))
+
+(exception.the .public empty_input)
+
+(every .public Projection
+  (//.Projection (Stack /.Term)))
+
+(the .public (value projection input)
+  (for_any (_ of)
+    (-> (Projection of) (Stack /.Term)
+        (Try of)))
+  (when (projection input)
+    {try.#Failure error}
+    {try.#Failure error}
+
+    {try.#Success [{.#Empty} value]}
+    {try.#Success value}
+    
+    {try.#Success [unconsumed _]}
+    (exception.except ..unconsumed_input unconsumed)))
+
+(the .public any
+  (Projection /.Term)
+  (.function (_ input)
+    (when input
+      {.#Empty}
+      (exception.except ..empty_input [])
+      
+      {.#Top [head tail]}
+      {try.#Success [tail head]})))
+
+(the .public end
+  (Projection Any)
+  (.function (_ tokens)
+    (when tokens
+      {.#Empty} {try.#Success [tokens []]}
+      _       (exception.except ..expected_empty_input [tokens]))))
+
+(the .public end?
+  (Projection Bit)
+  (.function (_ tokens)
+    {try.#Success [tokens (when tokens
+                            {.#Empty}
+                            true
+                            
+                            _
+                            false)]}))
+
+(template.with [<query> <assertion> <tag> <type> <eq>]
+  [(`` (the .public <query>
+         (Projection <type>)
+         (.function (_ input)
+           (when input
+             (stack.partial (<tag> @ x) input')
+             {try.#Success [input' x]}
+
+             _
+             (exception.except ..cannot_parse input)))))
+
+   (`` (the .public (<assertion> expected)
+         (-> <type>
+             (Projection Any))
+         (.function (_ input)
+           (when input
+             (stack.partial (<tag> @ actual) input')
+             (if (by <eq> = expected actual)
+               {try.#Success [input' []]}
+               (exception.except ..cannot_parse input))
+
+             _
+             (exception.except ..cannot_parse input)))))]
+
+  [bit this_bit /.bit Bit bit.equivalence]
+  [i64 this_i64 /.i64 I64 i64.equivalence]
+  [f64 this_f64 /.f64 Decimal decimal.equivalence]
+  [text this_text /.text Text text.equivalence]
+  [local this_local /.local Natural n.equivalence]
+  [foreign this_foreign /.foreign Natural n.equivalence]
+  [constant this_constant /.constant Name name.equivalence]
+  )
+
+(the .public (tuple projection)
+  (for_any (_ of)
+    (-> (Projection of)
+        (Projection of)))
+  (.function (_ input)
+    (when input
+      (stack.partial (/.tuple @ head) tail)
+      (do try.monad
+        [output (..value projection head)]
+        {try.#Success [tail output]})
+
+      _
+      (exception.except ..cannot_parse input))))
+
+(the .public (function expected projection)
+  (for_any (_ of)
+    (-> Arity (Projection of)
+        (Projection [(Environment /.Term) of])))
+  (.function (_ input)
+    (when input
+      (stack.partial (/.abstraction @ [environment actual body]) tail)
+      (if (n.= expected actual)
+        (do try.monad
+          [output (..value projection (stack body))]
+          {try.#Success [tail [environment output]]})
+        (exception.except ..wrong_arity [expected actual]))
+
+      _
+      (exception.except ..cannot_parse input))))
+
+(the .public (loop init_projections iteration_projection)
+  (for_any (_ init iteration)
+    (-> (Projection init) (Projection iteration)
+        (Projection [Register init iteration])))
+  (.function (_ input)
+    (when input
+      (stack.partial (/.tail_recursion @ [start inits iteration]) tail)
+      (do try.monad
+        [inits (..value init_projections inits)
+         iteration (..value iteration_projection (stack iteration))]
+        {try.#Success [tail [start inits iteration]]})
+
+      _
+      (exception.except ..cannot_parse input))))

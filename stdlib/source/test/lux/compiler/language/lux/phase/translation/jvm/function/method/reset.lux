@@ -1,0 +1,126 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except)
+   ["[0]" ffi]
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["[0]" io]
+    ["[0]" try (.use "[1]#[0]" functor)]]
+   [math
+    ["[0]" random (.only Random)]
+    [number
+     ["n" natural]
+     ["[0]" i64]]]
+   [compiler
+    [target
+     [jvm
+      ["[0]" modifier (.only Modifier)]
+      ["[0]" method (.only Method)]
+      ["[0]" type]
+      ["!" bytecode]]]
+    [meta
+     ["[0]" archive]]]
+   [test
+    ["_" property (.only Test)]]]]
+ [\\library
+  ["[0]" / (.only)
+   [///
+    [field
+     [constant
+      ["[0]" arity]]]
+    ["[0]" // (.only)
+     ["[0]" host]
+     ["[0]" runtime]
+     [///
+      ["[0]" extension]
+      [//
+       ["[0]" phase]
+       ["[0]" synthesis]
+       ["[0]" translation]]]]]]]
+ [////
+  ["[0]T" complex]])
+
+(ffi.import (java/lang/Class of)
+  "[1]::[0]"
+  (getCanonicalName [] java/lang/String))
+
+(ffi.import java/lang/Object
+  "[1]::[0]"
+  (getClass [] (java/lang/Class java/lang/Object)))
+
+(the .public test
+  Test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [module (random.lower_cased 1)
+
+         dummy_i64 random.i64
+         expected_i64 (random.only (|>> (i64.= dummy_i64) not)
+                                   random.i64)
+
+         .let [extender (is extension.Extender
+                            (function (_ _)
+                              (undefined)))
+               next (//.translate extender complexT.lux)
+               @ [module 0 0]]
+
+         arity (by ! each (|>> (n.% (-- arity.maximum)) (n.+ 2)) random.natural)
+         inner_arity (by ! each (|>> (n.% arity) (n.+ 1)) random.natural)])
+      (all _.and
+           (_.coverage [/.name /.type /.method /.call]
+             (|> (do try.monad
+                   [[_ archive] (archive.reserve "" archive.empty)
+                    [_ archive] (archive.reserve module archive)
+                    .let [[_ host] (io.value host.host)
+                          state (is runtime.State
+                                    (translation.state host module))]]
+                   (<| (phase.value state)
+                       (do phase.monad
+                         [_ (translation.set_buffer translation.empty_buffer)
+                          parameter (next archive (synthesis.i64 @ expected_i64))
+                          partially_applied_function (next archive (<| (synthesis.reification @)
+                                                                       [(synthesis.abstraction @ [(stack) 2 (synthesis.local @ 1)])
+                                                                        (stack (synthesis.i64 @ dummy_i64))]))
+                          it (|> partially_applied_function
+                                 [{.#None}]
+                                 (by host evaluate)
+                                 phase.of_try)
+                          .let [class (|> it
+                                          (as java/lang/Object)
+                                          (java/lang/Object::getClass [])
+                                          (java/lang/Class::getCanonicalName [])
+                                          ffi.of_string
+                                          (type.class (stack)))]
+                          .let [what_happens_when_its_not_reset!
+                                (|> partially_applied_function
+                                    [{.#None}]
+                                    (by host evaluate)
+                                    (try#each (function (_ it)
+                                                (i64.= dummy_i64
+                                                       ((as (-> I64 I64)
+                                                            it)
+                                                        expected_i64))))
+                                    (try.else false))
+
+                                can_reset!
+                                (|> (do !.monad
+                                      [_ partially_applied_function
+                                       _ (!.checkcast class)]
+                                      (/.call class 2))
+                                    [{.#None}]
+                                    (by host evaluate)
+                                    (try#each (function (_ it)
+                                                (i64.= expected_i64
+                                                       ((as (-> I64 I64 I64)
+                                                            it)
+                                                        expected_i64
+                                                        expected_i64))))
+                                    (try.else false))]]
+                         (in (and what_happens_when_its_not_reset!
+                                  can_reset!)))))
+                 (try.else false)))
+           )))

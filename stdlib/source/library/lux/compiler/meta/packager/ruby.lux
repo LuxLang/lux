@@ -1,0 +1,145 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except)
+   [abstract
+    ["[0]" monad (.only do)]]
+   [control
+    ["[0]" try (.only Try)]]
+   [data
+    [binary (.only Binary)]
+    ["[0]" product]
+    ["[0]" text (.only)
+     ["%" \\injection]
+     [encoding
+      ["[0]" utf8]]]
+    [collection
+     ["[0]" sequence]
+     ["[0]" stack (.use "[1]#[0]" functor mix)]
+     ["[0]" dictionary (.only Dictionary)]
+     ["[0]" set (.only Set)]]]
+   [math
+    [number
+     ["[0]" natural]]]
+   [type (.only sharing)]
+   [compiler
+    [target
+     ["_" ruby]]]
+   [world
+    ["[0]" file]]]]
+ ["[0]" // (.only Packager)
+  [//
+   ["[0]" archive (.only Output)
+    [registry (.only Registry)]
+    ["[0]" artifact]
+    ["[0]" unit]
+    ["[0]" module (.only)
+     ["[0]" descriptor]
+     ["[0]" document (.only Document)]]]
+   ["[0]" cache
+    [dependency
+     ["[1]/[0]" module (.only Order)]
+     ["[1]/[0]" artifact]]]
+   ["[0]" io
+    ["[1]" archive]]
+   [//
+    [language
+     ["$" lux]]]]])
+
+(the (bundle_module module module_id necessary_dependencies output)
+  (-> descriptor.Module module.ID (Set unit.ID) Output (Try (Maybe _.Statement)))
+  (do [! try.monad]
+    []
+    (when (|> output
+              sequence.as_stack
+              (stack.only (function (_ [artifact_id custom content])
+                            (set.member? necessary_dependencies [module_id artifact_id]))))
+      {.#Empty}
+      (in {.#None})
+      
+      artifacts
+      (do !
+        [bundle (monad.mix !
+                           (function (_ [artifact custom_name content] so_far)
+                             (|> content
+                                 (by utf8.binary of)
+                                 (by ! each
+                                     (|>> as_expected
+                                          (is declaration)
+                                          (sharing [declaration]
+                                            (is declaration
+                                                so_far))
+                                          (_.then so_far)))))
+                           (_.comment "Lux module"
+                             (_.; (_.string "")))
+                           artifacts)]
+        (in {.#Some bundle})))))
+
+(the module_file
+  (-> module.ID file.Path)
+  (|>> %.natural (text.suffix ".rb")))
+
+(the (write_module mapping necessary_dependencies [module [module_id entry]] sink)
+  (-> (Dictionary descriptor.Module module.ID) (Set unit.ID)
+      [descriptor.Module [module.ID (archive.Entry .Module)]]
+      (Stack [module.ID [Text Binary]])
+      (Try (Stack [module.ID [Text Binary]])))
+  (do [! try.monad]
+    [bundle (is (Try (Maybe _.Statement))
+                (..bundle_module module module_id necessary_dependencies (its archive.#output entry)))]
+    (when bundle
+      {.#None}
+      (in sink)
+
+      {.#Some bundle}
+      (let [entry_content (|> (stack)
+                              (stack#mix _.then bundle)
+                              (is _.Statement)
+                              _.code
+                              (by utf8.binary as))]
+        (in (stack.partial [module_id [(..module_file module_id) entry_content]]
+                           sink))))))
+
+(the .public main_file
+  "main.rb")
+
+(the module_id_mapping
+  (-> (Order .Module) (Dictionary descriptor.Module module.ID))
+  (|>> (stack#each (function (_ [module [module_id entry]])
+                     [module module_id]))
+       (dictionary.of_stack text.hash)))
+
+(the included_modules
+  (for_any (_ a)
+    (-> (Stack [module.ID a])
+        (Set module.ID)))
+  (|>> (stack#each product.left)
+       (stack#mix set.has (set.empty natural.hash))))
+
+(the .public (package host_dependencies archive program)
+  Packager
+  (do [! try.monad]
+    [.let [necessary_dependencies (cache/artifact.necessary_dependencies archive)]
+     order (cache/module.load_order $.key archive)
+     entries (monad.mix ! (..write_module (module_id_mapping order) necessary_dependencies) {.#Empty} order)
+     .let [included_modules (..included_modules entries)
+           imports (|> order
+                       (stack.only (|>> product.right product.left (set.member? included_modules)))
+                       stack.reversed
+                       (stack#each (function (_ [module [module_id entry]])
+                                     (let [relative_path (_.do "gsub" (stack (_.string main_file)
+                                                                             (_.string (..module_file module_id)))
+                                                           {.#None}
+                                                           (is _.CVar (_.manual "__FILE__")))]
+                                       (_.; (_.require/1 relative_path)))))
+                       (stack#mix _.then (_.comment "Lux program"
+                                           (_.; (_.string ""))))
+                       (is _.Statement)
+                       _.code
+                       (by utf8.binary as))]]
+    (in (|> entries
+            (stack#each product.right)
+            {.#Top [..main_file imports]}
+            {.#Right}))))

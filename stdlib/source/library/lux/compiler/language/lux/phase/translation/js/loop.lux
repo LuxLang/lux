@@ -1,0 +1,112 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except)
+   [abstract
+    ["[0]" monad (.only do)]]
+   [data
+    ["[0]" product]
+    ["[0]" text (.only)
+     ["%" \\injection]]
+    [collection
+     ["[0]" stack (.use "[1]#[0]" functor mix)]]]
+   [math
+    [number
+     ["n" natural]]]
+   [compiler
+    [target
+     ["_" js (.only Computation Var)]]]]]
+ ["[0]" //
+  [runtime (.only Operation Phase Phase! Expression Statement)]
+  ["[1][0]" when]
+  ["///[1]" ////
+   ["[0]" phase]
+   ["[0]" synthesis (.only Tail_Recursion)]
+   ["[1][0]" translation]
+   [///
+    [reference
+     [register (.only Register)]]]]])
+
+(the @tail_recursion
+  (-> Natural Text)
+  (|>> %.natural (text "tail_recursion")))
+
+(the $iteration
+  (-> Natural Var)
+  (|>> %.natural (text "iteration") _.var))
+
+(the (setup $iteration initial? offset bindings body)
+  (-> Var Bit Register (Stack _.Expression) _.Statement _.Statement)
+  (when bindings
+    (stack)
+    body
+
+    (stack binding)
+    (let [$binding (//when.register offset)]
+      (all _.then
+           (if initial?
+             (_.define $binding binding)
+             (_.; (_.set $binding binding)))
+           body
+           ))
+
+    _
+    (|> bindings
+        stack.enumeration
+        (stack#each (function (_ [register _])
+                      (let [variable (//when.register (n.+ offset register))]
+                        (if initial?
+                          (_.define variable (_.at (_.i32 (.integer register)) $iteration))
+                          (_.; (_.set variable (_.at (_.i32 (.integer register)) $iteration)))))))
+        stack.reversed
+        (stack#mix _.then body)
+        (_.then (_.define $iteration (_.array bindings))))))
+
+(the .public (tail_recursion! statement expression archive [start initsS+ bodyS])
+  (Statement (Tail_Recursion synthesis.Term))
+  (when initsS+
+    ... function/false/non-independent loop
+    {.#Empty}
+    (statement expression archive bodyS)
+
+    ... true loop
+    _
+    (do [! phase.monad]
+      [@tail_recursion (by ! each ..@tail_recursion /////translation.next)
+       initsO+ (monad.each ! (expression archive) initsS+)
+       body! (/////translation.with_anchor [start @tail_recursion]
+               (statement expression archive bodyS))
+       $iteration (by ! each ..$iteration /////translation.next)]
+      (in (..setup $iteration
+                   true start
+                   initsO+
+                   (_.with_label (_.label @tail_recursion)
+                     (_.do_while (_.boolean true)
+                                 body!)))))))
+
+(the .public (tail_recursion statement expression archive [start initsS+ bodyS])
+  (-> Phase!
+      (Expression (Tail_Recursion synthesis.Term)))
+  (when initsS+
+    ... function/false/non-independent loop
+    {.#Empty}
+    (expression archive bodyS)
+
+    ... true loop
+    _
+    (do [! phase.monad]
+      [loop! (tail_recursion! statement expression archive [start initsS+ bodyS])]
+      (in (_.apply (_.closure (stack) loop!) (stack))))))
+
+(the .public (tail_iteration! statement expression archive it)
+  (Statement (Stack synthesis.Term))
+  (do [! phase.monad]
+    [[offset @tail_recursion] /////translation.anchor
+     it (monad.each ! (expression archive) it)
+     $iteration (by ! each ..$iteration /////translation.next)]
+    (in (..setup $iteration
+                 false offset
+                 it
+                 (_.continue_at (_.label @tail_recursion))))))

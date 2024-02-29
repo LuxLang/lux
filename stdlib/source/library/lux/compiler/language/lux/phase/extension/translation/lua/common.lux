@@ -1,0 +1,266 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except)
+   [abstract
+    ["<>" projection]
+    ["[0]" monad (.only do)]]
+   [control
+    ["|" pipe]
+    ["[0]" try]]
+   ["[0]" function]
+   [data
+    ["[0]" product]
+    [collection
+     ["[0]" dictionary]
+     ["[0]" stack (.use "[1]#[0]" functor mix)]]]
+   [macro
+    ["[0]" template]]
+   [compiler
+    [target
+     ["_" lua]]
+    [meta
+     [archive (.only Archive)]]]]]
+ [/////
+  ["[0]" extension]
+  [translation
+   [extension (.only Nullary Unary Binary Trinary Variadic
+                     nullary unary binary trinary variadic)]
+   ["//" lua
+    ["[1][0]" runtime (.only Operation Phase Phase! Handler Bundle)]
+    ["[1][0]" primitive]
+    ["[1][0]" structure]
+    ["[1][0]" reference]
+    ["[1][0]" when]
+    ["[1][0]" loop]
+    ["[1][0]" function]]]
+  [//
+   ["[0]" phase (.use "[1]#[0]" monad)]
+   ["[0]" translation]
+   ["[0]" synthesis (.only)
+    ["?[1]" \\projection (.only Projection)]]]])
+
+(the .public (custom [projection handler])
+  (for_any (_ s)
+    (-> [(Projection s)
+         (-> Phase Archive s (Operation _.Expression))]
+        Handler))
+  (function (_ phase archive input)
+    (when (?synthesis.value projection input)
+      {try.#Success input'}
+      (handler phase archive input')
+
+      {try.#Failure error}
+      (phase.failure error))))
+
+(the !unary
+  (template.macro (_ function)
+    [(|>> stack _.apply (|> (_.var function)))]))
+
+(the .public (statement expression archive synthesis)
+  Phase!
+  (`` (when synthesis
+        ... TODO: Get rid of this ASAP
+        [@ {synthesis.#Extension [.prelude "when_char#|translation"] parameters}]
+        (do phase.monad
+          [body (expression archive synthesis)]
+          (in (as _.Statement body)))
+        
+        (,, (template.with [<tag>]
+              [(<tag> @ value)
+               (phase#each _.return (expression archive synthesis))]
+
+              [synthesis.bit]
+              [synthesis.i64]
+              [synthesis.f64]
+              [synthesis.text]
+              [synthesis.variant]
+              [synthesis.tuple]
+              [synthesis.reification]))
+
+        (,, (template.with [<tag>]
+              [[@ {<tag> value}]
+               (phase#each _.return (expression archive synthesis))]
+
+              [synthesis.#Reference]
+              [synthesis.#Extension]))
+
+        (synthesis.let @ register input body)
+        (//when.let! statement expression archive [register input body])
+
+        (synthesis.exec @ before after)
+        (//when.exec! statement expression archive [before after])
+
+        (synthesis.when @ it)
+        (<| (,, (template.with [,tag]
+                  [(when (,tag it)
+                     {.#Some it}
+                     (phase#each _.return (expression archive synthesis))
+
+                     else)]
+
+                  [synthesis.its]
+                  ))
+            (,, (template.with [,tag ,translation]
+                  [(when (,tag it)
+                     {.#Some it}
+                     (,translation statement expression archive it)
+
+                     else)]
+
+                  [synthesis.if //when.if!]
+                  [synthesis.when_i64 //when.when_i64!]
+                  [synthesis.when_f64 //when.when_f64!]
+                  [synthesis.when_text //when.when_text!]
+                  [synthesis.multi_let //when.multi_let!]
+                  ))
+            (//when.when! statement expression archive it))
+
+        (synthesis.tail_recursion @ tail_recursion)
+        (do phase.monad
+          [[inits tail_recursion!] (//loop.tail_recursion! statement expression archive false tail_recursion)]
+          (in tail_recursion!))
+
+        (synthesis.tail_iteration @ updates)
+        (//loop.tail_iteration! statement expression archive updates)
+
+        (synthesis.abstraction @ abstraction)
+        (phase#each _.return (//function.function statement expression archive abstraction))
+        )))
+
+... TODO: Get rid of this ASAP
+(the lux//syntax_char_case!
+  (..custom [(all <>.and
+                  ?synthesis.any
+                  ?synthesis.any
+                  (<>.some (?synthesis.tuple (all <>.and
+                                                  (?synthesis.tuple (<>.many ?synthesis.i64))
+                                                  ?synthesis.any))))
+             (function (_ phase archive [input else conditionals])
+               (|> conditionals
+                   (stack#each (function (_ [chars branch])
+                                 {synthesis.#Seq (when chars
+                                                   {.#Empty}
+                                                   {synthesis.#Pop}
+                                                   
+                                                   {.#Top head tail}
+                                                   {synthesis.#I64_Fork
+                                                    [head {synthesis.#Pop}]
+                                                    (stack#each (function (_ char)
+                                                                  [char {synthesis.#Pop}])
+                                                                tail)})
+                                                 {synthesis.#Then branch}}))
+                   stack.reversed
+                   (stack#mix (function (_ pre post)
+                                {synthesis.#Alt pre post})
+                              {synthesis.#Then else})
+                   [input]
+                   (//when.when! statement phase archive)
+                   (by phase.monad each (|>> (as _.Expression)))))]))
+
+(the with_basic_extensions
+  (-> Bundle Bundle)
+  (|>> (dictionary.has "when_char#|translation" lux//syntax_char_case!)
+       (dictionary.has "is?#|translation" (binary (product.uncurried _.=)))
+       (dictionary.has "try#|translation" (unary //runtime.lux//try))))
+
+(the with_i64_extensions
+  (-> Bundle Bundle)
+  (|>> (dictionary.has "i64_and#|translation" (binary (product.uncurried _.bit_and)))
+       (dictionary.has "i64_or#|translation" (binary (product.uncurried _.bit_or)))
+       (dictionary.has "i64_xor#|translation" (binary (product.uncurried _.bit_xor)))
+       (dictionary.has "i64_left#|translation" (binary (product.uncurried //runtime.i64//left_shifted)))
+       (dictionary.has "i64_right#|translation" (binary (product.uncurried //runtime.i64//right_shifted)))
+       
+       (dictionary.has "i64_=#|translation" (binary (product.uncurried _.=)))
+       (dictionary.has "i64_+#|translation" (binary (product.uncurried _.+)))
+       (dictionary.has "i64_-#|translation" (binary (product.uncurried _.-)))
+       ))
+
+(the with_integer_extensions
+  (-> Bundle Bundle)
+  (|>> (dictionary.has "int_<#|translation" (binary (product.uncurried _.<)))
+       (dictionary.has "int_*#|translation" (binary (product.uncurried _.*)))
+       (dictionary.has "int_/#|translation" (binary (product.uncurried //runtime.i64//division)))
+       (dictionary.has "int_%#|translation" (binary (product.uncurried //runtime.i64//remainder)))
+       
+       (dictionary.has "int_f64#|translation" (unary (_./ (_.float +1.0))))
+       (dictionary.has "int_char#|translation" (unary (function (_ it) (_.apply (stack it) (_.var "utf8.char")))))
+       ))
+
+(the with_decimal_extensions
+  (-> Bundle Bundle)
+  (|>> (dictionary.has "f64_+#|translation" (binary (product.uncurried _.+)))
+       (dictionary.has "f64_-#|translation" (binary (product.uncurried _.-)))
+       (dictionary.has "f64_*#|translation" (binary (product.uncurried _.*)))
+       (dictionary.has "f64_/#|translation" (binary (product.uncurried _./)))
+       (dictionary.has "f64_%#|translation" (binary (product.uncurried (function (_ parameter subject) (_.apply (stack subject parameter) (_.var "math.fmod"))))))
+       
+       (dictionary.has "f64_=#|translation" (binary (product.uncurried _.=)))
+       (dictionary.has "f64_<#|translation" (binary (product.uncurried _.<)))
+
+       (dictionary.has "f64_int#|translation" (unary (!unary "math.floor")))))
+
+(the (text//char [paramO subjectO])
+  (Binary _.Expression)
+  (//runtime.text//char (_.+ (_.int +1) paramO) subjectO))
+
+(the (text//clip [paramO extraO subjectO])
+  (Trinary _.Expression)
+  (//runtime.text//clip subjectO paramO extraO))
+
+(the (text//index [startO partO textO])
+  (Trinary _.Expression)
+  (//runtime.text//index textO partO startO))
+
+(the text//composite
+  (Variadic _.Expression)
+  (|>> (|.when (stack)
+         (_.string "")
+
+         (stack single)
+         single
+
+         (stack left right)
+         (|> left (_.concat right))
+
+         parts
+         (_.apply (stack (_.array parts))
+                  (_.var "table.concat")))))
+
+(the with_text_extensions
+  (-> Bundle Bundle)
+  (|>> (dictionary.has "text_=#|translation" (binary (product.uncurried _.=)))
+       (dictionary.has "text_<#|translation" (binary (product.uncurried _.<)))
+       (dictionary.has "text_composite#|translation" (variadic ..text//composite))
+       (dictionary.has "text_index#|translation" (trinary ..text//index))
+       (dictionary.has "text_size#|translation" (unary //runtime.text//size))
+       ... TODO: Use version below once the Lua compiler becomes self-hosted.
+       ... (dictionary.has "size" (unary (for .lua (!unary "utf8.len")
+       ...                                    (!unary "string.len"))))
+       (dictionary.has "text_char#|translation" (binary ..text//char))
+       (dictionary.has "text_clip#|translation" (trinary ..text//clip))
+       ))
+
+(the (io//log! messageO)
+  (Unary _.Expression)
+  (|> (_.apply (stack messageO) (_.var "print"))
+      (_.or //runtime.unit)))
+
+(the with_io_extensions
+  (-> Bundle Bundle)
+  (|>> (dictionary.has "log!#|translation" (unary ..io//log!))
+       (dictionary.has "error#|translation" (unary (!unary "error")))))
+
+(the .public bundle
+  Bundle
+  (|> extension.empty
+      with_basic_extensions
+      with_i64_extensions
+      with_integer_extensions
+      with_decimal_extensions
+      with_text_extensions
+      with_io_extensions
+      ))

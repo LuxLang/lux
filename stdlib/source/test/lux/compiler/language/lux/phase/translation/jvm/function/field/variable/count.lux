@@ -1,0 +1,136 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["[0]" io]
+    ["[0]" try (.use "[1]#[0]" functor)]]
+   ["[0]" function]
+   [data
+    ["[0]" bit]
+    [collection
+     ["[0]" stack]]]
+   [math
+    ["[0]" random (.only Random)]
+    [number
+     ["n" natural]]]
+   [compiler
+    [target
+     [jvm
+      ["!" bytecode]
+      ["[0]" type]]]
+    [meta
+     ["[0]" archive]]]
+   [test
+    ["_" property (.only Test)]]]]
+ [\\library
+  ["[0]" / (.only)
+   [///
+    [constant
+     ["[0]" arity]]
+    [//
+     ["[0]" abstract]
+     [///
+      ["[0]" jvm (.only)
+       ["[0]" host]
+       ["[0]" runtime]
+       ["[0]" value]
+       ["[0]" complex
+        ["[1]T" \\test]]
+       [///
+        ["[0]" extension]
+        [//
+         ["[0]" phase]
+         ["[0]" synthesis]
+         ["[0]" translation]]]]]]]]])
+
+(the .public test
+  Test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [module (random.lower_cased 1)
+
+         expected_bit random.bit
+         expected_i64 random.i64
+
+         .let [extender (is extension.Extender
+                            (function (_ _)
+                              (undefined)))
+               next (jvm.translate extender complexT.lux)
+               @ [module 0 0]]
+
+         arity (by ! each (|>> (n.% arity.maximum) (n.major arity.minimum)) random.natural)
+         partial_application (by ! each (n.% arity) random.natural)])
+      (all _.and
+           (_.coverage [/.field]
+             (when /.field
+               "" false
+               _ true))
+           (_.coverage [/.type]
+             (same? arity.type /.type))
+           (_.coverage [/.initial]
+             (let [[_ host] (io.value host.host)]
+               (|> (all !.composite
+                        /.initial
+                        !.i2l
+                        (value.boxed type.long))
+                   [{.#None}]
+                   (by host evaluate)
+                   (try#each (|>> (as Natural) (n.= 0)))
+                   (try.else false))))
+           (_.coverage [/.value]
+             (let [fresh_abstraction!
+                   (|> (do try.monad
+                         [[_ archive] (archive.reserve "" archive.empty)
+                          [_ archive] (archive.reserve module archive)
+                          .let [[_ host] (io.value host.host)
+                                state (is runtime.State
+                                          (translation.state host module))]]
+                         (<| (phase.value state)
+                             (do phase.monad
+                               [_ (translation.set_buffer translation.empty_buffer)
+                                it (next archive (<| (synthesis.abstraction @)
+                                                     [(stack) arity (synthesis.i64 @ expected_i64)]))]
+                               (in (|> (all !.composite
+                                            it
+                                            /.value
+                                            !.i2l
+                                            (value.boxed type.long))
+                                       [{.#None}]
+                                       (by host evaluate)
+                                       (try#each (|>> (as Natural) (n.= 0)))
+                                       (try.else false))))))
+                       (try.else false))
+
+                   partial_application!
+                   (|> (do try.monad
+                         [[_ archive] (archive.reserve "" archive.empty)
+                          [_ archive] (archive.reserve module archive)
+                          .let [[_ host] (io.value host.host)
+                                state (is runtime.State
+                                          (translation.state host module))]]
+                         (<| (phase.value state)
+                             (do phase.monad
+                               [_ (translation.set_buffer translation.empty_buffer)
+                                it (next archive (<| (synthesis.reification @)
+                                                     [(<| (synthesis.abstraction @)
+                                                          [(stack) arity (synthesis.i64 @ expected_i64)])
+                                                      (stack.repeated partial_application (synthesis.bit @ expected_bit))]))]
+                               (in (|> (all !.composite
+                                            it
+                                            (!.checkcast abstract.class)
+                                            /.value
+                                            !.i2l
+                                            (value.boxed type.long))
+                                       [{.#None}]
+                                       (by host evaluate)
+                                       (try#each (|>> (as Natural) (n.= partial_application)))
+                                       (try.else false))))))
+                       (try.else false))]
+               (and fresh_abstraction!
+                    partial_application!)))
+           )))

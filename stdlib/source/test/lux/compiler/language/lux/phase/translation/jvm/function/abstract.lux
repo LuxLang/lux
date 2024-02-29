@@ -1,0 +1,113 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except)
+   ["[0]" ffi]
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["[0]" try (.use "[1]#[0]" functor)]
+    ["[0]" io]]
+   [math
+    ["[0]" random (.only Random)]
+    [number
+     ["n" natural]]]
+   [compiler
+    [target
+     [jvm
+      ["[0]" reflection]
+      ["[0]" type (.only)
+       ["[1]/[0]" reflection]]]]
+    [meta
+     ["[0]" archive]]]
+   [test
+    ["_" property (.only Test)]]]]
+ [\\library
+  ["[0]" / (.only)
+   [////
+    ["[0]" jvm (.only)
+     ["[0]" host]
+     ["[0]" runtime]
+     [///
+      ["[0]" extension]
+      [//
+       ["[0]" phase]
+       ["[0]" synthesis]
+       ["[0]" translation]]]]]]]
+ [///
+  ["[0]T" complex]])
+
+(ffi.import java/lang/String
+  "[1]::[0]")
+
+(ffi.import (java/lang/Class of)
+  "[1]::[0]"
+  (getCanonicalName [] java/lang/String))
+
+(ffi.import java/lang/Object
+  "[1]::[0]"
+  (getClass [] (java/lang/Class [? < java/lang/Object])))
+
+(ffi.import java/lang/ClassLoader
+  "[1]::[0]"
+  ("static" getSystemClassLoader [] java/lang/ClassLoader))
+
+(the (function? loader it)
+  (-> java/lang/ClassLoader Any
+      Bit)
+  (let [super (type/reflection.reflection (type.reflection /.class))
+        sub (|> it
+                (as java/lang/Object)
+                (java/lang/Object::getClass [])
+                (java/lang/Class::getCanonicalName [])
+                ffi.of_string)]
+    (try.else false
+              (reflection.sub? loader super sub))))
+
+(the .public test
+  Test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [module (random.lower_cased 1)
+         expected_i64 random.i64
+         arity (by ! each (|>> (n.% 10) ++) random.natural)
+
+         .let [system_class_loader (java/lang/ClassLoader::getSystemClassLoader [])]])
+      (all _.and
+           (_.coverage [/.id]
+             (not (n.= runtime.id /.id)))
+           (_.coverage [/.class]
+             (let [lux_makes_functions!
+                   (..function? system_class_loader ..function?)
+
+                   compiler_makes_functions!
+                   (|> (do try.monad
+                         [.let [extender (is extension.Extender
+                                             (function (_ _)
+                                               (undefined)))
+                                next (jvm.translate extender complexT.lux)
+                                @ [module 0 0]]
+                          [_ archive] (archive.reserve "" archive.empty)
+                          [_ archive] (archive.reserve module archive)
+                          .let [[class_loader host] (io.value host.host)
+                                state (is runtime.State
+                                          (translation.state host module))]]
+                         (<| (phase.value state)
+                             (do phase.monad
+                               [_ (translation.set_buffer translation.empty_buffer)
+                                it (next archive
+                                         (<| (synthesis.abstraction @)
+                                             [(stack) 1 (synthesis.i64 @ expected_i64)]))]
+                               (in (|> it
+                                       [{.#None}]
+                                       (by host evaluate)
+                                       (try#each (..function? class_loader))
+                                       (try.else false))))))
+                       (try.else false))]
+               (and lux_makes_functions!
+                    compiler_makes_functions!)))
+           (_.coverage [/.init]
+             true)
+           )))

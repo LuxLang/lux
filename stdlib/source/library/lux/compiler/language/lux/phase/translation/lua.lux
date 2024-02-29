@@ -1,0 +1,123 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["[0]" exception]]
+   [macro
+    ["[0]" template]]
+   [compiler
+    [target
+     ["_" lua]]]]]
+ ["[0]" /
+  [runtime (.only Phase)]
+  ["[1][0]" primitive]
+  ["[1][0]" structure]
+  ["[1][0]" reference]
+  ["[1][0]" when]
+  ["[1][0]" loop]
+  ["[1][0]" function]
+  ["/[1]" //
+   ["[1][0]" reference]
+   ["/[1]" //
+    ["[1][0]" extension (.only)
+     [translation
+      [lua
+       ["[1]/[0]" common]]]]
+    ["/[1]" //
+     [analysis (.only)]
+     ["[0]" phase (.use "[1]#[0]" monad)]
+     ["[0]" synthesis]
+     [///
+      [reference (.only)
+       [variable (.only)]]]]]]])
+
+(exception.the .public cannot_recur_as_an_expression)
+
+(the .public (expression extender lux)
+  (-> ///extension.Extender Lux Phase)
+  (function (expression archive synthesis)
+    (`` (when synthesis
+          (,, (template.with [<tag> <translator>]
+                [(<tag> @ value)
+                 (phase#in (<translator> value))]
+
+                [synthesis.bit  /primitive.bit]
+                [synthesis.i64  /primitive.i64]
+                [synthesis.f64  /primitive.f64]
+                [synthesis.text /primitive.text]))
+
+          (synthesis.variant @ variantS)
+          (/structure.variant expression archive variantS)
+
+          (synthesis.tuple @ members)
+          (/structure.tuple expression archive members)
+
+          [@ {synthesis.#Reference value}]
+          (//reference.reference /reference.system archive value)
+
+          (synthesis.let @ register input body)
+          (/when.let expression archive [register input body])
+
+          (synthesis.exec @ before after)
+          (/when.exec expression archive [before after])
+
+          (synthesis.when @ it)
+          (`` (<| (when (synthesis.if it)
+                    {.#Some it}
+                    (<| (when (synthesis.or it)
+                          {.#Some it}
+                          (/when.or expression archive it)
+                          
+                          else)
+                        (when (synthesis.and it)
+                          {.#Some it}
+                          (/when.and expression archive it)
+                          
+                          else)
+                        (/when.if expression archive it))
+
+                    else)
+                  (,, (template.with [,synthesis ,translation]
+                        [(when (,synthesis it)
+                           {.#Some it}
+                           (,translation expression archive it)
+                           
+                           else)]
+
+                        [synthesis.its /when.its]
+                        ))
+                  (,, (template.with [,synthesis ,translation]
+                        [(when (,synthesis it)
+                           {.#Some it}
+                           (,translation ///extension/common.statement expression archive it)
+                           
+                           else)]
+
+                        [synthesis.when_i64 /when.when_i64]
+                        [synthesis.when_f64 /when.when_f64]
+                        [synthesis.when_text /when.when_text]
+                        [synthesis.multi_let /when.multi_let]
+                        ))
+                  (/when.when ///extension/common.statement expression archive it)))
+
+          (synthesis.tail_recursion @ tail_recursion)
+          (/loop.tail_recursion ///extension/common.statement expression archive tail_recursion)
+
+          (synthesis.tail_iteration @ updates)
+          (phase.except ..cannot_recur_as_an_expression [])
+
+          (synthesis.abstraction @ abstraction)
+          (/function.function ///extension/common.statement expression archive abstraction)
+
+          (synthesis.reification @ application)
+          (/function.reification expression archive application)
+
+          [@ {synthesis.#Extension [name parameters]}]
+          (///extension.reification extender lux expression archive .Translation name parameters
+                                    (|>>)
+                                    (function (_ _) {.#None}))))))

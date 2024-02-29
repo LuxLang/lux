@@ -1,0 +1,213 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except function)
+   [abstract
+    ["[0]" monad (.only do)]]
+   [data
+    ["[0]" product]
+    ["[0]" text]
+    [collection
+     ["[0]" stack (.use "[1]#[0]" monoid functor mix)]]]
+   [math
+    [number
+     ["n" natural]]]
+   [compiler
+    [target
+     ["_" js (.only Computation Var)]]]]]
+ ["[0]" //
+  ["[1][0]" runtime (.only Operation Phase Phase! Expression)]
+  ["[1][0]" reference]
+  ["[1][0]" when]
+  ["/[1]" //
+   ["[1][0]" reference]
+   ["//[1]" ///
+    ["[0]" analysis]
+    ["[0]" phase (.use "[1]#[0]" monad)]
+    ["[0]" synthesis]
+    ["[0]" translation]
+    ["//[1]" ///
+     [arity (.only Arity)]
+     [reference
+      [register (.only Register)]]
+     [meta
+      [archive
+       ["[0]" unit]]
+      ["[0]" cache
+       [dependency
+        ["[1]" artifact]]]]]]]])
+
+(the capture
+  (-> Register Var)
+  (|>> (///reference.foreign //reference.system) as_expected))
+
+(the (procedure_id abstraction_id)
+  (-> unit.ID
+      unit.ID)
+  [unit.#module (its unit.#module abstraction_id)
+   unit.#artifact (++ (its unit.#artifact abstraction_id))])
+
+(the @scope
+  (-> unit.ID
+      Text)
+  (|>> ///reference.artifact
+       (text.suffix "_scope")))
+
+(the (procedure environment name arity body)
+  (-> (Stack //runtime.Value) unit.ID Arity _.Statement
+      _.Statement)
+  (_.function_definition
+   (_.var (///reference.artifact name))
+   (all stack#composite
+        (|> (stack.enumeration environment)
+            (stack#each (|>> product.left ..capture)))
+        (stack (//when.register 0))
+        (stack#each (|>> ++ //when.register)
+                    (stack.indices arity))
+        )
+   (<| (_.with_label (_.label (..@scope name)))
+       (_.do_while (_.boolean true))
+       body)))
+
+(the (arbitrary_reification' expression archive [abstraction parameters])
+  (Expression [//runtime.Value (Stack synthesis.Term)])
+  (do [! phase.monad]
+    [parameters (monad.each ! (expression archive) parameters)]
+    (in (_.apply abstraction parameters))))
+
+(the (arbitrary_reification expression archive [abstraction parameters])
+  (Expression synthesis.Reification)
+  (do phase.monad
+    [abstraction (expression archive abstraction)]
+    (arbitrary_reification' expression archive [abstraction parameters])))
+
+(the (exact_reification expression archive [abstraction arity parameters])
+  (Expression [unit.ID Arity (Stack synthesis.Term)])
+  (do [! phase.monad]
+    [parameters (monad.each ! (expression archive) parameters)]
+    (in (_.apply (_.var (///reference.artifact (..procedure_id abstraction)))
+                 {.#Top (_.var (///reference.artifact abstraction))
+                        parameters}))))
+
+(the (successive_reification expression archive [abstraction arity parameters])
+  (Expression [unit.ID Arity (Stack synthesis.Term)])
+  (do [! phase.monad]
+    [first (exact_reification expression archive [abstraction arity (stack.first arity parameters)])]
+    (arbitrary_reification' expression archive [first (stack.after arity parameters)])))
+
+(the .public (reification expression archive [abstraction parameters])
+  (Expression synthesis.Reification)
+  (when abstraction
+    (synthesis.constant @ $abstraction)
+    (do [! phase.monad]
+      [[@definition |abstraction|] (translation.definition archive $abstraction)
+       .let [actual_arity (stack.size parameters)]]
+      (when |abstraction|
+        {.#Some [_ {.#Some [expected_arity @abstraction]}]}
+        (if (n.= expected_arity actual_arity)
+          (exact_reification expression archive [@abstraction expected_arity parameters])
+
+          (n.< expected_arity actual_arity)
+          (arbitrary_reification expression archive [abstraction parameters])
+          
+          ... (n.> expected_arity actual_arity)
+          (successive_reification expression archive [@abstraction expected_arity parameters]))
+        
+        _
+        (arbitrary_reification expression archive [abstraction parameters])))
+
+    _
+    (arbitrary_reification expression archive [abstraction parameters])))
+
+(the (with_closure @self inits body!)
+  (-> Var (Stack _.Expression) _.Statement [_.Statement _.Expression])
+  (when inits
+    {.#Empty}
+    [(_.function_definition @self (stack) body!)
+     @self]
+
+    _
+    [(_.function_definition
+      @self
+      (|> (stack.enumeration inits)
+          (stack#each (|>> product.left ..capture)))
+      (_.return (_.function @self (stack) body!)))
+     (_.apply @self inits)]))
+
+(the @curried
+  (_.var "curried"))
+
+(the input
+  (|>> ++ //when.register))
+
+(the @@arguments
+  (_.var "arguments"))
+
+(the .public (function statement expression archive [environment arity bodyS])
+  (-> Phase! (Expression (analysis.Abstraction synthesis.Term)))
+  (do [! phase.monad]
+    [dependencies (cache.dependencies archive bodyS)
+     environment (monad.each ! (expression archive) environment)
+     [abstraction_id @scope body!] (let [abstraction (<| (translation.with_new_context archive dependencies)
+                                                         (do !
+                                                           [scope (by ! each ..@scope
+                                                                      (translation.context archive))
+                                                            body (translation.with_anchor [1 scope]
+                                                                   (statement expression archive bodyS))]
+                                                           (in [scope body])))]
+                                     (when environment
+                                       (stack)
+                                       (do !
+                                         [[abstraction_id procedure_id @scope body!] (<| (translation.with_new_context archive dependencies)
+                                                                                         abstraction)
+                                          .let [procedure_definition (..procedure environment procedure_id arity body!)]
+                                          _ (translation.execute! procedure_definition)
+                                          _ (translation.save! (its unit.#artifact procedure_id) {.#None} procedure_definition)]
+                                         (in [abstraction_id @scope body!]))
+
+                                       non_empty
+                                       abstraction))
+     .let [arityO (|> arity .integer _.i32)
+           @num_args (_.var "num_args")
+           @self (_.var (///reference.artifact abstraction_id))
+           apply_poly (.function (_ args func)
+                        (|> func (_.do "apply" (stack _.null args))))
+           initialize_self! (_.define (//when.register 0) @self)
+           initialize! (stack#mix (.function (_ post pre!)
+                                    (all _.then
+                                         pre!
+                                         (_.define (..input post) (_.at (_.i32 (.integer post)) @@arguments))))
+                                  initialize_self!
+                                  (stack.indices arity))
+           [definition instantiation] (with_closure @self environment
+                                        (all _.then
+                                             (_.define @num_args (_.its "length" @@arguments))
+                                             (<| (_.if (|> @num_args (_.= arityO))
+                                                   (all _.then
+                                                        initialize!
+                                                        (<| (_.with_label (_.label @scope))
+                                                            (_.do_while (_.boolean true))
+                                                            body!)))
+                                                 (_.if (|> @num_args (_.< arityO))
+                                                   (let [all_inputs (_.do "call" (stack @@arguments)
+                                                                      //runtime.array#slice)]
+                                                     (all _.then
+                                                          (_.define @curried all_inputs)
+                                                          (_.return (_.closure (stack)
+                                                                               (let [@missing all_inputs]
+                                                                                 (_.return (apply_poly (_.do "concat" (stack @missing) @curried)
+                                                                                                       @self))))))))
+                                                 ... (|> @num_args (_.> arityO))
+                                                 (let [arity_inputs (_.do "call" (stack @@arguments (_.i32 +0) arityO)
+                                                                      //runtime.array#slice)
+                                                       extra_inputs (_.do "call" (stack @@arguments arityO)
+                                                                      //runtime.array#slice)]
+                                                   (_.return (|> @self
+                                                                 (apply_poly arity_inputs)
+                                                                 (apply_poly extra_inputs)))))
+                                             ))]
+     _ (translation.execute! definition)
+     _ (translation.save! (product.right abstraction_id) {.#None} definition)]
+    (in instantiation)))

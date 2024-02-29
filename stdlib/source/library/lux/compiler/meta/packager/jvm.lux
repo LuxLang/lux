@@ -1,0 +1,297 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except Module Definition)
+   ["[0]" ffi (.only import to)]
+   [abstract
+    ["[0]" monad (.only Monad do)]]
+   [control
+    ["[0]" maybe (.use "[1]#[0]" functor)]
+    ["[0]" try (.only Try)]]
+   [data
+    ["[0]" binary (.only Binary)]
+    ["[0]" text]
+    [collection
+     ["[0]" sequence]
+     ["[0]" stack (.use "[1]#[0]" functor)]
+     ["[0]" dictionary]
+     ["[0]" set (.only Set)]]]
+   [math
+    [number
+     ["n" natural]
+     ["i" integer]]]
+   [compiler
+    [target
+     [jvm
+      [encoding
+       [name
+        ["[0]" internal]]]]]]
+   [world
+    ["[0]" file]]]]
+ ["[0]" // (.only Packager)
+  [//
+   ["[0]" context (.only Context)]
+   ["[0]" archive (.only Output)
+    ["[0]" artifact]
+    ["[0]" unit]
+    ["[0]" module (.only)
+     ["[0]" descriptor (.only Module)]]]
+   ["[0]" cache
+    [dependency
+     ["[1]/[0]" module]
+     ["[1]/[0]" artifact]]]
+   ["[0]" io
+    ["[1]" archive]]
+   [//
+    [language
+     ["$" lux (.only)
+      [phase
+       [translation
+        [jvm
+         ["[0]" runtime (.only Definition)]]]]]]]]])
+
+(import java/lang/Object
+  "[1]::[0]")
+
+(import java/lang/String
+  "[1]::[0]")
+
+(import java/util/jar/Attributes
+  "[1]::[0]"
+  (put [java/lang/Object java/lang/Object] "?" java/lang/Object))
+
+(import java/util/jar/Attributes$Name
+  "[1]::[0]"
+  ("read_only" "static" MAIN_CLASS java/util/jar/Attributes$Name)
+  ("read_only" "static" MANIFEST_VERSION java/util/jar/Attributes$Name))
+
+(import java/util/jar/Manifest
+  "[1]::[0]"
+  (new [])
+  (getMainAttributes [] java/util/jar/Attributes))
+
+(import java/io/Flushable
+  "[1]::[0]"
+  (flush [] void))
+
+(import java/io/Closeable
+  "[1]::[0]"
+  (close [] void))
+
+(import java/io/OutputStream
+  "[1]::[0]"
+  (write [[byte] int int] void))
+
+(import java/io/ByteArrayOutputStream
+  "[1]::[0]"
+  (new [int])
+  (toByteArray [] [byte]))
+
+(import java/util/zip/ZipEntry
+  "[1]::[0]"
+  (getName [] java/lang/String)
+  (isDirectory [] boolean)
+  (getSize [] long))
+
+(import java/util/zip/ZipOutputStream
+  "[1]::[0]"
+  (write [[byte] int int] void)
+  (closeEntry [] void))
+
+(import java/util/jar/JarEntry
+  "[1]::[0]"
+  (new [java/lang/String]))
+
+(import java/util/jar/JarOutputStream
+  "[1]::[0]"
+  (new [java/io/OutputStream java/util/jar/Manifest])
+  (putNextEntry [java/util/zip/ZipEntry] "try" void))
+
+(import java/io/ByteArrayInputStream
+  "[1]::[0]"
+  (new [[byte]]))
+
+(import java/io/InputStream
+  "[1]::[0]"
+  (read [[byte] int int] int))
+
+(import java/util/jar/JarInputStream
+  "[1]::[0]"
+  (new [java/io/InputStream])
+  (getNextJarEntry [] "try" "?" java/util/jar/JarEntry))
+
+(the byte
+  1)
+
+... https://en.wikipedia.org/wiki/Kibibyte
+(the kibi_byte
+  (n.* 1,024 byte))
+
+... https://en.wikipedia.org/wiki/Mebibyte
+(the mebi_byte
+  (n.* 1,024 kibi_byte))
+
+(the manifest_version
+  "1.0")
+
+(the (manifest program)
+  (-> (Maybe unit.ID) java/util/jar/Manifest)
+  (let [manifest (java/util/jar/Manifest::new [])
+        attrs (to (java/util/jar/Manifest::getMainAttributes [] manifest)
+                  (java/util/jar/Attributes::put [(java/util/jar/Attributes$Name::MANIFEST_VERSION)
+                                                  (ffi.as_string ..manifest_version)]))]
+    (exec
+      (when program
+        {.#Some program}
+        (to attrs
+            (java/util/jar/Attributes::put [(java/util/jar/Attributes$Name::MAIN_CLASS)
+                                            (|> program
+                                                runtime.class_name
+                                                internal.name
+                                                internal.external
+                                                ffi.as_string)]))
+        
+        {.#None}
+        attrs)
+      manifest)))
+
+(the (write_class static module artifact custom content sink)
+  (-> Context module.ID artifact.ID (Maybe Text) Binary java/util/jar/JarOutputStream
+      (Try java/util/jar/JarOutputStream))
+  (let [class_path (|> custom
+                       (maybe#each (|>> internal.name internal.value))
+                       (maybe.else (runtime.class_name [module artifact]))
+                       (text.replaced "." "/")
+                       (text.suffix (its context.#artifact_extension static)))]
+    (do try.monad
+      [_ (java/util/jar/JarOutputStream::putNextEntry [(java/util/jar/JarEntry::new [(ffi.as_string class_path)])]
+                                                      sink)]
+      (in (to sink
+              (java/util/zip/ZipOutputStream::write [content (ffi.as_int +0) (ffi.as_int (.integer (binary.size content)))])
+              (java/io/Flushable::flush [])
+              (java/util/zip/ZipOutputStream::closeEntry []))))))
+
+(the (write_module static necessary_dependencies [module output] sink)
+  (-> Context (Set unit.ID) [module.ID Output] java/util/jar/JarOutputStream
+      (Try java/util/jar/JarOutputStream))
+  (let [! try.monad]
+    (monad.mix try.monad
+               (function (_ [artifact custom content] sink)
+                 (if (set.member? necessary_dependencies [module artifact])
+                   (..write_class static module artifact custom content sink)
+                   (by ! in sink)))
+               sink
+               (sequence.as_stack output))))
+
+(the (read_jar_entry_with_unknown_size input)
+  (-> java/util/jar/JarInputStream [Natural Binary])
+  (let [chunk (binary.empty ..mebi_byte)
+        chunk_size (.integer ..mebi_byte)
+        buffer (java/io/ByteArrayOutputStream::new [(ffi.as_int chunk_size)])]
+    (loop (again [so_far 0])
+      (when (ffi.of_int (java/io/InputStream::read [chunk (ffi.as_int +0) (ffi.as_int chunk_size)] input))
+        -1
+        [so_far
+         (java/io/ByteArrayOutputStream::toByteArray [] buffer)]
+        
+        bytes_read
+        (exec
+          (java/io/OutputStream::write [chunk (ffi.as_int +0) (ffi.as_int bytes_read)] buffer)
+          (again (|> bytes_read .natural (n.+ so_far))))))))
+
+(the (read_jar_entry_with_known_size expected_size input)
+  (-> Natural java/util/jar/JarInputStream [Natural Binary])
+  (let [buffer (binary.empty expected_size)]
+    (loop (again [so_far 0])
+      (let [so_far' (|> input
+                        (java/io/InputStream::read [buffer (ffi.as_int (.integer so_far)) (ffi.as_int (.integer (n.- so_far expected_size)))])
+                        ffi.of_int
+                        .natural
+                        (n.+ so_far))]
+        (if (n.= expected_size so_far')
+          [expected_size buffer]
+          (again so_far'))))))
+
+(the (read_jar_entry entry input)
+  (-> java/util/jar/JarEntry java/util/jar/JarInputStream [Natural Binary])
+  (when (ffi.of_long (java/util/zip/ZipEntry::getSize [] entry))
+    -1
+    (..read_jar_entry_with_unknown_size input)
+    
+    entry_size
+    (..read_jar_entry_with_known_size (.natural entry_size) input)))
+
+(the (write_host_dependency jar [entries duplicates sink])
+  (-> Binary
+      [(Set file.Path) (Set file.Path) java/util/jar/JarOutputStream]
+      (Try [(Set file.Path) (Set file.Path) java/util/jar/JarOutputStream]))
+  (let [input (|> jar
+                  [] java/io/ByteArrayInputStream::new
+                  [] java/util/jar/JarInputStream::new)]
+    (loop (again [entries entries
+                  duplicates duplicates
+                  sink sink])
+      (when (java/util/jar/JarInputStream::getNextJarEntry [] input)
+        {try.#Failure error}
+        {try.#Failure error}
+        
+        {try.#Success ?entry}
+        (when ?entry
+          {.#None}
+          (exec
+            (java/io/Closeable::close [] input)
+            {try.#Success [entries duplicates sink]})
+          
+          {.#Some entry}
+          (let [entry_path (ffi.of_string (java/util/zip/ZipEntry::getName [] entry))
+                entry_size (ffi.of_long (java/util/zip/ZipEntry::getSize [] entry))]
+            (if (not (or (ffi.of_boolean (java/util/zip/ZipEntry::isDirectory [] entry))
+                         (or (text.starts_with? "META-INF/maven/" entry_path)
+                             (text.starts_with? "META-INF/leiningen/" entry_path))
+                         (or (text.ends_with? ".SF" entry_path)
+                             (text.ends_with? ".DSA" entry_path))))
+              (when (java/util/jar/JarOutputStream::putNextEntry [(java/util/jar/JarEntry::new [(ffi.as_string entry_path)])]
+                                                                 sink)
+                {try.#Failure error}
+                (again entries
+                       (set.has entry_path duplicates)
+                       sink)
+                
+                {try.#Success _}
+                (let [[entry_size entry_data] (read_jar_entry entry input)]
+                  (again (set.has entry_path entries)
+                         duplicates
+                         (to sink
+                             (java/util/zip/ZipOutputStream::write [entry_data (ffi.as_int +0) (ffi.as_int (.integer entry_size))])
+                             (java/io/Flushable::flush [])
+                             (java/util/zip/ZipOutputStream::closeEntry [])))))
+              (again entries
+                     duplicates
+                     sink))))))))
+
+(the .public (package static)
+  (-> Context Packager)
+  (function (_ host_dependencies archive program)
+    (do [! try.monad]
+      [.let [necessary_dependencies (cache/artifact.necessary_dependencies archive)]
+       order (cache/module.load_order $.key archive)
+       .let [buffer (java/io/ByteArrayOutputStream::new [(ffi.as_int (.integer ..mebi_byte))])]
+       sink (|> order
+                (stack#each (function (_ [module [module_id entry]])
+                              [module_id (its archive.#output entry)]))
+                (monad.mix ! (..write_module static necessary_dependencies)
+                           (java/util/jar/JarOutputStream::new [buffer (..manifest program)])))
+       [entries duplicates sink] (|> host_dependencies
+                                     dictionary.values
+                                     (monad.mix ! ..write_host_dependency
+                                                [(set.empty text.hash)
+                                                 (set.empty text.hash)
+                                                 sink]))
+       .let [_ (to sink
+                   (java/io/Flushable::flush [])
+                   (java/io/Closeable::close []))]]
+      (in (|> buffer
+              (java/io/ByteArrayOutputStream::toByteArray [])
+              {.#Left})))))

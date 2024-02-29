@@ -1,0 +1,263 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]]
+   [control
+    ["[0]" try]
+    ["[0]" exception]]
+   [data
+    ["[0]" product]
+    ["[0]" text (.only)
+     ["%" \\injection]]
+    [collection
+     ["[0]" stack]
+     ["[0]" set]
+     ["[0]" sequence]]]
+   [math
+    ["[0]" random (.only Random)]
+    [number
+     ["n" natural]]]
+   [meta
+    ["[0]" configuration
+     ["[1]T" \\test]]]
+   [test
+    ["_" property (.only Test)]]]]
+ [\\library
+  ["[0]" / (.only)
+   ["[1][0]" key]
+   ["[1][0]" registry]
+   ["[1][0]" signature]
+   ["[1][0]" module (.only)
+    ["[2][0]" document]
+    ["[2][0]" descriptor]]]]
+ ["$[0]" /
+  ["[1][0]" signature]
+  ["[1][0]" key]
+  ["[1][0]" artifact]
+  ["[1][0]" registry]
+  ["[1][0]" module]
+  ["[1][0]" unit]])
+
+(the .public (descriptor module hash)
+  (-> /descriptor.Module Natural /descriptor.Descriptor)
+  [/descriptor.#name module
+   /descriptor.#file (text module ".lux")
+   /descriptor.#hash hash
+   /descriptor.#state {.#Active}
+   /descriptor.#references (set.empty text.hash)])
+
+(the test|entry
+  Test
+  (do random.monad
+    [module/0 (random.lower_cased 1)
+     module/1 (random.lower_cased 2)
+     signature $/signature.random
+     .let [version (its /signature.#version signature)]
+     fake_version (random.only (|>> (n.= version) not) random.natural)
+     content/0 random.natural
+     content/1 (random.only (|>> (n.= content/0) not) random.natural)
+     hash random.natural
+     configuration (configurationT.random 1)
+     .let [key (/key.key signature content/0)]]
+    (all _.and
+         (_.coverage [/.has /.find]
+           (|> (do try.monad
+                 [[@module/0 archive] (/.reserve module/0 /.empty)
+                  .let [entry [/.#module [/module.#id @module/0
+                                          /module.#descriptor (..descriptor module/0 hash)
+                                          /module.#document (/document.document key content/0)]
+                               /.#output sequence.empty
+                               /.#registry /registry.empty]]
+                  archive (/.has module/0 entry archive)
+                  entry' (/.find module/0 archive)]
+                 (in (same? entry entry')))
+               (try.else false)))
+         (_.coverage [/.module_is_only_reserved]
+           (|> (do try.monad
+                 [[@module/0 archive] (/.reserve module/0 /.empty)
+                  entry' (/.find module/0 archive)]
+                 (in false))
+               (exception.else (exception.is? /.module_is_only_reserved))))
+         (_.coverage [/.cannot_replace_document]
+           (|> (do try.monad
+                 [[@module/0 archive] (/.reserve module/0 /.empty)
+                  .let [entry/0 [/.#module [/module.#id @module/0
+                                            /module.#descriptor (..descriptor module/0 hash)
+                                            /module.#document (/document.document key content/0)]
+                                 /.#output sequence.empty
+                                 /.#registry /registry.empty]
+                        entry/1 [/.#module [/module.#id @module/0
+                                            /module.#descriptor (..descriptor module/0 hash)
+                                            /module.#document (/document.document key content/1)]
+                                 /.#output sequence.empty
+                                 /.#registry /registry.empty]]
+                  archive (/.has module/0 entry/0 archive)
+                  archive (/.has module/0 entry/1 archive)]
+                 (in false))
+               (exception.else (exception.is? /.cannot_replace_document))))
+         (_.coverage [/.module_must_be_reserved_before_it_can_be_added]
+           (|> (do try.monad
+                 [.let [entry [/.#module [/module.#id 0
+                                          /module.#descriptor (..descriptor module/0 hash)
+                                          /module.#document (/document.document key content/0)]
+                               /.#output sequence.empty
+                               /.#registry /registry.empty]]
+                  archive (/.has module/0 entry /.empty)]
+                 (in false))
+               (exception.else (exception.is? /.module_must_be_reserved_before_it_can_be_added))))
+         (_.coverage [/.archived?]
+           (|> (do try.monad
+                 [[@module/0 archive] (/.reserve module/0 /.empty)
+                  .let [pre (/.archived? archive module/0)
+                        entry [/.#module [/module.#id @module/0
+                                          /module.#descriptor (..descriptor module/0 hash)
+                                          /module.#document (/document.document key content/0)]
+                               /.#output sequence.empty
+                               /.#registry /registry.empty]]
+                  archive (/.has module/0 entry archive)
+                  .let [post (/.archived? archive module/0)]]
+                 (in (and (not pre) post)))
+               (try.else false)))
+         (_.coverage [/.unknown_document]
+           (and (|> (do try.monad
+                      [_ (/.id module/0 /.empty)]
+                      (in false))
+                    (exception.else (exception.is? /.unknown_document)))
+                (|> (do try.monad
+                      [_ (/.find module/0 /.empty)]
+                      (in false))
+                    (exception.else (exception.is? /.unknown_document)))))
+         (_.coverage [/.archived]
+           (|> (do try.monad
+                 [[@module/0 archive] (/.reserve module/0 /.empty)
+                  .let [pre (/.archived archive)
+                        entry [/.#module [/module.#id @module/0
+                                          /module.#descriptor (..descriptor module/0 hash)
+                                          /module.#document (/document.document key content/0)]
+                               /.#output sequence.empty
+                               /.#registry /registry.empty]]
+                  archive (/.has module/0 entry archive)
+                  .let [post (/.archived archive)
+                        (open "stack#[0]") (stack.equivalence text.equivalence)]]
+                 (in (and (stack#= (stack) pre)
+                          (stack#= (stack module/0) post))))
+               (try.else false)))
+         (_.coverage [/.entries]
+           (|> (do try.monad
+                 [[@module/0 archive] (/.reserve module/0 /.empty)
+                  .let [pre (/.entries archive)
+                        entry [/.#module [/module.#id @module/0
+                                          /module.#descriptor (..descriptor module/0 hash)
+                                          /module.#document (/document.document key content/0)]
+                               /.#output sequence.empty
+                               /.#registry /registry.empty]]
+                  archive (/.has module/0 entry archive)]
+                 (in (and (stack.empty? pre)
+                          (when (/.entries archive)
+                            (stack [module/0' @module/0' entry'])
+                            (and (same? module/0 module/0')
+                                 (same? @module/0 @module/0')
+                                 (same? entry entry'))
+
+                            _
+                            false))))
+               (try.else false)))
+         (_.coverage [/.export /.import]
+           (|> (do try.monad
+                 [[@module/0 archive] (/.reserve module/0 /.empty)
+                  [@module/1 archive] (/.reserve module/1 archive)
+                  .let [entry/0 [/.#module [/module.#id @module/0
+                                            /module.#descriptor (..descriptor module/0 hash)
+                                            /module.#document (/document.document key content/0)]
+                                 /.#output sequence.empty
+                                 /.#registry /registry.empty]
+                        entry/1 [/.#module [/module.#id @module/1
+                                            /module.#descriptor (..descriptor module/1 hash)
+                                            /module.#document (/document.document key content/1)]
+                                 /.#output sequence.empty
+                                 /.#registry /registry.empty]]
+                  archive (/.has module/0 entry/0 archive)
+                  archive (/.has module/1 entry/1 archive)
+                  .let [pre (/.reserved archive)]
+                  archive (|> archive
+                              (/.export version configuration)
+                              (/.import version configuration))
+                  .let [post (/.reserved archive)]]
+                 (in (set.= (set.of_stack text.hash pre)
+                            (set.of_stack text.hash post))))
+               (try.else false)))
+         (_.coverage [/.version_mismatch]
+           (|> (do try.monad
+                 [archive (|> /.empty
+                              (/.export version configuration)
+                              (/.import fake_version configuration))]
+                 (in false))
+               (exception.else (exception.is? /.version_mismatch))))
+         )))
+
+(the .public test
+  Test
+  (<| (_.covering /._)
+      (do random.monad
+        [module/0 (random.lower_cased 1)
+         module/1 (random.lower_cased 2)
+         signature $/signature.random
+         content/0 random.natural
+         content/1 (random.only (|>> (n.= content/0) not) random.natural)
+         hash random.natural
+         .let [key (/key.key signature content/0)]])
+      (all _.and
+           (<| (_.for [/.Archive])
+               (all _.and
+                    (_.coverage [/.empty]
+                      (stack.empty? (/.entries /.empty)))
+                    (_.coverage [/.reserve /.id]
+                      (|> (do try.monad
+                            [[@module/0 archive] (/.reserve module/0 /.empty)
+                             [@module/1 archive] (/.reserve module/1 archive)
+                             @module/0' (/.id module/0 archive)
+                             @module/1' (/.id module/1 archive)]
+                            (in (and (same? @module/0 @module/0')
+                                     (same? @module/1 @module/1'))))
+                          (try.else false)))
+                    (_.coverage [/.reserved]
+                      (|> (do try.monad
+                            [[@module/0 archive] (/.reserve module/0 /.empty)
+                             [@module/1 archive] (/.reserve module/1 archive)]
+                            (in (set.= (set.of_stack text.hash (stack module/0 module/1))
+                                       (set.of_stack text.hash (/.reserved archive)))))
+                          (try.else false)))
+                    (_.coverage [/.reservations]
+                      (|> (do try.monad
+                            [[@module/0 archive] (/.reserve module/0 /.empty)
+                             [@module/1 archive] (/.reserve module/1 archive)
+                             .let [hash (product.hash text.hash n.hash)]]
+                            (in (set.= (set.of_stack hash (stack [module/0 @module/0] [module/1 @module/1]))
+                                       (set.of_stack hash (/.reservations archive)))))
+                          (try.else false)))
+                    (_.coverage [/.module_has_already_been_reserved]
+                      (|> (do try.monad
+                            [[@module/0 archive] (/.reserve module/0 /.empty)
+                             _ (/.reserve module/0 archive)]
+                            (in false))
+                          (exception.else (exception.is? /.module_has_already_been_reserved))))
+                    (_.coverage [/.reserved?]
+                      (|> (do try.monad
+                            [[@module/0 archive] (/.reserve module/0 /.empty)]
+                            (in (and (/.reserved? archive module/0)
+                                     (not (/.reserved? archive module/1)))))
+                          (try.else false)))))
+           (_.for [/.Entry]
+                  ..test|entry)
+
+           $/signature.test
+           $/key.test
+           $/artifact.test
+           $/registry.test
+           $/module.test
+           $/unit.test
+           )))

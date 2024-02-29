@@ -1,0 +1,469 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except Code
+                if or and comment let)
+   [control
+    ["[0]" pipe]]
+   [data
+    ["[0]" text (.only)
+     ["%" \\injection]]
+    [collection
+     ["[0]" stack (.use "[1]#[0]" monad monoid)]]]
+   [math
+    [number
+     ["d" decimal]]]
+   [macro
+    ["[0]" template]
+    ["[0]" expansion]]
+   [type
+    ["[0]" nominal]]]])
+
+(the as_form
+  (-> Text Text)
+  (text.enclosed ["(" ")"]))
+
+(nominal.every .public (Code brand)
+  Text
+
+  (the .public manual
+    (-> Text Code)
+    (|>> nominal.abstraction))
+
+  (the .public code
+    (-> (Code Any) Text)
+    (|>> nominal.representation))
+
+  (template.with [<type> <super>]
+    [(expansion.let [<brand> (template.name [<type> "'"])]
+       (these (`` (nominal.every .public (<brand> brand) Any))
+              (`` (every .public (<type> brand)
+                    (<super> (<brand> brand))))))]
+
+    [Expression Code]
+    [Computation Expression]
+    [Access Computation]
+    [Var Access]
+
+    [Input Code]
+    )
+
+  (template.with [<type> <super>]
+    [(expansion.let [<brand> (template.name [<type> "'"])]
+       (these (`` (nominal.every .public <brand> Any))
+              (`` (every .public <type> (<super> <brand>)))))]
+
+    [Label Code]
+    [Tag Expression]
+    [Literal Expression]
+    [Var/1 Var]
+    [Var/* Input]
+    )
+
+  (every .public Lambda
+    (Record
+     [#input Var/*
+      #output (Expression Any)]))
+
+  (the .public nil
+    Literal
+    (nominal.abstraction "()"))
+
+  (template.with [<prefix> <name>]
+    [(the .public <name>
+       (-> Text Literal)
+       (|>> (text <prefix>) nominal.abstraction))]
+    
+    ["'" symbol]
+    [":" keyword])
+
+  (the .public bool
+    (-> Bit Literal)
+    (|>> (pipe.when
+           #0 ..nil
+           #1 (..symbol "t"))))
+
+  (the .public int
+    (-> Integer Literal)
+    (|>> %.integer nominal.abstraction))
+
+  (the .public float
+    (-> Decimal Literal)
+    (|>> (pipe.if [(d.= d.positive_infinity)]
+           [(pipe.new "(/ 1.0 0.0)" [])]
+           
+           [(d.= d.negative_infinity)]
+           [(pipe.new "(/ -1.0 0.0)" [])]
+           
+           [d.not_a_number?]
+           [(pipe.new "(/ 0.0 0.0)" [])]
+           
+           ... else
+           [%.decimal])
+         nominal.abstraction))
+
+  (the .public (double value)
+    (-> Decimal Literal)
+    (nominal.abstraction
+     (.if (d.= d.positive_infinity value)
+       "(/ 1.0d0 0.0d0)"
+       
+       (d.= d.negative_infinity value)
+       "(/ -1.0d0 0.0d0)"
+       
+       (d.not_a_number? value)
+       "(/ 0.0d0 0.0d0)"
+       
+       ... else
+       (.let [raw (%.decimal value)]
+         (.if (text.contains? "E" raw)
+           (text.replaced_once "E" "d" raw)
+           (text raw "d0"))))))
+
+  (the safe
+    (-> Text Text)
+    (`` (|>> (,, (template.with [<find> <replace>]
+                   [(text.replaced <find> <replace>)]
+
+                   ["\" "\\"]
+                   [text.tab "\t"]
+                   [text.vertical_tab "\v"]
+                   [text.null "\0"]
+                   [text.back_space "\b"]
+                   [text.form_feed "\f"]
+                   [text.\n "\n"]
+                   [text.carriage_return "\r"]
+                   [text.double_quote (text "\" text.double_quote)]
+                   ))
+             )))
+
+  (the .public string
+    (-> Text Literal)
+    (|>> ..safe
+         (text.enclosed' text.double_quote)
+         nominal.abstraction))
+
+  (the .public var
+    (-> Text Var/1)
+    (|>> nominal.abstraction))
+
+  (the .public args
+    (-> (Stack Var/1) Var/*)
+    (|>> (stack#each ..code)
+         (text.interposed " ")
+         ..as_form
+         nominal.abstraction))
+
+  (the .public (args& singles rest)
+    (-> (Stack Var/1) Var/1 Var/*)
+    (|> (when singles
+          {.#Empty}
+          ""
+          
+          {.#Top _}
+          (|> singles
+              (stack#each ..code)
+              (text.interposed " ")
+              (text.suffix " ")))
+        (text "&rest " (nominal.representation rest))
+        ..as_form
+        nominal.abstraction))
+
+  (the form
+    (-> (Stack (Expression Any)) Expression)
+    (|>> (stack#each ..code)
+         (text.interposed " ")
+         ..as_form
+         nominal.abstraction))
+
+  (the .public (call/* func)
+    (-> (Expression Any) (-> (Stack (Expression Any)) (Computation Any)))
+    (|>> {.#Top func} ..form))
+  
+  (template.with [<name> <function>]
+    [(the .public <name>
+       (-> (Stack (Expression Any)) (Computation Any))
+       (..call/* (..var <function>)))]
+
+    [vector/* "vector"]
+    [list/*   "list"]
+    )
+
+  (the .public (labels definitions body)
+    (-> (Stack [Var/1 Lambda]) (Expression Any) (Computation Any))
+    (..form (stack (..var "labels")
+                   (..form (stack#each (function (_ [def_name [def_args def_body]])
+                                         (..form (stack def_name (nominal.transmutation def_args) def_body)))
+                                       definitions))
+                   body)))
+
+  (the .public (destructuring_bind [bindings expression] body)
+    (-> [Var/* (Expression Any)] (Stack (Expression Any)) (Computation Any))
+    (..form (stack.partial (..var "destructuring-bind")
+                           (nominal.transmutation bindings) expression
+                           body)))
+
+  (template.with [<call> <input_var>+ <input_type>+ <function>+]
+    [(`` (the .public (<call> [(,, (template.spliced <input_var>+))] function)
+           (-> [(,, (template.spliced <input_type>+))] (Expression Any) (Computation Any))
+           (..call/* function (stack (,, (template.spliced <input_var>+))))))
+
+     (`` (template.with [<lux_name> <host_name>]
+           [(the .public (<lux_name> args)
+              (-> [(,, (template.spliced <input_type>+))] (Computation Any))
+              (<call> args (..var <host_name>)))]
+           
+           (,, (template.spliced <function>+))))]
+
+    [call/0 [] []
+     [[get_universal_time/0 "get-universal-time"]
+      [make_hash_table/0 "make-hash-table"]]]
+    [call/1 [in0] [(Expression Any)]
+     [[length/1 "length"]
+      [function/1 "function"]
+      [copy_seq/1 "copy-seq"]
+      [null/1 "null"]
+      [error/1 "error"]
+      [not/1 "not"]
+      [floor/1 "floor"]
+      [type_of/1 "type-of"]
+      [write_to_string/1 "write-to-string"]
+      [read_from_string/1 "read-from-string"]
+      [print/1 "print"]
+      [reverse/1 "reverse"]
+      [sxhash/1 "sxhash"]
+      [string_upcase/1 "string-upcase"]
+      [string_downcase/1 "string-downcase"]
+      [char_int/1 "char-int"]
+      [text/1 "text"]
+      [hash_table_size/1 "hash-table-size"]
+      [hash_table_rehash_size/1 "hash-table-rehash-size"]
+      [code_char/1 "code-char"]
+      [char_code/1 "char-code"]
+      [string/1 "string"]
+      [write_line/1 "write-line"]
+      [pprint/1 "pprint"]
+      [identity/1 "identity"]]]
+    [call/2 [in0 in1] [(Expression Any) (Expression Any)]
+     [[apply/2 "apply"]
+      [append/2 "append"]
+      [cons/2 "cons"]
+      [char/2 "char"]
+      [nth/2 "nth"]
+      [nthcdr/2 "nthcdr"]
+      [coerce/2 "coerce"]
+      [eq/2 "eq"]
+      [equal/2 "equal"]
+      [string=/2 "string="]
+      [=/2   "="]
+      [+/2   "+"]
+      [*/2   "*"]]]
+    [call/3 [in0 in1 in2] [(Expression Any) (Expression Any) (Expression Any)]
+     [[subseq/3 "subseq"]
+      [map/3 "map"]
+      [concatenate/3 "concatenate"]
+      [format/3 "format"]]]
+    )
+
+  (template.with [<call> <input_type>+ <function>+]
+    [(`` (template.with [<lux_name> <host_name>]
+           [(the .public (<lux_name> args)
+              (-> [(,, (template.spliced <input_type>+))] (Access Any))
+              (nominal.transmutation (<call> args (..var <host_name>))))]
+           
+           (,, (template.spliced <function>+))))]
+
+    [call/1 [(Expression Any)]
+     [[car/1 "car"]
+      [cdr/1 "cdr"]
+      [cadr/1 "cadr"]
+      [cddr/1 "cddr"]]]
+    [call/2 [(Expression Any) (Expression Any)]
+     [[svref/2 "svref"]
+      [elt/2 "elt"]
+      [gethash/2 "gethash"]]]
+    )
+
+  (the .public (make_hash_table/with_size size)
+    (-> (Expression Any) (Computation Any))
+    (..call/* (..var "make-hash-table")
+              (stack (..keyword "size")
+                     size)))
+
+  (the .public (funcall/+ [func args])
+    (-> [(Expression Any) (Stack (Expression Any))] (Computation Any))
+    (..call/* (..var "funcall") (stack.partial func args)))
+
+  (the .public (search/3 [reference space start])
+    (-> [(Expression Any) (Expression Any) (Expression Any)] (Computation Any))
+    (..call/* (..var "search")
+              (stack reference
+                     space
+                     (..keyword "start2") start)))
+
+  (the .public (concatenate/2|string [left right])
+    (-> [(Expression Any) (Expression Any)] (Computation Any))
+    (concatenate/3 [(..symbol "string") left right]))
+
+  (template.with [<lux_name> <host_name>]
+    [(the .public (<lux_name> left right)
+       (-> (Expression Any) (Expression Any) (Computation Any))
+       (..form (stack (..var <host_name>) left right)))]
+
+    [or "or"]
+    [and "and"]
+    )
+
+  (template.with [<lux_name> <host_name>]
+    [(the .public (<lux_name> [param subject])
+       (-> [(Expression Any) (Expression Any)] (Computation Any))
+       (..form (stack (..var <host_name>) subject param)))]
+
+    [</2   "<"]
+    [<=/2  "<="]
+    [>/2   ">"]
+    [>=/2  ">="]
+    [string</2 "string<"]
+    [-/2   "-"]
+    [//2   "/"]
+    [rem/2 "rem"]
+    [floor/2 "floor"]
+    [mod/2 "mod"]
+    [ash/2 "ash"]
+    [logand/2 "logand"]
+    [logior/2 "logior"]
+    [logxor/2 "logxor"]
+    )
+
+  (the .public (if test then else)
+    (-> (Expression Any) (Expression Any) (Expression Any) (Computation Any))
+    (..form (stack (..var "if") test then else)))
+
+  (the .public (when test then)
+    (-> (Expression Any) (Expression Any) (Computation Any))
+    (..form (stack (..var "when") test then)))
+
+  (the .public (lambda input body)
+    (-> Var/* (Expression Any) Literal)
+    (..form (stack (..var "lambda") (nominal.transmutation input) body)))
+
+  (template.with [<lux_name> <host_name>]
+    [(the .public (<lux_name> bindings body)
+       (-> (Stack [Var/1 (Expression Any)]) (Stack (Expression Any)) (Computation Any))
+       (..form (stack.partial (..var <host_name>)
+                              (|> bindings
+                                  (stack#each (function (_ [name value])
+                                                (..form (stack name value))))
+                                  ..form)
+                              body)))]
+
+    [let  "let"]
+    [let* "let*"]
+    )
+
+  (the .public (defparameter name body)
+    (-> Var/1 (Expression Any) (Expression Any))
+    (..form (stack (..var "defparameter") name body)))
+
+  (the .public (defun name inputs body)
+    (-> Var/1 Var/* (Expression Any) (Expression Any))
+    (..form (stack (..var "defun") name (nominal.transmutation inputs) body)))
+
+  (template.with [<name> <name>]
+    [(the .public <name>
+       (-> (Stack (Expression Any)) (Computation Any))
+       (|>> (stack.partial (..var <name>)) ..form))]
+
+    [progn "progn"]
+    [tagbody "tagbody"]
+    [values/* "values"]
+    )
+
+  (the .public (setq name value)
+    (-> Var/1 (Expression Any) (Expression Any))
+    (..form (stack (..var "setq") name value)))
+
+  (the .public (setf access value)
+    (-> (Access Any) (Expression Any) (Expression Any))
+    (..form (stack (..var "setf") access value)))
+
+  (every .public Handler
+    (Record
+     [#condition_type (Expression Any)
+      #condition Var/1
+      #body (Expression Any)]))
+  
+  (the .public (handler_case handlers body)
+    (-> (Stack Handler) (Expression Any) (Computation Any))
+    (..form (stack.partial (..var "handler-case")
+                           body
+                           (stack#each (function (_ [type condition handler])
+                                         (..form (stack type
+                                                        (nominal.transmutation (..args (stack condition)))
+                                                        handler)))
+                                       handlers))))
+
+  (template.with [<name> <prefix>]
+    [(the .public (<name> conditions expression)
+       (-> (Stack Text) (Expression Any) (Expression Any))
+       (when conditions
+         {.#Empty}
+         expression
+         
+         {.#Top single {.#Empty}}
+         (nominal.abstraction
+          (text <prefix> single " " (nominal.representation expression)))
+         
+         _
+         (nominal.abstraction
+          (text <prefix> (|> conditions (stack#each ..symbol)
+                             (stack.partial (..symbol "or")) ..form
+                             nominal.representation)
+                " " (nominal.representation expression)))))]
+
+    [conditional+ "#+"]
+    [conditional- "#-"])
+
+  (the .public label
+    (-> Text Label)
+    (|>> nominal.abstraction))
+
+  (the .public (block name body)
+    (-> Label (Stack (Expression Any)) (Computation Any))
+    (..form (stack.partial (..var "block") (nominal.transmutation name) body)))
+
+  (the .public (return_from target value)
+    (-> Label (Expression Any) (Computation Any))
+    (..form (stack (..var "return-from") (nominal.transmutation target) value)))
+
+  (the .public (return value)
+    (-> (Expression Any) (Computation Any))
+    (..form (stack (..var "return") value)))
+
+  (the .public tag
+    (-> Text Tag)
+    (|>> nominal.abstraction))
+
+  (the .public go
+    (-> Tag (Expression Any))
+    (|>> (stack (..var "go"))
+         ..form))
+
+  (the .public values_list/1
+    (-> (Expression Any) (Expression Any))
+    (|>> (stack (..var "values-list"))
+         ..form))
+
+  (the .public (multiple_value_setq bindings values)
+    (-> Var/* (Expression Any) (Expression Any))
+    (..form (stack (..var "multiple-value-setq")
+                   (nominal.transmutation bindings)
+                   values)))
+  )
+
+(the .public (while condition body)
+  (-> (Expression Any) (Expression Any) (Computation Any))
+  (..form (stack (..var "loop") (..var "while") condition
+                 (..var "do") body)))
