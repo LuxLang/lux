@@ -11,7 +11,6 @@
 
 # Platform
 
-0. []()
 0. [Wasmer Java](https://github.com/wasmerio/wasmer-java)
 0. [WAVM: WAVM is a WebAssembly virtual machine, designed for use in non-web applications.](https://wavm.github.io/)
 
@@ -26,6 +25,7 @@
 
 # Reference
 
+0. [Awesome WebAssembly runtimes](https://github.com/jcbhmr/awesome-webassembly-runtimes)
 0. [Chicory Runtime](https://github.com/dylibso/chicory)
    0. [A zero dependency Wasm runtime for the JVM](https://www.javaadvent.com/2023/12/chicory-wasm-jvm.html)
 0. [The best WebAssembly runtime may be no runtime at all](https://00f.net/2023/12/11/webassembly-compilation-to-c/)

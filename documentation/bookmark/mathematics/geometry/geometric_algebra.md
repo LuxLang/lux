@@ -1,5 +1,7 @@
 # Reference
 
+0. [Geometric Algebra in Three Dimensions](https://www.cv.nrao.edu/~mmorgan2/resources/geo3.html)
+0. [Look, Ma, No Matrices!](https://enkimute.github.io/LookMaNoMatrices/)
 0. [Matrix Gateway to Geometric Algebra, Spacetime and Spinors](https://www.garretstar.com/gateway31-July-2019.pdf)
 0. [Geometric Algebra for Electrical Engineers.](http://peeterjoot.com/writing/geometric-algebra-for-electrical-engineers/)
 0. [Practical Projective Geometric Algebra](https://terathon.com/gdc23_lengyel.pdf)

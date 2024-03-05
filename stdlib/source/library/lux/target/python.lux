@@ -4,7 +4,7 @@
 (.using
  [library
   [lux (.except Code
-                not or and if comment exec try its is when tuple)
+                not or and if comment exec try its is when tuple list)
    [abstract
     [equivalence (.only Equivalence)]
     [hash (.only Hash)]
@@ -15,7 +15,8 @@
     ["[0]" text (.only \n)
      ["%" \\injection]]
     [collection
-     ["[0]" stack (.use "[1]#[0]" functor mix)]]]
+     ["[0]" list (.use "[1]#[0]" functor)]
+     ["[0]" stack (.use "[1]#[0]" functor)]]]
    [math
     [number
      ["n" natural]
@@ -59,14 +60,14 @@
       (Equivalence (Code brand)))
     (implementation
      (the (= expected actual)
-       (by text.equivalence = (nominal.representation expected) (nominal.representation actual)))))
+       (by text.equivalence = (nominal.reification expected) (nominal.reification actual)))))
 
   (the .public hash
     (for_any (_ brand)
       (Hash (Code brand)))
     (implementation
      (the equivalence ..equivalence)
-     (the hash (|>> nominal.representation (by text.hash hash)))))
+     (the hash (|>> nominal.reification (by text.hash hash)))))
 
   (the .public manual
     (-> Text
@@ -76,7 +77,7 @@
   (the .public code
     (-> (Code Any)
         Text)
-    (|>> nominal.representation))
+    (|>> nominal.reification))
 
   (template.with [<type> <super>+]
     [(expansion.let [<brand> (template.name [<type> "'"])]
@@ -110,7 +111,7 @@
     [(the .public <name>
        (-> SVar
            ,var)
-       (|>> nominal.representation
+       (|>> nominal.reification
             (text <prefix>)
             nominal.abstraction))]
 
@@ -188,27 +189,28 @@
     (-> Text
         Literal)
     (|>> ..string
-         nominal.representation
+         nominal.reification
          (text "u")
          nominal.abstraction))
 
   (the (composite_literal left_delimiter right_delimiter entry_serializer)
     (for_any (_ of)
       (-> Text Text (-> of Text)
-          (-> (Stack of)
+          (-> (List of)
               Literal)))
     (function (_ entries)
       (<| nominal.abstraction
           ... ..expression
           (text left_delimiter
                 (|> entries
-                    (stack#each (|>> entry_serializer (text.suffix ..input_delimiter)))
+                    (list#each (|>> entry_serializer (text.suffix ..input_delimiter)))
+                    list.as_stack
                     text.together)
                 right_delimiter))))
 
   (template.with [<name> <pre> <post>]
     [(the .public <name>
-       (-> (Stack Expression)
+       (-> (List Expression)
            Literal)
        (composite_literal <pre> <post> ..code))]
 
@@ -221,35 +223,38 @@
         Access)
     (<| nominal.abstraction
         ... ..expression
-        (text (nominal.representation list) "[" (nominal.representation from) ":" (nominal.representation to) "]")))
+        (text (nominal.reification list) "[" (nominal.reification from) ":" (nominal.reification to) "]")))
 
   (the .public (slice_from from list)
     (-> Expression Expression
         Access)
     (<| nominal.abstraction
         ... ..expression
-        (text (nominal.representation list) "[" (nominal.representation from) ":]")))
+        (text (nominal.reification list) "[" (nominal.reification from) ":]")))
 
   (the .public dict
-    (-> (Stack [Expression Expression])
+    (-> (List [Expression Expression])
         Computation)
-    (composite_literal "{" "}" (.function (_ [k v]) (text (nominal.representation k) " : " (nominal.representation v)))))
+    (composite_literal "{" "}" (.function (_ [k v]) (text (nominal.reification k) " : " (nominal.reification v)))))
 
   (the .public (apply args func)
-    (-> (Stack Expression) Expression
+    (-> (List Expression) Expression
         Computation)
     (<| nominal.abstraction
         ... ..expression
-        (text (nominal.representation func)
+        (text (nominal.reification func)
               "("
-              (|> args (stack#each ..code) (text.interposed ..input_delimiter))
+              (|> args
+                  (list#each ..code)
+                  list.as_stack
+                  (text.interposed ..input_delimiter))
               ")")))
 
   (template.with [<name> <prefix>]
     [(the .public <name>
        (-> Expression
            Expression)
-       (|>> nominal.representation
+       (|>> nominal.reification
             (text <prefix>)
             nominal.abstraction))]
 
@@ -261,10 +266,10 @@
     (-> Text Expression
         Access)
     (nominal.abstraction
-     (text (nominal.representation object) "." name)))
+     (text (nominal.reification object) "." name)))
 
   (the .public (do method args object)
-    (-> Text (Stack Expression) Expression
+    (-> Text (List Expression) Expression
         Computation)
     (|> object
         (..its method)
@@ -275,14 +280,14 @@
         Access)
     (<| nominal.abstraction
         ..expression
-        (text (nominal.representation array) "[" (nominal.representation idx) "]")))
+        (text (nominal.reification array) "[" (nominal.reification idx) "]")))
 
   (the .public (? test then else)
     (-> Expression Expression Expression
         Computation)
     (<| nominal.abstraction
         ..expression
-        (text (nominal.representation then) " if " (nominal.representation test) " else " (nominal.representation else))))
+        (text (nominal.reification then) " if " (nominal.reification test) " else " (nominal.reification else))))
 
   (template.with [<name> <op>]
     [(the .public (<name> param subject)
@@ -290,7 +295,7 @@
            Computation)
        (<| nominal.abstraction
            ..expression
-           (text (nominal.representation subject) " " <op> " " (nominal.representation param))))]
+           (text (nominal.reification subject) " " <op> " " (nominal.reification param))))]
 
     [is      "is"]
     [=       "=="]
@@ -323,38 +328,43 @@
            Computation)
        (<| nominal.abstraction
            ... ..expression
-           (text <unary> " " (nominal.representation subject))))]
+           (text <unary> " " (nominal.reification subject))))]
 
     [not "not"]
     [opposite "-"]
     )
 
   (the arguments
-    (-> (Stack Var)
+    (-> (List Var)
         Text)
-    (|>> (stack#each ..code)
+    (|>> (list#each ..code)
+         list.as_stack
          (text.interposed ..input_delimiter)))
 
   (the .public (lambda arguments body)
-    (-> (Stack Var) Expression
+    (-> (List Var) Expression
         Computation)
     (<| nominal.abstraction
         ..expression
         (text "lambda " (..arguments arguments)
-              ": " (nominal.representation body))))
+              ": " (nominal.reification body))))
 
   (the .public (set vars value)
-    (-> (Stack Location) Expression
+    (-> (List Location) Expression
         Statement)
     (nominal.abstraction
-     (text (|> vars (stack#each ..code) (text.interposed ..input_delimiter))
+     (text (|> vars
+               (list#each ..code)
+               list.as_stack
+               (text.interposed ..input_delimiter))
            " = "
-           (nominal.representation value))))
+           (nominal.reification value))))
 
   (the .public multi
-    (-> (Stack Expression)
+    (-> (List Expression)
         Expression)
-    (|>> (stack#each ..code)
+    (|>> (list#each ..code)
+         list.as_stack
          (text.interposed ..input_delimiter)
          nominal.abstraction))
 
@@ -362,31 +372,31 @@
     (-> Location
         Statement)
     (nominal.abstraction
-     (text "del " (nominal.representation where))))
+     (text "del " (nominal.reification where))))
 
   (the .public (if test then! else!)
     (-> Expression Statement Statement
         Statement)
     (nominal.abstraction
-     (text "if " (nominal.representation test) ":"
-           (..nested (nominal.representation then!))
+     (text "if " (nominal.reification test) ":"
+           (..nested (nominal.reification then!))
            \n+ "else:"
-           (..nested (nominal.representation else!)))))
+           (..nested (nominal.reification else!)))))
 
   (the .public (when test then!)
     (-> Expression Statement
         Statement)
     (nominal.abstraction
-     (text "if " (nominal.representation test) ":"
-           (..nested (nominal.representation then!)))))
+     (text "if " (nominal.reification test) ":"
+           (..nested (nominal.reification then!)))))
 
   (the .public (then pre! post!)
     (-> Statement Statement
         Statement)
     (nominal.abstraction
-     (text (nominal.representation pre!)
+     (text (nominal.reification pre!)
            \n+
-           (nominal.representation post!))))
+           (nominal.reification post!))))
 
   (template.with [<keyword> <0>]
     [(the .public <0>
@@ -402,12 +412,12 @@
     (-> Expression Statement (Maybe Statement)
         Loop)
     (nominal.abstraction
-     (text "while " (nominal.representation test) ":"
-           (..nested (nominal.representation body!))
+     (text "while " (nominal.reification test) ":"
+           (..nested (nominal.reification body!))
            (.when else!
              {.#Some else!}
              (text \n+ "else:"
-                   (..nested (nominal.representation else!)))
+                   (..nested (nominal.reification else!)))
              
              {.#None}
              ""))))
@@ -416,8 +426,8 @@
     (-> SVar Expression Statement
         Loop)
     (nominal.abstraction
-     (text "for " (nominal.representation var) " in " (nominal.representation inputs) ":"
-           (..nested (nominal.representation body!)))))
+     (text "for " (nominal.reification var) " in " (nominal.reification inputs) ":"
+           (..nested (nominal.reification body!)))))
 
   (the .public ;
     (-> Expression
@@ -431,21 +441,22 @@
 
   (every .public Except
     (Record
-     [#classes (Stack Text)
+     [#classes (List Text)
       #exception SVar
       #handler Statement]))
   
   (the .public (try body! excepts)
-    (-> Statement (Stack Except)
+    (-> Statement (List Except)
         Statement)
     (nominal.abstraction
      (text "try:"
-           (..nested (nominal.representation body!))
+           (..nested (nominal.reification body!))
            (|> excepts
-               (stack#each (function (_ [classes exception catch!])
-                             (text \n+ "except (" (text.interposed ..input_delimiter classes)
-                                   ") as " (nominal.representation exception) ":"
-                                   (..nested (nominal.representation catch!)))))
+               (list#each (function (_ [classes exception catch!])
+                            (text \n+ "except (" (text.interposed ..input_delimiter (list.as_stack classes))
+                                  ") as " (nominal.reification exception) ":"
+                                  (..nested (nominal.reification catch!)))))
+               list.as_stack
                text.together))))
 
   (template.with [<name> <keyword> <pre>]
@@ -453,7 +464,7 @@
        (-> Expression
            Statement)
        (nominal.abstraction
-        (text <keyword> (<pre> (nominal.representation value)))))]
+        (text <keyword> (<pre> (nominal.reification value)))))]
 
     [raise  "raise "  |>]
     [return "return " |>]
@@ -463,24 +474,28 @@
   (the .public (exec globals code)
     (-> (Maybe Expression) Expression
         Statement)
-    (let [extra (.when globals
-                  {.#Some globals}
-                  (.stack globals)
+    (|> (..tuple (.when globals
+                   {.#Some globals}
+                   (.list code globals)
 
-                  {.#None}
-                  (.stack))]
-      (nominal.abstraction
-       (text "exec" (nominal.representation (..tuple (stack.partial code extra)))))))
+                   {.#None}
+                   (.list code)))
+        nominal.reification
+        (text "exec")
+        nominal.abstraction))
 
   (the .public (def name args body)
-    (-> SVar (Stack Var) Statement
+    (-> SVar (List Var) Statement
         Statement)
     (nominal.abstraction
-     (text "def " (nominal.representation name)
+     (text "def " (nominal.reification name)
            "("
-           (|> args (stack#each ..code) (text.interposed ..input_delimiter))
+           (|> args
+               (list#each ..code)
+               list.as_stack
+               (text.interposed ..input_delimiter))
            "):"
-           (..nested (nominal.representation body)))))
+           (..nested (nominal.reification body)))))
 
   (the .public (import module_name)
     (-> Text
@@ -494,27 +509,27 @@
           (Code brand)))
     (nominal.abstraction
      (text "# "  (text.replaced text.\n "\n" commentary) \n+
-           (nominal.representation on))))
+           (nominal.reification on))))
 
   ... https://en.wikipedia.org/wiki/List_comprehension
   (the .public (list_comprehension bindings input body)
-    (-> (Stack Var) Expression Expression
+    (-> (List Var) Expression Expression
         Computation)
     (<| nominal.abstraction
         ..expression
         (text.enclosed ["[" "]"])
-        (text (nominal.representation body)
+        (text (nominal.reification body)
               " for " (..arguments bindings)
-              " in " (..expression (nominal.representation input)))))
+              " in " (..expression (nominal.reification input)))))
 
   (the .public (generator bindings input body)
-    (-> (Stack Var) Expression Expression
+    (-> (List Var) Expression Expression
         Computation)
     (<| nominal.abstraction
         ..expression
-        (text (nominal.representation body)
+        (text (nominal.reification body)
               " for " (..arguments bindings)
-              " in " (..expression (nominal.representation input)))))
+              " in " (..expression (nominal.reification input)))))
   )
 
 (the arity_inputs
@@ -536,7 +551,7 @@
        [(`` (the .public ((,, (template.name [<function> "/" <arity>])) <inputs>)
               (-> (,, (arity_types <arity>))
                   Computation)
-              (..apply (.stack <inputs>) (..var <function>))))]
+              (..apply (.list <inputs>) (..var <function>))))]
 
        <definitions>))]
 
