@@ -10,6 +10,7 @@
     ["[0]" maybe (.use "[1]#[0]" monad)]]
    [data
     [collection
+     ["[0]" list (.use "[1]#[0]" monoid)]
      ["[0]" stack]]]
    [math
     [number
@@ -27,9 +28,9 @@
     [register (.only Register)]
     ["[0]" variable (.only Variable)]]]])
 
-(every .public (Transform of)
-  (-> of
-      (Maybe of)))
+(every .public (Transform it)
+  (-> it
+      (Maybe it)))
 
 (the .public (register_optimization offset)
   (-> Register
@@ -74,8 +75,8 @@
                                           (do !
                                             [else_then (again else_then)]
                                             (in [else_test else_then])))
-                                      elses)]
-                   (in {<tag> [[test then] elses]}))]
+                                      (list.as_stack elses))]
+                   (in {<tag> [[test then] (list.of_stack elses)]}))]
 
                 [/.#I64_Fork]
                 [/.#F64_Fork]
@@ -109,8 +110,9 @@
         
         {analysis/complex.#Tuple tuple}
         (|> tuple
+            list.as_stack
             (monad.each maybe.monad (again false))
-            (maybe#each (|>> (/.tuple @)))))
+            (maybe#each (|>> list.of_stack (/.tuple @)))))
 
       [@ {/.#Reference reference}]
       (when reference
@@ -127,7 +129,7 @@
 
         (reference.foreign register)
         (if true_loop?
-          (stack.item register tail_recursion_environment)
+          (list.item register tail_recursion_environment)
           {.#Some expr}))
 
       (/.when @ [input path])
@@ -138,35 +140,37 @@
 
       (/.tail_recursion @ it)
       (do [! maybe.monad]
-        [inits' (|> it
-                    (its /.#inits)
-                    (monad.each ! (again false)))
-         iteration' (again return? (its /.#iteration it))]
+        [inits (|> it
+                   (its /.#inits)
+                   list.as_stack
+                   (monad.each ! (again false)))
+         iteration (again return? (its /.#iteration it))]
         (in (/.tail_recursion @ [/.#start (|> it (its /.#start) (register_optimization offset))
-                                 /.#inits inits'
-                                 /.#iteration iteration'])))
+                                 /.#inits (list.of_stack inits)
+                                 /.#iteration iteration])))
 
       (/.tail_iteration @ args)
       (|> args
+          list.as_stack
           (monad.each maybe.monad (again false))
-          (maybe#each (|>> (/.tail_iteration @))))
+          (maybe#each (|>> list.of_stack (/.tail_iteration @))))
 
       (/.abstraction @ [environment arity body])
       (do [! maybe.monad]
-        [environment' (monad.each ! (again false) environment)]
-        (in (/.abstraction @ [environment' arity body])))
+        [environment (monad.each ! (again false) (list.as_stack environment))]
+        (in (/.abstraction @ [(list.of_stack environment) arity body])))
       
       (/.reification @ [abstraction arguments])
       (do [! maybe.monad]
-        [arguments' (monad.each ! (again false) arguments)]
+        [arguments (monad.each ! (again false) (list.as_stack arguments))]
         (expansion.let [<application> (these (do !
-                                               [abstraction' (again false abstraction)]
-                                               (in (/.reification @ [abstraction' arguments']))))]
+                                               [abstraction (again false abstraction)]
+                                               (in (/.reification @ [abstraction (list.of_stack arguments)]))))]
           (when abstraction
             [@ {/.#Reference {reference.#Variable (variable.self)}}]
             (if (and return?
                      (n.= arity (stack.size arguments)))
-              (in (/.tail_iteration @ arguments'))
+              (in (/.tail_iteration @ (list.of_stack arguments)))
               (if true_loop?
                 {.#None}
                 <application>))
@@ -175,36 +179,44 @@
             <application>)))
 
       ... TODO: Stop relying on this custom code.
-      [@ {/.#Extension [[.prelude "when_char#|translation"] (stack.partial input else matches)]}]
+      [@ {/.#Extension [[.prelude "when_char#|translation"] parameters]}]
       (if return?
         (do [! maybe.monad]
-          [input (again false input)
+          [input (list.item 0 parameters)
+           else (list.item 1 parameters)
+
+           input (again false input)
            matches (monad.each !
                                (is (-> /.Term
                                        (Maybe /.Term))
                                    (function (_ match)
                                      (when match
-                                       [@ {/.#Structure {analysis/complex.#Tuple (stack when then)}}]
+                                       [@ {/.#Structure {analysis/complex.#Tuple tuple}}]
                                        (do !
-                                         [when (again false when)
+                                         [when (list.item 0 tuple)
+                                          then (list.item 1 tuple)
+                                          
+                                          when (again false when)
                                           then (again return? then)]
-                                         (in [@ {/.#Structure {analysis/complex.#Tuple (stack when then)}}]))
+                                         (in [@ {/.#Structure {analysis/complex.#Tuple (list when then)}}]))
 
                                        _
                                        (again false match))))
-                               matches)
+                               (list.as_stack (list.after 2 parameters)))
            else (again return? else)]
-          (in [@ {/.#Extension [[.prelude "when_char#|translation"] (stack.partial input else matches)]}]))
+          (in [@ {/.#Extension [[.prelude "when_char#|translation"] (list#composite (list input else)
+                                                                                    (list.of_stack matches))]}]))
         {.#None})
 
       [@ {/.#Extension [name args]}]
       (|> args
+          list.as_stack
           (monad.each maybe.monad (again false))
-          (maybe#each (|>> [name] {/.#Extension} [@]))))))
+          (maybe#each (|>> list.of_stack [name] {/.#Extension} [@]))))))
 
 (the .public (optimization true_loop? offset inits functionS)
-  (-> Bit Register (Stack /.Term) Abstraction
-      (Maybe [Register (Stack /.Term) /.Term]))
+  (-> Bit Register (List /.Term) Abstraction
+      (Maybe [Register (List /.Term) /.Term]))
   (|> (its /.#body functionS)
       (body_optimization true_loop? offset (its /.#environment functionS) (its /.#arity functionS))
       (maybe#each (|>> [offset inits]))))

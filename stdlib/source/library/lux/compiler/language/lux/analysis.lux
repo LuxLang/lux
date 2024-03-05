@@ -21,6 +21,7 @@
     ["[0]" text (.only \n)
      ["%" \\injection]]
     [collection
+     ["[0]" list (.use "[1]#[0]" functor mix monoid)]
      ["[0]" stack (.use "[1]#[0]" functor mix)]]]
    [math
     [number
@@ -59,10 +60,10 @@
     #then e]))
 
 (every .public (Match' e)
-  [(Branch' e) (Stack (Branch' e))])
+  [(Branch' e) (List (Branch' e))])
 
 (every .public (Environment a)
-  (Stack a))
+  (List a))
 
 (expansion.let [@ ($ (Term' $))]
   (every .public (Term' $)
@@ -107,15 +108,16 @@
        [{#Reference expected} {#Reference actual}]
        (by reference.equivalence = expected actual)
 
-       [{#When [expected_analysis expected_match]}
-        {#When [actual_analysis actual_match]}]
+       [{#When [expected_analysis [expected_head expected_tail]]}
+        {#When [actual_analysis [actual_head actual_tail]]}]
        (and (= expected_analysis actual_analysis)
-            (by (stack.equivalence (branch_equivalence =)) = {.#Top expected_match} {.#Top actual_match}))
+            (by (branch_equivalence =) = expected_head actual_head)
+            (by (list.equivalence (branch_equivalence =)) = expected_tail actual_tail))
 
        [{#Abstraction [expected_environment expected_analysis]}
         {#Abstraction [actual_environment actual_analysis]}]
        (and (= expected_analysis actual_analysis)
-            (by (stack.equivalence =) = expected_environment actual_environment))
+            (by (list.equivalence =) = expected_environment actual_environment))
 
        [{#Reification [expected_input expected_abstraction]}
         {#Reification [actual_input actual_abstraction]}]
@@ -160,7 +162,7 @@
   [(Environment c) Arity c])
 
 (every .public (Reification c)
-  [c (Stack c)])
+  [c (List c)])
 
 (the .public no_op
   (template.macro (no_op @ value)
@@ -168,26 +170,26 @@
          {variable.#Local}
          {reference.#Variable}
          {..#Reference} [@]
-         {..#Abstraction (stack)} [@]
+         {..#Abstraction (list)} [@]
          {..#Reification value} [@])]))
 
 (the .public (reified [[@ abstraction] inputs])
   (-> (Reification Term)
       Term)
-  (stack#mix (function (_ input abstraction')
-               [@ {#Reification input abstraction'}])
-             [@ abstraction]
-             inputs))
+  (list#mix (function (_ input abstraction')
+              [@ {#Reification input abstraction'}])
+            [@ abstraction]
+            inputs))
 
 (the .public (reification analysis)
   (-> Term
       (Reification Term))
   (loop (again [[@ abstraction] analysis
-                inputs (is (Stack Term)
-                           (stack))])
+                inputs (is (List Term)
+                           (list))])
     (.when abstraction
       {#Reification input next}
-      (again next {.#Top input inputs})
+      (again next (list#composite (list input) inputs))
 
       _
       [[@ abstraction] inputs])))
@@ -232,36 +234,45 @@
     {#Reference it}
     (reference.as_text it)
     
-    {#When analysis match}
-    (.text "({"
-           (|> {.#Top match}
-               (stack#each (function (_ [when then])
-                             (.text (/pattern.as_text when) " " (as_text then))))
-               (text.interposed " "))
-           "} "
-           (as_text analysis)
-           ")")
+    {#When analysis [head tail]}
+    (let [branch (is (-> Branch Text)
+                     (function (_ [when then])
+                       (.text (/pattern.as_text when) " " (as_text then))))]
+      (.text "({"
+             (branch head)
+             " "
+             (|> tail
+                 (list#each branch)
+                 list.as_stack
+                 (text.interposed " "))
+             "} "
+             (as_text analysis)
+             ")"))
     
     {#Abstraction environment body}
     (|> (as_text body)
         (.text (|> environment
-                   (stack#each as_text)
+                   (list#each as_text)
+                   list.as_stack
                    (text.interposed " ")
                    (text.enclosed ["[" "]"]))
                " ")
         (text.enclosed ["(" ")"]))
     
     {#Reification _}
-    (|> [@ analysis]
-        ..reification
-        {.#Top}
-        (stack#each as_text)
-        (text.interposed " ")
-        (text.enclosed ["(" ")"]))
+    (let [[abstraction parameters] (..reification [@ analysis])]
+      (|> (.text (as_text abstraction)
+                 " "
+                 (|> parameters
+                     (list#each as_text)
+                     list.as_stack
+                     (text.interposed " ")))
+          (text.enclosed ["(" ")"])))
     
     {#Extension name parameters}
     (|> parameters
-        (stack#each as_text)
+        (list#each as_text)
+        list.as_stack
         (text.interposed " ")
         (.text (name.as_text name) " ")
         (text.enclosed ["(" ")"]))))
@@ -285,9 +296,9 @@
   )
 
 (the .public (with_source_code source action)
-  (for_any (_ of)
-    (-> Source (Operation of)
-        (Operation of)))
+  (for_any (_ it)
+    (-> Source (Operation it)
+        (Operation it)))
   (function (_ state)
     (let [old_source (its .#source state)]
       (.when (action (has .#source source state))
@@ -299,17 +310,17 @@
         failure))))
 
 (the .public (with_current_module name)
-  (for_any (_ of)
-    (-> Text (Operation of)
-        (Operation of)))
+  (for_any (_ it)
+    (-> Text (Operation it)
+        (Operation it)))
   (phase.localized (its .#current_module)
                    (has .#current_module)
                    (function.constant {.#Some name})))
 
 (the .public (with_provenance provenance action)
-  (for_any (_ of)
-    (-> Provenance (Operation of)
-        (Operation of)))
+  (for_any (_ it)
+    (-> Provenance (Operation it)
+        (Operation it)))
   (if (text.= "" (product.left provenance))
     action
     (function (_ state)
@@ -335,9 +346,9 @@
     {try.#Failure (located (its .#provenance state) error)}))
 
 (the .public (of_try it)
-  (for_any (_ of)
-    (-> (Try of)
-        (Operation of)))
+  (for_any (_ it)
+    (-> (Try it)
+        (Operation it)))
   (function (_ state)
     (.when it
       {try.#Failure error}
@@ -361,9 +372,9 @@
     (..except exception parameters)))
 
 (the .public (with_exception exception message action)
-  (for_any (_ ex of)
-    (-> (Exception ex) ex (Operation of)
-        (Operation of)))
+  (for_any (_ ex it)
+    (-> (Exception ex) ex (Operation it)
+        (Operation it)))
   (function (_ state)
     (.when (exception.with exception message
              (action state))
@@ -436,7 +447,7 @@
    .#host            []])
 
 (the .public (delegated extender analysis archive extension parameters)
-  (-> Extender Phase Archive Name (Stack Code)
+  (-> Extender Phase Archive Name (List Code)
       (Operation Term))
   (do phase.monad
     [lux phase.state]
