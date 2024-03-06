@@ -3,10 +3,10 @@
 
 (.using
  [library
-  [lux (.except global local when function)
+  [lux (.except global local when function with)
    [abstract
-    ["?" projection]
-    ["[0]" monad (.only do)]]
+    [monad (.only do)]
+    ["?" projection]]
    [control
     ["[0]" maybe]]
    [error
@@ -39,8 +39,6 @@
     ["[0]" code
      ["?[1]" \\projection (.only Projection)]]]]]
  ["[0]" /// (.only)
-  ["[0]" synthesis
-   ["[1]" lux]]
   ["/[1]" //
    [//
     ["[0]" phase (.only)
@@ -54,13 +52,15 @@
     [///
      ["[0]" reference]
      [meta
-      [archive (.only Archive)]]]]]])
+      [archive (.only Archive)]]
+     ["[0]" extension (.only)
+      ["[1]/[0]" lux]]]]]])
 
 (the .public (custom [syntax handler] extension_name)
   (for_any (_ of)
     (-> [(Projection of)
-         (-> Text Phase Archive of (Operation analysis.Term))]
-        (-> Text Handler)))
+         (-> extension.Name Phase Archive of (Operation analysis.Term))]
+        (-> extension.Name Handler)))
   (.function (_ analysis archive args)
     (.when (?code.value syntax (list.as_stack args))
       {try.#Success inputs}
@@ -70,13 +70,13 @@
       (phase.failure error))))
 
 (the .public translation
-  (-> Text
+  (-> extension.Name
       Name)
-  (|>> (text.suffix "|translation")
+  (|>> extension.translation
        [.prelude]))
 
-(the .public (install name anonymous)
-  (-> Text (-> Text Handler)
+(the .public (with name anonymous)
+  (-> extension.Name (-> extension.Name Handler)
       (-> Bundle Bundle))
   (dictionary.has name (anonymous name)))
 
@@ -87,54 +87,54 @@
           ["Actual" (%.natural actual)])))
 
 (the (simple inputsT+ outputT extension_name)
-  (-> (Stack Type) Type (-> Text Handler))
+  (-> (Stack Type) Type (-> extension.Name Handler))
   (let [num_expected (stack.size inputsT+)]
     (.function (_ analysis archive args)
       (let [num_actual (list.size args)]
         (if (n.= num_expected num_actual)
           (do [! phase.monad]
             [_ (typeA.inference outputT)
-             argsA (monad.each !
-                               (.function (_ [argT argC])
-                                 (<| (typeA.expecting argT)
-                                     (analysis archive argC)))
-                               (stack.zipped_2 inputsT+ (list.as_stack args)))
+             argsA (stack.each' !
+                                (.function (_ [argT argC])
+                                  (<| (typeA.expecting argT)
+                                      (analysis archive argC)))
+                                (stack.zipped_2 inputsT+ (list.as_stack args)))
              @ meta.provenance]
             (in [@ {analysis.#Extension (..translation extension_name) (list.of_stack argsA)}]))
           (analysis.except ..incorrect_arity [num_expected num_actual]))))))
 
 (the .public (nullary valueT)
   (-> Type
-      (-> Text Handler))
+      (-> extension.Name Handler))
   (simple (stack) valueT))
 
 (the .public (unary inputT outputT)
   (-> Type Type
-      (-> Text Handler))
+      (-> extension.Name Handler))
   (simple (stack inputT) outputT))
 
 (the .public (binary subjectT paramT outputT)
   (-> Type Type Type
-      (-> Text Handler))
+      (-> extension.Name Handler))
   (simple (stack subjectT paramT) outputT))
 
 (the .public (trinary subjectT param0T param1T outputT)
   (-> Type Type Type Type
-      (-> Text Handler))
+      (-> extension.Name Handler))
   (simple (stack subjectT param0T param1T) outputT))
 
-(the .public (variadic input output next extension_name)
-  (-> Type Type (-> Text Text)
-      (-> Text Handler))
+(the .public (variadic next input output extension_name)
+  (-> (-> extension.Name extension.Name) Type Type
+      (-> extension.Name Handler))
   (.function (_ analysis archive args)
     (do [! phase.monad]
       [_ (typeA.inference output)
-       argsA (monad.each !
+       argsA (list.each' !
                          (|>> (analysis archive)
                               (typeA.expecting input))
-                         (list.as_stack args))
+                         args)
        @ meta.provenance]
-      (in [@ {analysis.#Extension [.prelude (next extension_name)] (list.of_stack argsA)}]))))
+      (in [@ {analysis.#Extension [.prelude (next extension_name)] argsA}]))))
 
 ... TODO: Get rid of this ASAP
 (these
@@ -152,7 +152,7 @@
        _ (?.failure (exception.error ..character_text_must_be_size_1 [raw])))))
 
  (the lux::syntax_char_case!
-   (-> Text Handler)
+   (-> extension.Name Handler)
    (..custom
     [(all ?.and
           ?code.any
@@ -164,12 +164,12 @@
          [input (<| (typeA.expecting Character)
                     (phase archive input))
           expectedT meta.expected_type
-          conditionals (monad.each ! (.function (_ [cases branch])
-                                       (do !
-                                         [branch (<| (typeA.expecting expectedT)
-                                                     (phase archive branch))]
-                                         (in [cases branch])))
-                                   conditionals)
+          conditionals (stack.each' ! (.function (_ [cases branch])
+                                        (do !
+                                          [branch (<| (typeA.expecting expectedT)
+                                                      (phase archive branch))]
+                                          (in [cases branch])))
+                                    conditionals)
           else (<| (typeA.expecting expectedT)
                    (phase archive else))
           @ meta.provenance]
@@ -185,7 +185,7 @@
 
 ... .is?# represents reference/pointer equality.
 (the (lux::is? extension_name)
-  (-> Text Handler)
+  (-> extension.Name Handler)
   (.function (_ analysis archive args)
     (<| typeA.with_var
         (.function (_ [@var :var:]))
@@ -194,7 +194,7 @@
 
 ... .try# provides a unified way to interact with the host platform's runtime error-handling facilities.
 (the lux::try
-  (-> Text Handler)
+  (-> extension.Name Handler)
   (..custom
    [?code.any
     (.function (_ extension_name analysis archive opC)
@@ -212,7 +212,7 @@
 
 (the .public (in_module#_extension eval)
   (-> Eval
-      (-> Text Handler))
+      (-> extension.Name Handler))
   (..custom
    [(?.and ?code.any ?code.any)
     (.function (_ extension_name analysis archive [module 'expression])
@@ -225,7 +225,7 @@
 
 (the .public (is#_extension eval)
   (-> Eval
-      (-> Text Handler))
+      (-> extension.Name Handler))
   (..custom
    [(?.and ?code.any ?code.any)
     (.function (_ extension_name analysis archive [typeC valueC])
@@ -238,7 +238,7 @@
 
 (the .public (as#_extension eval)
   (-> Eval
-      (-> Text Handler))
+      (-> extension.Name Handler))
   (..custom
    [(?.and ?code.any ?code.any)
     (.function (_ extension_name analysis archive [typeC valueC])
@@ -251,7 +251,7 @@
 
 (the (caster input output)
   (-> Type Type
-      (-> Text Handler))
+      (-> extension.Name Handler))
   (..custom
    [?code.any
     (.function (_ extension_name phase archive valueC)
@@ -289,7 +289,7 @@
     (analysis.except ///.defaults_cannot_be_referenced [name])))
 
 (the .public global
-  (-> Text Handler)
+  (-> extension.Name Handler)
   (..custom
    [(?.and ?code.text ?code.global)
     (.function (_ extension_name phase archive [quoted_module def_name])
@@ -326,7 +326,7 @@
    (stack ["Name" (%.text name)])))
 
 (the .public local
-  (-> Text Handler)
+  (-> extension.Name Handler)
   (..custom
    [?code.local
     (.function (_ extension_name phase archive [it])
@@ -343,7 +343,7 @@
           (analysis.except ..unknown_local [it]))))]))
 
 (the universe
-  (-> Text Handler)
+  (-> extension.Name Handler)
   (..custom
    [?code.end
     (.function (_ extension_name phase archive [])
@@ -353,7 +353,7 @@
         (in (analysis.natural @ (++ (.universe#))))))]))
 
 (the when
-  (-> Text Handler)
+  (-> extension.Name Handler)
   (..custom
    [(?.and ?code.any
            (?.many (?.and ?code.any ?code.any)))
@@ -361,7 +361,7 @@
       (when.when phase branches archive input))]))
 
 (the function
-  (-> Text Handler)
+  (-> extension.Name Handler)
   (..custom
    [(all ?.and
          ?code.local
@@ -372,7 +372,7 @@
 
 (template.with [,name ,type ,normal ,numerator_projection ,numerator_analysis]
   [(the ,name
-     (-> Text Handler)
+     (-> extension.Name Handler)
      (..custom
       [(all ?.and
             ,numerator_projection
@@ -392,24 +392,24 @@
 (the with_basic_extensions
   (-> Bundle
       Bundle)
-  (|>> (install "is_type#" (..caster .Type .Type))
-       (install "is?#" lux::is?)
-       (install "try#" lux::try)
-       (install "when_char#" lux::syntax_char_case!)
-       (install "local#" ..local)
-       (install "global#" ..global)
-       (install "universe#" ..universe)
-       (install "when#" ..when)
-       (install "function#" ..function)
+  (|>> (with "is_type#" (..caster .Type .Type))
+       (with "is?#" lux::is?)
+       (with "try#" lux::try)
+       (with "when_char#" lux::syntax_char_case!)
+       (with "local#" ..local)
+       (with "global#" ..global)
+       (with "universe#" ..universe)
+       (with "when#" ..when)
+       (with "function#" ..function)
 
-       (install fraction.extension ..fraction)
-       (install rational.extension ..rational)))
+       (with fraction.extension ..fraction)
+       (with rational.extension ..rational)))
 
 (the with_io_extensions
   (-> Bundle
       Bundle)
-  (|>> (install "log!#" (unary Text Any))
-       (install "error#" (unary Text Nothing))))
+  (|>> (with "log!#" (unary Text Any))
+       (with "error#" (unary Text Nothing))))
 
 (the Any_I64
   (type (I64 Any)))
@@ -417,54 +417,54 @@
 (the with_i64_extensions
   (-> Bundle
       Bundle)
-  (|>> (install "i64_and#" (binary Any_I64 Any_I64 I64))
-       (install "i64_or#" (binary Any_I64 Any_I64 I64))
-       (install "i64_xor#" (binary Any_I64 Any_I64 I64))
-       (install "i64_left#" (binary Natural Any_I64 I64))
-       (install "i64_right#" (binary Natural Any_I64 I64))
+  (|>> (with "i64_and#" (binary Any_I64 Any_I64 I64))
+       (with "i64_or#" (binary Any_I64 Any_I64 I64))
+       (with "i64_xor#" (binary Any_I64 Any_I64 I64))
+       (with "i64_left#" (binary Natural Any_I64 I64))
+       (with "i64_right#" (binary Natural Any_I64 I64))
 
-       (install "i64_=#" (binary Any_I64 Any_I64 Bit))
-       (install "i64_+#" (binary Any_I64 Any_I64 I64))
-       (install "i64_-#" (binary Any_I64 Any_I64 I64))))
+       (with "i64_=#" (binary Any_I64 Any_I64 Bit))
+       (with "i64_+#" (binary Any_I64 Any_I64 I64))
+       (with "i64_-#" (binary Any_I64 Any_I64 I64))))
 
 (the with_integer_extensions
   (-> Bundle
       Bundle)
-  (|>> (install "int_<#" (binary Integer Integer Bit))
-       (install "int_*#" (binary Integer Integer Integer))
-       (install "int_/#" (binary Integer Integer Integer))
-       (install "int_%#" (binary Integer Integer Integer))
+  (|>> (with "int_<#" (binary Integer Integer Bit))
+       (with "int_*#" (binary Integer Integer Integer))
+       (with "int_/#" (binary Integer Integer Integer))
+       (with "int_%#" (binary Integer Integer Integer))
        
-       (install "int_f64#" (unary Integer Decimal))
-       (install "int_char#" (unary Integer Text))))
+       (with "int_f64#" (unary Integer Decimal))
+       (with "int_char#" (unary Integer Text))))
 
 (the with_decimal_extensions
   (-> Bundle
       Bundle)
-  (|>> (install "f64_+#" (binary Decimal Decimal Decimal))
-       (install "f64_-#" (binary Decimal Decimal Decimal))
-       (install "f64_*#" (binary Decimal Decimal Decimal))
-       (install "f64_/#" (binary Decimal Decimal Decimal))
-       (install "f64_%#" (binary Decimal Decimal Decimal))
-       (install "f64_=#" (binary Decimal Decimal Bit))
-       (install "f64_<#" (binary Decimal Decimal Bit))
+  (|>> (with "f64_+#" (binary Decimal Decimal Decimal))
+       (with "f64_-#" (binary Decimal Decimal Decimal))
+       (with "f64_*#" (binary Decimal Decimal Decimal))
+       (with "f64_/#" (binary Decimal Decimal Decimal))
+       (with "f64_%#" (binary Decimal Decimal Decimal))
+       (with "f64_=#" (binary Decimal Decimal Bit))
+       (with "f64_<#" (binary Decimal Decimal Bit))
        
-       (install "f64_int#" (unary Decimal Integer))))
+       (with "f64_int#" (unary Decimal Integer))))
 
 (the with_text_extensions
   (-> Bundle
       Bundle)
-  (|>> (install "text_=#" (binary Text Text Bit))
-       (install "text_<#" (binary Text Text Bit))
-       (install "text_composite#" (variadic Text Text synthesis.synthesis))
-       (install "text_index#" (trinary Natural Text Text (type (Maybe Natural))))
-       (install "text_size#" (unary Text Natural))
-       (install "text_char#" (binary Natural Text Natural))
-       (install "text_clip#" (trinary Natural Natural Text Text))
+  (|>> (with "text_=#" (binary Text Text Bit))
+       (with "text_<#" (binary Text Text Bit))
+       (with "text_composite#" (variadic extension.synthesis Text Text))
+       (with "text_index#" (trinary Natural Text Text (type (Maybe Natural))))
+       (with "text_size#" (unary Text Natural))
+       (with "text_char#" (binary Natural Text Natural))
+       (with "text_clip#" (trinary Natural Natural Text Text))
        ))
 
 (the lux::list
-  (-> Text Handler)
+  (-> extension.Name Handler)
   (..custom
    [(?.some ?code.any)
     (.function (_ extension_name analysis archive elements)
@@ -472,9 +472,9 @@
           (.function (_ [_ of]))
           (do [! phase.monad]
             [_ (typeA.inference (type (List of)))
-             elements (monad.each ! (|>> (analysis archive)
-                                         (typeA.expecting of))
-                                  elements)
+             elements (stack.each' ! (|>> (analysis archive)
+                                          (typeA.expecting of))
+                                   elements)
              @ meta.provenance]
             (in (|> elements
                     list.of_stack
@@ -484,7 +484,7 @@
 (the with_list_extensions
   (-> Bundle
       Bundle)
-  (|>> (install "list#" ..lux::list)
+  (|>> (with extension/lux.list ..lux::list)
        ))
 
 (the .public bundle

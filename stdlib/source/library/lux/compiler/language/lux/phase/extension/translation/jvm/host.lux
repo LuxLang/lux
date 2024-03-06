@@ -5,8 +5,8 @@
  [library
   [lux (.except Type)
    [abstract
-    ["<>" projection]
-    ["[0]" monad (.only do)]]
+    [monad (.only do)]
+    ["<>" projection]]
    [control
     ["[0]" maybe (.use "[1]#[0]" functor)]]
    [error
@@ -760,9 +760,9 @@
    [(all <>.and ..class <synthesis>.text ..return (<>.some ..input))
     (function (_ translate archive [class method outputT inputsTS])
       (do [! phase.monad]
-        [inputsTG (monad.each ! (translate_input translate archive) inputsTS)]
+        [inputsTG (stack.each' ! (translate_input translate archive) inputsTS)]
         (in (all _.composite
-                 (monad.each _.monad product.right inputsTG)
+                 (stack.each' _.monad product.right inputsTG)
                  (_.invokestatic class method (type.method [(stack) (stack#each product.left inputsTG) outputT (stack)]))
                  (prepare_output outputT)))))]))
 
@@ -774,13 +774,13 @@
        (function (_ translate archive [class method outputT objectS inputsTS])
          (do [! phase.monad]
            [objectG (translate archive objectS)
-            inputsTG (monad.each ! (translate_input translate archive) inputsTS)]
+            inputsTG (stack.each' ! (translate_input translate archive) inputsTS)]
            (in (all _.composite
                     objectG
                     (if <check_cast?>
                       (_.checkcast class)
                       (_#in []))
-                    (monad.each _.monad product.right inputsTG)
+                    (stack.each' _.monad product.right inputsTG)
                     (<invoke> class method (type.method [(stack) (stack#each product.left inputsTG) outputT (stack)]))
                     (prepare_output outputT)))))]))]
 
@@ -795,11 +795,11 @@
    [(all <>.and ..class (<>.some ..input))
     (function (_ translate archive [class inputsTS])
       (do [! phase.monad]
-        [inputsTG (monad.each ! (translate_input translate archive) inputsTS)]
+        [inputsTG (stack.each' ! (translate_input translate archive) inputsTS)]
         (in (all _.composite
                  (_.new class)
                  _.dup
-                 (monad.each _.monad product.right inputsTG)
+                 (stack.each' _.monad product.right inputsTG)
                  (_.invokespecial class "<init>" (type.method [(stack) (stack#each product.left inputsTG) type.void (stack)]))))))]))
 
 (the with_member_extensions
@@ -863,7 +863,8 @@
   (function (again it)
     (`` (when it
           (^.or {synthesis.#Pop}
-                {synthesis.#Access _})
+                {synthesis.#Access _}
+                {synthesis.#List size})
           it
           
           {synthesis.#Bind it}
@@ -1011,7 +1012,8 @@
 
                 [synthesis.#Pop]
                 [synthesis.#Bind]
-                [synthesis.#Access]))
+                [synthesis.#Access]
+                [synthesis.#List]))
 
           {synthesis.#Bit_Fork when then else}
           {synthesis.#Bit_Fork when (again then) (maybe#each again else)}
@@ -1116,8 +1118,7 @@
         store_captured! (|> env
                             list.size
                             list.indices
-                            list.as_stack
-                            (monad.each _.monad (.function (_ register)
+                            (list.each' _.monad (.function (_ register)
                                                   (all _.composite
                                                        (_.aload 0)
                                                        (_.aload (n.+ inputs_offset (++ register)))
@@ -1136,7 +1137,7 @@
   (-> Phase Archive (Type category.Class) (Environment synthesis.Term) (Stack (Typed (Bytecode Any)))
       (Operation (Bytecode Any)))
   (do [! phase.monad]
-    [captureG+ (monad.each ! (translate archive) (list.as_stack env))]
+    [captureG+ (list.each' ! (translate archive) env)]
     (in (all _.composite
              (_.new class)
              _.dup
@@ -1144,7 +1145,7 @@
                  (stack#each product.right)
                  stack.reversed
                  (stack#mix _.composite (_#in [])))
-             (monad.all _.monad captureG+)
+             (list.all' _.monad captureG+)
              (_.invokespecial class "<init>" (anonymous_init_method env inputsTI))))))
 
 (the (returnG returnT)
@@ -1198,12 +1199,12 @@
   (-> Archive (Stack Input) (Stack [(Environment synthesis.Term) (/.Overriden_Method synthesis.Term)])
       (Operation (Set unit.ID)))
   (do [! phase.monad]
-    [all_input_dependencies (monad.each ! (|>> product.right (cache/artifact.dependencies archive)) inputsTS)
+    [all_input_dependencies (stack.each' ! (|>> product.right (cache/artifact.dependencies archive)) inputsTS)
      all_closure_dependencies (|> overriden_methods
                                   (stack#each (|>> product.left list.as_stack))
                                   stack.together
-                                  (monad.each ! (cache/artifact.dependencies archive)))
-     all_method_dependencies (monad.each ! (|>> product.right (method_dependencies archive)) overriden_methods)]
+                                  (stack.each' ! (cache/artifact.dependencies archive)))
+     all_method_dependencies (stack.each' ! (|>> product.right (method_dependencies archive)) overriden_methods)]
     (in (cache/artifact.all (all stack#composite
                                  all_input_dependencies
                                  all_closure_dependencies
@@ -1343,10 +1344,10 @@
                class (type.class (stack) anonymous_class_name)
                total_environment (list.of_stack (..total_environment overriden_methods))
                global_mapping (..global_mapping total_environment)]
-         inputsTI (monad.each ! (translate_input translate archive) inputsTS)
+         inputsTI (stack.each' ! (translate_input translate archive) inputsTS)
          methods! (|> overriden_methods
                       (stack#each (normalized_method global_mapping))
-                      (monad.each ! (method_definition translate archive artifact_id)))
+                      (stack.each' ! (method_definition translate archive artifact_id)))
          bytecode (<| (by ! each (\\injection.value class.as_binary))
                       phase.of_try
                       (class.class version.v6_0 (all modifier#composite class.public class.final)

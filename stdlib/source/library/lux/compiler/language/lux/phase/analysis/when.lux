@@ -4,9 +4,9 @@
 (.using
  [library
   [lux (.except Pattern Analysis
-                when tuple)
+                when tuple list)
    [abstract
-    ["[0]" monad (.only do)]]
+    [monad (.only do)]]
    [control
     ["[0]" maybe]]
    [error
@@ -42,7 +42,10 @@
     ["[1][0]" pattern (.only Pattern)]
     ["[1][0]" type]
     ["[1][0]" scope]
-    ["[1][0]" coverage (.only Coverage)]]]])
+    ["[1][0]" coverage (.only Coverage)]]
+   [///
+    ["[0]" extension
+     ["[1]" lux]]]]])
 
 (exception.the .public (mismatch [module type pattern])
   (Exception [Text Type Code])
@@ -62,6 +65,11 @@
    (stack ["Pattern" (code.relative module it)])))
 
 (exception.the .public (non_tuple type)
+  (Exception Type)
+  (exception.report
+   (stack ["Type" (type.as_text type)])))
+
+(exception.the .public (not_a_list type)
   (Exception Type)
   (exception.report
    (stack ["Type" (type.as_text type)])))
@@ -158,6 +166,61 @@
       _
       (by check.monad in [(stack) (..quantified envs :it:)]))))
 
+(the .public (list type)
+  (-> Type
+      (Check [(Stack type.Variable) Type]))
+  (loop (list [envs (is (Stack (Stack Type))
+                        (stack))
+               type type])
+    (.when type
+      {.#Variable id}
+      (do check.monad
+        [?type (phase.try (check.type id))]
+        (.when ?type
+          {try.#Success type}
+          (list envs type)
+
+          _
+          (check.except ..not_a_list type)))
+
+      {.#Named name type}
+      (list envs type)
+
+      {.#Universal env type}
+      (list {.#Top env envs} type)
+
+      {.#Existential _}
+      (do check.monad
+        [[@head type_of_head] check.var
+         [tail type] (list envs (maybe.trusted (type.applied (stack type_of_head) type)))]
+        (in [(stack.partial @head tail) type]))
+
+      {.#Reification _}
+      (do [! check.monad]
+        [.let [[:abstraction: :parameters:] (type.flat_application type)]
+         :abstraction: (.when :abstraction:
+                         {.#Variable @abstraction}
+                         (do !
+                           [?:abstraction: (phase.try (check.type @abstraction))]
+                           (.when ?:abstraction:
+                             {try.#Success :abstraction:}
+                             (in :abstraction:)
+
+                             _
+                             (check.except ..not_a_list type)))
+
+                         _
+                         (in :abstraction:))]
+        (.when (type.applied :parameters: :abstraction:)
+          {.#Some type}
+          (list envs type)
+
+          {.#None}
+          (check.except ..not_a_list type)))
+
+      _
+      (by check.monad in [(stack) (..quantified envs type)]))))
+
 (the (simple_pattern_analysis type :input: provenance output next)
   (for_any (_ a) (-> Type Type Provenance Pattern (Operation a) (Operation [Pattern a])))
   (/.with_provenance provenance
@@ -210,7 +273,7 @@
                                          [nextA next]
                                          (in [(stack) nextA]))
                                        matches)
-           _ (/type.check (monad.each check.monad check.forget! @ex_var+))]
+           _ (/type.check (stack.each' check.monad check.forget! @ex_var+))]
           (in [(/pattern.tuple (list.of_stack memberP+))
                thenA])))
 
@@ -218,6 +281,37 @@
       (do !
         [[here _] module.current]
         (/.except ..mismatch [here :input:' (code.tuple sub_patterns)])))))
+
+(the (list_pattern_analysis pattern_analysis type_of_input sub_patterns next)
+  (for_any (_ it)
+    (-> (-> Type Code (Operation it) (Operation [Pattern it]))
+        Type (Stack Code) (Operation it) (Operation [Pattern it])))
+  (do [! phase.monad]
+    [[@ex_var+ type_of_input] (/type.check (..list type_of_input))]
+    (.when type_of_input
+      {.#Nominal list.type (.stack type_of_item)}
+      (do !
+        [[sub_patterns thenA] (stack#mix (is (for_any (_ it)
+                                               (-> Code (Operation [(Stack Pattern) it])
+                                                   (Operation [(Stack Pattern) it])))
+                                             (function (_ item then)
+                                               (do !
+                                                 [[head [tail thenA]] ((as (for_any (_ a) (-> Type Code (Operation a) (Operation [Pattern a])))
+                                                                           pattern_analysis)
+                                                                       type_of_input item then)]
+                                                 (in [(stack.partial head tail) thenA]))))
+                                         (do !
+                                           [nextA next]
+                                           (in [(stack) nextA]))
+                                         (stack.reversed sub_patterns))
+         _ (/type.check (stack.each' check.monad check.forget! @ex_var+))]
+        (in [(/pattern.list (list.of_stack sub_patterns))
+             thenA]))
+
+      _
+      (do !
+        [[here _] module.current]
+        (/.except ..mismatch [here type_of_input (` (.list# (,* sub_patterns)))])))))
 
 (every (Analysis it)
   (-> Type Code (Operation it)
@@ -249,7 +343,7 @@
                                                  (` [(,* values)])
                                                  next)
                                (pattern_analysis caseT (` [(,* values)]) next))
-               _ (/type.check (monad.each check.monad check.forget! @ex_var+))]
+               _ (/type.check (stack.each' check.monad check.forget! @ex_var+))]
               (in [(/pattern.variant [lefts right? testP])
                    nextA]))
 
@@ -262,13 +356,17 @@
            it (pattern_analysis (maybe.trusted (type.applied (stack exT) :input:'))
                                 pattern
                                 next)
-           _ (/type.check (monad.each check.monad check.forget! @ex_var+))]
+           _ (/type.check (stack.each' check.monad check.forget! @ex_var+))]
           (in it))
         
         _
         (do !
           [[here _] module.current]
           (/.except ..mismatch [here :input:' pattern]))))))
+
+(the list_pattern
+  (template.macro (_ ,@ ,it)
+    [[,@ {.#Form (stack.partial [,@ {.#Name [.prelude extension.list]}] ,it)}]]))
 
 ... This function handles several concerns at once, but it must be that
 ... way because those concerns are interleaved when doing
@@ -346,6 +444,10 @@
               {.#None}
               (..tuple_pattern_analysis pattern_analysis :input: sub_patterns next))))
 
+        (..list_pattern provenance sub_patterns)
+        (/.with_provenance provenance
+          (..list_pattern_analysis pattern_analysis :input: sub_patterns next))
+
         [provenance {.#Variant (stack.partial [_ {.#Bit right?}] values)}]
         (anonymous_variant pattern_analysis
                            :input: pattern next
@@ -384,13 +486,13 @@
       [[:input: inputA] (<| /type.inferring
                             (analyse archive inputC))
        outputH (pattern_analysis :input: patternH (analyse archive bodyH))
-       outputT (monad.each !
-                           (function (_ [patternT bodyT])
-                             (pattern_analysis :input: patternT (analyse archive bodyT)))
-                           branchesT)
+       outputT (stack.each' !
+                            (function (_ [patternT bodyT])
+                              (pattern_analysis :input: patternT (analyse archive bodyT)))
+                            branchesT)
        outputHC (|> outputH product.left /coverage.coverage /.of_try)
-       outputTC (monad.each ! (|>> product.left /coverage.coverage /.of_try) outputT)
-       _ (.when (monad.mix try.monad /coverage.composite outputHC outputTC)
+       outputTC (stack.each' ! (|>> product.left /coverage.coverage /.of_try) outputT)
+       _ (.when (stack.mix' try.monad /coverage.composite outputHC outputTC)
            {try.#Success coverage}
            (do !
              [[here _] module.current]

@@ -5,7 +5,7 @@
  [library
   [lux (.except)
    [abstract
-    ["[0]" monad (.only do)]
+    [monad (.only do)]
     ["[0]" enum]]
    [control
     ["[0]" pipe]
@@ -17,8 +17,7 @@
     [text
      ["%" \\injection]]
     [collection
-     ["[0]" list (.use "[1]#[0]" functor monoid)]
-     ["[0]" stack (.use "[1]#[0]" functor monoid)]]]
+     ["[0]" list (.use "[1]#[0]" functor monoid)]]]
    [math
     [number
      ["n" natural]]]
@@ -55,8 +54,7 @@
     (let [[funcA argsA] (analysis.reification exprA)]
       (do [! phase.monad]
         [funcS (phase archive funcA)
-         argsS (monad.each ! (phase archive) (list.as_stack argsA))
-         .let [argsS (list.of_stack argsS)]]
+         argsS (list.each' ! (phase archive) argsA)]
         (expansion.let [<reification> (these (/.reification @ [funcS argsS]))]
           (when funcS
             (/.abstraction @ functionS)
@@ -129,12 +127,12 @@
               [{<tag> [[test then] elses]}
                (do [! phase.monad]
                  [then (grow_path grow then)
-                  elses (monad.each ! (function (_ [else_test else_then])
+                  elses (list.each' ! (function (_ [else_test else_then])
                                         (do !
                                           [else_then (grow_path grow else_then)]
                                           (in [else_test else_then])))
-                                    (list.as_stack elses))]
-                 (in {<tag> [[test then] (list.of_stack elses)]}))]
+                                    elses)]
+                 (in {<tag> [[test then] elses]}))]
 
               [/.#I64_Fork]
               [/.#F64_Fork]
@@ -161,9 +159,8 @@
       
       {analysis/complex.#Tuple membersS+}
       (|> membersS+
-          list.as_stack
-          (monad.each phase.monad (grow environment))
-          (phase#each (|>> list.of_stack (/.tuple @)))))
+          (list.each' phase.monad (grow environment))
+          (phase#each (|>> (/.tuple @)))))
 
     (..self_reference @)
     (phase#in (/.reification @ [expression (list (/.local @ 1))]))
@@ -193,35 +190,33 @@
       (when loop
         {/.#Tail_Recursion [start initsS+ iterationS]}
         (do [! phase.monad]
-          [initsS+' (monad.each ! (grow environment) (list.as_stack initsS+))
+          [initsS+' (list.each' ! (grow environment) initsS+)
            iterationS' (grow environment iterationS)]
-          (in (/.tail_recursion @ [(++ start) (list.of_stack initsS+') iterationS'])))
+          (in (/.tail_recursion @ [(++ start) initsS+' iterationS'])))
         
         {/.#Tail_Iteration argumentsS+}
         (|> argumentsS+
-            list.as_stack
-            (monad.each phase.monad (grow environment))
-            (phase#each (|>> list.of_stack (/.tail_iteration @)))))
+            (list.each' phase.monad (grow environment))
+            (phase#each (|>> (/.tail_iteration @)))))
       
       {/.#Function function}
       (when function
         {/.#Abstraction [_env _arity _body]}
         (do [! phase.monad]
-          [_env' (monad.each !
+          [_env' (list.each' !
                              (|>> (pipe.when
                                     [@ {/.#Reference {////reference.#Variable {////reference/variable.#Foreign register}}}]
                                     (..find_foreign environment register)
 
                                     captured
                                     (grow environment captured)))
-                             (list.as_stack _env))]
-          (in (/.abstraction @ [(list.of_stack _env') _arity _body])))
+                             _env)]
+          (in (/.abstraction @ [_env' _arity _body])))
         
         {/.#Reification funcS argsS+}
         (do [! phase.monad]
           [funcS (grow environment funcS)
-           argsS+ (monad.each ! (grow environment) (list.as_stack argsS+))
-           .let [argsS+ (list.of_stack argsS+)]]
+           argsS+ (list.each' ! (grow environment) argsS+)]
           (in (/.reification @ (when funcS
                                  (/.reification @ [(..self_reference @) pre_argsS+])
                                  [(..self_reference @)
@@ -233,9 +228,8 @@
     
     [@ {/.#Extension name argumentsS+}]
     (|> argumentsS+
-        list.as_stack
-        (monad.each phase.monad (grow environment))
-        (phase#each (|>> list.of_stack {/.#Extension name} [@])))
+        (list.each' phase.monad (grow environment))
+        (phase#each (|>> {/.#Extension name} [@])))
 
     [@ {/.#Simple _}]
     (phase#in expression)))
@@ -244,7 +238,7 @@
   (-> Provenance Phase (Environment analysis.Term)
       Phase)
   (do [! phase.monad]
-    [environment (monad.each ! (phase archive) (list.as_stack environment))
+    [environment (list.each' ! (phase archive) environment)
      bodyS (/.with_currying? true
              (/.with_locals 2
                (phase archive bodyA)))
@@ -254,12 +248,12 @@
                        (|> bodyS'
                            (grow env')
                            (by ! each (function (_ body)
-                                        [/.#environment (list.of_stack environment)
+                                        [/.#environment environment
                                          /.#arity (++ down_arity')
                                          /.#body body])))
                        
                        _
-                       (in [/.#environment (list.of_stack environment)
+                       (in [/.#environment environment
                             /.#arity 1
                             /.#body bodyS])))
      currying? /.currying?]
@@ -268,7 +262,7 @@
               abstraction
               (when (//loop.optimization false 1 (list) abstraction)
                 {.#Some it}
-                [/.#environment (list.of_stack environment)
+                [/.#environment environment
                  /.#arity (its /.#arity abstraction)
                  /.#body (/.tail_recursion @ it)]
                 
