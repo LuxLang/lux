@@ -59,6 +59,7 @@
               {#Decimal (Set Decimal)}
               {#Text (Set Text)}
               {#Variant (Variant' @)}
+              {#List (List @)}
               {#Seq @ @}
               {#Alt @ @})))
 
@@ -112,6 +113,9 @@
            [{#Variant allR casesR} {#Variant allS casesS}]
            (and (by (maybe.equivalence n.equivalence) = allR allS)
                 (by (dictionary.equivalence =) = casesR casesS))
+
+           [{#List reference} {#List it}]
+           (by (list.equivalence =) = reference it)
            
            [{#Seq leftR rightR} {#Seq leftS rightS}]
            (and (= leftR leftS)
@@ -159,6 +163,13 @@
             (text.interposed " ")
             (text (maybe.else "?" (maybe#each %.natural ?max_cases)) " ")
             (text.enclosed ["{" "}"]))
+
+        {#List it}
+        (|> it
+            (list.mix (function (_ after it)
+                        (text it " " (as_text after)))
+                      "")
+            (text.enclosed ["(list" ")"]))
 
         {#Seq left right}
         (text "(& " (as_text left) " " (as_text right) ")")
@@ -224,26 +235,10 @@
                               (in {#Seq leftC rightC}))))
                         lastC prevsP+)))
 
-        {//pattern.#List membersP+}
-        (when (list.as_stack (list.reversed membersP+))
-          {.#Empty}
-          {try.#Success {#Exhaustive}}
-          
-          {.#Top lastP prevsP+}
-          (do [! try.monad]
-            [lastC (coverage lastP)]
-            (stack.mix' !
-                        (function (_ leftP rightC)
-                          (do !
-                            [leftC (coverage leftP)]
-                            (when rightC
-                              {#Exhaustive}
-                              (in leftC)
-
-                              _
-                              (in {#Seq leftC rightC}))))
-                        lastC
-                        prevsP+)))
+        {//pattern.#List it}
+        (|> it
+            (list.each' try.monad coverage)
+            (by try.monad each (|>> {#List})))
 
         ... Variant patterns can be shown to be exhaustive if all the possible
         ... cases are handled exhaustively.
@@ -260,9 +255,9 @@
                             (dictionary.has idx value_coverage))})))))
 
 (the (xor left right)
-  (-> Bit Bit Bit)
-  (or (and left (not right))
-      (and (not left) right)))
+  (-> Bit Bit
+      Bit)
+  (not (bit.= left right)))
 
 ... The coverage checker not only verifies that pattern-matching is
 ... exhaustive, but also that there are no redundant patterns.
@@ -296,7 +291,8 @@
 ... pattern-matching expression is exhaustive and whether it contains
 ... redundant patterns.
 (the .public (composite addition so_far)
-  (-> Coverage Coverage (Try Coverage))
+  (-> Coverage Coverage
+      (Try Coverage))
   (expansion.let [<redundancy> (exception.except ..redundancy [so_far addition])
                   <alternatively> {try.#Success {#Alt addition so_far}}
                   <else> (if (= so_far addition)
@@ -358,6 +354,15 @@
                              (stack.every? ..exhaustive? (dictionary.values casesM)))
                       {#Exhaustive}
                       {#Variant (maybe#composite allA allSF) casesM})))))
+
+          [{#List addition'} {#List so_far'}]
+          (if (n.= (list.size addition')
+                   (list.size so_far'))
+            (|> (list.zipped_2 addition' so_far')
+                (list.each' try.monad (function (_ [addition' so_far'])
+                                        (composite addition' so_far')))
+                (by try.monad each (|>> {#List})))
+            <else>)
 
           [{#Seq leftA rightA} {#Seq leftSF rightSF}]
           (when [(= leftSF leftA) (= rightSF rightA)]

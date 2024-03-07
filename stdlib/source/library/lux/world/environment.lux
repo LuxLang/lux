@@ -23,7 +23,7 @@
               [collection
                ["[0]" array (.only Array)]
                ["[0]" dictionary (.only Dictionary)]
-               ["[0]" stack (.use "[1]#[0]" functor)]]]
+               ["[0]" list (.use "[1]#[0]" functor monoid)]]]
              ["[0]" ffi (.only import)
               (.,, (.for .js (.,, (.these ["[0]" node_js]))
                          (.,, (.these))))]
@@ -45,9 +45,11 @@
 
 (every .public (Environment !)
   (Interface
-   (is (-> Any (! (Stack Text)))
+   (is (-> Any
+           (! (List Text)))
        available_variables)
-   (is (-> Text (! (Try Text)))
+   (is (-> Text
+           (! (Try Text)))
        variable)
    (is Path
        home)
@@ -57,21 +59,23 @@
        exit)))
 
 (the .public (environment monad environment)
-  (for_any (_ !) (-> (Monad !) (Environment !) (! \\projection.Environment)))
+  (for_any (_ !)
+    (-> (Monad !) (Environment !)
+        (! \\projection.Environment)))
   (do [! monad]
     [variables (by environment available_variables [])
-     entries (stack.each' ! (function (_ name)
-                              (by ! each (|>> [name]) (by environment variable name)))
-                          variables)]
+     entries (list.each' ! (function (_ name)
+                             (by ! each (|>> [name]) (by environment variable name)))
+                         variables)]
     (in (|> entries
-            (stack.all (function (_ [name value])
-                         (when value
-                           {try.#Success value}
-                           {.#Some [name value]}
-                           
-                           {try.#Failure _}
-                           {.#None})))
-            (dictionary.of_stack text.hash)))))
+            (list.all (function (_ [name value])
+                        (when value
+                          {try.#Success value}
+                          {.#Some [name value]}
+                          
+                          {try.#Failure _}
+                          {.#None})))
+            (dictionary.of_list text.hash)))))
 
 (`` (the .public (future environment)
       (-> (Environment IO) (Environment Future))
@@ -99,7 +103,7 @@
   (let [@dead? (atom.atom false)]
     (implementation
      (the available_variables
-       (function.constant (io.io (dictionary.keys environment))))
+       (function.constant (io.io (list.of_stack (dictionary.keys environment)))))
      (the (variable name)
        (io.io (try.as (exception.error ..unknown_environment_variable [name])
                       (dictionary.value name environment))))
@@ -136,14 +140,14 @@
                    ("static" getProperty [java/lang/String] "?" java/lang/String)
                    ("static" exit [int] "io" void))
 
-                 (the (jvm::consume iterator)
-                   (for_any (_ a)
-                     (-> (java/util/Iterator a)
-                         (Stack a)))
+                 (the (jvm::consume value iterator)
+                   (for_any (_ it)
+                     (-> (List it) (java/util/Iterator it)
+                         (List it)))
                    (if (ffi.of_boolean (java/util/Iterator::hasNext [] iterator))
-                     {.#Top (java/util/Iterator::next [] iterator)
-                            (jvm::consume iterator)}
-                     {.#Empty}))
+                     (jvm::consume (list#composite value (list (java/util/Iterator::next [] iterator)))
+                                   iterator)
+                     value))
                  )
      .js (these (the default_exit!
                   (-> Exit (IO Nothing))
@@ -282,35 +286,35 @@
      (for .jvm (|> (java/lang/System::getenv [])
                    (java/util/Map::keySet [])
                    (java/util/Set::iterator [])
-                   ..jvm::consume
-                   (stack#each (|>> ffi.of_string))
+                   (..jvm::consume list.empty)
+                   (list#each (|>> ffi.of_string))
                    io.io)
           .js (io.io (if ffi.on_node_js?
                        (when (ffi.global Object [process env])
                          {.#Some process/env}
                          (|> (Object::entries [process/env])
-                             (array.stack {.#None})
-                             (stack#each (|>> (array.item 0) maybe.trusted)))
+                             (array.list {.#None})
+                             (list#each (|>> (array.item 0) maybe.trusted)))
 
                          {.#None}
-                         (stack))
-                       (stack)))
+                         (list))
+                       (list)))
           .python (do [! io.monad]
                     [it (os::environ)]
                     (by ! each
-                        (array.stack {.#None})
+                        (array.list {.#None})
                         (os/environ::keys [] it)))
           ... Lua offers no way to get all the environment variables available.
-          .lua (io.io (stack))
-          .ruby (io.io (array.stack {.#None} (Env::keys [])))
+          .lua (io.io (list))
+          .ruby (io.io (array.list {.#None} (Env::keys [])))
           ... .php (do io.monad
           ...         [environment (..getenv/0 [])]
           ...         (in (|> environment
           ...                   ..array_keys
-          ...                   (array.stack {.#None})
-          ...                   (stack#each (function (_ variable)
+          ...                   (array.list {.#None})
+          ...                   (list#each (function (_ variable)
           ...                               [variable ("php array read" (as Natural variable) environment)]))
-          ...                   (dictionary.of_stack text.hash))))
+          ...                   (dictionary.of_list text.hash))))
           ))
 
    (the (variable name)

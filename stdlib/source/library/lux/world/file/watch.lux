@@ -24,7 +24,7 @@
      ["%" \\injection]]
     [collection
      ["[0]" dictionary (.only Dictionary)]
-     ["[0]" stack (.use "[1]#[0]" functor monoid mix)]
+     ["[0]" list (.use "[1]#[0]" functor monoid mix)]
      ["[0]" set]
      ["[0]" array]]]
    [math
@@ -33,7 +33,7 @@
    [macro
     ["[0]" expansion]
     ["[0]" template]]
-   [type
+   ["[0]" type (.only)
     ["[0]" nominal]]
    [time
     ["[0]" instant (.only Instant)]]]]
@@ -102,7 +102,7 @@
            (! (Try Concern)))
        stop)
    (is (-> []
-           (! (Try (Stack [Concern //.Path]))))
+           (! (Try (List [Concern //.Path]))))
        poll)))
 
 (template.with [<name>]
@@ -140,62 +140,63 @@
       (Future (Try File_Tracker)))
   (do [! (try.with future.monad)]
     [files (by fs directory_files directory)]
-    (stack.mix' !
-                (function (_ file tracker)
-                  (do !
-                    [last_modified (by fs last_modified file)]
-                    (in (dictionary.has file last_modified tracker))))
-                (is File_Tracker
-                    (dictionary.empty text.hash))
-                files)))
+    (list.mix' !
+               (function (_ file tracker)
+                 (do !
+                   [last_modified (by fs last_modified file)]
+                   (in (dictionary.has file last_modified tracker))))
+               (is File_Tracker
+                   (dictionary.empty text.hash))
+               files)))
 
 (the (available_files fs directory)
   (-> (//.System Future) //.Path
-      (Future (Try (Stack [//.Path Instant]))))
+      (Future (Try (List [//.Path Instant]))))
   (do [! (try.with future.monad)]
     [files (by fs directory_files directory)]
-    (stack.each' ! (function (_ file)
-                     (|> file
-                         (by fs last_modified)
-                         (by ! each (|>> [file]))))
-                 files)))
+    (list.each' ! (function (_ file)
+                    (|> file
+                        (by fs last_modified)
+                        (by ! each (|>> [file]))))
+                files)))
 
 (the (available_directory_changes fs [directory [the_concern file_tracker]])
   (-> (//.System Future) [//.Path [Concern File_Tracker]]
       (Future (Try [[//.Path [Concern File_Tracker]]
-                    [(Stack [//.Path Instant])
-                     (Stack [//.Path Instant Instant])
-                     (Stack //.Path)]])))
+                    [(List [//.Path Instant])
+                     (List [//.Path Instant Instant])
+                     (List //.Path)]])))
   (do [! (try.with future.monad)]
     [current_files (..available_files fs directory)
      .let [creations (if (..creation? the_concern)
-                       (stack.only (|>> product.left (dictionary.key? file_tracker) not)
-                                   current_files)
-                       (stack))
+                       (list.only (|>> product.left (dictionary.key? file_tracker) not)
+                                  current_files)
+                       (list))
            available (|> current_files
-                         (stack#each product.left)
-                         (set.of_stack text.hash))
+                         (list#each product.left)
+                         (set.of_list text.hash))
            deletions (if (..deletion? the_concern)
                        (|> (dictionary.entries file_tracker)
-                           (stack#each product.left)
-                           (stack.only (|>> (set.member? available) not)))
-                       (stack))
-           modifications (stack.all (function (_ [path current_modification])
-                                      (do maybe.monad
-                                        [previous_modification (dictionary.value path file_tracker)]
-                                        (in [path previous_modification current_modification])))
-                                    current_files)]]
+                           list.of_stack
+                           (list#each product.left)
+                           (list.only (|>> (set.member? available) not)))
+                       (list))
+           modifications (list.all (function (_ [path current_modification])
+                                     (do maybe.monad
+                                       [previous_modification (dictionary.value path file_tracker)]
+                                       (in [path previous_modification current_modification])))
+                                   current_files)]]
     (in [[directory
           [the_concern
-           (let [with_deletions (stack#mix dictionary.lacks file_tracker deletions)
-                 with_creations (stack#mix (function (_ [path last_modified] tracker)
-                                             (dictionary.has path last_modified tracker))
-                                           with_deletions
-                                           creations)
-                 with_modifications (stack#mix (function (_ [path previous_modification current_modification] tracker)
-                                                 (dictionary.has path current_modification tracker))
-                                               with_creations
-                                               modifications)]
+           (let [with_deletions (list#mix dictionary.lacks file_tracker deletions)
+                 with_creations (list#mix (function (_ [path last_modified] tracker)
+                                            (dictionary.has path last_modified tracker))
+                                          with_deletions
+                                          creations)
+                 with_modifications (list#mix (function (_ [path previous_modification current_modification] tracker)
+                                                (dictionary.has path current_modification tracker))
+                                              with_creations
+                                              modifications)]
              with_modifications)]]
          [creations
           modifications
@@ -249,28 +250,32 @@
          (do [! (try.with future.monad)]
            [changes (|> @tracker
                         dictionary.entries
-                        (stack.each' ! (..available_directory_changes fs)))
+                        list.of_stack
+                        (list.each' ! (..available_directory_changes fs)))
             _ (do future.monad
                 [_ (stm.commit! (stm.write (|> changes
-                                               (stack#each product.left)
-                                               (dictionary.of_stack text.hash))
+                                               (list#each product.left)
+                                               (dictionary.of_list text.hash))
                                            tracker))]
                 (in {try.#Success []}))
             .let [[creations modifications deletions]
-                  (stack#mix (function (_ [_ [creations modifications deletions]]
-                                          [all_creations all_modifications all_deletions])
-                               [(stack#composite creations all_creations)
-                                (stack#composite modifications all_modifications)
-                                (stack#composite deletions all_deletions)])
-                             [(stack) (stack) (stack)]
-                             changes)]]
-           (in (.all stack#composite
-                     (stack#each (|>> product.left [..creation]) creations)
+                  (is [(List [//.Path Instant])
+                       (List [//.Path Instant Instant])
+                       (List //.Path)]
+                      (list#mix (function (_ [_ [creations modifications deletions]]
+                                             [all_creations all_modifications all_deletions])
+                                  [(list#composite creations all_creations)
+                                   (list#composite modifications all_modifications)
+                                   (list#composite deletions all_deletions)])
+                                [(list) (list) (list)]
+                                changes))]]
+           (in (.all list#composite
+                     (list#each (|>> product.left [..creation]) creations)
                      (|> modifications
-                         (stack.only (function (_ [path previous_modification current_modification])
-                                       (not (instant.= previous_modification current_modification))))
-                         (stack#each (|>> product.left [..modification])))
-                     (stack#each (|>> [..deletion]) deletions)
+                         (list.only (function (_ [path previous_modification current_modification])
+                                      (not (instant.= previous_modification current_modification))))
+                         (list#each (|>> product.left [..modification])))
+                     (list#each (|>> [..deletion]) deletions)
                      )))))
      )))
 
@@ -293,17 +298,21 @@
               (size [] int)
               (get [int] a))
 
-            (the (default_list stack)
+            (the (default_list it)
               (for_any (_ it)
                 (-> (java/util/List it)
-                    (Stack it)))
-              (let [size (.natural (ffi.of_int (java/util/List::size [] stack)))]
+                    (List it)))
+              (let [size (.natural (ffi.of_int (java/util/List::size [] it)))]
                 (loop (again [idx 0
-                              output {.#Empty}])
+                              output (type.sharing [it]
+                                       (is (java/util/List it)
+                                           it)
+                                       (is (List it)
+                                           (list)))])
                   (if (n.< size idx)
                     (again (++ idx)
-                           {.#Top (java/util/List::get [(ffi.as_int (.integer idx))] stack)
-                                  output})
+                           (list#composite output
+                                           (list (java/util/List::get [(ffi.as_int (.integer idx))] it))))
                     output))))
             
             (import (java/nio/file/WatchEvent$Kind it)
@@ -361,8 +370,8 @@
                   (IO Concern))
               (|>> (java/nio/file/WatchKey::pollEvents [])
                    (by io.monad each (|>> ..default_list
-                                          (stack#each default_event_concern)
-                                          (stack#mix ..and ..none)))))
+                                          (list#each default_event_concern)
+                                          (list#mix ..and ..none)))))
 
             (import java/nio/file/WatchService
               "[1]::[0]"
@@ -385,13 +394,13 @@
               (java/nio/file/WatchEvent$Kind java/lang/Object))
 
             (the (default_start watch_events watcher path)
-              (-> (Stack Watch_Event) java/nio/file/WatchService //.Path
+              (-> (List Watch_Event) java/nio/file/WatchService //.Path
                   (Future (Try java/nio/file/WatchKey)))
-              (let [watch_events' (stack#mix (function (_ [index watch_event] watch_events')
-                                               (ffi.write! index watch_event watch_events'))
-                                             (ffi.array (java/nio/file/WatchEvent$Kind java/lang/Object)
-                                                        (stack.size watch_events))
-                                             (stack.enumeration watch_events))]
+              (let [watch_events' (list#mix (function (_ [index watch_event] watch_events')
+                                              (ffi.write! index watch_event watch_events'))
+                                            (ffi.array (java/nio/file/WatchEvent$Kind java/lang/Object)
+                                                       (list.size watch_events))
+                                            (list.enumeration watch_events))]
                 (future.soon
                  (java/nio/file/Path::register [watcher
                                                 watch_events']
@@ -399,9 +408,9 @@
 
             (the (default_poll watcher)
               (-> java/nio/file/WatchService
-                  (IO (Try (Stack [Concern //.Path]))))
-              (loop (again [output (is (Stack [Concern //.Path])
-                                       (stack))])
+                  (IO (Try (List [Concern //.Path]))))
+              (loop (again [output (is (List [Concern //.Path])
+                                       (list))])
                 (do (try.with io.monad)
                   [?key (java/nio/file/WatchService::poll [] watcher)]
                   (when ?key
@@ -417,8 +426,7 @@
                                           ffi.of_string
                                           (as //.Path))]
                            the_concern (..default_key_concern key)]
-                          (again {.#Top [the_concern path]
-                                        output}))
+                          (again (list#composite output (list [the_concern path]))))
                         (again output)))
                     
                     {.#None}
@@ -426,17 +434,17 @@
 
             (the (watch_events concern)
               (-> Concern
-                  (Stack Watch_Event))
-              (.all stack#composite
+                  (List Watch_Event))
+              (.all list#composite
                     (if (..creation? concern)
-                      (stack (as Watch_Event (java/nio/file/StandardWatchEventKinds::ENTRY_CREATE)))
-                      (stack))
+                      (list (as Watch_Event (java/nio/file/StandardWatchEventKinds::ENTRY_CREATE)))
+                      (list))
                     (if (..modification? concern)
-                      (stack (as Watch_Event (java/nio/file/StandardWatchEventKinds::ENTRY_MODIFY)))
-                      (stack))
+                      (list (as Watch_Event (java/nio/file/StandardWatchEventKinds::ENTRY_MODIFY)))
+                      (list))
                     (if (..deletion? concern)
-                      (stack (as Watch_Event (java/nio/file/StandardWatchEventKinds::ENTRY_DELETE)))
-                      (stack))
+                      (list (as Watch_Event (java/nio/file/StandardWatchEventKinds::ENTRY_DELETE)))
+                      (list))
                     ))
 
             (the .public default
