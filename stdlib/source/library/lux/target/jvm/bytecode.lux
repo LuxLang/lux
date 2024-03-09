@@ -30,6 +30,8 @@
     [number
      ["n" natural]
      ["i" integer]
+     [natural
+      ["[0]" /16]]
      [integer
       ["[0]" /32]]]]
    [macro
@@ -48,7 +50,7 @@
   ["/[1]" //
    ["[1][0]" index (.only Index)]
    [encoding
-    ["[1][0]" unsigned (.only U1 U2)]
+    ["[1][0]" unsigned (.only U1)]
     ["[1][0]" signed (.only S1 S2)]
     [name
      ["[0]" internal]]]
@@ -324,12 +326,12 @@
 
 (the (step estimator counter)
   (-> Estimator Address
-      (Try Address))
+      Address)
   (/address.move (estimator counter) counter))
 
 (the (bytecode consumption production registry [estimator bytecode] input)
   (for_any (_ it)
-    (-> U2 U2 Registry [Estimator (-> it Instruction)] it
+    (-> /16.Number /16.Number Registry [Estimator (-> it Instruction)] it
         (Bytecode Any)))
   (function (_ [pool environment tracker])
     (<| (try|do environment' (|> environment
@@ -337,7 +339,7 @@
                                  (monad.then try.monad (|>> (/environment.produces production)
                                                             (try#each (/environment.has registry))
                                                             try#conjoint))))
-        (try|do program_counter' (step estimator (its #program_counter tracker)))
+        (let [program_counter' (step estimator (its #program_counter tracker))])
         (try|in [[pool
                   environment'
                   (has #program_counter program_counter' tracker)]
@@ -347,10 +349,8 @@
 
 (template.with [<name> <frames>]
   [(the <name>
-     U2
-     (|> <frames>
-         //unsigned.u2
-         try.trusted))]
+     /16.Number
+     (/16.of <frames>))]
 
   [$0 0]
   [$1 1]
@@ -365,8 +365,7 @@
   [(the <name>
      Registry
      (|> <registry>
-         //unsigned.u2
-         try.trusted
+         /16.of
          /registry.registry))]
 
   [@_ 0]
@@ -608,7 +607,7 @@
       (Bytecode Any))
   (do ..monad
     [index (..lifted (pool.string value))]
-    (when (|> index //index.value //unsigned.value //unsigned.u1)
+    (when (|> index //index.value /16.as //unsigned.u1)
       {try.#Success index}
       (..bytecode $0 $1 @_ /.ldc [index])
 
@@ -636,7 +635,7 @@
              
              _ (do ..monad
                  [index (..lifted (<constant> value))]
-                 (when (|> index //index.value //unsigned.value //unsigned.u1)
+                 (when (|> index //index.value /16.as //unsigned.u1)
                    {try.#Success index}
                    (..bytecode $0 $1 @_ /.ldc [index])
 
@@ -680,7 +679,7 @@
       (Bytecode Any))
   (do ..monad
     [index (..lifted (pool.float value))]
-    (when (|> index //index.value //unsigned.value //unsigned.u1)
+    (when (|> index //index.value /16.as //unsigned.u1)
       {try.#Success index}
       (..bytecode $0 $1 @_ /.ldc [index])
 
@@ -860,7 +859,7 @@
   (exception.Exception [Label Address jump.Big])
   (exception.report
    (list ["Label" (%.natural label)]
-         ["Start" (|> @from /address.value //unsigned.value %.natural)]
+         ["Start" (|> @from /address.value /16.as %.natural)]
          ["Target" (|> jump /32.as %.integer)])))
 
 (every Any_Jump
@@ -917,7 +916,7 @@
              (try|do environment' (|> environment
                                       (/environment.consumes <consumption>)))
              (try|do actual (/environment.stack environment'))
-             (try|do program_counter' (step estimator @here))
+             (let [program_counter' (step estimator @here)])
              (try|in (let [@from @here]
                        [[pool
                          environment'
@@ -965,8 +964,8 @@
      (let [[estimator bytecode] <instruction>]
        (function (_ [pool environment tracker])
          (<| (try|do actual (/environment.stack environment))
-             (let [@here (its #program_counter tracker)])
-             (try|do program_counter' (step estimator @here))
+             (let [@here (its #program_counter tracker)
+                   program_counter' (step estimator @here)])
              (try|in (let [@from @here]
                        [[pool
                          (/environment.discontinue environment)
@@ -1021,7 +1020,7 @@
       (<| (try|do environment' (|> environment
                                    (/environment.consumes $1)))
           (try|do actual (/environment.stack environment'))
-          (try|do program_counter' (step (estimator (stack.size afterwards)) (its #program_counter tracker)))
+          (let [program_counter' (step (estimator (stack.size afterwards)) (its #program_counter tracker))])
           (try|in (let [@from (its #program_counter tracker)]
                     [[pool
                       environment'
@@ -1064,7 +1063,7 @@
       (<| (try|do environment' (|> environment
                                    (/environment.consumes $1)))
           (try|do actual (/environment.stack environment'))
-          (try|do program_counter' (step (estimator (stack.size cases)) (its #program_counter tracker)))
+          (let [program_counter' (step (estimator (stack.size cases)) (its #program_counter tracker))])
           (try|in (let [@from (its #program_counter tracker)]
                     [[pool
                       environment'
@@ -1134,7 +1133,7 @@
              0 (..except ..multiarray_cannot_be_zero_dimensional [class])
              _ (in [])))
      index (..lifted (pool.class (internal.name (..reflection class))))]
-    (..bytecode (//unsigned.lifted/2 dimensions) $1 @_ /.multianewarray [index dimensions])))
+    (..bytecode (|> dimensions //unsigned.value /16.of) $1 @_ /.multianewarray [index dimensions])))
 
 (the (type_size type)
   (-> (Type Return)
@@ -1165,8 +1164,8 @@
                                 //unsigned.u1
                                 try.trusted)
                 production (|> output ..type_size //unsigned.u1 try.trusted)]]
-         (..bytecode (//unsigned.lifted/2 consumption)
-                     (//unsigned.lifted/2 production)
+         (..bytecode (|> consumption //unsigned.value /16.of)
+                     (|> production //unsigned.value /16.of)
                      @_
                      <instruction> [index consumption production]))))]
 
@@ -1215,8 +1214,8 @@
 (exception.the .public (invalid_range_for_try [start end])
   (exception.Exception [Address Address])
   (exception.report
-   (list ["Start" (|> start /address.value //unsigned.value %.natural)]
-         ["End" (|> end /address.value //unsigned.value %.natural)])))
+   (list ["Start" (|> start /address.value /16.as %.natural)]
+         ["End" (|> end /address.value /16.as %.natural)])))
 
 (the .public (try @start @end @handler catch)
   (-> Label Label Label (Type Class)
@@ -1264,13 +1263,13 @@
   (-> Natural
       (Bytecode Any))
   (function (_ [pool environment tracker])
-    (<| (let [instruction (/address.value (its #program_counter tracker))])
-        (try|do line (//unsigned.u2 line))
-        (try|in [[pool
-                  environment
-                  (revised #line_number_table
-                           (sequence.suffix [line_number_table.#start_program_counter instruction
-                                             line_number_table.#line_number line])
-                           tracker)]
-                 [..relative#identity
-                  []]]))))
+    (let [instruction (/address.value (its #program_counter tracker))
+          line (/16.of line)]
+      (try|in [[pool
+                environment
+                (revised #line_number_table
+                         (sequence.suffix [line_number_table.#start_program_counter instruction
+                                           line_number_table.#line_number line])
+                         tracker)]
+               [..relative#identity
+                []]]))))
