@@ -31,7 +31,8 @@
      ["n" natural]
      ["i" integer]
      [natural
-      ["[0]" /16]]
+      ["n[0]" /08]
+      ["n[0]" /16]]
      [integer
       ["[0]" /32]]]]
    [macro
@@ -50,7 +51,6 @@
   ["/[1]" //
    ["[1][0]" index (.only Index)]
    [encoding
-    ["[1][0]" unsigned (.only U1)]
     ["[1][0]" signed (.only S1 S2)]
     [name
      ["[0]" internal]]]
@@ -331,7 +331,7 @@
 
 (the (bytecode consumption production registry [estimator bytecode] input)
   (for_any (_ it)
-    (-> /16.Number /16.Number Registry [Estimator (-> it Instruction)] it
+    (-> n/16.Number n/16.Number Registry [Estimator (-> it Instruction)] it
         (Bytecode Any)))
   (function (_ [pool environment tracker])
     (<| (try|do environment' (|> environment
@@ -349,8 +349,8 @@
 
 (template.with [<name> <frames>]
   [(the <name>
-     /16.Number
-     (/16.of <frames>))]
+     n/16.Number
+     (n/16.of <frames>))]
 
   [$0 0]
   [$1 1]
@@ -365,7 +365,7 @@
   [(the <name>
      Registry
      (|> <registry>
-         /16.of
+         n/16.of
          /registry.registry))]
 
   [@_ 0]
@@ -602,16 +602,29 @@
                  [..relative#identity
                   output]]))))
 
+(the Small_Index
+  n/08.Number)
+
+(the (small_index it)
+  (for_any (_ it)
+    (-> (Index it)
+        (Either (Index it)
+                Small_Index)))
+  (let [it' (|> it //index.value n/16.as)]
+    (if (n/08.valid? it')
+      {.#Right (n/08.of it')}
+      {.#Left it})))
+
 (the .public (string value)
   (-> UTF8
       (Bytecode Any))
-  (do ..monad
+  (do [! ..monad]
     [index (..lifted (pool.string value))]
-    (when (|> index //index.value /16.as //unsigned.u1)
-      {try.#Success index}
+    (when (small_index index)
+      {.#Right index}
       (..bytecode $0 $1 @_ /.ldc [index])
 
-      {try.#Failure _}
+      {.#Left index}
       (..bytecode $0 $1 @_ /.ldc_w/string [index]))))
 
 (import java/lang/Float
@@ -635,11 +648,11 @@
              
              _ (do ..monad
                  [index (..lifted (<constant> value))]
-                 (when (|> index //index.value /16.as //unsigned.u1)
-                   {try.#Success index}
+                 (when (small_index index)
+                   {.#Right index}
                    (..bytecode $0 $1 @_ /.ldc [index])
 
-                   {try.#Failure _}
+                   {.#Left index}
                    (..bytecode $0 $1 @_ <wide> [index])))))))]
 
   [int Integer pool.integer /.ldc_w/integer
@@ -679,11 +692,11 @@
       (Bytecode Any))
   (do ..monad
     [index (..lifted (pool.float value))]
-    (when (|> index //index.value /16.as //unsigned.u1)
-      {try.#Success index}
+    (when (small_index index)
+      {.#Right index}
       (..bytecode $0 $1 @_ /.ldc [index])
 
-      {try.#Failure _}
+      {.#Left index}
       (..bytecode $0 $1 @_ /.ldc_w/float [index]))))
 
 (the float_bits
@@ -756,11 +769,8 @@
 (the (register id)
   (-> Natural
       (Bytecode Register))
-  (when (//unsigned.u1 id)
-    {try.#Success register}
-    (by ..monad in register)
-    
-    {try.#Failure error}
+  (if (n/08.valid? id)
+    (by ..monad in (n/08.of id))
     (..except ..invalid_register [id])))
 
 (template.with [<for> <size> <name> <general> <specials>]
@@ -859,7 +869,7 @@
   (exception.Exception [Label Address jump.Big])
   (exception.report
    (list ["Label" (%.natural label)]
-         ["Start" (|> @from /address.value /16.as %.natural)]
+         ["Start" (|> @from /address.value n/16.as %.natural)]
          ["Target" (|> jump /32.as %.integer)])))
 
 (every Any_Jump
@@ -1113,7 +1123,7 @@
   )
 
 (the .public (iinc register increase)
-  (-> Natural U1
+  (-> Natural n/08.Number
       (Bytecode Any))
   (do ..monad
     [register (..register register)]
@@ -1125,15 +1135,15 @@
    (list ["Class" (..reflection class)])))
 
 (the .public (multianewarray class dimensions)
-  (-> (Type Object) U1
+  (-> (Type Object) n/08.Number
       (Bytecode Any))
   (do ..monad
     [_ (is (Bytecode Any)
-           (when (|> dimensions //unsigned.value)
+           (when (n/08.as dimensions)
              0 (..except ..multiarray_cannot_be_zero_dimensional [class])
              _ (in [])))
      index (..lifted (pool.class (internal.name (..reflection class))))]
-    (..bytecode (|> dimensions //unsigned.value /16.of) $1 @_ /.multianewarray [index dimensions])))
+    (..bytecode (|> dimensions n/08.as n/16.of) $1 @_ /.multianewarray [index dimensions])))
 
 (the (type_size type)
   (-> (Type Return)
@@ -1161,11 +1171,10 @@
           .let [consumption (|> inputs
                                 (stack#each ..type_size)
                                 (stack#mix n.+ (if <static?> 0 1))
-                                //unsigned.u1
-                                try.trusted)
-                production (|> output ..type_size //unsigned.u1 try.trusted)]]
-         (..bytecode (|> consumption //unsigned.value /16.of)
-                     (|> production //unsigned.value /16.of)
+                                n/08.of)
+                production (|> output ..type_size n/08.of)]]
+         (..bytecode (|> consumption n/08.as n/16.of)
+                     (|> production n/08.as n/16.of)
                      @_
                      <instruction> [index consumption production]))))]
 
@@ -1214,8 +1223,8 @@
 (exception.the .public (invalid_range_for_try [start end])
   (exception.Exception [Address Address])
   (exception.report
-   (list ["Start" (|> start /address.value /16.as %.natural)]
-         ["End" (|> end /address.value /16.as %.natural)])))
+   (list ["Start" (|> start /address.value n/16.as %.natural)]
+         ["End" (|> end /address.value n/16.as %.natural)])))
 
 (the .public (try @start @end @handler catch)
   (-> Label Label Label (Type Class)
@@ -1264,7 +1273,7 @@
       (Bytecode Any))
   (function (_ [pool environment tracker])
     (let [instruction (/address.value (its #program_counter tracker))
-          line (/16.of line)]
+          line (n/16.of line)]
       (try|in [[pool
                 environment
                 (revised #line_number_table
