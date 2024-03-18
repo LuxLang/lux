@@ -18,7 +18,6 @@
     ["[0]" product]
     [collection
      ["[0]" list (.use "[1]#[0]" mix functor monoid)]
-     ["[0]" stack (.use "[1]#[0]" mix functor monoid)]
      ["[0]" array
       ["[1]" \\unsafe (.only Array)]]]]
    [math
@@ -260,13 +259,13 @@
                         bitmap)))
 
 ... Produces the index of a KV-pair within a #Collisions node.
-(the (collision_index key_hash key colls)
+(the (collision_index hash_of_key key colls)
   (for_any (_ key value)
     (-> (Hash key) key (Collisions key value)
         (Maybe Index)))
   (by maybe.monad each product.left
       (array.example' (function (_ idx [key' val'])
-                        (by key_hash = key key'))
+                        (by hash_of_key = key key'))
                       colls)))
 
 ... When #Hierarchy nodes grow too small, they're demoted to #Base
@@ -275,46 +274,46 @@
   (for_any (_ key value)
     (-> Index (Hierarchy key value)
         [Bit_Map (Base key value)]))
-  (product.right (stack#mix (function (_ idx [insertion_idx node])
-                              (let [[bitmap base] node]
-                                (if (array.lacks? idx h_array)
-                                  [insertion_idx node]
-                                  (if (n.= except_idx idx)
-                                    [insertion_idx node]
-                                    [(++ insertion_idx)
-                                     [(with_bit_position (to_bit_position idx) bitmap)
-                                      (array.has! insertion_idx {.#Left (array.item idx h_array)} base)]]))))
-                            [0 [clean_bitmap
-                                (array.empty (-- h_size))]]
-                            (stack.indices (array.size h_array)))))
+  (product.right (list#mix (function (_ idx [insertion_idx node])
+                             (let [[bitmap base] node]
+                               (if (array.lacks? idx h_array)
+                                 [insertion_idx node]
+                                 (if (n.= except_idx idx)
+                                   [insertion_idx node]
+                                   [(++ insertion_idx)
+                                    [(with_bit_position (to_bit_position idx) bitmap)
+                                     (array.has! insertion_idx {.#Left (array.item idx h_array)} base)]]))))
+                           [0 [clean_bitmap
+                               (array.empty (-- h_size))]]
+                           (list.indices (array.size h_array)))))
 
 ... When #Base nodes grow too large, they're promoted to #Hierarchy to
 ... add some depth to the tree and help keep its balance.
 (the hierarchy_indices
-  (Stack Index)
-  (stack.indices hierarchy_nodes_size))
+  (List Index)
+  (list.indices hierarchy_nodes_size))
 
-(the (promotion node#has key_hash level bitmap base)
+(the (promotion node#has hash_of_key level bitmap base)
   (for_any (_ key value)
     (-> (-> Level Hash_Code key value (Hash key) (Node key value) (Node key value))
         (Hash key) Level Bit_Map (Base key value)
         (Array (Node key value))))
-  (product.right (stack#mix (function (_ hierarchy_idx (^.let default [base_idx h_array]))
-                              (if (with_bit_position? (to_bit_position hierarchy_idx)
-                                    bitmap)
-                                [(++ base_idx)
-                                 (when (array.item base_idx base)
-                                   {.#Left sub_node}
-                                   (array.has! hierarchy_idx sub_node h_array)
+  (product.right (list#mix (function (_ hierarchy_idx (^.let default [base_idx h_array]))
+                             (if (with_bit_position? (to_bit_position hierarchy_idx)
+                                   bitmap)
+                               [(++ base_idx)
+                                (when (array.item base_idx base)
+                                  {.#Left sub_node}
+                                  (array.has! hierarchy_idx sub_node h_array)
 
-                                   {.#Right [key' val']}
-                                   (array.has! hierarchy_idx
-                                               (node#has (level_up level) (by key_hash hash key') key' val' key_hash ..empty_node)
-                                               h_array))]
-                                default))
-                            [0
-                             (array.empty hierarchy_nodes_size)]
-                            hierarchy_indices)))
+                                  {.#Right [key' val']}
+                                  (array.has! hierarchy_idx
+                                              (node#has (level_up level) (by hash_of_key hash key') key' val' hash_of_key ..empty_node)
+                                              h_array))]
+                               default))
+                           [0
+                            (array.empty hierarchy_nodes_size)]
+                           hierarchy_indices)))
 
 ... All empty nodes look the same (a #Base node with clean bitmap is
 ... used).
@@ -330,7 +329,7 @@
     _
     false))
 
-(the (node#has level hash key val key_hash node)
+(the (node#has level hash key val hash_of_key node)
   (for_any (_ key value)
     (-> Level Hash_Code key value (Hash key) (Node key value)
         (Node key value)))
@@ -343,7 +342,7 @@
                               [_size (array.item idx hierarchy)]
                               [(++ _size) ..empty_node])]
       {#Hierarchy _size'
-                  (array#revised idx (node#has (level_up level) hash key val key_hash sub_node)
+                  (array#revised idx (node#has (level_up level) hash key val hash_of_key sub_node)
                                  hierarchy)})
 
     ... For #Base nodes, check if the corresponding Bit_Position has
@@ -356,17 +355,17 @@
           {#Base bitmap (when (array.item idx base)
                           ... If it's being used by a node, add the KV to it.
                           {.#Left sub_node}
-                          (let [sub_node' (node#has (level_up level) hash key val key_hash sub_node)]
+                          (let [sub_node' (node#has (level_up level) hash key val hash_of_key sub_node)]
                             (array#revised idx {.#Left sub_node'} base))
 
                           ... Otherwise, if it's being used by a KV, compare the keys.
                           {.#Right key' val'}
                           (array#revised idx
-                                         (if (by key_hash = key key')
+                                         (if (by hash_of_key = key key')
                                            ... If the same key is found, replace the value.
                                            {.#Right key val}
                                            ... Otherwise, compare the hashes of the keys.
-                                           {.#Left (let [hash' (by key_hash hash key')]
+                                           {.#Left (let [hash' (by hash_of_key hash key')]
                                                      (if (n.= hash hash')
                                                        ... If the hashes are
                                                        ... the same, a new
@@ -382,8 +381,8 @@
                                                        ... to the empty one.
                                                        (let [next_level (level_up level)]
                                                          (|> ..empty_node
-                                                             (node#has next_level hash' key' val' key_hash)
-                                                             (node#has next_level hash  key  val key_hash)))))})
+                                                             (node#has next_level hash' key' val' hash_of_key)
+                                                             (node#has next_level hash  key  val hash_of_key)))))})
                                          base))})
         ... However, if the Bit_Position has not been used yet, check
         ... whether this #Base node is ready for a promotion.
@@ -398,8 +397,8 @@
             {#Hierarchy (++ base_count)
                         (let [... TODO: These bindings were established to get around a compilation error. Fix and inline!
                               index (level_index level hash)
-                              item (node#has (level_up level) hash key val key_hash ..empty_node)
-                              array (promotion node#has key_hash level bitmap base)]
+                              item (node#has (level_up level) hash key val hash_of_key ..empty_node)
+                              array (promotion node#has hash_of_key level bitmap base)]
                           (array.has! index item array))}))))
     
     ... For #Collisions nodes, compare the hashes.
@@ -407,13 +406,13 @@
     (if (n.= hash _hash)
       ... If they're equal, that means the new KV contributes to the
       ... collisions.
-      (when (collision_index key_hash key _colls)
-        ... If the key was already present in the collisions-stack, its
+      (when (collision_index hash_of_key key _colls)
+        ... If the key was already present in the collisions-list, its
         ... value gets updated.
         {.#Some coll_idx}
         {#Collisions _hash (array#revised coll_idx [key val] _colls)}
 
-        ... Otherwise, the KV-pair is added to the collisions-stack.
+        ... Otherwise, the KV-pair is added to the collisions-list.
         {.#None}
         {#Collisions _hash (array#has (array.size _colls) [key val] _colls)})
       ... If the hashes are not equal, create a new #Base node that
@@ -421,10 +420,10 @@
       (|> {#Base (level_bit_position level _hash)
                  (|> (array.empty 1)
                      (array.has! 0 {.#Left node}))}
-          (node#has level hash key val key_hash)))
+          (node#has level hash key val hash_of_key)))
     ))
 
-(the (node#lacks level hash key key_hash node)
+(the (node#lacks level hash key hash_of_key node)
   (for_any (_ key value)
     (-> Level Hash_Code key (Hash key) (Node key value)
         (Node key value)))
@@ -438,7 +437,7 @@
         node
         ... But if there is, try to remove the key from the sub-node.
         (let [sub_node (array.item idx h_array)
-              sub_node' (node#lacks (level_up level) hash key key_hash sub_node)]
+              sub_node' (node#lacks (level_up level) hash key hash_of_key sub_node)]
           ... Then check if a removal was actually done.
           (if (same? sub_node sub_node')
             ... If not, then there's nothing to change here either.
@@ -464,7 +463,7 @@
             ... If set, check if it's a sub_node, and remove the KV
             ... from it.
             {.#Left sub_node}
-            (let [sub_node' (node#lacks (level_up level) hash key key_hash sub_node)]
+            (let [sub_node' (node#lacks (level_up level) hash key hash_of_key sub_node)]
               ... Verify that it was removed.
               (if (same? sub_node sub_node')
                 ... If not, there's also nothing to change here.
@@ -487,7 +486,7 @@
             ... If, however, there was a KV-pair instead of a sub-node.
             {.#Right [key' val']}
             ... Check if the keys match.
-            (if (by key_hash = key key')
+            (if (by hash_of_key = key key')
               ... If so, remove the KV-pair and unset the Bit_Position.
               {#Base (without_bit_position bit bitmap)
                      (array#lacks idx base)}
@@ -498,12 +497,12 @@
 
     ... For #Collisions nodes, It need to find out if the key already existst.
     {#Collisions _hash _colls}
-    (when (collision_index key_hash key _colls)
+    (when (collision_index hash_of_key key _colls)
       ... If not, then there's nothing to remove.
       {.#None}
       node
 
-      ... But if so, then check the size of the collisions stack.
+      ... But if so, then check the size of the collisions list.
       {.#Some idx}
       (if (n.= 1 (array.size _colls))
         ... If there's only one left, then removing it leaves us with
@@ -518,7 +517,7 @@
   (provenance.with (provenance.here)
     "Unknown value."))
 
-(the (node#value level hash key key_hash node)
+(the (node#value level hash key hash_of_key node)
   (for_any (_ key value)
     (-> Level Hash_Code key (Hash key) (Node key value)
         (Try value)))
@@ -528,7 +527,7 @@
     (let [index (level_index level hash)]
       (if (array.lacks? index hierarchy)
         {try.#Failure ..unknown_value}
-        (node#value (level_up level) hash key key_hash (array.item index hierarchy))))
+        (node#value (level_up level) hash key hash_of_key (array.item index hierarchy))))
 
     ... For #Base nodes, check the leaves, and recursively check the branches.
     {#Base bitmap base}
@@ -536,10 +535,10 @@
       (if (with_bit_position? bit bitmap)
         (when (array.item (base_index bit bitmap) base)
           {.#Left sub_node}
-          (node#value (level_up level) hash key key_hash sub_node)
+          (node#value (level_up level) hash key hash_of_key sub_node)
 
           {.#Right [key' val']}
-          (if (by key_hash = key key')
+          (if (by hash_of_key = key key')
             {try.#Success val'}
             {try.#Failure ..unknown_value}))
         {try.#Failure ..unknown_value}))
@@ -547,7 +546,7 @@
     ... For #Collisions nodes, do a linear scan of all the known KV-pairs.
     {#Collisions _hash _colls}
     (|> _colls
-        (array.example (|>> product.left (by key_hash = key)))
+        (array.example (|>> product.left (by hash_of_key = key)))
         (by maybe.monad each product.right)
         (try.of_maybe ..unknown_value))
     ))
@@ -605,52 +604,44 @@
                init
                colls)))
 
-(the node#entries
-  (for_any (_ key value)
-    (-> (Node key value)
-        (Stack [key value])))
-  (node#mix (function (_ head tail)
-              {.#Top head tail})
-            {.#Empty}))
-
 (every .public (Dictionary key value)
   (Record
    [#hash (Hash key)
     #root (Node key value)]))
 
-(the .public key_hash
+(the .public hash
   (for_any (_ key value)
     (-> (Dictionary key value)
         (Hash key)))
   (its ..#hash))
 
-(the .public (empty key_hash)
+(the .public (empty hash_of_key)
   (for_any (_ key value)
     (-> (Hash key)
         (Dictionary key value)))
-  [#hash key_hash
+  [#hash hash_of_key
    #root ..empty_node])
 
 (the .public (has key val dict)
   (for_any (_ key value)
     (-> key value (Dictionary key value)
         (Dictionary key value)))
-  (let [[key_hash node] dict]
-    [key_hash (node#has root_level (by key_hash hash key) key val key_hash node)]))
+  (let [[hash_of_key node] dict]
+    [hash_of_key (node#has root_level (by hash_of_key hash key) key val hash_of_key node)]))
 
 (the .public (lacks key dict)
   (for_any (_ key value)
     (-> key (Dictionary key value)
         (Dictionary key value)))
-  (let [[key_hash node] dict]
-    [key_hash (node#lacks root_level (by key_hash hash key) key key_hash node)]))
+  (let [[hash_of_key node] dict]
+    [hash_of_key (node#lacks root_level (by hash_of_key hash key) key hash_of_key node)]))
 
 (the .public (value key dict)
   (for_any (_ key value)
     (-> key (Dictionary key value)
         (Try value)))
-  (let [[key_hash node] dict]
-    (node#value root_level (by key_hash hash key) key key_hash node)))
+  (let [[hash_of_key node] dict]
+    (node#value root_level (by hash_of_key hash key) key hash_of_key node)))
 
 (the .public (key? dict key)
   (for_any (_ key value)
@@ -711,40 +702,42 @@
   (|>> size
        (n.= 0)))
 
-(the .public entries
+(the list_abstraction
+  (.in_module# (product.left (name list._))
+               list.abstraction))
+(the .public (entries it)
   (for_any (_ key value)
     (-> (Dictionary key value)
-        (Stack [key value])))
-  (|>> (its #root)
-       ..node#entries))
+        (List [key value])))
+  (let [it (its #root it)]
+    (|> it
+        (node#mix (function (_ value [it @])
+                    [(array.has! @ value it) (++ @)])
+                  [(array.empty (node#size it)) 0])
+        product.left
+        list_abstraction)))
 
-(the .public (of_stack key_hash kvs)
-  (for_any (_ key value)
-    (-> (Hash key) (Stack [key value])
-        (Dictionary key value)))
-  (stack#mix (function (_ [k v] dict)
-               (..has k v dict))
-             (empty key_hash)
-             kvs))
-
-(the .public (of_list key_hash kvs)
+(the .public (of_list hash_of_key kvs)
   (for_any (_ key value)
     (-> (Hash key) (List [key value])
         (Dictionary key value)))
   (list#mix (function (_ [k v] dict)
               (..has k v dict))
-            (empty key_hash)
+            (empty hash_of_key)
             kvs))
 
 (with_template' [<side> <name>]
-  [(the .public <name>
+  [(the .public (<name> it)
      (for_any (_ key value)
        (-> (Dictionary key value)
-           (Stack <side>)))
-     (|>> (its #root)
-          (node#mix (function (_ [key value] bundle)
-                      {.#Top <side> bundle})
-                    {.#Empty})))]
+           (List <side>)))
+     (let [it (its #root it)]
+       (|> it
+           (node#mix (function (_ [key value] [it @])
+                       [(array.has! @ <side> it) (++ @)])
+                     [(array.empty (node#size it)) 0])
+           product.left
+           list_abstraction)))]
 
   [key   keys]
   [value values]
@@ -788,18 +781,18 @@
 
 (the .public (sub keys dict)
   (for_any (_ key value)
-    (-> (Stack key) (Dictionary key value)
+    (-> (List key) (Dictionary key value)
         (Dictionary key value)))
-  (let [[key_hash _] dict]
-    (stack#mix (function (_ key new_dict)
-                 (when (..value key dict)
-                   {try.#Success val}
-                   (has key val new_dict)
+  (let [[hash_of_key _] dict]
+    (list#mix (function (_ key new_dict)
+                (when (..value key dict)
+                  {try.#Success val}
+                  (has key val new_dict)
 
-                   failure
-                   new_dict))
-               (empty key_hash)
-               keys)))
+                  failure
+                  new_dict))
+              (empty hash_of_key)
+              keys)))
 
 (the .public (equivalence (open ",#[0]"))
   (for_any (_ key value)
@@ -809,14 +802,14 @@
    (the (= expected actual)
      (and (n.= (..size expected)
                (..size actual))
-          (stack.every? (function (_ [k rv])
-                          (when (..value k actual)
-                            {try.#Success sv}
-                            (,#= rv sv)
+          (list.every? (function (_ [k rv])
+                         (when (..value k actual)
+                           {try.#Success sv}
+                           (,#= rv sv)
 
-                            failure
-                            false))
-                        (..entries expected))))))
+                           failure
+                           false))
+                       (..entries expected))))))
 
 (the node_functor
   (for_any (_ key)
