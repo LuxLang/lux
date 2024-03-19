@@ -12,7 +12,8 @@
    [data
     ["[0]" text]
     [collection
-     ["[0]" stack (.use "[1]#[0]" functor mix)]]]
+     ["[0]" list (.use "[1]#[0]" functor mix monoid)]
+     ["[0]" stack (.use "[1]#[0]" functor mix monoid)]]]
    [math
     [number
      ["n" natural]]]
@@ -69,18 +70,18 @@
   (Expression synthesis.Let)
   (do [! phase.monad]
     [.let [[tail body] (synthesis.flat_let body)]
-     bindings (stack.each' ! (function (_ [binding value])
-                               (phase#each (_.define (..register binding))
-                                           (next archive value)))
-                           (stack.partial [head_binding head_value]
+     bindings (list.each' ! (function (_ [binding value])
+                              (phase#each (_.define (..register binding))
+                                          (next archive value)))
+                          (list#composite (list [head_binding head_value])
                                           tail))
      body (next archive body)]
-    ... (in (stack#mix _., body (stack.reversed bindings)))
-    (in (_.apply (<| (_.closure (stack))
-                     (stack#mix _.then
-                                (_.return body)
-                                (stack.reversed bindings)))
-                 (stack)))
+    ... (in (list#mix _., body (list.reversed bindings)))
+    (in (<| (_.on (list))
+            (_.closure (list))
+            (list#mix _.then
+                      (_.return body)
+                      (list.reversed bindings))))
     ))
 
 (the .public (let! statement expression archive [register valueS bodyS])
@@ -119,7 +120,7 @@
   (Expression synthesis.Its)
   (do phase.monad
     [valueO (expression archive valueS)]
-    (in (stack#mix ..projection valueO pathP))))
+    (in (list#mix ..projection valueO pathP))))
 
 (the @savepoint (_.var "lux_pm_cursor_savepoint"))
 (the @cursor (_.var "lux_pm_cursor"))
@@ -127,11 +128,11 @@
 
 (the (push_cursor! value)
   (-> _.Expression _.Statement)
-  (_.; (|> @cursor (_.do "push" (stack value)))))
+  (_.; (|> @cursor (_.do "push" (list value)))))
 
 (the peek_and_pop_cursor
   _.Expression
-  (|> @cursor (_.do "pop" (stack))))
+  (|> @cursor (_.do "pop" (list))))
 
 (the pop_cursor!
   _.Statement
@@ -149,24 +150,25 @@
 
 (the save_cursor!
   _.Statement
-  (.let [cursor (|> @cursor (_.do "slice" (stack)))]
-    (_.; (|> @savepoint (_.do "push" (stack cursor))))))
+  (.let [cursor (|> @cursor (_.do "slice" (list)))]
+    (_.; (|> @savepoint (_.do "push" (list cursor))))))
 
 (the restore_cursor!
   _.Statement
-  (_.; (_.set @cursor (|> @savepoint (_.do "pop" (stack))))))
+  (_.; (_.set @cursor (|> @savepoint (_.do "pop" (list))))))
 
 (the fail_pm! _.break)
 
 (the (multi_pop_cursor! pops)
   (-> Natural _.Statement)
   (.let [popsJS (_.i32 (.integer pops))]
-    (_.; (|> @cursor (_.do "splice" (stack (|> @cursor ..length (_.- popsJS))
-                                           popsJS))))))
+    (_.; (|> @cursor (_.do "splice" (list (|> @cursor ..length (_.- popsJS))
+                                          popsJS))))))
 
 (template.with [<name> <flag>]
   [(the (<name> simple? idx)
-     (-> Bit Natural _.Statement)
+     (-> Bit Natural
+         _.Statement)
      (all _.then
           (_.; (_.set @temp (//runtime.sum//get ..peek_cursor <flag>
                                                 (|> idx .integer _.i32))))
@@ -288,31 +290,31 @@
                         else!
                         then!))))
 
-              {synthesis.#I64_Fork item}
+              {synthesis.#I64_Fork [head tail]}
               (do [! phase.monad]
                 ['input (phase#each _.var (translation.name "input"))
-                 clauses (stack.each' ! (function (_ [when then])
-                                          (do !
-                                            [then! (again then)]
-                                            (in [(//runtime.i64::= (//primitive.i64 when)
-                                                                   'input)
-                                                 then!])))
-                                      {.#Top item})]
+                 clauses (list.each' ! (function (_ [when then])
+                                         (do !
+                                           [then! (again then)]
+                                           (in [(//runtime.i64::= (//primitive.i64 when)
+                                                                  'input)
+                                                then!])))
+                                     (list#composite (list head) tail))]
                 (in (all _.then
                          (_.define 'input ..peek_cursor)
-                         (stack#mix (function (_ [when then] else)
-                                      (_.if when then else))
-                                    ..fail_pm!
-                                    (stack.reversed clauses)))))
+                         (list#mix (function (_ [when then] else)
+                                     (_.if when then else))
+                                   ..fail_pm!
+                                   (list.reversed clauses)))))
 
               (,, (template.with [<tag> <injection>]
-                    [{<tag> item}
+                    [{<tag> [head tail]}
                      (do [! phase.monad]
-                       [cases (stack.each' ! (function (_ [match then])
-                                               (by ! each (|>> [(stack (<injection> match))]) (again then)))
-                                           {.#Top item})]
+                       [cases (list.each' ! (function (_ [match then])
+                                              (by ! each (|>> [(list (<injection> match))]) (again then)))
+                                          (list#composite (list head) tail))]
                        (in (_.switch ..peek_cursor
-                                     (stack.reversed cases)
+                                     (list.reversed cases)
                                      {.#Some ..fail_pm!})))]
 
                     [synthesis.#F64_Fork //primitive.f64]
@@ -331,6 +333,14 @@
 
                     [synthesis.member/left  //runtime.tuple//left]
                     [synthesis.member/right //runtime.tuple//right]))
+
+              {synthesis.#List size}
+              (phase#in (_.when (_.not (_.= (_.i32 (.integer size))
+                                            (_.its "length" ..peek_cursor)))
+                          ..fail_pm!))
+
+              (synthesis.item index)
+              (phase#in (push_cursor! (_.at (_.i32 (.integer index)) ..peek_cursor)))
 
               (,, (template.with [<tag> <combinator>]
                     [(<tag> leftP rightP)
@@ -358,15 +368,17 @@
      pattern_matching! (pattern_matching statement expression archive pathP)]
     (in (all _.then
              (_.declare @temp)
-             (_.define @cursor (_.array (stack stack_init)))
-             (_.define @savepoint (_.array (stack)))
+             (_.define @cursor (_.array (list stack_init)))
+             (_.define @savepoint (_.array (list)))
              pattern_matching!))))
 
 (the .public (when statement expression archive [valueS pathP])
   (-> Phase! (Expression [synthesis.Term Path]))
   (do phase.monad
     [pattern_matching! (..when! statement expression archive [valueS pathP])]
-    (in (_.apply (_.closure (stack) pattern_matching!) (stack)))))
+    (in (|> pattern_matching!
+            (_.closure (list))
+            (_.on (list))))))
 
 (the .public (multi_let! statement expression archive [input bindings body])
   (Statement synthesis.Multi_Let)
@@ -375,20 +387,19 @@
      body (statement expression archive body)
      'tuple (phase#each _.var (translation.name "tuple"))]
     (in (all _.then
-             (stack#mix (function (_ [register member] left)
-                          (all _.then
-                               left
-                               (_.define (..register register) (..projection member 'tuple))))
-                        (_.define 'tuple input)
-                        bindings)
+             (list#mix (function (_ [register member] left)
+                         (all _.then
+                              left
+                              (_.define (..register register) (..projection member 'tuple))))
+                       (_.define 'tuple input)
+                       bindings)
              body))))
 
 (the .public (multi_let statement expression archive)
   (-> Phase! (Expression synthesis.Multi_Let))
   (|>> (multi_let! statement expression archive)
-       (phase#each (function (_ it)
-                     (_.apply (_.closure (stack) it)
-                              (stack))))))
+       (phase#each (|>> (_.closure (list))
+                        (_.on (list))))))
 
 (template.with [,lux ,host]
   [(the .public (,lux expression archive [parameter subject])
@@ -404,25 +415,24 @@
 
 (template.with [,expression ,statement ,type ,injection]
   [(the .public (,statement statement expression archive [input clauses else])
-     (Statement [synthesis.Term (Stack [,type synthesis.Term]) synthesis.Term])
+     (Statement [synthesis.Term (List [,type synthesis.Term]) synthesis.Term])
      (do [! phase.monad]
        [input (expression archive input)
-        clauses (stack.each' ! (function (_ [match then])
-                                 (by ! each (|>> [(stack (,injection match))])
-                                     (statement expression archive then)))
-                             clauses)
+        clauses (list.each' ! (function (_ [match then])
+                                (by ! each (|>> [(list (,injection match))])
+                                    (statement expression archive then)))
+                            clauses)
         else (statement expression archive else)]
        (in (_.switch input
-                     (stack.reversed clauses)
+                     (list.reversed clauses)
                      {.#Some else}))))
 
    (the .public (,expression statement expression archive)
      (-> Phase!
-         (Expression [synthesis.Term (Stack [,type synthesis.Term]) synthesis.Term]))
+         (Expression [synthesis.Term (List [,type synthesis.Term]) synthesis.Term]))
      (|>> (,statement statement expression archive)
-          (phase#each (function (_ it)
-                        (_.apply (_.closure (stack) it)
-                                 (stack))))))]
+          (phase#each (|>> (_.closure (list))
+                           (_.on (list))))))]
 
   [when_f64 when_f64! F64 //primitive.f64]
   [when_text when_text! Text //primitive.text]
@@ -430,43 +440,43 @@
 
 (template.with [,expression ,statement ,type ,injection]
   [(the .public (,statement statement expression archive [input clauses else])
-     (Statement [synthesis.Term (Stack [,type synthesis.Term]) synthesis.Term])
+     (Statement [synthesis.Term (List [,type synthesis.Term]) synthesis.Term])
      (do [! phase.monad]
        [input (expression archive input)
         'input (phase#each _.var (translation.name "input"))
-        clauses (stack.each' ! (function (_ [when then])
-                                 (by ! each (|>> [when]) (statement expression archive then)))
-                             clauses)
+        clauses (list.each' ! (function (_ [when then])
+                                (by ! each (|>> [when]) (statement expression archive then)))
+                            clauses)
         else (statement expression archive else)]
        (in (all _.then
                 (_.define 'input input)
-                (stack#mix (function (_ [when then] else)
-                             (_.if (//runtime.i64::= (,injection when)
-                                                     'input)
-                               then
-                               else))
-                           else
-                           (stack.reversed clauses))))))
+                (list#mix (function (_ [when then] else)
+                            (_.if (//runtime.i64::= (,injection when)
+                                                    'input)
+                              then
+                              else))
+                          else
+                          (list.reversed clauses))))))
 
    (the .public (,expression expression archive [input clauses else])
-     (Expression [synthesis.Term (Stack [,type synthesis.Term]) synthesis.Term])
+     (Expression [synthesis.Term (List [,type synthesis.Term]) synthesis.Term])
      (do [! phase.monad]
        [input (expression archive input)
         'input (phase#each _.var (translation.name "input"))
-        clauses (stack.each' ! (function (_ [when then])
-                                 (by ! each (|>> [when]) (expression archive then)))
-                             clauses)
+        clauses (list.each' ! (function (_ [when then])
+                                (by ! each (|>> [when]) (expression archive then)))
+                            clauses)
         else (expression archive else)]
-       (in (_.apply (<| (_.closure (stack 'input))
-                        _.return
-                        (stack#mix (function (_ [when then] else)
-                                     (_.? (//runtime.i64::= (,injection when)
-                                                            'input)
-                                          then
-                                          else))
-                                   else
-                                   (stack.reversed clauses)))
-                    (stack input)))))]
+       (in (<| (_.on (list input))
+               (_.closure (list 'input))
+               _.return
+               (list#mix (function (_ [when then] else)
+                           (_.? (//runtime.i64::= (,injection when)
+                                                  'input)
+                                then
+                                else))
+                         else
+                         (list.reversed clauses))))))]
 
   [when_i64 when_i64! I64 //primitive.i64]
   )

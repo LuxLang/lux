@@ -9,7 +9,7 @@
    ["[0]" ffi (.only import)]
    [abstract
     [monad (.only do)]
-    ["<>" projection]]
+    ["<>" projection (.use "[1]#[0]" functor)]]
    [control
     ["|" pipe]
     ["[0]" maybe]]
@@ -259,10 +259,10 @@
 (.every Method_Signature
   (Record
    [#method .Type
-    #inputs (Stack (Type Value))
+    #inputs (List (Type Value))
     #output (Type Return)
     #deprecated? Bit
-    #throws (Stack .Type)]))
+    #throws (List .Type)]))
 
 (template.with [<name>]
   [(exception.the .public (<name> type)
@@ -291,26 +291,26 @@
   (text.Injection Method_Signature)
   (exception.report
    (list ["Type" (type.as_text (its #method it))]
-         ["Arguments" (exception.listing jvm.as_text (list.of_stack (its #inputs it)))]
+         ["Arguments" (exception.listing jvm.as_text (its #inputs it))]
          ["Return" (jvm.as_text (its #output it))]
          ["Deprecated?" (bit.as_text (its #deprecated? it))]
-         ["Throws" (exception.listing type.as_text (list.of_stack (its #throws it)))])))
+         ["Throws" (exception.listing type.as_text (its #throws it))])))
 
 (template.with [<name>]
   [(exception.the .public (<name> [class_variables class method method_variables inputsJT hints])
-     (exception.Exception [(Stack (Type Var))
+     (exception.Exception [(List (Type Var))
                            external.Name
                            Text
-                           (Stack (Type Var))
-                           (Stack (Type Value))
-                           (Stack Method_Signature)])
+                           (List (Type Var))
+                           (List (Type Value))
+                           (List Method_Signature)])
      (exception.report
-      (list ["Class variables" (exception.listing ..signature (list.of_stack class_variables))]
+      (list ["Class variables" (exception.listing ..signature class_variables)]
             ["Class" class]
             ["Method" method]
-            ["Method variables" (exception.listing ..signature (list.of_stack method_variables))]
-            ["Arguments" (exception.listing ..signature (list.of_stack inputsJT))]
-            ["Hints" (exception.listing ..method_signature_text (list.of_stack hints))])))]
+            ["Method variables" (exception.listing ..signature method_variables)]
+            ["Arguments" (exception.listing ..signature inputsJT)]
+            ["Hints" (exception.listing ..method_signature_text hints)])))]
 
   [no_candidates]
   [too_many_candidates]
@@ -456,22 +456,22 @@
 
       {try.#Failure _}
       (do [! phase.monad]
-        [parametersJT (is (Operation (Stack (Type Parameter)))
-                          (stack.each' !
-                                       (function (_ parameterT)
-                                         (do phase.monad
-                                           [parameterJT (jvm_type parameterT)]
-                                           (when (projection.parameter? parameterJT)
-                                             {.#Some parameterJT}
-                                             (in parameterJT)
-                                             
-                                             {.#None}
-                                             (analysis.except ..non_parameter parameterT))))
-                                       parametersT))]
+        [parametersJT (is (Operation (List (Type Parameter)))
+                          (list.each' !
+                                      (function (_ parameterT)
+                                        (do phase.monad
+                                          [parameterJT (jvm_type parameterT)]
+                                          (when (projection.parameter? parameterJT)
+                                            {.#Some parameterJT}
+                                            (in parameterJT)
+                                            
+                                            {.#None}
+                                            (analysis.except ..non_parameter parameterT))))
+                                      (list.of_stack parametersT)))]
         (in (jvm.class parametersJT class))))
 
     {.#Opaque _}
-    (phase#in (jvm.class (stack) ..object_class))
+    (phase#in (jvm.class (list) ..object_class))
 
     {.#Function _}
     (phase#in function.class)
@@ -585,7 +585,7 @@
               (analysis.except ..non_parameter objectT)
 
               ... else
-              (phase#in (jvm.class (stack) name))))
+              (phase#in (jvm.class (list) name))))
 
         {.#Named name anonymous}
         (check_parameter anonymous)
@@ -598,11 +598,11 @@
             (check_parameter :var:)
             
             un_bound!
-            (in (jvm.class (stack) ..object_class))))
+            (in (jvm.class (list) ..object_class))))
 
         (^.or {.#Opaque id}
               {.#Parameter id})
-        (phase#in (jvm.class (stack) ..object_class))
+        (phase#in (jvm.class (list) ..object_class))
 
         (,, (template.with [<tag>]
               [{<tag> env unquantified}
@@ -662,7 +662,7 @@
                     (check_jvm {.#Nominal unprefixed (stack)})))
 
               ... else
-              (phase#in (jvm.class (stack) name))))
+              (phase#in (jvm.class (list) name))))
 
         (lux_array_type elementT _)
         (|> elementT
@@ -671,7 +671,7 @@
         
         {.#Nominal name parameters}
         (do [! phase.monad]
-          [parameters (stack.each' ! check_parameter parameters)]
+          [parameters (list.each' ! check_parameter (list.of_stack parameters))]
           (phase#in (jvm.class parameters name)))
 
         {.#Named name anonymous}
@@ -961,31 +961,32 @@
 
 (the (class_candidate_parents class_loader from_name fromT to_name to_class)
   (-> java/lang/ClassLoader external.Name .Type external.Name (java/lang/Class java/lang/Object)
-      (Operation (Stack [[Text .Type] Bit])))
+      (Operation (List [[Text .Type] Bit])))
   (do [! phase.monad]
     [from_class (phase.of_try (reflection!.load class_loader from_name))
      mapping (phase.of_try (reflection!.correspond from_class fromT))]
-    (stack.each' !
-                 (function (_ superJT)
-                   (do !
-                     [superJT (phase.of_try (reflection!.type superJT))
-                      .let [super_name (..reflection superJT)]
-                      super_class (phase.of_try (reflection!.load class_loader super_name))
-                      superT (reflection_type mapping superJT)]
-                     (in [[super_name superT]
-                          (ffi.of_boolean (java/lang/Class::isAssignableFrom [super_class] to_class))])))
-                 (when (java/lang/Class::getGenericSuperclass [] from_class)
-                   {.#Some super}
-                   (stack.partial super (array.stack {.#None} (java/lang/Class::getGenericInterfaces [] from_class)))
+    (list.each' !
+                (function (_ superJT)
+                  (do !
+                    [superJT (phase.of_try (reflection!.type superJT))
+                     .let [super_name (..reflection superJT)]
+                     super_class (phase.of_try (reflection!.load class_loader super_name))
+                     superT (reflection_type mapping superJT)]
+                    (in [[super_name superT]
+                         (ffi.of_boolean (java/lang/Class::isAssignableFrom [super_class] to_class))])))
+                (when (java/lang/Class::getGenericSuperclass [] from_class)
+                  {.#Some super}
+                  (list#composite (list super)
+                                  (list.of_array {.#None} (java/lang/Class::getGenericInterfaces [] from_class)))
 
-                   {.#None}
-                   (if (|> from_class
-                           (java/lang/Class::getModifiers [])
-                           [] java/lang/reflect/Modifier::isInterface
-                           ffi.of_boolean)
-                     {.#Top (as java/lang/reflect/Type (ffi.class_for java/lang/Object))
-                            (array.stack {.#None} (java/lang/Class::getGenericInterfaces [] from_class))}
-                     (array.stack {.#None} (java/lang/Class::getGenericInterfaces [] from_class)))))))
+                  {.#None}
+                  (if (|> from_class
+                          (java/lang/Class::getModifiers [])
+                          [] java/lang/reflect/Modifier::isInterface
+                          ffi.of_boolean)
+                    (list#composite (list (as java/lang/reflect/Type (ffi.class_for java/lang/Object)))
+                                    (list.of_array {.#None} (java/lang/Class::getGenericInterfaces [] from_class)))
+                    (list.of_array {.#None} (java/lang/Class::getGenericInterfaces [] from_class)))))))
 
 (the (object::cast class_loader)
   (-> java/lang/ClassLoader
@@ -1033,15 +1034,16 @@
                                    (if (text.= to_name current_name)
                                      (in true)
                                      (do !
-                                       [candidate_parents (is (Operation (Stack [[Text .Type] Bit]))
+                                       [candidate_parents (is (Operation (List [[Text .Type] Bit]))
                                                               (class_candidate_parents class_loader current_name currentT to_name to_class))]
                                        (when (|> candidate_parents
-                                                 (stack.only product.right)
-                                                 (stack#each product.left))
-                                         {.#Top [next_name nextT] _}
+                                                 (list.only product.right)
+                                                 (list#each product.left)
+                                                 (list.item 0))
+                                         {try.#Success [next_name nextT]}
                                          (again [next_name nextT])
 
-                                         {.#Empty}
+                                         {try.#Failure _}
                                          (in false)))))
                                  (in (when [(type.= java/lang/Object fromT)
                                             (projection.array? toJT)]
@@ -1203,7 +1205,7 @@
             (when (projection.class? it)
               {.#Some [parameters name]}
               (|> parameters
-                  (stack#each (|>> again (as (Type Parameter))))
+                  (list#each (|>> again (as (Type Parameter))))
                   (|.let parameters (jvm.class parameters name)))
               
               {.#None})
@@ -1221,13 +1223,13 @@
             it))))
 
 (the (check_method aliasing class method_name method_style inputsJT method)
-  (-> Aliasing (java/lang/Class java/lang/Object) Text Method_Style (Stack (Type Value)) java/lang/reflect/Method
+  (-> Aliasing (java/lang/Class java/lang/Object) Text Method_Style (List (Type Value)) java/lang/reflect/Method
       (Operation Bit))
   (do phase.monad
     [parameters (|> method
                     (java/lang/reflect/Method::getGenericParameterTypes [])
-                    (array.stack {.#None})
-                    (stack.each' try.monad reflection!.type)
+                    (list.of_array {.#None})
+                    (list.each' try.monad reflection!.type)
                     phase.of_try)
      .let [modifiers (java/lang/reflect/Method::getModifiers [] method)
            correct_class? (|> method
@@ -1251,11 +1253,11 @@
 
                            _
                            true)
-           same_inputs? (and (n.= (stack.size inputsJT)
-                                  (stack.size parameters))
-                             (stack.every? (function (_ [expectedJC actualJC])
-                                             (jvm.= expectedJC (de_aliased aliasing actualJC)))
-                                           (stack.zipped_2 parameters inputsJT)))]]
+           same_inputs? (and (n.= (list.size inputsJT)
+                                  (list.size parameters))
+                             (list.every? (function (_ [expectedJC actualJC])
+                                            (jvm.= expectedJC (de_aliased aliasing actualJC)))
+                                          (list.zipped_2 parameters inputsJT)))]]
     (in (and correct_class?
              correct_method?
              same_static?
@@ -1263,21 +1265,21 @@
              same_inputs?))))
 
 (the (check_constructor aliasing class inputsJT constructor)
-  (-> Aliasing (java/lang/Class java/lang/Object) (Stack (Type Value)) (java/lang/reflect/Constructor java/lang/Object)
+  (-> Aliasing (java/lang/Class java/lang/Object) (List (Type Value)) (java/lang/reflect/Constructor java/lang/Object)
       (Operation Bit))
   (do phase.monad
     [parameters (|> constructor
                     (java/lang/reflect/Constructor::getGenericParameterTypes [])
-                    (array.stack {.#None})
-                    (stack.each' try.monad reflection!.type)
+                    (list.of_array {.#None})
+                    (list.each' try.monad reflection!.type)
                     phase.of_try)]
     (in (and (ffi.of_boolean (|> constructor
                                  (java/lang/reflect/Constructor::getDeclaringClass [])
                                  (java/lang/Object::equals [class])))
-             (n.= (stack.size inputsJT) (stack.size parameters))
-             (stack.every? (function (_ [expectedJC actualJC])
-                             (jvm.= expectedJC (de_aliased aliasing actualJC)))
-                           (stack.zipped_2 parameters inputsJT))))))
+             (n.= (list.size inputsJT) (list.size parameters))
+             (list.every? (function (_ [expectedJC actualJC])
+                            (jvm.= expectedJC (de_aliased aliasing actualJC)))
+                          (list.zipped_2 parameters inputsJT))))))
 
 (the index_parameter
   (-> Natural
@@ -1306,16 +1308,15 @@
 (the (lux_class it)
   (-> (java/lang/Class java/lang/Object)
       (Type Class))
-  (jvm.class (stack)
-    (ffi.of_string (java/lang/Class::getName [] it))))
+  (jvm.class (list) (ffi.of_string (java/lang/Class::getName [] it))))
 
 (template.with [<name> <type> <params>]
   [(`` (the <name>
          (-> (<type> (,, (template.spliced <params>)))
-             (Stack (Type Class)))
+             (List (Type Class)))
          (|>> ((,, (template.name [<type> "::getExceptionTypes"])) [])
-              (array.stack {.#None})
-              (stack#each ..lux_class))))]
+              (list.of_array {.#None})
+              (list#each ..lux_class))))]
 
   [concrete_method_exceptions java/lang/reflect/Method []]
   [concrete_constructor_exceptions java/lang/reflect/Constructor [java/lang/Object]]
@@ -1338,49 +1339,52 @@
   (-> Method_Style java/lang/reflect/Method
       (Operation Method_Signature))
   (let [owner (java/lang/reflect/Method::getDeclaringClass [] method)
-        owner_tvars (when method_style
-                      {#Static}
-                      (stack)
+        owner_tvars (is (List Text)
+                        (when method_style
+                          {#Static}
+                          (list)
 
-                      _
-                      (|> owner
-                          (java/lang/Class::getTypeParameters [])
-                          (array.stack {.#None})
-                          (stack#each (|>> (java/lang/reflect/TypeVariable::getName [])
-                                           ffi.of_string))))
-        method_tvars (|> method
-                         (java/lang/reflect/Method::getTypeParameters [])
-                         (array.stack {.#None})
-                         (stack#each (|>> (java/lang/reflect/TypeVariable::getName [])
-                                          ffi.of_string)))
+                          _
+                          (|> owner
+                              (java/lang/Class::getTypeParameters [])
+                              (list.of_array {.#None})
+                              (list#each (|>> (java/lang/reflect/TypeVariable::getName [])
+                                              ffi.of_string)))))
+        method_tvars (is (List Text)
+                         (|> method
+                             (java/lang/reflect/Method::getTypeParameters [])
+                             (list.of_array {.#None})
+                             (list#each (|>> (java/lang/reflect/TypeVariable::getName [])
+                                             ffi.of_string))))
         [owner_tvarsT mapping] (jvm_type_var_mapping owner_tvars method_tvars)]
     (do [! phase.monad]
       [inputsT' (|> method
                     (java/lang/reflect/Method::getGenericParameterTypes [])
-                    (array.stack {.#None})
-                    (stack.each' ! (|>> reflection!.type phase.of_try)))
-       inputsT (stack.each' ! (..reflection_type mapping) inputsT')
+                    (list.of_array {.#None})
+                    (list.each' ! (|>> reflection!.type phase.of_try)))
+       inputsT (list.each' ! (..reflection_type mapping) inputsT')
        outputT' (|> method
                     ..return_type
                     phase.of_try)
        outputT (..reflection_return mapping outputT')
        .let [concrete_exceptions (..concrete_method_exceptions method)]
-       concrete_exceptions (stack.each' ! (..reflection_type mapping) concrete_exceptions)
+       concrete_exceptions (list.each' ! (..reflection_type mapping) concrete_exceptions)
        generic_exceptions (|> method
                               (java/lang/reflect/Method::getGenericExceptionTypes [])
-                              (array.stack {.#None})
-                              (stack.each' ! (|>> reflection!.type phase.of_try))
-                              (phase#each (stack.each' ! (..reflection_type mapping)))
+                              (list.of_array {.#None})
+                              (list.each' ! (|>> reflection!.type phase.of_try))
+                              (phase#each (list.each' ! (..reflection_type mapping)))
                               phase#conjoint)
        .let [methodT (<| (type.univ_q (dictionary.size mapping))
-                         (type.function (when method_style
-                                          {#Static}
-                                          inputsT
+                         (type.function (list.as_stack
+                                         (when method_style
+                                           {#Static}
+                                           inputsT
 
-                                          _
-                                          (stack.partial {.#Nominal (ffi.of_string (java/lang/Class::getName [] owner))
-                                                                    owner_tvarsT}
-                                                         inputsT)))
+                                           _
+                                           (list#composite (list {.#Nominal (ffi.of_string (java/lang/Class::getName [] owner))
+                                                                            (list.as_stack owner_tvarsT)})
+                                                           inputsT))))
                          outputT)]]
       (in [#method methodT
            #inputs inputsT'
@@ -1388,7 +1392,7 @@
            #deprecated? (|> method
                             (java/lang/reflect/Method::getDeclaredAnnotations [])
                             reflection!.deprecated?)
-           #throws (if (stack.empty? generic_exceptions)
+           #throws (if (list.empty? generic_exceptions)
                      concrete_exceptions
                      generic_exceptions)]))))
 
@@ -1396,35 +1400,37 @@
   (-> (java/lang/reflect/Constructor java/lang/Object)
       (Operation Method_Signature))
   (let [owner (java/lang/reflect/Constructor::getDeclaringClass [] constructor)
-        owner_tvars (|> owner
-                        (java/lang/Class::getTypeParameters [])
-                        (array.stack {.#None})
-                        (stack#each (|>> (java/lang/reflect/TypeVariable::getName [])
-                                         ffi.of_string)))
-        method_tvars (|> constructor
-                         (java/lang/reflect/Constructor::getTypeParameters [])
-                         (array.stack {.#None})
-                         (stack#each (|>> (java/lang/reflect/TypeVariable::getName [])
-                                          ffi.of_string)))
+        owner_tvars (is (List Text)
+                        (|> owner
+                            (java/lang/Class::getTypeParameters [])
+                            (list.of_array {.#None})
+                            (list#each (|>> (java/lang/reflect/TypeVariable::getName [])
+                                            ffi.of_string))))
+        method_tvars (is (List Text)
+                         (|> constructor
+                             (java/lang/reflect/Constructor::getTypeParameters [])
+                             (list.of_array {.#None})
+                             (list#each (|>> (java/lang/reflect/TypeVariable::getName [])
+                                             ffi.of_string))))
         [owner_tvarsT mapping] (jvm_type_var_mapping owner_tvars method_tvars)]
     (do [! phase.monad]
       [inputsT' (|> constructor
                     (java/lang/reflect/Constructor::getGenericParameterTypes [])
-                    (array.stack {.#None})
-                    (stack.each' ! (|>> reflection!.type phase.of_try)))
-       inputsT (stack.each' ! (reflection_type mapping) inputsT')
+                    (list.of_array {.#None})
+                    (list.each' ! (|>> reflection!.type phase.of_try)))
+       inputsT (list.each' ! (reflection_type mapping) inputsT')
        .let [concrete_exceptions (..concrete_constructor_exceptions constructor)]
-       concrete_exceptions (stack.each' ! (..reflection_type mapping) concrete_exceptions)
+       concrete_exceptions (list.each' ! (..reflection_type mapping) concrete_exceptions)
        generic_exceptions (|> constructor
                               (java/lang/reflect/Constructor::getGenericExceptionTypes [])
-                              (array.stack {.#None})
-                              (stack.each' ! (|>> reflection!.type phase.of_try))
-                              (phase#each (stack.each' ! (reflection_type mapping)))
+                              (list.of_array {.#None})
+                              (list.each' ! (|>> reflection!.type phase.of_try))
+                              (phase#each (list.each' ! (reflection_type mapping)))
                               phase#conjoint)
        .let [objectT {.#Nominal (ffi.of_string (java/lang/Class::getName [] owner))
-                                owner_tvarsT}
+                                (list.as_stack owner_tvarsT)}
              constructorT (<| (type.univ_q (dictionary.size mapping))
-                              (type.function inputsT)
+                              (type.function (list.as_stack inputsT))
                               objectT)]]
       (in [#method constructorT
            #inputs inputsT'
@@ -1432,7 +1438,7 @@
            #deprecated? (|> constructor
                             (java/lang/reflect/Constructor::getDeclaredAnnotations [])
                             reflection!.deprecated?)
-           #throws (if (stack.empty? generic_exceptions)
+           #throws (if (list.empty? generic_exceptions)
                      concrete_exceptions
                      generic_exceptions)]))))
 
@@ -1459,12 +1465,12 @@
 (template.with [<name> <type> <method>]
   [(the <name>
      (-> <type>
-         (Stack (Type Var)))
+         (List (Type Var)))
      (|>> (<method> [])
-          (array.stack {.#None})
-          (stack#each (|>> (java/lang/reflect/TypeVariable::getName [])
-                           ffi.of_string
-                           jvm.var))))]
+          (list.of_array {.#None})
+          (list#each (|>> (java/lang/reflect/TypeVariable::getName [])
+                          ffi.of_string
+                          jvm.var))))]
 
   [class_type_variables (java/lang/Class java/lang/Object) java/lang/Class::getTypeParameters]
   [constructor_type_variables (java/lang/reflect/Constructor java/lang/Object) java/lang/reflect/Constructor::getTypeParameters]
@@ -1480,102 +1486,102 @@
 
 (the (family_tree' it)
   (-> (java/lang/Class java/lang/Object)
-      (Stack (java/lang/Class java/lang/Object)))
-  (let [interfaces (array.stack {.#None} (java/lang/Class::getInterfaces [] it))
+      (List (java/lang/Class java/lang/Object)))
+  (let [interfaces (list.of_array {.#None} (java/lang/Class::getInterfaces [] it))
         supers (when (java/lang/Class::getSuperclass [] it)
                  {.#Some class}
-                 (stack.partial class interfaces)
+                 (list#composite (list class) interfaces)
                  
                  {.#None}
                  interfaces)]
     (|> supers
-        (stack#each family_tree')
-        stack#conjoint
-        (stack.partial it))))
+        (list#each family_tree')
+        list#conjoint
+        (list#composite (list it)))))
 
 (the family_tree
   (-> (java/lang/Class java/lang/Object)
-      (Stack (java/lang/Class java/lang/Object)))
+      (List (java/lang/Class java/lang/Object)))
   (|>> ..family_tree'
        ... De-duplication
-       (stack#mix (function (_ class all)
-                    (dictionary.has (ffi.of_string (java/lang/Class::getName [] class)) class all))
-                  (dictionary.empty text.hash))
+       (list#mix (function (_ class all)
+                   (dictionary.has (ffi.of_string (java/lang/Class::getName [] class)) class all))
+                 (dictionary.empty text.hash))
        dictionary.values))
 
 (the (all_declared_methods it)
   (-> (java/lang/Class java/lang/Object)
-      (Stack java/lang/reflect/Method))
+      (List java/lang/reflect/Method))
   (|> it
       ..family_tree
-      (stack#each (|>> (java/lang/Class::getDeclaredMethods [])
-                       (array.stack {.#None})))
-      stack#conjoint))
+      (list#each (|>> (java/lang/Class::getDeclaredMethods [])
+                      (list.of_array {.#None})))
+      list#conjoint))
 
 (the (method_candidate allow_inheritance? class_loader actual_class_tvars class_name actual_method_tvars method_name method_style inputsJT)
-  (-> Bit java/lang/ClassLoader (Stack (Type Var)) external.Name (Stack (Type Var)) Text Method_Style (Stack (Type Value))
+  (-> Bit java/lang/ClassLoader (List (Type Var)) external.Name (List (Type Var)) Text Method_Style (List (Type Value))
       (Operation Method_Signature))
   (do [! phase.monad]
     [class (phase.of_try (reflection!.load class_loader class_name))
      .let [expected_class_tvars (class_type_variables class)]
      candidates (|> (if allow_inheritance?
                       (all_declared_methods class)
-                      (array.stack {.#None} (java/lang/Class::getDeclaredMethods [] class)))
-                    (stack.only (|>> (java/lang/reflect/Method::getName [])
-                                     ffi.of_string
-                                     (text.= method_name)))
-                    (stack.each' ! (is (-> java/lang/reflect/Method (Operation Evaluation))
-                                       (function (_ method)
-                                         (do !
-                                           [.let [expected_method_tvars (method_type_variables method)
-                                                  aliasing (dictionary.composite (..aliasing expected_class_tvars actual_class_tvars)
-                                                                                 (..aliasing expected_method_tvars actual_method_tvars))]
-                                            passes? (check_method aliasing class method_name method_style inputsJT method)]
-                                           (by ! each (if passes?
-                                                        (|>> {#Pass})
-                                                        (|>> {#Hint}))
-                                               (method_signature method_style method)))))))]
-    (when (stack.all pass candidates)
-      {.#Top method {.#Empty}}
+                      (list.of_array {.#None} (java/lang/Class::getDeclaredMethods [] class)))
+                    (list.only (|>> (java/lang/reflect/Method::getName [])
+                                    ffi.of_string
+                                    (text.= method_name)))
+                    (list.each' ! (is (-> java/lang/reflect/Method (Operation Evaluation))
+                                      (function (_ method)
+                                        (do !
+                                          [.let [expected_method_tvars (method_type_variables method)
+                                                 aliasing (dictionary.composite (..aliasing expected_class_tvars actual_class_tvars)
+                                                                                (..aliasing expected_method_tvars actual_method_tvars))]
+                                           passes? (check_method aliasing class method_name method_style inputsJT method)]
+                                          (by ! each (if passes?
+                                                       (|>> {#Pass})
+                                                       (|>> {#Hint}))
+                                              (method_signature method_style method)))))))]
+    (when (list.as_stack (list.all pass candidates))
+      (stack method)
       (in method)
 
-      {.#Empty}
-      (analysis.except ..no_candidates [actual_class_tvars class_name method_name actual_method_tvars inputsJT (stack.all hint candidates)])
+      (stack)
+      (analysis.except ..no_candidates [actual_class_tvars class_name method_name actual_method_tvars inputsJT (list.all hint candidates)])
       
       {.#Top method alternatives}
       (if allow_inheritance?
         (in method)
-        (analysis.except ..too_many_candidates [actual_class_tvars class_name method_name actual_method_tvars inputsJT (stack.partial method alternatives)])))))
+        (analysis.except ..too_many_candidates [actual_class_tvars class_name method_name actual_method_tvars inputsJT (list.of_stack {.#Top method alternatives})])))))
 
 (the constructor_method
   "<init>")
 
 (the (constructor_candidate class_loader actual_class_tvars class_name actual_method_tvars inputsJT)
-  (-> java/lang/ClassLoader (Stack (Type Var)) external.Name (Stack (Type Var)) (Stack (Type Value))
+  (-> java/lang/ClassLoader (List (Type Var)) external.Name (List (Type Var)) (List (Type Value))
       (Operation Method_Signature))
   (do [! phase.monad]
     [class (phase.of_try (reflection!.load class_loader class_name))
      .let [expected_class_tvars (class_type_variables class)]
      candidates (|> class
                     (java/lang/Class::getConstructors [])
-                    (array.stack {.#None})
-                    (stack.each' ! (function (_ constructor)
-                                     (do !
-                                       [.let [expected_method_tvars (constructor_type_variables constructor)
-                                              aliasing (dictionary.composite (..aliasing expected_class_tvars actual_class_tvars)
-                                                                             (..aliasing expected_method_tvars actual_method_tvars))]
-                                        passes? (check_constructor aliasing class inputsJT constructor)]
-                                       (by ! each
-                                           (if passes?
-                                             (|>> {#Pass})
-                                             (|>> {#Hint}))
-                                           (constructor_signature constructor))))))]
-    (when (stack.all pass candidates)
-      {.#Top constructor {.#Empty}}
+                    (list.of_array {.#None})
+                    (list.each' ! (function (_ constructor)
+                                    (do !
+                                      [.let [expected_method_tvars (constructor_type_variables constructor)
+                                             aliasing (dictionary.composite (..aliasing expected_class_tvars actual_class_tvars)
+                                                                            (..aliasing expected_method_tvars actual_method_tvars))]
+                                       passes? (check_constructor aliasing class inputsJT constructor)]
+                                      (by ! each
+                                          (if passes?
+                                            (|>> {#Pass})
+                                            (|>> {#Hint}))
+                                          (constructor_signature constructor))))))]
+    (when (list.all pass candidates)
+      (list constructor)
       (in constructor)
 
-      {.#Empty}
-      (analysis.except ..no_candidates [actual_class_tvars class_name ..constructor_method actual_method_tvars inputsJT (stack.all hint candidates)])
+      (list)
+      (analysis.except ..no_candidates [actual_class_tvars class_name ..constructor_method actual_method_tvars inputsJT (list.all hint candidates)])
       
       candidates
       (analysis.except ..too_many_candidates [actual_class_tvars class_name ..constructor_method actual_method_tvars inputsJT candidates]))))
@@ -1596,15 +1602,16 @@
   (<code>.tuple (<>.and ..type <code>.any)))
 
 (the (decorate_inputs @ typesT inputsA)
-  (-> Provenance (Stack (Type Value)) (Stack analysis.Term)
-      (Stack analysis.Term))
+  (-> Provenance (List (Type Value)) (List analysis.Term)
+      (List analysis.Term))
   (|> inputsA
-      (stack.zipped_2 (stack#each (|>> ..signature (analysis.text @)) typesT))
-      (stack#each (function (_ [type value])
-                    (analysis.tuple @ (list type value))))))
+      (list.zipped_2 (list#each (|>> ..signature (analysis.text @)) typesT))
+      (list#each (function (_ [type value])
+                   (analysis.tuple @ (list type value))))))
 
 (the type_vars
-  (<code>.tuple (<>.some ..var)))
+  (|> (<code>.tuple (<>.some ..var))
+      (<>#each list.of_stack)))
 
 (the (invoke::static class_loader)
   (-> java/lang/ClassLoader
@@ -1614,7 +1621,7 @@
     (function (_ extension_name analyse archive [class_tvars [class method] method_tvars argsTC])
       (do phase.monad
         [_ (..ensure_fresh_class! class_loader class)
-         .let [argsT (stack#each product.left argsTC)]
+         .let [argsT (list#each product.left (list.of_stack argsTC))]
          method_candidate (..method_candidate false class_loader class_tvars class method_tvars method {#Static} argsT)
          .let [method_type (its #method method_candidate)]
          _ (phase.assertion ..deprecated_method [class method method_type]
@@ -1623,11 +1630,10 @@
          outputJT (check_return outputT)
          @ meta.provenance]
         (in [@ {analysis.#Extension [.prelude (text extension_name "|translation")]
-                                    (list.of_stack
-                                     (stack.partial (analysis.text @ (..signature (jvm.class (stack) class)))
-                                                    (analysis.text @ method)
-                                                    (analysis.text @ (..signature outputJT))
-                                                    (decorate_inputs @ argsT argsA)))}])))]))
+                                    (list#composite (list (analysis.text @ (..signature (jvm.class (list) class)))
+                                                          (analysis.text @ method)
+                                                          (analysis.text @ (..signature outputJT)))
+                                                    (decorate_inputs @ argsT (list.of_stack argsA)))}])))]))
 
 (the (invoke::virtual class_loader)
   (-> java/lang/ClassLoader
@@ -1637,7 +1643,7 @@
     (function (_ extension_name analyse archive [class_tvars [class method] method_tvars objectC argsTC])
       (do phase.monad
         [_ (..ensure_fresh_class! class_loader class)
-         .let [argsT (stack#each product.left argsTC)]
+         .let [argsT (list#each product.left (list.of_stack argsTC))]
          method_candidate (..method_candidate true class_loader class_tvars class method_tvars method {#Virtual} argsT)
          .let [method_type (its #method method_candidate)]
          _ (phase.assertion ..deprecated_method [class method method_type]
@@ -1652,12 +1658,11 @@
          outputJT (check_return outputT)
          @ meta.provenance]
         (in [@ {analysis.#Extension [.prelude (text extension_name "|translation")]
-                                    (list.of_stack
-                                     (stack.partial (analysis.text @ (..signature (jvm.class (stack) class)))
-                                                    (analysis.text @ method)
-                                                    (analysis.text @ (..signature outputJT))
-                                                    objectA
-                                                    (decorate_inputs @ argsT argsA)))}])))]))
+                                    (list#composite (list (analysis.text @ (..signature (jvm.class (list) class)))
+                                                          (analysis.text @ method)
+                                                          (analysis.text @ (..signature outputJT))
+                                                          objectA)
+                                                    (decorate_inputs @ argsT (list.of_stack argsA)))}])))]))
 
 (the (invoke::special class_loader)
   (-> java/lang/ClassLoader
@@ -1667,7 +1672,7 @@
     (function (_ extension_name analyse archive [class_tvars [class method] method_tvars objectC argsTC])
       (do phase.monad
         [_ (..ensure_fresh_class! class_loader class)
-         .let [argsT (stack#each product.left argsTC)]
+         .let [argsT (list#each product.left (list.of_stack argsTC))]
          method_candidate (..method_candidate false class_loader class_tvars class method_tvars method {#Special} argsT)
          .let [method_type (its #method method_candidate)]
          _ (phase.assertion ..deprecated_method [class method method_type]
@@ -1682,12 +1687,11 @@
          outputJT (check_return outputT)
          @ meta.provenance]
         (in [@ {analysis.#Extension [.prelude (text extension_name "|translation")]
-                                    (list.of_stack
-                                     (stack.partial (analysis.text @ (..signature (jvm.class (stack) class)))
-                                                    (analysis.text @ method)
-                                                    (analysis.text @ (..signature outputJT))
-                                                    objectA
-                                                    (decorate_inputs @ argsT argsA)))}])))]))
+                                    (list#composite (list (analysis.text @ (..signature (jvm.class (list) class)))
+                                                          (analysis.text @ method)
+                                                          (analysis.text @ (..signature outputJT))
+                                                          objectA)
+                                                    (decorate_inputs @ argsT (list.of_stack argsA)))}])))]))
 
 (the (invoke::interface class_loader)
   (-> java/lang/ClassLoader
@@ -1697,7 +1701,7 @@
     (function (_ extension_name analyse archive [class_tvars [class_name method] method_tvars objectC argsTC])
       (do phase.monad
         [_ (..ensure_fresh_class! class_loader class_name)
-         .let [argsT (stack#each product.left argsTC)]
+         .let [argsT (list#each product.left (list.of_stack argsTC))]
          class (phase.of_try (reflection!.load class_loader class_name))
          _ (phase.assertion non_interface class_name
                             (|> class
@@ -1718,12 +1722,11 @@
          outputJT (check_return outputT)
          @ meta.provenance]
         (in [@ {analysis.#Extension [.prelude (text extension_name "|translation")]
-                                    (list.of_stack
-                                     (stack.partial (analysis.text @ (..signature (jvm.class (stack) class_name)))
-                                                    (analysis.text @ method)
-                                                    (analysis.text @ (..signature outputJT))
-                                                    objectA
-                                                    (decorate_inputs @ argsT argsA)))}])))]))
+                                    (list#composite (list (analysis.text @ (..signature (jvm.class (list) class_name)))
+                                                          (analysis.text @ method)
+                                                          (analysis.text @ (..signature outputJT))
+                                                          objectA)
+                                                    (decorate_inputs @ argsT (list.of_stack argsA)))}])))]))
 
 (the (invoke::constructor class_loader)
   (-> java/lang/ClassLoader
@@ -1733,7 +1736,7 @@
     (function (_ extension_name analyse archive [class_tvars class method_tvars argsTC])
       (do phase.monad
         [_ (..ensure_fresh_class! class_loader class)
-         .let [argsT (stack#each product.left argsTC)]
+         .let [argsT (list#each product.left (list.of_stack argsTC))]
          method_candidate (..constructor_candidate class_loader class_tvars class method_tvars argsT)
          .let [method_type (its #method method_candidate)]
          _ (phase.assertion ..deprecated_method [class ..constructor_method method_type]
@@ -1741,9 +1744,8 @@
          [outputT argsA] (inference.general archive analyse method_type (stack#each product.right argsTC))
          @ meta.provenance]
         (in [@ {analysis.#Extension [.prelude (text extension_name "|translation")]
-                                    (list.of_stack
-                                     (stack.partial (analysis.text @ (..signature (jvm.class (stack) class)))
-                                                    (decorate_inputs @ argsT argsA)))}])))]))
+                                    (list#composite (list (analysis.text @ (..signature (jvm.class (list) class))))
+                                                    (decorate_inputs @ argsT (list.of_stack argsA)))}])))]))
 
 (the (with_member_extensions class_loader)
   (-> java/lang/ClassLoader
@@ -1769,11 +1771,12 @@
   (<code>.tuple (<>.and <code>.text <code>.any)))
 
 (.every .public (Annotation a)
-  [Text (Stack (Annotation_Parameter a))])
+  [Text (List (Annotation_Parameter a))])
 
 (the .public annotation
   (Projection (Annotation Code))
-  (<code>.form (<>.and <code>.text (<>.some ..annotation_parameter))))
+  (<code>.form (<>.and <code>.text
+                       (<>#each list.of_stack (<>.some ..annotation_parameter)))))
 
 (the .public argument
   (Projection Argument)
@@ -1787,9 +1790,8 @@
 (the (annotation_analysis @ [name parameters])
   (-> Provenance (Annotation analysis.Term)
       analysis.Term)
-  (analysis.tuple @ (list.of_stack
-                     (stack.partial (analysis.text @ name)
-                                    (stack#each (annotation_parameter_analysis @) parameters)))))
+  (analysis.tuple @ (list#composite (list (analysis.text @ name))
+                                    (list#each (annotation_parameter_analysis @) parameters))))
 
 (template.with [<name> <category>]
   [(the (<name> @)
@@ -1819,42 +1821,42 @@
 (template.with [<name> <only> <methods>]
   [(the (<name> [type class])
      (-> [(Type Class) (java/lang/Class java/lang/Object)]
-         (Try (Stack [(Type Class) Text (Type Method)])))
+         (Try (List [(Type Class) Text (Type Method)])))
      (|> class
          <methods>
-         (stack.only (|>> (java/lang/reflect/Method::getModifiers [])
-                          (predicate.or (|>> [] java/lang/reflect/Modifier::isPublic ffi.of_boolean)
-                                        (|>> [] java/lang/reflect/Modifier::isProtected ffi.of_boolean))))
+         (list.only (|>> (java/lang/reflect/Method::getModifiers [])
+                         (predicate.or (|>> [] java/lang/reflect/Modifier::isPublic ffi.of_boolean)
+                                       (|>> [] java/lang/reflect/Modifier::isProtected ffi.of_boolean))))
          <only>
-         (stack.each' try.monad
-                      (function (_ method)
-                        (do [! try.monad]
-                          [.let [type_variables (|> method
-                                                    (java/lang/reflect/Method::getTypeParameters [])
-                                                    (array.stack {.#None})
-                                                    (stack#each (|>> (java/lang/reflect/TypeVariable::getName [])
-                                                                     ffi.of_string
-                                                                     jvm.var)))]
-                           inputs (|> method
-                                      (java/lang/reflect/Method::getGenericParameterTypes [])
-                                      (array.stack {.#None})
-                                      (stack.each' ! reflection!.type))
-                           return (..return_type method)
-                           .let [concrete_exceptions (..concrete_method_exceptions method)]
-                           generic_exceptions (|> method
-                                                  (java/lang/reflect/Method::getGenericExceptionTypes [])
-                                                  (array.stack {.#None})
-                                                  (stack.each' ! reflection!.class))]
-                          (in [type
-                               (ffi.of_string (java/lang/reflect/Method::getName [] method))
-                               (jvm.method [type_variables inputs return (if (stack.empty? generic_exceptions)
-                                                                           concrete_exceptions
-                                                                           generic_exceptions)])]))))))]
+         (list.each' try.monad
+                     (function (_ method)
+                       (do [! try.monad]
+                         [.let [type_variables (|> method
+                                                   (java/lang/reflect/Method::getTypeParameters [])
+                                                   (list.of_array {.#None})
+                                                   (list#each (|>> (java/lang/reflect/TypeVariable::getName [])
+                                                                   ffi.of_string
+                                                                   jvm.var)))]
+                          inputs (|> method
+                                     (java/lang/reflect/Method::getGenericParameterTypes [])
+                                     (list.of_array {.#None})
+                                     (list.each' ! reflection!.type))
+                          return (..return_type method)
+                          .let [concrete_exceptions (..concrete_method_exceptions method)]
+                          generic_exceptions (|> method
+                                                 (java/lang/reflect/Method::getGenericExceptionTypes [])
+                                                 (list.of_array {.#None})
+                                                 (list.each' ! reflection!.class))]
+                         (in [type
+                              (ffi.of_string (java/lang/reflect/Method::getName [] method))
+                              (jvm.method [type_variables inputs return (if (list.empty? generic_exceptions)
+                                                                          concrete_exceptions
+                                                                          generic_exceptions)])]))))))]
 
-  [abstract_methods (stack.only (|>> (java/lang/reflect/Method::getModifiers [])
-                                     [] java/lang/reflect/Modifier::isAbstract
-                                     ffi.of_boolean))
-   (<| (array.stack {.#None}) (java/lang/Class::getDeclaredMethods []))]
+  [abstract_methods (list.only (|>> (java/lang/reflect/Method::getModifiers [])
+                                    [] java/lang/reflect/Modifier::isAbstract
+                                    ffi.of_boolean))
+   (<| (list.of_array {.#None}) (java/lang/Class::getDeclaredMethods []))]
   [methods (<|)
    ..all_declared_methods]
   )
@@ -1864,16 +1866,16 @@
 
 (template.with [<name> <methods>]
   [(the (<name> class_loader)
-     (-> java/lang/ClassLoader (Stack (Type Class))
-         (Try (Stack [(Type Class) Text (Type Method)])))
-     (|>> (stack.each' try.monad (function (_ type)
-                                   (|> type
-                                       ..reflection
-                                       (reflection!.load class_loader)
-                                       (try#each (|>> [type])))))
-          (try#each (stack.each' try.monad <methods>))
+     (-> java/lang/ClassLoader (List (Type Class))
+         (Try (List [(Type Class) Text (Type Method)])))
+     (|>> (list.each' try.monad (function (_ type)
+                                  (|> type
+                                      ..reflection
+                                      (reflection!.load class_loader)
+                                      (try#each (|>> [type])))))
+          (try#each (list.each' try.monad <methods>))
           try#conjoint
-          (try#each stack#conjoint)))]
+          (try#each list#conjoint)))]
 
   [all_abstract_methods ..abstract_methods]
   [all_methods ..methods]
@@ -1881,14 +1883,14 @@
 
 (template.with [<name>]
   [(exception.the .public (<name> [expected actual])
-     (exception.Exception [(Stack [(Type Class) Text (Type Method)])
-                           (Stack [(Type Class) Text (Type Method)])])
+     (exception.Exception [(List [(Type Class) Text (Type Method)])
+                           (List [(Type Class) Text (Type Method)])])
      (let [%method (is (text.Injection [(Type Class) Text (Type Method)])
                        (function (_ [super name type])
                          (text (..signature super) " :: " (%.text name) " " (..signature type))))]
        (exception.report
-        (list ["Expected methods" (exception.listing %method (list.of_stack expected))]
-              ["Actual methods" (exception.listing %method (list.of_stack actual))]))))]
+        (list ["Expected methods" (exception.listing %method expected)]
+              ["Actual methods" (exception.listing %method actual)]))))]
 
   [missing_abstract_methods]
   [invalid_overriden_methods]
@@ -1935,22 +1937,22 @@
   (Type Class))
 
 (the .public parameter_types
-  (-> (Stack (Type Var))
-      (Check (Stack [(Type Var) .Type])))
-  (stack.each' check.monad
-               (function (_ parameterJ)
-                 (do check.monad
-                   [[_ parameterT] check.existential]
-                   (in [parameterJ parameterT])))))
+  (-> (List (Type Var))
+      (Check (List [(Type Var) .Type])))
+  (list.each' check.monad
+              (function (_ parameterJ)
+                (do check.monad
+                  [[_ parameterT] check.existential]
+                  (in [parameterJ parameterT])))))
 
 (.every .public (Abstract_Method a)
   [Text
    Visibility
-   (Stack (Annotation a))
-   (Stack (Type Var))
-   (Stack Argument)
+   (List (Annotation a))
+   (List (Type Var))
+   (List Argument)
    (Type Return)
-   (Stack Exception)])
+   (List Exception)])
 
 (the .public abstract_tag "abstract")
 
@@ -1961,23 +1963,23 @@
       (all <>.and
            <code>.text
            ..visibility
-           (<code>.tuple (<>.some ..annotation))
-           (<code>.tuple (<>.some ..var))
-           (<code>.tuple (<>.some ..argument))
+           (<>#each list.of_stack (<code>.tuple (<>.some ..annotation)))
+           (<>#each list.of_stack (<code>.tuple (<>.some ..var)))
+           (<>#each list.of_stack (<code>.tuple (<>.some ..argument)))
            ..return
-           (<code>.tuple (<>.some ..class)))))
+           (<>#each list.of_stack (<code>.tuple (<>.some ..class))))))
 
 (the (method_mapping of_class parameters)
-  (-> Mapping (Stack (Type Var))
+  (-> Mapping (List (Type Var))
       (Check Mapping))
   (|> parameters
       ..parameter_types
-      (check#each (stack#mix (function (_ [parameterJ parameterT] mapping)
-                               (dictionary.has (projection.name parameterJ) parameterT mapping))
-                             of_class))))
+      (check#each (list#mix (function (_ [parameterJ parameterT] mapping)
+                              (dictionary.has (projection.name parameterJ) parameterT mapping))
+                            of_class))))
 
 (the class_mapping
-  (-> (Stack (Type Var))
+  (-> (List (Type Var))
       (Check Mapping))
   (..method_mapping luxT.fresh))
 
@@ -1987,35 +1989,35 @@
   (let [[method_name visibility annotations vars arguments return exceptions] method]
     (do [! phase.monad]
       [mapping (typeA.check (method_mapping luxT.fresh vars))
-       annotationsA (stack.each' ! (function (_ [name parameters])
-                                     (do !
-                                       [parametersA (stack.each' ! (function (_ [name value])
-                                                                     (do !
-                                                                       [valueA (analyse archive value)]
-                                                                       (in [name valueA])))
-                                                                 parameters)]
-                                       (in [name parametersA])))
-                                 annotations)
+       annotationsA (list.each' ! (function (_ [name parameters])
+                                    (do !
+                                      [parametersA (list.each' ! (function (_ [name value])
+                                                                   (do !
+                                                                     [valueA (analyse archive value)]
+                                                                     (in [name valueA])))
+                                                               parameters)]
+                                      (in [name parametersA])))
+                                annotations)
        @ meta.provenance]
       (in (analysis.tuple @ (list (analysis.text @ ..abstract_tag)
                                   (analysis.text @ method_name)
                                   (visibility_analysis @ visibility)
-                                  (analysis.tuple @ (list.of_stack (stack#each (annotation_analysis @) annotationsA)))
-                                  (analysis.tuple @ (list.of_stack (stack#each (var_analysis @) vars)))
-                                  (analysis.tuple @ (list.of_stack (stack#each (..argument_analysis @) arguments)))
+                                  (analysis.tuple @ (list#each (annotation_analysis @) annotationsA))
+                                  (analysis.tuple @ (list#each (var_analysis @) vars))
+                                  (analysis.tuple @ (list#each (..argument_analysis @) arguments))
                                   (return_analysis @ return)
-                                  (analysis.tuple @ (list.of_stack (stack#each (class_analysis @) exceptions)))
+                                  (analysis.tuple @ (list#each (class_analysis @) exceptions))
                                   ))))))
 
 (.every .public (Constructor a)
   [Visibility
    Strictness
-   (Stack (Annotation a))
-   (Stack (Type Var))
-   (Stack Exception)
+   (List (Annotation a))
+   (List (Type Var))
+   (List Exception)
    Text
-   (Stack Argument)
-   (Stack (Typed a))
+   (List Argument)
+   (List (Typed a))
    a])
 
 (the .public constructor_tag "init")
@@ -2027,12 +2029,12 @@
       (all <>.and
            ..visibility
            <code>.bit
-           (<code>.tuple (<>.some ..annotation))
-           (<code>.tuple (<>.some ..var))
-           (<code>.tuple (<>.some ..class))
+           (<>#each list.of_stack (<code>.tuple (<>.some ..annotation)))
+           (<>#each list.of_stack (<code>.tuple (<>.some ..var)))
+           (<>#each list.of_stack (<code>.tuple (<>.some ..class)))
            <code>.text
-           (<code>.tuple (<>.some ..argument))
-           (<code>.tuple (<>.some ..input))
+           (<>#each list.of_stack (<code>.tuple (<>.some ..argument)))
+           (<>#each list.of_stack (<code>.tuple (<>.some ..input)))
            <code>.any)))
 
 (the (with_fake_parameter#pattern it)
@@ -2157,45 +2159,45 @@
          self_name arguments super_arguments body] method]
     (do [! phase.monad]
       [mapping (typeA.check (method_mapping mapping vars))
-       annotationsA (stack.each' ! (function (_ [name parameters])
-                                     (do !
-                                       [parametersA (stack.each' ! (function (_ [name value])
-                                                                     (do !
-                                                                       [valueA (analyse archive value)]
-                                                                       (in [name valueA])))
-                                                                 parameters)]
-                                       (in [name parametersA])))
-                                 annotations)
-       super_arguments (stack.each' ! (function (_ [jvmT super_argC])
-                                        (do !
-                                          [luxT (reflection_type mapping jvmT)
-                                           super_argA (<| (typeA.expecting luxT)
-                                                          (analyse archive super_argC))]
-                                          (in [jvmT super_argA])))
-                                    super_arguments)
-       arguments' (stack.each' !
-                               (function (_ [name jvmT])
-                                 (do !
-                                   [luxT (boxed_reflection_type mapping jvmT)]
-                                   (in [name luxT])))
-                               arguments)
+       annotationsA (list.each' ! (function (_ [name parameters])
+                                    (do !
+                                      [parametersA (list.each' ! (function (_ [name value])
+                                                                   (do !
+                                                                     [valueA (analyse archive value)]
+                                                                     (in [name valueA])))
+                                                               parameters)]
+                                      (in [name parametersA])))
+                                annotations)
+       super_arguments (list.each' ! (function (_ [jvmT super_argC])
+                                       (do !
+                                         [luxT (reflection_type mapping jvmT)
+                                          super_argA (<| (typeA.expecting luxT)
+                                                         (analyse archive super_argC))]
+                                         (in [jvmT super_argA])))
+                                   super_arguments)
+       arguments' (list.each' !
+                              (function (_ [name jvmT])
+                                (do !
+                                  [luxT (boxed_reflection_type mapping jvmT)]
+                                  (in [name luxT])))
+                              arguments)
        [scope bodyA] (|> arguments'
-                         {.#Top [self_name selfT]}
-                         stack.reversed
-                         (stack#mix scope.with_local (analyse archive body))
+                         (list#composite (list [self_name selfT]))
+                         list.reversed
+                         (list#mix scope.with_local (analyse archive body))
                          (typeA.expecting .Any)
                          scope.with)
-       .let [arity (stack.size arguments)]
+       .let [arity (list.size arguments)]
        @ meta.provenance]
       (in (analysis.tuple @ (list (analysis.text @ ..constructor_tag)
                                   (visibility_analysis @ visibility)
                                   (analysis.bit @ strict_fp?)
-                                  (analysis.tuple @ (list.of_stack (stack#each (annotation_analysis @) annotationsA)))
-                                  (analysis.tuple @ (list.of_stack (stack#each (var_analysis @) vars)))
-                                  (analysis.tuple @ (list.of_stack (stack#each (class_analysis @) exceptions)))
+                                  (analysis.tuple @ (list#each (annotation_analysis @) annotationsA))
+                                  (analysis.tuple @ (list#each (var_analysis @) vars))
+                                  (analysis.tuple @ (list#each (class_analysis @) exceptions))
                                   (analysis.text @ self_name)
-                                  (analysis.tuple @ (list.of_stack (stack#each (..argument_analysis @) arguments)))
-                                  (analysis.tuple @ (list.of_stack (stack#each (typed_analysis @) super_arguments)))
+                                  (analysis.tuple @ (list#each (..argument_analysis @) arguments))
+                                  (analysis.tuple @ (list#each (typed_analysis @) super_arguments))
                                   [@ {analysis.#Abstraction
                                       (list#each (|>> (analysis.variable @))
                                                  (scope.environment scope))
@@ -2210,12 +2212,12 @@
    Visibility
    Finality
    Strictness
-   (Stack (Annotation a))
-   (Stack (Type Var))
+   (List (Annotation a))
+   (List (Type Var))
    Text
-   (Stack Argument)
+   (List Argument)
    (Type Return)
-   (Stack Exception)
+   (List Exception)
    a])
 
 (the .public virtual_tag "virtual")
@@ -2229,21 +2231,21 @@
            ..visibility
            <code>.bit
            <code>.bit
-           (<code>.tuple (<>.some ..annotation))
-           (<code>.tuple (<>.some ..var))
+           (<>#each list.of_stack (<code>.tuple (<>.some ..annotation)))
+           (<>#each list.of_stack (<code>.tuple (<>.some ..var)))
            <code>.text
-           (<code>.tuple (<>.some ..argument))
+           (<>#each list.of_stack (<code>.tuple (<>.some ..argument)))
            ..return
-           (<code>.tuple (<>.some ..class))
+           (<>#each list.of_stack (<code>.tuple (<>.some ..class)))
            <code>.any)))
 
 (.every .public (Method_Declaration a)
   (Record
    [#name Text
-    #annotations (Stack (Annotation a))
-    #type_variables (Stack (Type Var))
-    #exceptions (Stack (Type Class))
-    #arguments (Stack (Type Value))
+    #annotations (List (Annotation a))
+    #type_variables (List (Type Var))
+    #exceptions (List (Type Class))
+    #arguments (List (Type Value))
     #return (Type Return)]))
 
 (the .public method_declaration
@@ -2251,10 +2253,10 @@
   (<code>.form
    (all <>.and
         <code>.text
-        (<code>.tuple (<>.some ..annotation))
-        (<code>.tuple (<>.some ..var))
-        (<code>.tuple (<>.some ..class))
-        (<code>.tuple (<>.some ..type))
+        (<>#each list.of_stack (<code>.tuple (<>.some ..annotation)))
+        (<>#each list.of_stack (<code>.tuple (<>.some ..var)))
+        (<>#each list.of_stack (<code>.tuple (<>.some ..class)))
+        (<>#each list.of_stack (<code>.tuple (<>.some ..type)))
         ..return
         )))
 
@@ -2267,41 +2269,41 @@
          body] method]
     (do [! phase.monad]
       [mapping (typeA.check (method_mapping mapping vars))
-       annotationsA (stack.each' ! (function (_ [name parameters])
-                                     (do !
-                                       [parametersA (stack.each' ! (function (_ [name value])
-                                                                     (do !
-                                                                       [valueA (analyse archive value)]
-                                                                       (in [name valueA])))
-                                                                 parameters)]
-                                       (in [name parametersA])))
-                                 annotations)
+       annotationsA (list.each' ! (function (_ [name parameters])
+                                    (do !
+                                      [parametersA (list.each' ! (function (_ [name value])
+                                                                   (do !
+                                                                     [valueA (analyse archive value)]
+                                                                     (in [name valueA])))
+                                                               parameters)]
+                                      (in [name parametersA])))
+                                annotations)
        :return: (boxed_reflection_return mapping return)
-       arguments' (stack.each' !
-                               (function (_ [name jvmT])
-                                 (do !
-                                   [luxT (boxed_reflection_type mapping jvmT)]
-                                   (in [name luxT])))
-                               arguments)
+       arguments' (list.each' !
+                              (function (_ [name jvmT])
+                                (do !
+                                  [luxT (boxed_reflection_type mapping jvmT)]
+                                  (in [name luxT])))
+                              arguments)
        [scope bodyA] (|> arguments'
-                         {.#Top [self_name selfT]}
-                         stack.reversed
-                         (stack#mix scope.with_local (analyse archive body))
+                         (list#composite (list [self_name selfT]))
+                         list.reversed
+                         (list#mix scope.with_local (analyse archive body))
                          (typeA.expecting :return:)
                          scope.with)
-       .let [arity (stack.size arguments)]
+       .let [arity (list.size arguments)]
        @ meta.provenance]
       (in (analysis.tuple @ (list (analysis.text @ ..virtual_tag)
                                   (analysis.text @ method_name)
                                   (visibility_analysis @ visibility)
                                   (analysis.bit @ final?)
                                   (analysis.bit @ strict_fp?)
-                                  (analysis.tuple @ (list.of_stack (stack#each (annotation_analysis @) annotationsA)))
-                                  (analysis.tuple @ (list.of_stack (stack#each (var_analysis @) vars)))
+                                  (analysis.tuple @ (list#each (annotation_analysis @) annotationsA))
+                                  (analysis.tuple @ (list#each (var_analysis @) vars))
                                   (analysis.text @ self_name)
-                                  (analysis.tuple @ (list.of_stack (stack#each (..argument_analysis @) arguments)))
+                                  (analysis.tuple @ (list#each (..argument_analysis @) arguments))
                                   (return_analysis @ return)
-                                  (analysis.tuple @ (list.of_stack (stack#each (class_analysis @) exceptions)))
+                                  (analysis.tuple @ (list#each (class_analysis @) exceptions))
                                   [@ {analysis.#Abstraction
                                       (list#each (|>> (analysis.variable @))
                                                  (scope.environment scope))
@@ -2315,11 +2317,11 @@
   [Text
    Visibility
    Strictness
-   (Stack (Annotation a))
-   (Stack (Type Var))
-   (Stack Argument)
+   (List (Annotation a))
+   (List (Type Var))
+   (List Argument)
    (Type Return)
-   (Stack Exception)
+   (List Exception)
    a])
 
 (the .public static_tag "static")
@@ -2332,11 +2334,11 @@
            <code>.text
            ..visibility
            <code>.bit
-           (<code>.tuple (<>.some ..annotation))
-           (<code>.tuple (<>.some ..var))
-           (<code>.tuple (<>.some ..argument))
+           (<>#each list.of_stack (<code>.tuple (<>.some ..annotation)))
+           (<>#each list.of_stack (<code>.tuple (<>.some ..var)))
+           (<>#each list.of_stack (<code>.tuple (<>.some ..argument)))
            ..return
-           (<code>.tuple (<>.some ..class))
+           (<>#each list.of_stack (<code>.tuple (<>.some ..class)))
            <code>.any)))
 
 (the .public (analyse_static_method analyse archive mapping method)
@@ -2348,25 +2350,25 @@
          body] method]
     (do [! phase.monad]
       [mapping (typeA.check (method_mapping mapping vars))
-       annotationsA (stack.each' ! (function (_ [name parameters])
-                                     (do !
-                                       [parametersA (stack.each' ! (function (_ [name value])
-                                                                     (do !
-                                                                       [valueA (analyse archive value)]
-                                                                       (in [name valueA])))
-                                                                 parameters)]
-                                       (in [name parametersA])))
-                                 annotations)
+       annotationsA (list.each' ! (function (_ [name parameters])
+                                    (do !
+                                      [parametersA (list.each' ! (function (_ [name value])
+                                                                   (do !
+                                                                     [valueA (analyse archive value)]
+                                                                     (in [name valueA])))
+                                                               parameters)]
+                                      (in [name parametersA])))
+                                annotations)
        :return: (boxed_reflection_return mapping return)
-       arguments' (stack.each' !
-                               (function (_ [name jvmT])
-                                 (do !
-                                   [luxT (boxed_reflection_type mapping jvmT)]
-                                   (in [name luxT])))
-                               arguments)
+       arguments' (list.each' !
+                              (function (_ [name jvmT])
+                                (do !
+                                  [luxT (boxed_reflection_type mapping jvmT)]
+                                  (in [name luxT])))
+                              arguments)
        [scope bodyA] (|> arguments'
-                         stack.reversed
-                         (stack#mix scope.with_local (analyse archive body))
+                         list.reversed
+                         (list#mix scope.with_local (analyse archive body))
                          (typeA.expecting :return:)
                          scope.with)
        @ meta.provenance]
@@ -2374,11 +2376,11 @@
                                   (analysis.text @ method_name)
                                   (visibility_analysis @ visibility)
                                   (analysis.bit @ strict_fp?)
-                                  (analysis.tuple @ (list.of_stack (stack#each (annotation_analysis @) annotationsA)))
-                                  (analysis.tuple @ (list.of_stack (stack#each (var_analysis @) vars)))
-                                  (analysis.tuple @ (list.of_stack (stack#each (..argument_analysis @) arguments)))
+                                  (analysis.tuple @ (list#each (annotation_analysis @) annotationsA))
+                                  (analysis.tuple @ (list#each (var_analysis @) vars))
+                                  (analysis.tuple @ (list#each (..argument_analysis @) arguments))
                                   (return_analysis @ return)
-                                  (analysis.tuple @ (list.of_stack (stack#each (class_analysis @) exceptions)))
+                                  (analysis.tuple @ (list#each (class_analysis @) exceptions))
                                   [@ {analysis.#Abstraction
                                       (list#each (|>> (analysis.variable @))
                                                  (scope.environment scope))
@@ -2389,12 +2391,12 @@
   [(Type Class)
    Text
    Bit
-   (Stack (Annotation a))
-   (Stack (Type Var))
+   (List (Annotation a))
+   (List (Type Var))
    Text
-   (Stack Argument)
+   (List Argument)
    (Type Return)
-   (Stack (Type Class))
+   (List (Type Class))
    a])
 
 (the .public overriden_tag "override")
@@ -2407,21 +2409,21 @@
            ..class
            <code>.text
            <code>.bit
-           (<code>.tuple (<>.some ..annotation))
-           (<code>.tuple (<>.some ..var))
+           (<>#each list.of_stack (<code>.tuple (<>.some ..annotation)))
+           (<>#each list.of_stack (<code>.tuple (<>.some ..var)))
            <code>.text
-           (<code>.tuple (<>.some ..argument))
+           (<>#each list.of_stack (<code>.tuple (<>.some ..argument)))
            ..return
-           (<code>.tuple (<>.some ..class))
+           (<>#each list.of_stack (<code>.tuple (<>.some ..class)))
            <code>.any
            )))
 
 (exception.the .public (unknown_super [name supers])
-  (exception.Exception [Text (Stack (Type Class))])
+  (exception.Exception [Text (List (Type Class))])
   (exception.report
    (list ["Name" (%.text name)]
          ["Available" (exception.listing (|>> projection.read_class product.right)
-                                         (list.of_stack supers))])))
+                                         supers)])))
 
 (exception.the .public (mismatched_super_parameters [name expected actual])
   (exception.Exception [Text Natural Natural])
@@ -2431,44 +2433,44 @@
          ["Actual" (%.natural actual)])))
 
 (the (override_mapping mapping supers parent_type)
-  (-> Mapping (Stack (Type Class)) (Type Class)
-      (Operation (Stack [Text .Type])))
+  (-> Mapping (List (Type Class)) (Type Class)
+      (Operation (List [Text .Type])))
   (let [[parent_parameters parent_name] (projection.read_class parent_type)]
-    (when (stack.one (function (_ super)
-                       (let [[super_parameters super_name] (projection.read_class super)]
-                         (if (text.= parent_name super_name)
-                           {.#Some super_parameters}
-                           {.#None})))
-                     supers)
+    (when (list.one (function (_ super)
+                      (let [[super_parameters super_name] (projection.read_class super)]
+                        (if (text.= parent_name super_name)
+                          {.#Some super_parameters}
+                          {.#None})))
+                    supers)
       {try.#Success super_parameters}
-      (let [expected_count (stack.size parent_parameters)
-            actual_count (stack.size super_parameters)]
+      (let [expected_count (list.size parent_parameters)
+            actual_count (list.size super_parameters)]
         (if (n.= expected_count actual_count)
           (do [! phase.monad]
             [parent_parameters (|> parent_parameters
-                                   (stack.each' maybe.monad projection.var?)
+                                   (list.each' maybe.monad projection.var?)
                                    (try.of_maybe "Not all parameters are type variables.")
                                    phase.of_try)]
             (|> super_parameters
-                (stack.each' ! (..reflection_type mapping))
-                (by ! each (|>> (stack.zipped_2 parent_parameters)))))
+                (list.each' ! (..reflection_type mapping))
+                (by ! each (|>> (list.zipped_2 parent_parameters)))))
           (phase.of_try (exception.except ..mismatched_super_parameters [parent_name expected_count actual_count]))))
       
       {try.#Failure _}
       (phase.of_try (exception.except ..unknown_super [parent_name supers])))))
 
 (the .public (with_override_mapping supers parent_type mapping)
-  (-> (Stack (Type Class)) (Type Class) Mapping
+  (-> (List (Type Class)) (Type Class) Mapping
       (Operation Mapping))
   (do phase.monad
     [override_mapping (..override_mapping mapping supers parent_type)]
-    (in (stack#mix (function (_ [super_var bound_type] mapping)
-                     (dictionary.has super_var bound_type mapping))
-                   mapping
-                   override_mapping))))
+    (in (list#mix (function (_ [super_var bound_type] mapping)
+                    (dictionary.has super_var bound_type mapping))
+                  mapping
+                  override_mapping))))
 
 (the .public (analyse_overriden_method analyse archive selfT mapping supers method)
-  (-> Phase Archive .Type Mapping (Stack (Type Class)) (Overriden_Method Code)
+  (-> Phase Archive .Type Mapping (List (Type Class)) (Overriden_Method Code)
       (Operation analysis.Term))
   (let [[parent_type method_name
          strict_fp? annotations vars
@@ -2477,40 +2479,40 @@
     (do [! phase.monad]
       [mapping (..with_override_mapping supers parent_type mapping)
        mapping (typeA.check (method_mapping mapping vars))
-       annotationsA (stack.each' ! (function (_ [name parameters])
-                                     (do !
-                                       [parametersA (stack.each' ! (function (_ [name value])
-                                                                     (do !
-                                                                       [valueA (analyse archive value)]
-                                                                       (in [name valueA])))
-                                                                 parameters)]
-                                       (in [name parametersA])))
-                                 annotations)
-       arguments' (stack.each' !
-                               (function (_ [name jvmT])
-                                 (do !
-                                   [luxT (boxed_reflection_type mapping jvmT)]
-                                   (in [name luxT])))
-                               arguments)
+       annotationsA (list.each' ! (function (_ [name parameters])
+                                    (do !
+                                      [parametersA (list.each' ! (function (_ [name value])
+                                                                   (do !
+                                                                     [valueA (analyse archive value)]
+                                                                     (in [name valueA])))
+                                                               parameters)]
+                                      (in [name parametersA])))
+                                annotations)
+       arguments' (list.each' !
+                              (function (_ [name jvmT])
+                                (do !
+                                  [luxT (boxed_reflection_type mapping jvmT)]
+                                  (in [name luxT])))
+                              arguments)
        :return: (boxed_reflection_return mapping return)
        [scope bodyA] (|> arguments'
-                         {.#Top [self_name selfT]}
-                         stack.reversed
-                         (stack#mix scope.with_local (analyse archive body))
+                         (list#composite (list [self_name selfT]))
+                         list.reversed
+                         (list#mix scope.with_local (analyse archive body))
                          (typeA.expecting :return:)
                          scope.with)
-       .let [arity (stack.size arguments)]
+       .let [arity (list.size arguments)]
        @ meta.provenance]
       (in (analysis.tuple @ (list (analysis.text @ ..overriden_tag)
                                   (class_analysis @ parent_type)
                                   (analysis.text @ method_name)
                                   (analysis.bit @ strict_fp?)
-                                  (analysis.tuple @ (list.of_stack (stack#each (annotation_analysis @) annotationsA)))
-                                  (analysis.tuple @ (list.of_stack (stack#each (var_analysis @) vars)))
+                                  (analysis.tuple @ (list#each (annotation_analysis @) annotationsA))
+                                  (analysis.tuple @ (list#each (var_analysis @) vars))
                                   (analysis.text @ self_name)
-                                  (analysis.tuple @ (list.of_stack (stack#each (..argument_analysis @) arguments)))
+                                  (analysis.tuple @ (list#each (..argument_analysis @) arguments))
                                   (return_analysis @ return)
-                                  (analysis.tuple @ (list.of_stack (stack#each (class_analysis @) exceptions)))
+                                  (analysis.tuple @ (list#each (class_analysis @) exceptions))
                                   [@ {analysis.#Abstraction
                                       (list#each (|>> (analysis.variable @))
                                                  (scope.environment scope))
@@ -2528,21 +2530,21 @@
        (jvm.= superJT subJT)))
 
 (the (mismatched_methods super_set sub_set)
-  (-> (Stack [(Type Class) Text (Type Method)]) (Stack [(Type Class) Text (Type Method)])
-      (Stack [(Type Class) Text (Type Method)]))
-  (stack.only (function (_ sub)
-                (not (stack.any? (matched? sub) super_set)))
-              sub_set))
+  (-> (List [(Type Class) Text (Type Method)]) (List [(Type Class) Text (Type Method)])
+      (List [(Type Class) Text (Type Method)]))
+  (list.only (function (_ sub)
+               (not (list.any? (matched? sub) super_set)))
+             sub_set))
 
 (exception.the .public (class_parameter_mismatch [name declaration expected actual])
-  (exception.Exception [Text (Type Class) (Stack Text) (Stack (Type Parameter))])
+  (exception.Exception [Text (Type Class) (List Text) (List (Type Parameter))])
   (exception.report
    (list ["Class" (%.text name)]
          ["Declaration" (signature.signature (jvm.signature declaration))]
-         ["Expected (amount)" (%.natural (stack.size expected))]
-         ["Expected (parameters)" (exception.listing %.text (list.of_stack expected))]
-         ["Actual (amount)" (%.natural (stack.size actual))]
-         ["Actual (parameters)" (exception.listing ..signature (list.of_stack actual))])))
+         ["Expected (amount)" (%.natural (list.size expected))]
+         ["Expected (parameters)" (exception.listing %.text expected)]
+         ["Actual (amount)" (%.natural (list.size actual))]
+         ["Actual (parameters)" (exception.listing ..signature actual)])))
 
 (the (super_aliasing class_loader class)
   (-> java/lang/ClassLoader (Type Class)
@@ -2552,21 +2554,21 @@
      jvm_class (phase.of_try (reflection!.load class_loader name))
      .let [expected_parameters (|> jvm_class
                                    (java/lang/Class::getTypeParameters [])
-                                   (array.stack {.#None})
-                                   (stack#each (|>> (java/lang/reflect/TypeVariable::getName [])
-                                                    ffi.of_string)))]
+                                   (list.of_array {.#None})
+                                   (list#each (|>> (java/lang/reflect/TypeVariable::getName [])
+                                                   ffi.of_string)))]
      _ (phase.assertion ..class_parameter_mismatch [name class expected_parameters actual_parameters]
-                        (n.= (stack.size expected_parameters)
-                             (stack.size actual_parameters)))]
-    (in (|> (stack.zipped_2 expected_parameters actual_parameters)
-            (stack#mix (function (_ [expected actual] mapping)
-                         (when (projection.var? actual)
-                           {.#Some actual}
-                           (dictionary.has actual expected mapping)
-                           
-                           {.#None}
-                           mapping))
-                       alias.fresh)))))
+                        (n.= (list.size expected_parameters)
+                             (list.size actual_parameters)))]
+    (in (|> (list.zipped_2 expected_parameters actual_parameters)
+            (list#mix (function (_ [expected actual] mapping)
+                        (when (projection.var? actual)
+                          {.#Some actual}
+                          (dictionary.has actual expected mapping)
+                          
+                          {.#None}
+                          mapping))
+                      alias.fresh)))))
 
 (the (anonymous_class_name module id)
   (-> Module Natural
@@ -2576,40 +2578,40 @@
     (text global ..jvm_package_delimiter local)))
 
 (the .public (require_complete_method_concretion class_loader supers methods)
-  (-> java/lang/ClassLoader (Stack (Type Class)) (Stack (Overriden_Method Code))
+  (-> java/lang/ClassLoader (List (Type Class)) (List (Overriden_Method Code))
       (Operation Any))
   (do [! phase.monad]
     [required_abstract_methods (phase.of_try (all_abstract_methods class_loader supers))
      available_methods (phase.of_try (all_methods class_loader supers))
-     overriden_methods (stack.each' ! (function (_ [parent_type method_name
-                                                    strict_fp? annotations type_vars
-                                                    self_name arguments return exceptions
-                                                    body])
-                                        (do !
-                                          [aliasing (super_aliasing class_loader parent_type)]
-                                          (in (|> (jvm.method [type_vars
-                                                               (stack#each product.right arguments)
-                                                               return
-                                                               exceptions])
-                                                  (alias.method aliasing)
-                                                  [parent_type method_name]))))
-                                    methods)
+     overriden_methods (list.each' ! (function (_ [parent_type method_name
+                                                   strict_fp? annotations type_vars
+                                                   self_name arguments return exceptions
+                                                   body])
+                                       (do !
+                                         [aliasing (super_aliasing class_loader parent_type)]
+                                         (in (|> (jvm.method [type_vars
+                                                              (list#each product.right arguments)
+                                                              return
+                                                              exceptions])
+                                                 (alias.method aliasing)
+                                                 [parent_type method_name]))))
+                                   methods)
      .let [missing_abstract_methods (mismatched_methods overriden_methods required_abstract_methods)
            invalid_overriden_methods (mismatched_methods available_methods overriden_methods)]
      _ (phase.assertion ..missing_abstract_methods [required_abstract_methods overriden_methods]
-                        (stack.empty? missing_abstract_methods))
+                        (list.empty? missing_abstract_methods))
      _ (phase.assertion ..invalid_overriden_methods [available_methods invalid_overriden_methods]
-                        (stack.empty? invalid_overriden_methods))]
+                        (list.empty? invalid_overriden_methods))]
     (in [])))
 
 (.every Declaration
-  [Text (Stack (Type Var))])
+  [Text (List (Type Var))])
 
 (.every Constant
-  [Text (Stack Annotation) (Type Value) Code])
+  [Text (List Annotation) (Type Value) Code])
 
 (.every Variable
-  [Text (Modifier field.Field) (Modifier field.Field) (Stack Annotation) (Type Value)])
+  [Text (Modifier field.Field) (Modifier field.Field) (List Annotation) (Type Value)])
 
 (.every Field
   (Variant
@@ -2630,12 +2632,12 @@
        internal.name))
 
 (the (mock_class [name parameters] super interfaces fields methods modifier)
-  (-> Declaration (Type Class) (Stack (Type Class))
-      (Stack (Resource field.Field)) (Stack (Resource method.Method)) (Modifier class.Class)
+  (-> Declaration (Type Class) (List (Type Class))
+      (List (Resource field.Field)) (List (Resource method.Method)) (Modifier class.Class)
       (Try [external.Name Binary]))
-  (let [signature (signature.inheritance (stack#each jvm.signature parameters)
+  (let [signature (signature.inheritance (list#each jvm.signature parameters)
                                          (jvm.signature super)
-                                         (stack#each jvm.signature interfaces))]
+                                         (list#each jvm.signature interfaces))]
     (try#each (|>> (\\injection.value class.as_binary)
                    [name])
               (class.class version.v6_0
@@ -2645,10 +2647,10 @@
                 (internal.name name)
                 {.#Some signature}
                 (..class_name super)
-                (stack#each ..class_name interfaces)
+                (list#each ..class_name interfaces)
                 fields
                 methods
-                (stack)))))
+                (list)))))
 
 (the constant::modifier
   (Modifier field.Field)
@@ -2680,7 +2682,7 @@
                 ... [.#Decimal jvm.float [ffi.as_double ffi.double_to_float pool.float]]
                 [.#Decimal jvm.double [pool.double]]
                 [.#Natural jvm.char [.i64 i/32.of pool.integer]]
-                [.#Text (jvm.class (stack) "java.lang.String") [pool.string]]
+                [.#Text (jvm.class (list) "java.lang.String") [pool.string]]
                 ))
 
           ... TODO: Tighten this pattern-matching so this catch-all clause isn't necessary.
@@ -2764,14 +2766,14 @@
                           method.strict
                           modifier.empty))
       ..constructor_name
-      false (jvm.method [variables (stack#each product.right arguments) jvm.void exceptions])
-      (stack)
+      false (jvm.method [variables (list#each product.right arguments) jvm.void exceptions])
+      (list)
       {.#Some (all _.composite
                    (_.aload 0)
                    (|> constructor_arguments
-                       (stack#each (|>> product.left ..mock_value))
-                       (stack.all' _.monad))
-                   (|> (jvm.method [(stack) (stack#each product.left constructor_arguments) jvm.void (stack)])
+                       (list#each (|>> product.left ..mock_value))
+                       (list.all' _.monad))
+                   (|> (jvm.method [(list) (list#each product.left constructor_arguments) jvm.void (list)])
                        (_.invokespecial super ..constructor_name))
                    _.return
                    )})
@@ -2785,8 +2787,8 @@
                           method.strict
                           modifier.empty))
       name
-      false (jvm.method [variables (stack#each product.right arguments) return exceptions])
-      (stack)
+      false (jvm.method [variables (list#each product.right arguments) return exceptions])
+      (list)
       {.#Some (..mock_return return)})
 
     {#Virtual_Method [name privacy final? strict_floating_point? annotations variables
@@ -2801,8 +2803,8 @@
                           method.final
                           modifier.empty))
       name
-      false (jvm.method [variables (stack#each product.right arguments) return exceptions])
-      (stack)
+      false (jvm.method [variables (list#each product.right arguments) return exceptions])
+      (list)
       {.#Some (..mock_return return)})
 
     {#Static_Method [name privacy strict_floating_point? annotations
@@ -2815,8 +2817,8 @@
                           method.strict
                           modifier.empty))
       name
-      false (jvm.method [variables (stack#each product.right arguments) return exceptions])
-      (stack)
+      false (jvm.method [variables (list#each product.right arguments) return exceptions])
+      (list)
       {.#Some (..mock_return return)})
 
     {#Abstract_Method [name privacy annotations
@@ -2825,19 +2827,19 @@
                         method.abstract
                         (..method_privacy privacy))
       name
-      false (jvm.method [variables (stack#each product.right arguments) return exceptions])
-      (stack)
+      false (jvm.method [variables (list#each product.right arguments) return exceptions])
+      (list)
       {.#None})
     ))
 
 (the (mock declaration super interfaces inheritance fields methods)
   (-> Declaration
-      (Type Class) (Stack (Type Class))
-      (Modifier class.Class) (Stack ..Field) (Stack (Method_Definition Code))
+      (Type Class) (List (Type Class))
+      (Modifier class.Class) (List ..Field) (List (Method_Definition Code))
       (Try [external.Name Binary]))
   (mock_class declaration super interfaces
-              (stack#each ..field_definition fields)
-              (stack#each (..mock_method super) methods)
+              (list#each ..field_definition fields)
+              (list#each (..mock_method super) methods)
               inheritance))
 
 (the (class::anonymous class_loader host)
@@ -2845,11 +2847,11 @@
       (-> Text Handler))
   (..custom
    [(all <>.and
-         (<code>.tuple (<>.some ..var))
+         (<>#each list.of_stack (<code>.tuple (<>.some ..var)))
          ..class
-         (<code>.tuple (<>.some ..class))
-         (<code>.tuple (<>.some ..input))
-         (<code>.tuple (<>.some ..overriden_method_definition)))
+         (<>#each list.of_stack (<code>.tuple (<>.some ..class)))
+         (<>#each list.of_stack (<code>.tuple (<>.some ..input)))
+         (<>#each list.of_stack (<code>.tuple (<>.some ..overriden_method_definition))))
     (function (_ extension_name analyse archive [parameters
                                                  super_class
                                                  super_interfaces
@@ -2857,7 +2859,7 @@
                                                  methods])
       (do [! phase.monad]
         [_ (..ensure_fresh_class! class_loader (..reflection super_class))
-         _ (stack.each' ! (|>> ..reflection (..ensure_fresh_class! class_loader)) super_interfaces)
+         _ (list.each' ! (|>> ..reflection (..ensure_fresh_class! class_loader)) super_interfaces)
 
          self_name (do meta.monad
                      [[where _] module.current
@@ -2869,33 +2871,34 @@
                           super_class
                           super_interfaces
                           class.final
-                          (stack)
-                          (stack#each (|>> {#Overriden_Method}) methods)))
+                          (list)
+                          (list#each (|>> {#Overriden_Method}) methods)))
          ... Necessary for reflection to work properly during analysis.
          _ (phase.of_try (by host execute mock))
 
          mapping (typeA.check (..class_mapping parameters))
          super_classT (typeA.check (luxT.check (luxT.class mapping) (..signature super_class)))
-         super_interfaceT+ (typeA.check (stack.each' check.monad
-                                                     (|>> ..signature (luxT.check (luxT.class mapping)))
-                                                     super_interfaces))
+         super_interfaceT+ (typeA.check (list.each' check.monad
+                                                    (|>> ..signature (luxT.check (luxT.class mapping)))
+                                                    super_interfaces))
          _ (typeA.inference selfT)
-         constructor_argsA+ (stack.each' ! (function (_ [type term])
-                                             (do !
-                                               [argT (reflection_type mapping type)
-                                                termA (<| (typeA.expecting argT)
-                                                          (analyse archive term))]
-                                               (in [type termA])))
-                                         constructor_args)
-         .let [supers {.#Top super_class super_interfaces}]
+         constructor_argsA+ (list.each' ! (function (_ [type term])
+                                            (do !
+                                              [argT (reflection_type mapping type)
+                                               termA (<| (typeA.expecting argT)
+                                                         (analyse archive term))]
+                                              (in [type termA])))
+                                        constructor_args)
+         .let [supers (list#composite (list super_class) super_interfaces)]
          _ (..require_complete_method_concretion class_loader supers methods)
-         methodsA (stack.each' ! (analyse_overriden_method analyse archive selfT mapping supers) methods)
+         methodsA (list.each' ! (analyse_overriden_method analyse archive selfT mapping supers)
+                              methods)
          @ meta.provenance]
         (in [@ {analysis.#Extension [.prelude (text extension_name "|translation")]
                                     (list (class_analysis @ super_class)
-                                          (analysis.tuple @ (list.of_stack (stack#each (class_analysis @) super_interfaces)))
-                                          (analysis.tuple @ (list.of_stack (stack#each (typed_analysis @) constructor_argsA+)))
-                                          (analysis.tuple @ (list.of_stack methodsA)))}])))]))
+                                          (analysis.tuple @ (list#each (class_analysis @) super_interfaces))
+                                          (analysis.tuple @ (list#each (typed_analysis @) constructor_argsA+))
+                                          (analysis.tuple @ methodsA))}])))]))
 
 (the (with_class_extensions class_loader host)
   (-> java/lang/ClassLoader runtime.Host
