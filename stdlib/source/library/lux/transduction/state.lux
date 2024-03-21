@@ -1,0 +1,155 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except and with)
+   [abstract
+    [functor (.only Then)]
+    [equivalence (.only Equivalence)]
+    [hash (.only Hash)]]
+   ["[0]" function (.only)
+    [predicate (.only Predicate)]
+    [polytypism
+     [mix (.only Mix)]]]
+   [control
+    [pure (.only Pure)]
+    ["[0]" maybe]]
+   [data
+    ["[0]" product]
+    [collection
+     ["[0]" set (.only Set)]]]
+   [math
+    [number
+     ["n" natural]]]]]
+ ["[0]" // (.only)
+  ["[0]" pure]])
+
+(every .public (Transduction state to_consume to_produce whole)
+  (Record
+   [#in (-> whole (state whole))
+    #out (-> (state whole) whole)
+    #transduction (//.Transduction to_consume to_produce
+                                   (state whole) whole)]))
+
+(the .public (and before after)
+  (for_any (_ before after to_consume in_transit to_produce)
+    (-> (Transduction before to_consume in_transit) (Transduction after in_transit to_produce)
+        (Transduction (Then before after) to_consume to_produce)))
+  [#in (function.composite (its #in before)
+                           (its #in after))
+   #out (function.composite (its #out after)
+                            (its #out before))
+   #transduction (function.composite (its #transduction before)
+                                     (its #transduction after))])
+
+(the .public pure
+  (for_any (_ to_consume to_produce)
+    (-> (pure.Transduction to_consume to_produce)
+        (Transduction Pure to_consume to_produce)))
+  (|>> [#in function.identity
+        #out function.identity
+        #transduction]))
+
+(every .public (With outer)
+  (for_any (_ inner)
+    [inner outer]))
+
+(the .public (with outer inner)
+  (for_any (_ head tail)
+    (-> head tail
+        (With head tail)))
+  [inner outer])
+
+(the result product.left)
+
+(the .public (unique hash)
+  (for_any (_ it)
+    (-> (Hash it)
+        (Transduction (With (Set it)) it it)))
+  [#in (with (set.empty hash))
+   #out ..result
+   #transduction (function (_ mix part [whole state])
+                   (if (set.member? state part)
+                     [whole state]
+                     [(mix part whole)
+                      (set.has part state)]))])
+
+(the .public (new equivalence)
+  (for_any (_ it)
+    (-> (Equivalence it)
+        (Transduction (With (Maybe it)) it it)))
+  [#in (with {.#None})
+   #out ..result
+   #transduction (function (_ mix part [whole state])
+                   (if (|> state
+                           (by maybe.functor each (by equivalence = part))
+                           (maybe.else false))
+                     [whole state]
+                     [(mix part whole)
+                      {.#Some part}]))])
+
+(the .public (interposed delimiter)
+  (for_any (_ it)
+    (-> it
+        (Transduction (With Bit) it it)))
+  [#in (with true)
+   #out ..result
+   #transduction (function (_ mix part [whole first?])
+                   [(mix part (if first?
+                                whole
+                                (mix delimiter whole)))
+                    false])])
+
+(the .public (after quantity)
+  (for_any (_ it)
+    (-> Natural
+        (Transduction (With Natural) it it)))
+  [#in (with quantity)
+   #out ..result
+   #transduction (function (_ mix part [whole quantity])
+                   (when quantity
+                     0 [(mix part whole) quantity]
+                     _ [whole (-- quantity)]))])
+
+(the .public (until ?)
+  (for_any (_ it)
+    (-> (Predicate it)
+        (Transduction (With Bit) it it)))
+  [#in (with false)
+   #out ..result
+   #transduction (function (_ mix part [whole can_collect?])
+                   (if (or can_collect?
+                           (? part))
+                     [(mix part whole) true]
+                     [whole can_collect?]))])
+
+(the .public (skipping quantity)
+  (for_any (_ it)
+    (-> Nat
+        (Transduction (With Natural) it it)))
+  (let [limit (++ quantity)]
+    [#in (with 0)
+     #out ..result
+     #transduction (when quantity
+                     0 (function (_ mix part [whole skipped])
+                         [(mix part whole)
+                          skipped])
+                     _ (function (_ mix part [whole skipped])
+                         [(when skipped
+                            0 (mix part whole)
+                            _ whole)
+                          (n.% limit (++ skipped))]))]))
+
+(the .public (in_series mix initial
+                        transduction
+                        collection::mix collection)
+  (for_any (_ collection with to_consume to_mix whole)
+    (-> (//.Reduction to_mix whole) whole
+        (Transduction with to_consume to_mix)
+        (Mix collection) (collection to_consume)
+        whole))
+  (|> collection
+      (collection::mix ((its #transduction transduction) mix)
+                       ((its #in transduction) initial))
+      ((its #out transduction))))

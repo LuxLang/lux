@@ -1,5 +1,6 @@
 # Reference
 
+0. [The Copenhagen Book](https://thecopenhagenbook.com/)
 0. [Secure Quick Reliable Login](https://www.grc.com/sqrl/sqrl.htm)
 0. [Hanko](https://www.hanko.io/)
 0. [Auth.js: Authentication for the Web.](https://authjs.dev/)
