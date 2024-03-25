@@ -15,7 +15,7 @@
    [data
     ["[0]" product]
     [collection
-     ["[0]" stack]]]
+     ["[0]" list (.use "[1]#[0]" monoid)]]]
    [macro
     ["^" pattern]
     ["[0]" expansion]
@@ -31,24 +31,29 @@
   Maybe)
 
 (the Handler
-  (template.macro (_ a)
-    [(-> a (IO Any))]))
+  (template.macro (_ it)
+    [(-> it
+         (IO Any))]))
 
-(nominal.every (Future'' a)
-  (Atom [(Value a) (Stack (Handler a))])
+(nominal.every (Future'' it)
+  (Atom [(Value it)
+         (List (Handler it))])
 
   (every .public (Future' r w)
     (Future'' (Mutable r w)))
 
-  (every .public (Future a)
-    (Future'' (Mutable a a)))
+  (every .public (Future it)
+    (Future'' (Mutable it it)))
 
-  (every .public (Resolver w)
-    (-> w (IO Bit)))
+  (every .public (Resolver it)
+    (-> it
+        (IO Bit)))
 
   ... Sets a future's value if it has not been done yet.
   (the (resolver future)
-    (for_any (_ r w) (-> (Future' r w) (Resolver w)))
+    (for_any (_ r w)
+      (-> (Future' r w)
+          (Resolver w)))
     (function (resolve value)
       (let [future (nominal.reification future)]
         (do [! io.monad]
@@ -59,32 +64,41 @@
 
             {.#None}
             (do !
-              [succeeded? (atom.compare_and_swap! old [{.#Some (variance.write value)} (stack)] future)]
+              [succeeded? (atom.compare_and_swap! old [{.#Some (variance.write value)} (list)] future)]
               (if succeeded?
                 (do !
-                  [_ (stack.each' ! (function.on (variance.write value))
-                                  _observers)]
+                  [_ (list.each' ! (function.on (variance.write value))
+                                 _observers)]
                   (in true))
                 (resolve value))))))))
 
   (the .public (resolved value)
-    (for_any (_ a) (-> a (Future a)))
-    (nominal.abstraction (atom [{.#Some (variance.write value)} (stack)])))
+    (for_any (_ it)
+      (-> it
+          (Future it)))
+    (nominal.abstraction (atom [{.#Some (variance.write value)} (list)])))
 
   (the .public (future _)
-    (for_any (_ r w) (-> Any [(Future' r w) (Resolver w)]))
-    (let [future (nominal.abstraction (atom [{.#None} (stack)]))]
+    (for_any (_ r w)
+      (-> Any
+          [(Future' r w)
+           (Resolver w)]))
+    (let [future (nominal.abstraction (atom [{.#None} (list)]))]
       [future (..resolver future)]))
 
   (the .public value
-    (for_any (_ r w) (-> (Future' r w) (IO (Value r))))
+    (for_any (_ r w)
+      (-> (Future' r w)
+          (IO (Value r))))
     (|>> nominal.reification
          atom.read!
          (by io.functor each (|>> product.left
                                   (maybe#each (|>> variance.read))))))
 
   (the .public (upon! f future)
-    (for_any (_ r w) (-> (Handler r) (Future' r w) (IO Any)))
+    (for_any (_ r w)
+      (-> (Handler r) (Future' r w)
+          (IO Any)))
     (do [! io.monad]
       [.let [future (nominal.reification future)]
        (^.let old [_value _observers]) (atom.read! future)]
@@ -94,14 +108,18 @@
 
         {.#None}
         (do !
-          [swapped? (atom.compare_and_swap! old [_value {.#Top (|>> variance.read f) _observers}] future)]
+          [swapped? (atom.compare_and_swap! old
+                                            [_value (list#composite _observers (list (|>> variance.read f)))]
+                                            future)]
           (if swapped?
             (in [])
             (upon! f (nominal.abstraction future)))))))
   )
 
 (the .public resolved?
-  (for_any (_ r w) (-> (Future' r w) (IO Bit)))
+  (for_any (_ r w)
+    (-> (Future' r w)
+        (IO Bit)))
   (|>> ..value
        (by io.functor each
            (|>> (pipe.when
@@ -142,7 +160,9 @@
          ma)))))
 
 (the .public (and left right)
-  (for_any (_ lr lw rr rw) (-> (Future' lr lw) (Future' rr rw) (Future [lr rr])))
+  (for_any (_ lr lw rr rw)
+    (-> (Future' lr lw) (Future' rr rw)
+        (Future [lr rr])))
   (let [[read! write!] (sharing [lr lw rr rw]
                          (is [(Future' lr lw) (Future' rr rw)]
                              [left right])
@@ -156,7 +176,9 @@
     read!))
 
 (the .public (or left right)
-  (for_any (_ lr lw rr rw) (-> (Future' lr lw) (Future' rr rw) (Future (Or lr rr))))
+  (for_any (_ lr lw rr rw)
+    (-> (Future' lr lw) (Future' rr rw)
+        (Future (Or lr rr))))
   (let [[left|right resolve] (sharing [lr lw rr rw]
                                (is [(Future' lr lw) (Future' rr rw)]
                                    [left right])
@@ -173,7 +195,9 @@
         left|right))))
 
 (the .public (either left right)
-  (for_any (_ a lw rw) (-> (Future' a lw) (Future' a rw) (Future a)))
+  (for_any (_ a lw rw)
+    (-> (Future' a lw) (Future' a rw)
+        (Future a)))
   (let [[left||right resolve] (sharing [a lw rw]
                                 (is [(Future' a lw) (Future' a rw)]
                                     [left right])
@@ -188,7 +212,9 @@
           left||right))))
 
 (the .public (schedule! milli_seconds computation)
-  (for_any (_ a) (-> Delay (IO a) (Future a)))
+  (for_any (_ it)
+    (-> Delay (IO it)
+        (Future it)))
   (let [[!out resolve] (sharing [a]
                          (is (IO a)
                              computation)
@@ -209,14 +235,19 @@
   (..schedule! 0))
 
 (the .public (after milli_seconds value)
-  (for_any (_ a) (-> Delay a (Future a)))
+  (for_any (_ it)
+    (-> Delay it
+        (Future it)))
   (..schedule! milli_seconds (io value)))
 
 (the .public (delay milli_seconds)
-  (-> Delay (Future Any))
+  (-> Delay
+      (Future Any))
   (..after milli_seconds []))
 
 (the .public (within milli_seconds future)
-  (for_any (_ r w) (-> Delay (Future' r w) (Future (Maybe r))))
+  (for_any (_ r w)
+    (-> Delay (Future' r w)
+        (Future (Maybe r))))
   (..or (..delay milli_seconds)
         future))

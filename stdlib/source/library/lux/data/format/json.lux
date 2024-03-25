@@ -3,7 +3,7 @@
 
 (.using
  [library
-  [lux (.except has text natural integer revolution stack
+  [lux (.except has text natural integer revolution list
                 or and
                 variant record)
    [abstract
@@ -27,7 +27,6 @@
      ["[0]" escape]]
     [collection
      ["[0]" list (.use "[1]#[0]" monoid mix functor)]
-     ["[0]" stack (.use "[1]#[0]" monoid mix functor)]
      ["[0]" dictionary (.only Dictionary) (.use "[1]#[0]" functor)]]]
    [math
     [number
@@ -66,14 +65,14 @@
      {#Boolean Boolean}
      {#Number  Number}
      {#String  String}
-     {#Array   (Stack JSON)}
+     {#Array   (List JSON)}
      {#Object  (Dictionary String JSON)})))
 
 (template.with [<name> <type>]
   [(every .public <name>
      <type>)]
 
-  [Array  (Stack JSON)]
+  [Array  (List JSON)]
   [Object (Dictionary String JSON)]
   )
 
@@ -87,10 +86,9 @@
          false)))
 
 (the .public object
-  (-> (Stack [String JSON])
+  (-> (List [String JSON])
       JSON)
-  (|>> list.of_stack
-       (dictionary.of_list text.hash)
+  (|>> (dictionary.of_list text.hash)
        {..#Object}))
 
 (every JSON'
@@ -100,7 +98,7 @@
      {#Boolean' Boolean}
      {#Number'  Number}
      {#String'  String}
-     {#Array'   (Stack JSON')}
+     {#Array'   (List JSON')}
      {#Object'  (Dictionary String JSON')}
      {#Code'    Code})))
 
@@ -113,7 +111,8 @@
           <code>.bit
           <code>.decimal
           <code>.text
-          (<code>.tuple (<>.some jsonP))
+          (<>#each list.of_stack
+                   (<code>.tuple (<>.some jsonP)))
           (<>#each (|>> list.of_stack (dictionary.of_list text.hash))
                    (<code>.variant (<>.some (<>.and <code>.text jsonP))))
           <code>.any
@@ -135,7 +134,7 @@
               [code.text ..#String' ..#String]))
         
         {#Array' members}
-        (` {..#Array (.stack (,* (stack#each jsonF members)))})
+        (` {..#Array (.list (,* (list.as_stack (list#each jsonF members))))})
 
         {#Object' pairs}
         (` {..#Object (dictionary.of_list text.hash
@@ -155,10 +154,10 @@
 
 (the .public (fields json)
   (-> JSON
-      (Try (Stack String)))
+      (Try (List String)))
   (when json
     {#Object obj}
-    {try.#Success (list.as_stack (dictionary.keys obj))}
+    {try.#Success (dictionary.keys obj)}
 
     _
     {try.#Failure "Cannot get the fields of a non-object."}))
@@ -226,16 +225,12 @@
                  [#String  text.equivalence]))
 
            [{#Array xs} {#Array ys}]
-           (.and (natural.= (stack.size xs) (stack.size ys))
-                 (stack#mix (function (_ idx prev)
-                              (<| (.and prev)
-                                  (try.else false)
-                                  (do try.monad
-                                    [x' (stack.item idx xs)
-                                     y' (stack.item idx ys)]
-                                    (in (= x' y')))))
-                            true
-                            (stack.indices (stack.size xs))))
+           (.and (natural.= (list.size xs) (list.size ys))
+                 (list#mix (function (_ [x' y'] prev)
+                             (.and prev
+                                   (= x' y')))
+                           true
+                           (list.zipped_2 xs ys)))
            
            [{#Object xs} {#Object ys}]
            (.and (natural.= (dictionary.size xs) (dictionary.size ys))
@@ -309,8 +304,7 @@
 (the (array_as_text as_text)
   (-> (text.Injection JSON)
       (text.Injection Array))
-  (|>> (stack#each as_text)
-       list.of_stack
+  (|>> (list#each as_text)
        (text.interposed ..value_delimiter)
        (text.enclosed [..array_start ..array_end])))
 
@@ -464,7 +458,7 @@
         _ (<text>.this <close>)]
        (in (|> elems <prep>))))]
 
-  [array_of  Array  ..array_start ..array_end json_of |>]
+  [array_of  Array  ..array_start ..array_end json_of list.of_stack]
   [object_of Object ..object_start ..object_end (kv_of json_of) (<| (dictionary.of_list text.hash) list.of_stack)]
   )
 
@@ -491,7 +485,7 @@
 (exception.the (cannot_project [it])
   (Exception JSON)
   (exception.report
-   (list ["JSON" (..as_text it)])))
+   (.list ["JSON" (..as_text it)])))
 
 (template.with [,name ,type ,tag]
   [(the .public ,name
@@ -521,11 +515,11 @@
    (the (as input)
      (let [high (|> input (i64.and high_mask) (i64.right_shifted 32))
            low (i64.and low_mask input)]
-       {#Array (.stack (|> high .integer integer.decimal {#Number})
-                       (|> low .integer integer.decimal {#Number}))}))
+       {#Array (.list (|> high .integer integer.decimal {#Number})
+                      (|> low .integer integer.decimal {#Number}))}))
    (the (of it)
      (when it
-       {#Array (.stack {#Number high} {#Number low})}
+       {#Array (.list {#Number high} {#Number low})}
        {try.#Success (natural.+ (|> high decimal.integer .natural (i64.left_shifted 32))
                                 (|> low decimal.integer .natural))}
 
@@ -582,14 +576,14 @@
    (the (as it)
      {#Array (when it
                {#0 it}
-               (.stack {#Boolean #0} (by left as it))
+               (.list {#Boolean #0} (by left as it))
                
                {#1 it}
-               (.stack {#Boolean #1} (by right as it)))})
+               (.list {#Boolean #1} (by right as it)))})
    (the (of it)
      (`` (when it
            (,, (template.with [,flag ,format]
-                 [{#Array (.stack {#Boolean ,flag} it)}
+                 [{#Array (.list {#Boolean ,flag} it)}
                   (try#each (|>> {,flag}) (with ,format (of it)))]
 
                  [#0 left]
@@ -605,11 +599,11 @@
         (Format JSON (And left right))))
   (implementation
    (the (as [itL itR])
-     {#Array (.stack (with left (as itL))
-                     (with right (as itR)))})
+     {#Array (.list (with left (as itL))
+                    (with right (as itR)))})
    (the (of it)
      (when it
-       {#Array (.stack itL itR)}
+       {#Array (.list itL itR)}
        (do try.monad
          [itL (with left (of itL))
           itR (with right (of itR))]
@@ -631,18 +625,18 @@
      (with (context [(|>> {#Null}) of])
        (of it)))))
 
-(the .public (stack item)
+(the .public (list item)
   (for_any (_ it)
     (-> (Format JSON it)
-        (Format JSON (Stack it))))
+        (Format JSON (List it))))
   (implementation
    (the as
-     (|>> (stack#each (with item as))
+     (|>> (list#each (with item as))
           {#Array}))
    (the (of it)
      (when it
        {#Array it}
-       (stack.each' try.monad (with item of) it)
+       (list.each' try.monad (with item of) it)
        
        _
        (exception.except ..cannot_project [it])))))
@@ -681,11 +675,11 @@
     (let [expected (natural.decimal expected)]
       (implementation
        (the (as it)
-         {#Array (.stack {#Number expected}
-                         (by format as it))})
+         {#Array (.list {#Number expected}
+                        (by format as it))})
        (the (of it)
          (when it
-           {#Array (.stack {#Number actual} case)}
+           {#Array (.list {#Number actual} case)}
            (if (decimal.= expected actual)
              (by format of case)
              (exception.except ..cannot_project [it]))
@@ -724,7 +718,7 @@
 
 (every .public (Member it)
   (-> [Natural Bit]
-      (Format (Stack JSON) it)))
+      (Format (List JSON) it)))
 
 (the .public (member format)
   (for_any (_ it)
@@ -733,12 +727,12 @@
   (function (_ [index end?])
     (implementation
      (the (as it)
-       (.stack (by format as it)))
+       (.list (by format as it)))
      (the (of it)
        (if (.or (not end?)
-                (natural.= (++ index) (stack.size it)))
+                (natural.= (++ index) (list.size it)))
          (do try.monad
-           [it (stack.item index it)]
+           [it (list.item index it)]
            (by format of it))
          (exception.except ..cannot_project [{#Array it}]))))))
 
@@ -749,7 +743,7 @@
   (function (_ [index end?])
     (implementation
      (the (as it)
-       (all stack#composite
+       (all list#composite
             (by (left [index false]) as (product.left it))
             (by (right [(++ index) true]) as (product.right it))))
      (the (of it)
