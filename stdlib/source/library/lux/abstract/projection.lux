@@ -3,25 +3,27 @@
 
 (.using
  [library
-  [lux (.except or and not only)
+  [lux (.except or and not only when)
    [abstract
     [functor (.only Functor)]
     [monad (.only Monad do)]
     [format (.only Format)]]
-   [error
+   [control
+    ["[0]" state]]
+   [error (.only error)
     ["[0]" try (.only Try)]]
    [data
     ["[0]" product]
     [collection
-     ["[0]" stack (.use "[1]#[0]" functor monoid)]]]
+     ["[0]" list (.use "[1]#[0]" functor monoid)]]]
    [macro
     ["[0]" expansion]]
-   [meta
-    ["[0]" provenance]]]])
+   [math
+    [number
+     ["n" natural]]]]])
 
 (every .public (Projection state it)
-  (-> state
-      (Try [state it])))
+  (state.With state Try it))
 
 (the .public functor
   (for_any (_ state)
@@ -29,12 +31,12 @@
   (implementation
    (the (each f ma)
      (function (_ input)
-       (when (ma input)
+       (.when (ma input)
          {try.#Success [input' a]}
          {try.#Success [input' (f a)]}
          
-         {try.#Failure msg}
-         {try.#Failure msg})))))
+         failure
+         (as_expected failure))))))
 
 (the .public monad
   (for_any (_ state)
@@ -48,12 +50,12 @@
 
    (the (conjoint mma)
      (function (_ input)
-       (when (mma input)
+       (.when (mma input)
          {try.#Success [input' ma]}
          (ma input')
 
-         {try.#Failure msg}
-         {try.#Failure msg})))))
+         failure
+         (as_expected failure))))))
 
 (the .public (assertion message test)
   (for_any (_ state)
@@ -69,7 +71,7 @@
     (-> (Projection state it)
         (Projection state (Maybe it))))
   (function (_ input)
-    (when (projection input)
+    (.when (projection input)
       {try.#Success [input' x]}
       {try.#Success [input' {.#Some x}]}
 
@@ -87,7 +89,7 @@
     (-> (Projection state it) (Projection state it)
         (Projection state it)))
   (function (_ tokens)
-    (when (this tokens)
+    (.when (this tokens)
       {try.#Failure _}
       (that tokens)
       
@@ -102,9 +104,9 @@
              (-> (Projection state left) (Projection state right)
                  (Projection state (And left right))))
            (function (_ state)
-             (when (left state)
+             (.when (left state)
                {try.#Success [state left]}
-               (when (right state)
+               (.when (right state)
                  {try.#Success [state right]}
                  {try.#Success [state [left right]]}
                  
@@ -118,12 +120,12 @@
              (-> (Projection state left) (Projection state right)
                  (Projection state (Or left right))))
            (function (_ tokens)
-             (when (left tokens)
+             (.when (left tokens)
                {try.#Success [tokens' output]}
                {try.#Success [tokens' {#0 output}]}
                
                {try.#Failure _}
-               (when (right tokens)
+               (.when (right tokens)
                  {try.#Success [tokens' output]}
                  {try.#Success [tokens' {#1 output}]}
                  
@@ -132,27 +134,20 @@
          (the .public (some it)
            (for_any (_ state it)
              (-> (Projection state it)
-                 (Projection state (Stack it))))
-           (function (_ state)
-             (loop (next [state state
-                          output (stack)])
-               (when (it state)
-                 {try.#Success [state head]}
-                 (next state (stack.partial head output))
-
-                 {try.#Failure _}
-                 {try.#Success [state (stack.reversed output)]}))))
+                 (Projection state (List it))))
+           (|>> (list.dynamic it)
+                {try.#Success}))
 
          (the .public (many projection)
            (for_any (_ state it)
              (-> (Projection state it)
-                 (Projection state (Stack it))))
+                 (Projection state (List it))))
            (function (_ state)
-             (when (projection state)
+             (.when (projection state)
                {try.#Success [state head]}
-               (when (..some projection state)
+               (.when (..some projection state)
                  {try.#Success [state tail]}
-                 {try.#Success [state {.#Top head tail}]}
+                 {try.#Success [state (list#composite (list head) tail)]}
 
                  <handle_failure!>)
 
@@ -163,9 +158,9 @@
              (-> (Projection state _) (Projection state it)
                  (Projection state it)))
            (function (_ state)
-             (when (parameter state)
+             (.when (parameter state)
                {try.#Success [state _]}
-               (when (it state)
+               (.when (it state)
                  <handle_failure!>
 
                  success
@@ -178,9 +173,9 @@
              (-> (Projection state _) (Projection state it)
                  (Projection state it)))
            (function (_ state)
-             (when (it state)
+             (.when (it state)
                {try.#Success [state it]}
-               (when (parameter state)
+               (.when (parameter state)
                  {try.#Success [state _]}
                  {try.#Success [state it]}
 
@@ -193,7 +188,7 @@
              (-> (Try it)
                  (Projection state it)))
            (function (_ input)
-             (when operation
+             (.when operation
                {try.#Success output}
                {try.#Success [input output]}
                
@@ -204,7 +199,7 @@
              (-> (Projection state it)
                  (Projection state Any)))
            (function (_ input)
-             (when (projection input)
+             (.when (projection input)
                {try.#Success [input' _]}
                {try.#Success [input' []]}
 
@@ -215,9 +210,9 @@
              (-> (Format medium it) (Projection state medium)
                  (Projection state it)))
            (function (_ input)
-             (when (projection input)
+             (.when (projection input)
                {try.#Success [input' to_decode]}
-               (when (by format of to_decode)
+               (.when (by format of to_decode)
                  {try.#Success value}
                  {try.#Success [input' value]}
 
@@ -226,80 +221,98 @@
                <handle_failure!>))))
   )
 
+(the .public (at_most amount projection)
+  (for_any (_ state it)
+    (-> Natural (Projection state it)
+        (Projection state (List it))))
+  (function (_ state)
+    (let [[[_ state] it] (list.dynamic (function (_ [amount state])
+                                         (.when amount
+                                           0 {.#None}
+                                           _ (.when (projection state)
+                                               {try.#Success [state item]}
+                                               {.#Some [[(-- amount) state] item]}
+
+                                               {try.#Failure _}
+                                               {.#None})))
+                                       [amount state])]
+      {try.#Success [state it]})))
+
+(the .public does_not_meet_condition
+  (error "Does not meet condition."))
+
+(the .public (when condition next)
+  (for_any (_ state it)
+    (-> Bit (Projection state it)
+        (Projection state it)))
+  (function (_ state)
+    (if condition
+      (next state)
+      {try.#Failure ..does_not_meet_condition})))
+
 (the .public (exactly amount projection)
   (for_any (_ state it)
     (-> Natural (Projection state it)
-        (Projection state (Stack it))))
-  (when amount
-    0 (by ..monad in (stack))
-    _ (do [! ..monad]
-        [x projection]
-        (|> projection
-            (exactly (-- amount))
-            (by ! each (|>> {.#Top x}))))))
+        (Projection state (List it))))
+  (do ..monad
+    [it (at_most amount projection)
+     ..when (n.= amount (list.size it))]
+    (in it)))
 
 (the .public (at_least amount projection)
   (for_any (_ state it)
     (-> Natural (Projection state it)
-        (Projection state (Stack it))))
+        (Projection state (List it))))
   (do [! ..monad]
     [minimum (..exactly amount projection)]
-    (by ! each (stack#composite minimum) (..some projection))))
-
-(the .public (at_most amount projection)
-  (for_any (_ state it)
-    (-> Natural (Projection state it)
-        (Projection state (Stack it))))
-  (when amount
-    0 (by ..monad in (stack))
-    _ (function (_ input)
-        (when (projection input)
-          {try.#Success [input' x]}
-          (..value (by ..monad each (|>> {.#Top x})
-                       (at_most (-- amount) projection))
-                   input')
-
-          {try.#Failure msg}
-          {try.#Success [input (stack)]}))))
+    (by ! each (list#composite minimum)
+        (..some projection))))
 
 (the .public (between minimum additional projection)
   (for_any (_ state it)
     (-> Natural Natural (Projection state it)
-        (Projection state (Stack it))))
+        (Projection state (List it))))
   (do [! ..monad]
     [minimum (..exactly minimum projection)]
-    (when additional
+    (.when additional
       0 (in minimum)
-      _ (by ! each (stack#composite minimum)
+      _ (by ! each (list#composite minimum)
             (..at_most additional projection)))))
+
+(the .public (else value projection)
+  (for_any (_ state it)
+    (-> it (Projection state it)
+        (Projection state it)))
+  (function (_ input)
+    (.when (projection input)
+      {try.#Failure error}
+      {try.#Success [input value]}
+
+      success
+      success)))
 
 (the .public (delimited_by delimiter projection)
   (for_any (_ state delimiter it)
     (-> (Projection state delimiter) (Projection state it)
-        (Projection state (Stack it))))
-  (do [! ..monad]
-    [?x (..maybe projection)]
-    (when ?x
-      {.#Some x}
-      (|> projection
-          (..and delimiter)
-          ..some
-          (by ! each (|>> (stack#each product.right) {.#Top x})))
-
-      {.#None}
-      (in {.#Empty}))))
+        (Projection state (List it))))
+  (|> projection
+      (..and delimiter)
+      ..some
+      (..and projection)
+      (by ..functor each (function (_ [head tail])
+                           (list#composite (list head)
+                                           (list#each product.right tail))))
+      (else (list))))
 
 (the .public did_not_fail
-  Error
-  (provenance.with (provenance.here)
-    "Expected to fail; yet succeeded."))
+  (error "Expected to fail; yet succeeded."))
 
 (the .public (not projection)
   (for_any (_ state it)
     (-> (Projection state it)
         (Projection state Any)))
   (function (_ input)
-    (when (projection input)
+    (.when (projection input)
       {try.#Failure msg}
       {try.#Success [input []]}
       
@@ -312,18 +325,6 @@
         (Projection state)))
   (function (_ input)
     {try.#Failure message}))
-
-(the .public (else value projection)
-  (for_any (_ state it)
-    (-> it (Projection state it)
-        (Projection state it)))
-  (function (_ input)
-    (when (projection input)
-      {try.#Failure error}
-      {try.#Success [input value]}
-
-      success
-      success)))
 
 (the .public remaining
   (for_any (_ state)
@@ -354,7 +355,7 @@
     (-> (Projection state it)
         (Projection state Bit)))
   (function (_ input)
-    (when (projection input)
+    (.when (projection input)
       {try.#Success [input' _]}
       {try.#Success [input' true]}
 
@@ -366,8 +367,8 @@
     (-> (Projection state it)
         (Projection state it)))
   (function (_ input)
-    (when (projection input)
-      {try.#Success [input' output]}
+    (.when (projection input)
+      {try.#Success [_ output]}
       {try.#Success [input output]}
 
       failure

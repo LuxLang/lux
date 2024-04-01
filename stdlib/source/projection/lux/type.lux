@@ -8,15 +8,14 @@
     [monad (.only do)]
     ["//" projection]]
    [error
-    ["[0]" try (.only Try)]
+    ["[0]" try (.only Try) (.use "[1]#[0]" functor)]
     ["[0]" exception (.only Exception)]]
    ["[0]" function]
    [data
     ["[0]" text (.only \n)
      ["%" \\injection]]
     [collection
-     ["[0]" list (.use "[1]#[0]" functor)]
-     ["[0]" stack (.use "[1]#[0]" functor)]
+     ["[0]" list (.use "[1]#[0]" functor monoid)]
      ["[0]" dictionary (.only Dictionary)]]]
    [math
     [number
@@ -76,97 +75,101 @@
 (exception.the .public empty_input)
 
 (exception.the .public (unconsumed_input remaining)
-  (Exception (Stack Type))
+  (Exception (List Type))
   (exception.report
    (list ["Types" (|> remaining
-                      list.of_stack
                       (list#each (|>> /.as_text (text \n "* ")))
                       (text.interposed ""))])))
 
 (every .public Env
   (Dictionary Natural [Type Code]))
 
-(every .public (Projection a)
-  (//.Projection [Env (Stack Type)] a))
+(every .public (Projection it)
+  (//.Projection [Env Natural (List Type)]
+                 it))
 
 (the .public fresh
   Env
   (dictionary.empty n.hash))
 
 (the (value' env poly types)
-  (for_any (_ a) (-> Env (Projection a) (Stack Type) (Try a)))
-  (when (//.value poly [env types])
-    {try.#Failure error}
-    {try.#Failure error}
-
-    {try.#Success [[env' remaining] output]}
-    (when remaining
-      {.#Empty}
+  (for_any (_ it)
+    (-> Env (Projection it) (List Type)
+        (Try it)))
+  (when (//.value poly [env 0 types])
+    {try.#Success [[env' items_read types] output]}
+    (if (n.= items_read (list.size types))
       {try.#Success output}
+      (exception.except ..unconsumed_input [types]))
 
-      _
-      (exception.except ..unconsumed_input remaining))))
+    {try.#Failure error}
+    {try.#Failure error}))
 
 (the .public (value poly type)
-  (for_any (_ a) (-> (Projection a) Type (Try a)))
-  (value' ..fresh poly (stack type)))
+  (for_any (_ it)
+    (-> (Projection it) Type
+        (Try it)))
+  (value' ..fresh poly (list type)))
 
 (the .public env
   (Projection Env)
-  (.function (_ [env inputs])
-    {try.#Success [[env inputs] env]}))
+  (.function (_ [env items_read inputs])
+    {try.#Success [[env items_read inputs] env]}))
 
 (the .public arity
   (Projection Natural)
-  (.function (_ [env inputs])
-    {try.#Success [[env inputs] (dictionary.size env)]}))
+  (.function (_ [env items_read inputs])
+    {try.#Success [[env items_read inputs] (dictionary.size env)]}))
 
 (the (with_env temp poly)
-  (for_any (_ a) (-> Env (Projection a) (Projection a)))
-  (.function (_ [env inputs])
-    (when (//.value poly [temp inputs])
-      {try.#Failure error}
-      {try.#Failure error}
+  (for_any (_ it)
+    (-> Env (Projection it)
+        (Projection it)))
+  (.function (_ [env items_read inputs])
+    (when (//.value poly [temp items_read inputs])
+      {try.#Success [[_ items_read remaining] output]}
+      {try.#Success [[env items_read remaining] output]}
 
-      {try.#Success [[_ remaining] output]}
-      {try.#Success [[env remaining] output]})))
+      {try.#Failure error}
+      {try.#Failure error})))
 
 (the .public next
   (Projection Type)
-  (.function (_ [env inputs])
-    (when inputs
-      {.#Empty}
-      (exception.except ..empty_input [])
+  (.function (_ [env items_read inputs])
+    (when (list.item items_read inputs)
+      {try.#Success item}
+      {try.#Success [[env items_read inputs] item]}
 
-      {.#Top headT tail}
-      {try.#Success [[env inputs] headT]})))
+      {try.#Failure _}
+      (exception.except ..empty_input []))))
 
 (the .public any
   (Projection Type)
-  (.function (_ [env inputs])
-    (when inputs
-      {.#Empty}
-      (exception.except ..empty_input [])
+  (.function (_ [env items_read inputs])
+    (when (list.item items_read inputs)
+      {try.#Success item}
+      {try.#Success [[env (++ items_read) inputs] item]}
 
-      {.#Top headT tail}
-      {try.#Success [[env tail] headT]})))
+      {try.#Failure _}
+      (exception.except ..empty_input []))))
 
 (the .public (local types poly)
-  (for_any (_ a) (-> (Stack Type) (Projection a) (Projection a)))
-  (.function (_ [env pass_through])
-    (when (value' env poly types)
-      {try.#Failure error}
-      {try.#Failure error}
-
-      {try.#Success output}
-      {try.#Success [[env pass_through] output]})))
+  (for_any (_ it)
+    (-> (List Type) (Projection it)
+        (Projection it)))
+  (.function (_ [env items_read pass_through])
+    (try#each (|>> [[env items_read pass_through]])
+              (value' env poly types))))
 
 (the (label idx)
-  (-> Natural Code)
+  (-> Natural
+      Code)
   (code.local (text "label" text.tab (n#as idx))))
 
 (the .public (with_extension type poly)
-  (for_any (_ a) (-> Type (Projection a) (Projection [Code a])))
+  (for_any (_ it)
+    (-> Type (Projection it)
+        (Projection [Code it])))
   (.function (_ [env inputs])
     (let [current_id (dictionary.size env)
           'var (label current_id)]
@@ -181,11 +184,13 @@
 
 (template.with [<name> <flattener> <exception>]
   [(`` (the .public (<name> poly)
-         (for_any (_ a) (-> (Projection a) (Projection a)))
+         (for_any (_ it)
+           (-> (Projection it)
+               (Projection it)))
          (do //.monad
            [headT ..any]
            (let [members (<flattener> (/.anonymous headT))]
-             (if (n.> 1 (stack.size members))
+             (if (n.> 1 (list.size members))
                (local members poly)
                (//.failure (exception.error <exception> headT)))))))]
 
@@ -203,16 +208,18 @@
       (in [num_arg bodyT]))))
 
 (the .public (polymorphic poly)
-  (for_any (_ a) (-> (Projection a) (Projection [Code (Stack Code) a])))
+  (for_any (_ it)
+    (-> (Projection it)
+        (Projection [Code (List Code) it])))
   (do [! //.monad]
     [headT any
      funcI (by ! each dictionary.size ..env)
-     [num_args non_poly] (local (stack headT) ..polymorphic')
+     [num_args non_poly] (local (list headT) ..polymorphic')
      env ..env
      .let [funcL (label funcI)
            [all_varsL env'] (loop (again [current_arg 0
                                           env' env
-                                          all_varsL (is (Stack Code) (stack))])
+                                          all_varsL (is (List Code) (list))])
                               (if (n.< num_args current_arg)
                                 (if (n.= 0 current_arg)
                                   (let [varL (label (++ funcI))]
@@ -220,47 +227,53 @@
                                            (|> env'
                                                (dictionary.has funcI [headT funcL])
                                                (dictionary.has (++ funcI) [{.#Parameter (++ funcI)} varL]))
-                                           {.#Top varL all_varsL}))
+                                           (list#composite (list varL) all_varsL)))
                                   (let [partialI (|> current_arg (n.* 2) (n.+ funcI))
                                         partial_varI (++ partialI)
                                         partial_varL (label partial_varI)
-                                        partialC (` ((, funcL) (,* (|> (stack.indices num_args)
-                                                                       (stack#each (|>> (n.* 2) ++ (n.+ funcI) label))
-                                                                       stack.reversed))))]
+                                        partialC (` ((, funcL) (,* (|> (list.indices num_args)
+                                                                       (list#each (|>> (n.* 2) ++ (n.+ funcI) label))
+                                                                       list.reversed
+                                                                       list.as_stack))))]
                                     (again (++ current_arg)
                                            (|> env'
                                                (dictionary.has partialI [(recursion_parameter) partialC])
                                                (dictionary.has partial_varI [{.#Parameter partial_varI} partial_varL]))
-                                           {.#Top partial_varL all_varsL})))
+                                           (list#composite (list partial_varL) all_varsL))))
                                 [all_varsL env']))]]
     (<| (with_env env')
-        (local (stack non_poly))
+        (local (list non_poly))
         (do !
           [output poly]
           (in [funcL all_varsL output])))))
 
 (the .public (function in_poly out_poly)
-  (for_any (_ i o) (-> (Projection i) (Projection o) (Projection [i o])))
+  (for_any (_ input output)
+    (-> (Projection input) (Projection output)
+        (Projection [input output])))
   (do //.monad
     [headT any
      .let [[inputsT outputT] (/.flat_function (/.anonymous headT))]]
-    (if (n.> 0 (stack.size inputsT))
+    (if (n.> 0 (list.size inputsT))
       (//.and (local inputsT in_poly)
-              (local (stack outputT) out_poly))
+              (local (list outputT) out_poly))
       (//.failure (exception.error ..not_function headT)))))
 
 (the .public (applied poly)
-  (for_any (_ a) (-> (Projection a) (Projection a)))
+  (for_any (_ it)
+    (-> (Projection it)
+        (Projection it)))
   (do //.monad
     [headT any
      .let [[funcT paramsT] (/.flat_application (/.anonymous headT))]]
-    (if (n.= 0 (stack.size paramsT))
+    (if (n.= 0 (list.size paramsT))
       (//.failure (exception.error ..not_application headT))
-      (..local {.#Top funcT paramsT} poly))))
+      (..local (list#composite (list funcT) paramsT) poly))))
 
 (template.with [<name> <test>]
   [(the .public (<name> expected)
-     (-> Type (Projection Any))
+     (-> Type
+         (Projection Any))
      (do //.monad
        [actual any]
        (if (<test> expected actual)
@@ -273,7 +286,8 @@
   )
 
 (the .public (argument env idx)
-  (-> Env Natural Natural)
+  (-> Env Natural
+      Natural)
   (let [env_level (n./ 2 (dictionary.size env))
         parameter_level (n./ 2 idx)
         parameter_idx (n.% 2 idx)]
@@ -297,7 +311,8 @@
       (//.failure (exception.error ..not_parameter headT)))))
 
 (the .public (this_parameter id)
-  (-> Natural (Projection Any))
+  (-> Natural
+      (Projection Any))
   (do //.monad
     [env ..env
      headT any]
@@ -333,9 +348,9 @@
       (//.failure (exception.error ..not_named inputT)))))
 
 (the .public (recursive poly)
-  (for_any (_ a)
-    (-> (Projection a)
-        (Projection [Code a])))
+  (for_any (_ it)
+    (-> (Projection it)
+        (Projection [Code it])))
   (do [! //.monad]
     [headT any]
     (when (/.anonymous headT)
@@ -344,7 +359,7 @@
         [[recT _ output] (|> poly
                              (with_extension (recursion_parameter))
                              (with_extension headT)
-                             (local (stack headT')))]
+                             (local (list headT')))]
         (in [recT output]))
 
       _
@@ -368,9 +383,9 @@
   (do [! //.monad]
     [env ..env
      [funcT argsT] (..applied (//.and any (//.many any)))
-     _ (local (stack funcT) (..this_parameter 0))
-     allC (let [allT (stack.partial funcT argsT)]
+     _ (local (list funcT) (..this_parameter 0))
+     allC (let [allT (list#composite (list funcT) argsT)]
             (|> allT
-                (stack.each' ! (function.constant ..parameter))
+                (list.each' ! (function.constant ..parameter))
                 (local allT)))]
-    (in (` ((,* allC))))))
+    (in (` ((,* (list.as_stack allC)))))))

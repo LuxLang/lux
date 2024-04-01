@@ -19,7 +19,7 @@
     ["[0]" text (.only)
      ["%" \\injection]]
     [collection
-     ["[0]" list (.use "[1]#[0]" monad mix)]
+     ["[0]" list (.use "[1]#[0]" monad mix monoid)]
      ["[0]" stack (.use "[1]#[0]" monad mix)]
      ["[0]" dictionary (.only Dictionary)]
      ["[0]" set]]]
@@ -48,22 +48,22 @@
     #extra extra]))
 
 (the declaration
-  (Projection [Text (Stack Text)])
+  (Projection [Text (List Text)])
   (all ?.either
-       (?.and ?code.local (?#in (stack)))
+       (?.and ?code.local (?#in (list)))
        (?code.form (?.and ?code.local (?.some ?code.local)))
        ))
 
 (the un_paired
   (for_any (_ value)
-    (-> (Stack [value value])
-        (Stack value)))
-  (|>> (stack#each (function (_ [left right])
-                     (stack left right)))
-       stack#conjoint))
+    (-> (List [value value])
+        (List value)))
+  (|>> (list#each (function (_ [left right])
+                    (list left right)))
+       list#conjoint))
 
 (the record
-  (Projection (Stack [Text Code]))
+  (Projection (List [Text Code]))
   (?code.tuple (?.many (?.and ?code.local ?code.any))))
 
 (the super
@@ -71,7 +71,7 @@
   ?code.any)
 
 (the definition
-  (Projection [(Maybe Code) (Stack [Text Code])])
+  (Projection [(Maybe Code) (List [Text Code])])
   (all ?.either
        (?.and (?#in {.#None}) ..record)
        (?.and (?#each maybe#in ..super) ..record)
@@ -98,32 +98,31 @@
     0))
 
 (exception.the .public (cannot_repeat_slot_names slots)
-  (Exception (Stack Text))
+  (Exception (List Text))
   (exception.report
-   (list ["Slots" (exception.listing %.text (list.of_stack slots))])))
+   (list ["Slots" (exception.listing %.text slots)])))
 
 (the (unique_slots? it)
-  (-> (Stack Text)
+  (-> (List Text)
       Bit)
   (|> it
-      list.of_stack
       (set.of_list text.hash)
       set.size
-      (n.= (stack.size it))))
+      (n.= (list.size it))))
 
 (the .public type
   (syntax.macro (_ [[export_policy [name parameters]] (export.with ..declaration)
                     [super slots] ..definition])
-    (let [slot_names (stack#each product.left slots)]
+    (let [slot_names (list#each product.left slots)]
       (if (unique_slots? slot_names)
         (do [! meta.monad]
-          [.let [parameters (stack#each code.local parameters)]
+          [.let [parameters (list#each code.local parameters)]
            name' (macro.name name)
-           slots' (stack.each' ! (function (_ [slot type])
-                                   (do !
-                                     [slot' (macro.name slot)]
-                                     (in [slot' type])))
-                               slots)
+           slots' (list.each' ! (function (_ [slot type])
+                                  (do !
+                                    [slot' (macro.name slot)]
+                                    (in [slot' type])))
+                              slots)
            :super: (when super
                      {.#Some super}
                      (do !
@@ -134,12 +133,12 @@
                      _
                      (in {.#None}))]
           (with_names ['_ '&]
-            (let [self (` (Row ((, name') (,* parameters))
+            (let [self (` (Row ((, name') (,* (list.as_stack parameters)))
                                (, '&)))]
-              (in (stack.partial (` (.every (, export_policy) ((, name') (,* parameters))
+              (in (stack.partial (` (.every (, export_policy) ((, name') (,* (list.as_stack parameters)))
                                       (Record
-                                       [(,* (un_paired slots'))])))
-                                 (` (.every (, export_policy) ((, (code.local name)) (,* parameters))
+                                       [(,* (list.as_stack (un_paired slots')))])))
+                                 (` (.every (, export_policy) ((, (code.local name)) (,* (list.as_stack parameters)))
                                       (for_some ((, '_) (, '&))
                                         (, (when super
                                              {.#Some super}
@@ -147,7 +146,8 @@
 
                                              _
                                              self)))))
-                                 (stack#each (function (_ [[row_slot _] [record_slot _]])
+                                 (list.as_stack
+                                  (list#each (function (_ [[row_slot _] [record_slot _]])
                                                (` (the (, export_policy) (, (code.local row_slot))
                                                     (..slot
                                                      (syntax.macro ((, '_) [])
@@ -158,7 +158,7 @@
                                                                                       (` (` ..#extra))))
                                                                   (` ..#content)
                                                                   (` (, record_slot)))))))))
-                                             (stack.zipped_2 slots slots'))
+                                             (list.zipped_2 slots slots')))
                                  )))))
         (meta.of_try (exception.except ..cannot_repeat_slot_names [slot_names]))))))
 
@@ -196,32 +196,32 @@
 (the .public row
   (syntax.macro (_ [slots (?code.tuple (?.many (?.and ?code.name ?code.any)))])
     (do [! meta.monad]
-      [record (stack.each' ! (function (_ [slot value])
-                               (do !
-                                 [slot (by_name slot)
-                                  path ((macro.function slot) (stack))
-                                  .let [nesting (n.- 2 (stack.size path))
-                                        slot (maybe.trusted (stack.last path))]]
-                                 (in [nesting [slot value]])))
-                           slots)
-       .let [levels (stack#mix (function (_ [nesting slot,value] levels)
-                                 (dictionary.revised' nesting
-                                                      (stack)
-                                                      (|>> (stack.partial slot,value))
-                                                      levels))
-                               (is (Dictionary Natural (Stack [Code Code]))
-                                   (dictionary.empty n.hash))
-                               record)]
-       row (stack.mix' ! (function (_ level extra)
-                           (when (dictionary.value level levels)
-                             {try.#Success record}
-                             (in (` [..#content [(,* (un_paired record))]
-                                     ..#extra (, extra)]))
-                             
-                             failure
-                             (meta.of_try (exception.except ..missing_level [level]))))
-                       (` [])
-                       (|> (dictionary.size levels)
-                           stack.indices
-                           stack.reversed))]
+      [record (list.each' ! (function (_ [slot value])
+                              (do !
+                                [slot (by_name slot)
+                                 path ((macro.function slot) (stack))
+                                 .let [nesting (n.- 2 (stack.size path))
+                                       slot (maybe.trusted (stack.last path))]]
+                                (in [nesting [slot value]])))
+                          slots)
+       .let [levels (list#mix (function (_ [nesting slot,value] levels)
+                                (dictionary.revised' nesting
+                                                     (list)
+                                                     (|>> (list#composite (list slot,value)))
+                                                     levels))
+                              (is (Dictionary Natural (List [Code Code]))
+                                  (dictionary.empty n.hash))
+                              record)]
+       row (list.mix' ! (function (_ level extra)
+                          (when (dictionary.value level levels)
+                            {try.#Success record}
+                            (in (` [..#content [(,* (list.as_stack (un_paired record)))]
+                                    ..#extra (, extra)]))
+                            
+                            failure
+                            (meta.of_try (exception.except ..missing_level [level]))))
+                      (` [])
+                      (|> (dictionary.size levels)
+                          list.indices
+                          list.reversed))]
       (in (stack row)))))

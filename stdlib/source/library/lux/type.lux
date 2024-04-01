@@ -59,36 +59,43 @@
 
 (the .public (flat_function type)
   (-> Type
-      [(Stack Type) Type])
-  (when type
-    {.#Function in out'}
-    (.let [[ins out] (flat_function out')]
-      [(stack.partial in ins) out])
+      [(List Type) Type])
+  (.let [[output inputs] (list.dynamic (.function (_ it)
+                                         (when it
+                                           {.#Function in out}
+                                           {.#Some [out in]}
 
-    _
-    [(stack) type]))
+                                           _
+                                           {.#None}))
+                                       type)]
+    [inputs output]))
 
-(the .public (flat_application type)
+(the .public (flat_application it)
   (-> Type
-      [Type (Stack Type)])
-  (when type
-    {.#Reification arg func'}
-    (.let [[func args] (flat_application func')]
-      [func (stack#composite args (stack arg))])
+      [Type (List Type)])
+  (.let [[abstraction parameters] (list.dynamic (.function (_ it)
+                                                  (when it
+                                                    {.#Reification parameter abstraction}
+                                                    {.#Some [abstraction parameter]}
 
-    _
-    [type (stack)]))
+                                                    _
+                                                    {.#None}))
+                                                it)]
+    [abstraction (list.reversed parameters)]))
 
 (with_template' [<name> <tag>]
-  [(the .public (<name> type)
+  [(the .public (<name> it)
      (-> Type
-         (Stack Type))
-     (when type
-       {<tag> left right}
-       (stack.partial left (<name> right))
+         (List Type))
+     (.let [[right lefts] (list.dynamic (.function (_ it)
+                                          (when it
+                                            {<tag> left right}
+                                            {.#Some [right left]}
 
-       _
-       (stack type)))]
+                                            _
+                                            {.#None}))
+                                        it)]
+       (list#composite lefts (list right))))]
 
   [flat_variant .#Sum]
   [flat_tuple   .#Product]
@@ -102,18 +109,19 @@
         (text "(Nominal "
               (text.enclosed' text.double_quote name)
               (|> params
-                  (stack#each (|>> (as_text' name_format) (text " ")))
-                  (stack#mix (function.flipped text#composite) ""))
+                  list.of_stack
+                  (list#each (|>> (as_text' name_format) (text " ")))
+                  (list#mix (function.flipped text#composite) ""))
               ")")
 
         (,, (with_template' [<tag> <open> <close> <flat>]
               [{<tag> _}
                (text <open>
                      (|> (<flat> type)
-                         (stack#each (as_text' name_format))
-                         stack.reversed
-                         (stack.interposed " ")
-                         (stack#mix text#composite ""))
+                         (list#each (as_text' name_format))
+                         list.reversed
+                         (list.interposed " ")
+                         (list#mix text#composite ""))
                      <close>)]
 
               [.#Sum  "(Or " ")" flat_variant]
@@ -123,10 +131,10 @@
         (.let [[ins out] (flat_function type)]
           (text  "(-> "
                  (|> ins
-                     (stack#each (as_text' name_format))
-                     stack.reversed
-                     (stack.interposed " ")
-                     (stack#mix text#composite ""))
+                     (list#each (as_text' name_format))
+                     list.reversed
+                     (list.interposed " ")
+                     (list#mix text#composite ""))
                  " " (as_text' name_format out) ")"))
 
         {.#Parameter idx}
@@ -140,7 +148,7 @@
 
         {.#Reification param fun}
         (.let [[type_func type_args] (flat_application type)]
-          (text  "(" (as_text' name_format type_func) " " (|> type_args (stack#each (as_text' name_format)) stack.reversed (stack.interposed " ") (stack#mix text#composite "")) ")"))
+          (text  "(" (as_text' name_format type_func) " " (|> type_args (list#each (as_text' name_format)) list.reversed (list.interposed " ") (list#mix text#composite "")) ")"))
 
         (,, (with_template' [<tag> <desc>]
               [{<tag> env body}
@@ -202,15 +210,15 @@
               [.#Existential]))
         
         {.#Parameter idx}
-        (try.else (halt! (text "Unknown type parameter" \n
-                               "      Index: " (n#as idx) \n
-                               "Environment: " (|> env
-                                                   list.of_stack
-                                                   list.enumeration
-                                                   (list#each (.function (_ [index type])
-                                                                (text (n#as index)
-                                                                      " " (..absolute_text type))))
-                                                   (text.interposed (text \n "             ")))))
+        (try.else (halt! (text "Unknown type parameter"
+                               \n "      Index: " (n#as idx)
+                               \n "Environment: " (|> env
+                                                      list.of_stack
+                                                      list.enumeration
+                                                      (list#each (.function (_ [index type])
+                                                                   (text (n#as index)
+                                                                         " " (..absolute_text type))))
+                                                      (text.interposed (text \n "             ")))))
                   (stack.item idx env))
         
         _
@@ -498,7 +506,7 @@
                         (..log! (, valueC) (, (code.name ..secret_marker)) (, 'value))))))))))
 
 (the type_parameters
-  (Projection (Stack Text))
+  (Projection (List Text))
   (?code.tuple (?.some ?code.local)))
 
 (the .public as
@@ -507,7 +515,7 @@
                     output ?code.any
                     value (?.maybe ?code.any)])
     (macro.with_names ['_]
-      (.let [casterC (` (is (for_any ((, '_) (,* (stack#each code.local type_vars)))
+      (.let [casterC (` (is (for_any ((, '_) (,* (list.as_stack (list#each code.local type_vars))))
                               (-> (, input) (, output)))
                             (|>> as_expected)))]
         (when value
@@ -539,7 +547,7 @@
                         exemplar (..typed lux)
                         computation (..typed lux)])
     (macro.with_names ['_]
-      (.let ['type (` (for_any ((, '_) (,* (stack#each code.local type_vars)))
+      (.let ['type (` (for_any ((, '_) (,* (list.as_stack (list#each code.local type_vars))))
                         (-> (, (its #type exemplar))
                             (, (its #type computation)))))
              'share (` (is (, 'type)
@@ -551,7 +559,7 @@
   (syntax.macro (_ lux [type_vars ..type_parameters
                         exemplar (..typed lux)
                         extraction ?code.any])
-    (in (stack (` (.type_of (..sharing [(,* (stack#each code.local type_vars))]
+    (in (stack (` (.type_of (..sharing [(,* (list.as_stack (list#each code.local type_vars)))]
                               (is (, (its #type exemplar))
                                   (, (its #term exemplar)))
                               (is (, extraction)
@@ -600,9 +608,10 @@
   (syntax.macro (_ [bindings (?code.tuple (?.some (?.and ?code.any ?code.any)))
                     bodyT ?code.any])
     (in (stack (` (expansion.let [(,* (|> bindings
-                                          (stack#each (.function (_ [localT valueT])
-                                                        (stack localT (` (.these (, valueT))))))
-                                          stack#conjoint))]
+                                          (list#each (.function (_ [localT valueT])
+                                                       (list localT (` (.these (, valueT))))))
+                                          list#conjoint
+                                          list.as_stack))]
                     (, bodyT)))))))
 
 (alias [as_text]

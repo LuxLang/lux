@@ -273,9 +273,9 @@
                                                  [[tvars alt_type] (concrete_type alt_type)
                                                   .let [[deps alt_type] (//.flat_function alt_type)]
                                                   _ (check.check dep alt_type)
-                                                  context' check.context
-                                                  =deps (stack.each' ! (provision compiler context') deps)]
-                                                 (in =deps)))
+                                                  context' check.context]
+                                                 (stack.each' ! (provision compiler context')
+                                                              (list.as_stack deps))))
                               {.#Left error}
                               (stack)
 
@@ -326,9 +326,9 @@
                                          _ (check.check alt_type sig_type)
                                          member_type (member_type member_idx alt_type)
                                          _ (ensure_function_application! member_type input_types output_type)
-                                         context' check.context
-                                         =deps (stack.each' ! (provision sig_type compiler context') deps)]
-                                        (in =deps)))
+                                         context' check.context]
+                                        (stack.each' ! (provision sig_type compiler context')
+                                                     (list.as_stack deps))))
                               {.#Left error}
                               (stack)
 
@@ -360,11 +360,11 @@
     _
     false))
 
-(the (pair_stack [l r])
+(the (pair_list [l r])
   (for_any (_ it)
     (-> [it it]
-        (Stack it)))
-  (stack l r))
+        (List it)))
+  (list l r))
 
 (the (instance$ [constructor dependencies])
   (-> Instance
@@ -384,17 +384,17 @@
       {.#Left [args _]}
       (do [! meta.monad]
         [[member_idx sig_type] (..implicit_member member)
-         input_types (stack.each' ! ..implicit_type args)
+         input_types (list.each' ! ..implicit_type args)
          output_type meta.expected_type
-         chosen_ones (alternatives sig_type member_idx input_types output_type)]
+         chosen_ones (alternatives sig_type member_idx (list.as_stack input_types) output_type)]
         (when chosen_ones
-          {.#Empty}
+          (stack)
           (meta.failure (text "No implementation could be found for member: " (name.as_text member)))
 
-          {.#Top chosen {.#Empty}}
+          (stack chosen)
           (in (stack (` (.by (, (instance$ chosen))
                              (, (code.local (product.right member)))
-                             (,* (stack#each code.name args))))))
+                             (,* (list.as_stack (list#each code.name args)))))))
 
           _
           (meta.failure (text "Too many implementations available: "
@@ -407,35 +407,37 @@
       {.#Right [args _]}
       (do [! meta.monad]
         [labels (|> (macro.name "'parameter")
-                    (stack.repeated (stack.size args))
-                    (stack.all' !))]
-        (in (stack (` (let [(,* (|> args (stack.zipped_2 labels) (stack#each ..pair_stack) stack#conjoint))]
-                        (..any (, (code.name member)) (,* labels)))))))
+                    (list.repeated (list.size args))
+                    (list.all' !))]
+        (in (stack (` (let [(,* (|> args (list.zipped_2 labels) (list#each ..pair_list) list#conjoint list.as_stack))]
+                        (..any (, (code.name member)) (,* (list.as_stack labels))))))))
       )))
 
 (the (implicit_bindings amount)
   (-> Natural
-      (Meta (Stack Code)))
+      (Meta (List Code)))
   (|> (macro.name "'implicit")
-      (stack.repeated amount)
-      (stack.all' meta.monad)))
+      (list.repeated amount)
+      (list.all' meta.monad)))
 
 (the .public with
   (syntax.macro (_ [implementations (<code>.tuple (<>.many <code>.any))
                     body <code>.any])
     (do meta.monad
-      ['implicit+ (implicit_bindings (stack.size implementations))]
-      (in (stack (` (let [(,* (|> (stack.zipped_2 'implicit+ implementations)
-                                  (stack#each (function (_ ['implicit implementation])
-                                                (stack 'implicit implementation)))
-                                  stack#conjoint))]
+      ['implicit+ (implicit_bindings (list.size implementations))]
+      (in (stack (` (let [(,* (|> (list.zipped_2 'implicit+ implementations)
+                                  (list#each (function (_ ['implicit implementation])
+                                               (list 'implicit implementation)))
+                                  list#conjoint
+                                  list.as_stack))]
                       (, body))))))))
 
 (the .public implicitly
   (syntax.macro (_ [implementations (<>.many <code>.any)])
     (do meta.monad
-      ['implicit+ (implicit_bindings (stack.size implementations))]
-      (in (|> (stack.zipped_2 'implicit+ implementations)
-              (stack#each (function (_ ['implicit implementation])
-                            (` (the .private (, 'implicit)
-                                 (, implementation))))))))))
+      ['implicit+ (implicit_bindings (list.size implementations))]
+      (in (|> (list.zipped_2 'implicit+ implementations)
+              (list#each (function (_ ['implicit implementation])
+                           (` (the .private (, 'implicit)
+                                (, implementation)))))
+              list.as_stack)))))
