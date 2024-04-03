@@ -7,7 +7,7 @@
    [abstract
     [monad (.only do)]]
    [error
-    ["[0]" try]
+    ["[0]" try (.only Try)]
     ["[0]" exception (.only Exception)]]
    [data
     ["[0]" text]
@@ -29,7 +29,7 @@
    ["/" declaration (.only Operation Phase Handler Extender)]
    ["[0]" analysis (.only)
     ["[0]" evaluation]
-    ["[1]/[0]" macro (.only Expander)]
+    ["[1]/[0]" macro (.only Old_Expander Expander)]
     ["[1]/[0]" type]]
    [///
     [reference (.only)
@@ -71,15 +71,21 @@
   (do //.monad
     [[here _] (/.of_analysis module.current)
      attempt (/.of_analysis
-              (all //.or
-                   (<| (analysis/type.expecting .Macro)
-                       (analysis archive function_term))
-                   (<| //.try
-                       (analysis/type.expecting .Declaration)
-                       (analysis archive function_term))))]
+              (is (analysis.Operation (Or analysis.Term
+                                          analysis.Term
+                                          (Try analysis.Term)))
+                  (all //.or
+                       (<| (analysis/type.expecting .Macro)
+                           (analysis archive function_term))
+                       (<| (analysis/type.expecting .Old_Macro)
+                           (analysis archive function_term))
+                       (<| //.try
+                           (analysis/type.expecting .Declaration)
+                           (analysis archive function_term)))))]
     (when attempt
-      (^.or {#0 analysis}
-            {#1 {try.#Success analysis}})
+      (^.or {0 #0 analysis}
+            {1 #0 analysis}
+            {1 #1 {try.#Success analysis}})
       (when analysis
         (analysis.constant @ definition)
         (in definition)
@@ -87,7 +93,7 @@
         _
         (//.except ..not_a_declaration [here function_term]))
 
-      {#1 {try.#Failure error}}
+      {1 #1 {try.#Failure error}}
       (if (text.contains? (its exception.#label extension.defaults_cannot_be_referenced)
                           error)
         (when function_term
@@ -99,9 +105,9 @@
         (//.except ..not_a_declaration [here function_term])))))
 
 (expansion.let [<lux_def_module> (these [|form_provenance| {.#Form (stack.partial [|text_provenance| {.#Name [..prelude "module#"]}] annotations)}])]
-  (the .public (phase wrapper extender expander)
+  (the .public (phase wrapper extender old_expander expander)
     (for_any (_ anchor expression declaration)
-      (-> //.Wrapper (Extender anchor expression declaration) Expander
+      (-> //.Wrapper (Extender anchor expression declaration) Old_Expander Expander
           (Phase anchor expression declaration)))
     (function (again archive code)
       (do [! //.monad]
@@ -126,9 +132,18 @@
                                                            (function (_ _)
                                                              {.#Some (/.of_analysis
                                                                       (do !
-                                                                        [macro (binding.macro macro|extension)
-                                                                         expansion (analysis/macro.expansion expander macro|extension macro inputs)]
-                                                                        (in {#More expansion})))}))]
+                                                                        [macro (meta.try (binding.macro macro|extension))]
+                                                                        (when macro
+                                                                          {try.#Success macro}
+                                                                          (do !
+                                                                            [expansion (analysis/macro.expansion expander macro|extension macro (list.of_stack inputs))]
+                                                                            (in {#More (list.as_stack expansion)}))
+
+                                                                          {try.#Failure _}
+                                                                          (do !
+                                                                            [macro (binding.old_macro macro|extension)
+                                                                             expansion (analysis/macro.old_expansion old_expander macro|extension macro inputs)]
+                                                                            (in {#More expansion})))))}))]
             (when expansion|requirements
               {.#Left expansion}
               (when expansion

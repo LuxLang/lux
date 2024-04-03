@@ -49,7 +49,7 @@
       [translation (.only Host)]
       ["[0]" synthesis]
       [analysis
-       [macro (.only Expander)]]
+       [macro (.only Old_Expander Expander)]]
       ["[0]" phase (.only Operation Phase) (.use "[1]#[0]" monad)
        ["[0]" extension (.only Extender Handler)
         ["[0]" analysis
@@ -364,17 +364,7 @@
                  )
      .python (these))
 
-(for .jvm (these (the (call_macro inputs lux macro)
-                   (-> (Stack Code) Lux org/python/core/PyFunction (Try (Try [Lux (Stack Code)])))
-                   (|> macro
-                       (org/python/core/PyFunction::__call__ [(ffi.array org/python/core/PyObject
-                                                                         [(..to_host inputs)
-                                                                          (..to_host lux)])])
-                       (try#each ..read)
-                       try#conjoint
-                       as_expected))
-
-                 (the python_function!
+(for .jvm (these (the python_function!
                    (-> Any (Maybe org/python/core/PyFunction))
                    (|>> (as java/lang/Object)
                         (ffi.as org/python/core/PyFunction)))
@@ -385,22 +375,61 @@
                     (list ["Object" (ffi.of_string (java/lang/Object::toString [] object))]
                           ["Class" (ffi.of_string (java/lang/Class::getName [] (java/lang/Object::getClass [] object)))])))
 
-                 (the (expander macro inputs lux)
-                   Expander
-                   (when (python_function! macro)
-                     {.#Some macro}
-                     (when (..call_macro inputs lux macro)
-                       {try.#Success output}
-                       (|> output
-                           (as org/python/core/PyObject)
-                           ..read
-                           (as (Try (Try [Lux (Stack Code)]))))
+                 (these (the (call_old_macro inputs lux macro)
+                          (-> (Stack Code) Lux org/python/core/PyFunction
+                              (Try (Try [Lux (Stack Code)])))
+                          (|> macro
+                              (org/python/core/PyFunction::__call__ [(ffi.array org/python/core/PyObject
+                                                                                [(..to_host inputs)
+                                                                                 (..to_host lux)])])
+                              (try#each ..read)
+                              try#conjoint
+                              as_expected))
 
-                       {try.#Failure error}
-                       {try.#Failure error})
+                        (the (old_expander macro inputs lux)
+                          Old_Expander
+                          (when (python_function! macro)
+                            {.#Some macro}
+                            (when (..call_old_macro inputs lux macro)
+                              {try.#Success output}
+                              (|> output
+                                  (as org/python/core/PyObject)
+                                  ..read
+                                  (as (Try (Try [Lux (Stack Code)]))))
 
-                     {.#None}
-                     (exception.except ..cannot_apply_a_non_function [(as java/lang/Object macro)]))))
+                              {try.#Failure error}
+                              {try.#Failure error})
+
+                            {.#None}
+                            (exception.except ..cannot_apply_a_non_function [(as java/lang/Object macro)]))))
+
+                 (these (the (call_macro inputs lux macro)
+                          (-> (List Code) Lux org/python/core/PyFunction
+                              (Try (Try [Lux (List Code)])))
+                          (|> macro
+                              (org/python/core/PyFunction::__call__ [(ffi.array org/python/core/PyObject
+                                                                                [(..to_host inputs)
+                                                                                 (..to_host lux)])])
+                              (try#each ..read)
+                              try#conjoint
+                              as_expected))
+
+                        (the (expander macro inputs lux)
+                          Expander
+                          (when (python_function! macro)
+                            {.#Some macro}
+                            (when (..call_macro inputs lux macro)
+                              {try.#Success output}
+                              (|> output
+                                  (as org/python/core/PyObject)
+                                  ..read
+                                  (as (Try (Try [Lux (List Code)]))))
+
+                              {try.#Failure error}
+                              {try.#Failure error})
+
+                            {.#None}
+                            (exception.except ..cannot_apply_a_non_function [(as java/lang/Object macro)])))))
 
      .python
      (the (expander macro inputs lux)
@@ -586,7 +615,7 @@
         (do future.monad
           [_ (/.compiler ..lux_compiler
                          (context.python (cli.target service))
-                         ..expander
+                         ..old_expander ..expander
                          analysis.bundle
                          ..platform
                          translation.bundle

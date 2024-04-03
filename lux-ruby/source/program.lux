@@ -44,7 +44,7 @@
       [translation (.only Host)]
       ["[0]" synthesis]
       [analysis
-       [macro (.only Expander)]]
+       [macro (.only Old_Expander Expander)]]
       ["[0]" phase (.only Operation Phase) (.use "[1]#[0]" monad)
        ["[0]" extension (.only Extender Handler)
         ["[0]" analysis
@@ -709,7 +709,7 @@
    (list ["Non-function" (ffi.of_string (java/lang/Object::toString [] object))])))
 
 (the macro!
-  (-> Macro (Maybe org/jruby/RubyProc))
+  (-> Any (Maybe org/jruby/RubyProc))
   (|>> (as java/lang/Object)
        (ffi.as org/jruby/RubyProc)))
 
@@ -718,33 +718,63 @@
   (|>> (as (Array java/lang/Object))
        ..lux_structure))
 
-(the (call_macro inputs lux macro)
-  (-> (Stack Code) Lux org/jruby/RubyProc (Try (Try [Lux (Stack Code)])))
-  (as_expected
-   (do try.monad
-     [expansion (org/jruby/RubyProc::call [(!ruby_thread_context)
-                                           (ffi.array org/jruby/runtime/builtin/IRubyObject
-                                                      [(..to_host inputs)
-                                                       (..to_host lux)])]
-                                          macro)]
-     (..read (ffi.is java/lang/Object expansion)))))
+(these (the (call_old_macro inputs lux macro)
+         (-> (Stack Code) Lux org/jruby/RubyProc
+             (Try (Try [Lux (Stack Code)])))
+         (as_expected
+          (do try.monad
+            [expansion (org/jruby/RubyProc::call [(!ruby_thread_context)
+                                                  (ffi.array org/jruby/runtime/builtin/IRubyObject
+                                                             [(..to_host inputs)
+                                                              (..to_host lux)])]
+                                                 macro)]
+            (..read (ffi.is java/lang/Object expansion)))))
 
-(the (expander macro inputs lux)
-  Expander
-  (when (macro! macro)
-    {.#Some macro}
-    (when (call_macro inputs lux macro)
-      {try.#Success output}
-      (|> output
-          (as java/lang/Object)
-          ..read
-          (as (Try (Try [Lux (Stack Code)]))))
+       (the (old_expander macro inputs lux)
+         Old_Expander
+         (when (macro! macro)
+           {.#Some macro}
+           (when (call_old_macro inputs lux macro)
+             {try.#Success output}
+             (|> output
+                 (as java/lang/Object)
+                 ..read
+                 (as (Try (Try [Lux (Stack Code)]))))
 
-      {try.#Failure error}
-      {try.#Failure error})
+             {try.#Failure error}
+             {try.#Failure error})
 
-    {.#None}
-    (exception.except ..cannot_apply_a_non_function [(as java/lang/Object macro)])))
+           {.#None}
+           (exception.except ..cannot_apply_a_non_function [(as java/lang/Object macro)]))))
+
+(these (the (call_macro inputs lux macro)
+         (-> (List Code) Lux org/jruby/RubyProc
+             (Try (Try [Lux (List Code)])))
+         (as_expected
+          (do try.monad
+            [expansion (org/jruby/RubyProc::call [(!ruby_thread_context)
+                                                  (ffi.array org/jruby/runtime/builtin/IRubyObject
+                                                             [(..to_host inputs)
+                                                              (..to_host lux)])]
+                                                 macro)]
+            (..read (ffi.is java/lang/Object expansion)))))
+
+       (the (expander macro inputs lux)
+         Expander
+         (when (macro! macro)
+           {.#Some macro}
+           (when (call_macro inputs lux macro)
+             {try.#Success output}
+             (|> output
+                 (as java/lang/Object)
+                 ..read
+                 (as (Try (Try [Lux (List Code)]))))
+
+             {try.#Failure error}
+             {try.#Failure error})
+
+           {.#None}
+           (exception.except ..cannot_apply_a_non_function [(as java/lang/Object macro)]))))
 
 (the host
   (IO (Host _.Expression _.Statement))
@@ -1002,7 +1032,7 @@
       (do future.monad
         [_ (/.compiler ..lux_compiler
                        (context.ruby (cli.target service))
-                       ..expander
+                       ..old_expander ..expander
                        analysis.bundle
                        ..platform
                        translation.bundle

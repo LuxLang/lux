@@ -38,7 +38,7 @@
    ["[0]" extension]
    [//
     ["/" analysis (.only Operation Phase Handler Extender)
-     ["[1][0]" macro (.only Expander)]
+     ["[1][0]" macro (.only Old_Expander Expander)]
      ["[1][0]" type]]
     [///
      ["[0]" reference]
@@ -74,6 +74,7 @@
 
 (every Abstraction
   (Variant
+   {#Old_Macro Name Old_Macro}
    {#Macro Name Macro}
    {#Extension Name}
    {#Function Type /.Term}))
@@ -84,6 +85,21 @@
   (do //.monad
     [[here _] module.current]
     (//.except ..invalid [here term])))
+
+(the (old_macro_abstraction analysis archive term)
+  (-> Phase Archive Code
+      (Operation Abstraction))
+  (do [! //.monad]
+    [it (<| (/type.expecting .Old_Macro)
+            (analysis archive term))]
+    (when it
+      (/.constant @ name)
+      (do [! //.monad]
+        [it (binding.old_macro name)]
+        (in {#Old_Macro name it}))
+
+      _
+      (..not_an_abstraction term))))
 
 (the (macro_abstraction analysis archive term)
   (-> Phase Archive Code
@@ -141,6 +157,7 @@
   (-> Phase Archive Code
       (Operation Abstraction))
   (all //.either
+       (old_macro_abstraction analysis archive term)
        (macro_abstraction analysis archive term)
        (extension_abstraction analysis archive term)
        (function_abstraction analysis archive term)
@@ -148,17 +165,22 @@
 
 ... TODO: Replace with an inline function.
 (the reification
-  (template.macro (_ extender expander analysis archive 'abstraction argsC+)
-    ... (-> Extender Expander Phase Archive Code (Stack Code) (Operation /.Term))
+  (template.macro (_ extender old_expander expander analysis archive 'abstraction argsC+)
+    ... (-> Extender Old_Expander Expander Phase Archive Code (Stack Code) (Operation /.Term))
     [(do [! //.monad]
        [abstraction (abstraction analysis archive 'abstraction)]
        (when abstraction
          {#Function type abstraction}
          (/function.reification analysis argsC+ type abstraction archive 'abstraction)
 
+         {#Old_Macro name macro}
+         (do !
+           [expansion (/macro.old_single_expansion old_expander name macro argsC+)]
+           (analysis archive expansion))
+
          {#Macro name macro}
          (do !
-           [expansion (/macro.single_expansion expander name macro argsC+)]
+           [expansion (/macro.single_expansion expander name macro (list.of_stack argsC+))]
            (analysis archive expansion))
          
          {#Extension abstraction}
@@ -170,8 +192,8 @@
                                   (|>>)
                                   (function (_ _) {.#None})))))]))
 
-(the .public (phase extender expander)
-  (-> Extender Expander
+(the .public (phase extender old_expander expander)
+  (-> Extender Old_Expander Expander
       Phase)
   (function (analysis archive code)
     (<| (let [[@ code'] code])
@@ -192,7 +214,7 @@
               (/reference.reference extender analysis archive quoted_module it)
 
               (^.` ((^., functionC) (^.,* argsC+)))
-              (..reification extender expander analysis archive functionC argsC+)
+              (..reification extender old_expander expander analysis archive functionC argsC+)
 
               (^.` {(^., [_ {.#Name tag}]) (^.,* values)})
               (..variant_analysis analysis archive tag values)

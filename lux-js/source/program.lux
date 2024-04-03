@@ -47,7 +47,7 @@
       [program (.only Program)]
       [translation (.only Host)]
       [analysis
-       [macro (.only Expander)]]
+       [macro (.only Old_Expander Expander)]]
       ["[0]" phase (.only Operation Phase)
        ["[0]" extension (.only Extender Handler)
         ["[0]" analysis
@@ -477,11 +477,24 @@
      (these))
 
 (for .jvm
-     (these (the (call_macro inputs lux macro)
-              (-> (Stack Code) Lux org/openjdk/nashorn/api/scripting/JSObject (Try (Try [Lux (Stack Code)])))
+     (these (the (call_old_macro inputs lux macro)
+              (-> (Stack Code) Lux org/openjdk/nashorn/api/scripting/JSObject
+                  (Try (Try [Lux (Stack Code)])))
               (let [to_js (is (-> Any java/lang/Object)
                               (|>> (as (Array java/lang/Object)) js_structure (as java/lang/Object)))]
                 (<| (as (Try (Try [Lux (Stack Code)])))
+                    (org/openjdk/nashorn/api/scripting/JSObject::call [{.#None}
+                                                                       (ffi.array java/lang/Object
+                                                                                  [(to_js inputs)
+                                                                                   (to_js lux)])]
+                                                                      macro))))
+
+            (the (call_macro inputs lux macro)
+              (-> (List Code) Lux org/openjdk/nashorn/api/scripting/JSObject
+                  (Try (Try [Lux (List Code)])))
+              (let [to_js (is (-> Any java/lang/Object)
+                              (|>> (as (Array java/lang/Object)) js_structure (as java/lang/Object)))]
+                (<| (as (Try (Try [Lux (List Code)])))
                     (org/openjdk/nashorn/api/scripting/JSObject::call [{.#None}
                                                                        (ffi.array java/lang/Object
                                                                                   [(to_js inputs)
@@ -493,11 +506,11 @@
               (exception.report
                (list ["Object" (ffi.of_string (java/lang/Object::toString [] object))])))
 
-            (the (expander macro inputs lux)
-              Expander
+            (the (old_expander macro inputs lux)
+              Old_Expander
               (when (..ensure_function macro)
                 {.#Some macro}
-                (when (call_macro inputs lux macro)
+                (when (call_old_macro inputs lux macro)
                   {try.#Success output}
                   (|> output
                       (as java/lang/Object)
@@ -509,12 +522,29 @@
                 
                 {.#None}
                 (exception.except ..cannot_apply_a_non_function (as java/lang/Object macro))))
+
+            (the (expander macro inputs lux)
+              Expander
+              (when (..ensure_function macro)
+                {.#Some macro}
+                (when (call_macro inputs lux macro)
+                  {try.#Success output}
+                  (|> output
+                      (as java/lang/Object)
+                      lux_object
+                      (as (Try (Try [Lux (List Code)]))))
+
+                  {try.#Failure error}
+                  {try.#Failure error})
+                
+                {.#None}
+                (exception.except ..cannot_apply_a_non_function (as java/lang/Object macro))))
             )
 
      .js
      (the (expander macro inputs lux)
        Expander
-       {try.#Success ((as Macro' macro) inputs lux)})
+       {try.#Success ((as Old_Macro' macro) inputs lux)})
      )
 
 (for .jvm
@@ -737,7 +767,7 @@
           [platform (future.soon ..platform)
            _ (/.compiler ..lux_compiler
                          context
-                         ..expander
+                         ..old_expander ..expander
                          analysis.bundle
                          (io.io platform)
                          translation.bundle
