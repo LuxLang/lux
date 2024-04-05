@@ -6,8 +6,19 @@
   [lux (.except)
    [abstract
     [monad (.only do)]]
+   [error
+    ["[0]" try]]
+   [data
+    ["[0]" bit]
+    ["[0]" product]
+    ["[0]" text (.only)
+     ["%" \\injection]]
+    [collection
+     ["[0]" set]]]
    [math
-    ["[0]" random]]
+    ["[0]" random (.only Random)]
+    [number
+     ["n" natural]]]
    [test
     ["_" property (.only Test)]]]]
  [\\library
@@ -17,8 +28,104 @@
   Test
   (<| (_.covering /._)
       (do [! random.monad]
-        [])
+        [expected_size (by ! each (n.% 10) random.natural)
+         .let [within_range (by ! each (n.% (++ expected_size)) random.natural)]
+         cut_off within_range
+         size_of_complete_segment within_range
+         .let [random_list (is (Random (List Natural))
+                               (|> random.natural
+                                   (random.set n.hash expected_size)
+                                   (by ! each set.as_list)))
+               /#= (by (/.equivalence n.equivalence) =)]
+         expected_list random_list
+         alternative_list (random.only (|>> (/#= expected_list) not)
+                                       random_list)
+         expected_value (random.only (/.member? n.= expected_list)
+                                     random.natural)])
       (all _.and
-           (_.coverage []
-             false)
+           (_.coverage [/.size]
+             (n.= expected_size
+                  (/.size expected_list)))
+           (_.coverage [/.empty?]
+             (bit.= (n.= 0 (/.size expected_list))
+                    (/.empty? expected_list)))
+           (_.coverage [/.empty]
+             (/.empty? /.empty))
+           (_.coverage [/.reversed]
+             (and (|> expected_list
+                      /.reversed
+                      /.reversed
+                      (/#= expected_list))
+                  (bit.= (n.< 2 (/.size expected_list))
+                         (by (/.equivalence n.equivalence) =
+                             expected_list
+                             (/.reversed expected_list)))))
+           (_.coverage [/.first /.after /.split_at]
+             (let [before (/.first cut_off expected_list)
+                   after (/.after cut_off expected_list)
+                   [before' after'] (/.split_at cut_off expected_list)]
+               (and (n.= cut_off (/.size before))
+                    (n.= (n.- cut_off expected_size) (/.size after))
+                    (/#= expected_list (by /.monoid composite before after))
+                    (/#= before before')
+                    (/#= after after'))))
+           (_.coverage [/.as_stack /.of_stack]
+             (|> expected_list
+                 /.as_stack
+                 /.of_stack
+                 (/#= expected_list)))
+           (_.coverage [/.repeated /.every?]
+             (let [it (/.repeated expected_size expected_value)]
+               (and (n.= expected_size (/.size it))
+                    (/.every? (same? expected_value) it))))
+           (_.coverage [/.interposed /.any? /.member? /.only]
+             (let [it (/.interposed expected_value expected_list)
+                   expected_additions (when expected_size
+                                        0 0
+                                        _ (-- expected_size))]
+               (and (n.= (n.+ expected_additions expected_size)
+                         (/.size it))
+                    (and (/.any? (n.= expected_value) it)
+                         (/.member? n.= it expected_value))
+                    (/#= expected_list (/.only (|>> (n.= expected_value) not) it))
+                    (/#= (/.repeated expected_additions expected_value)
+                         (/.only (n.= expected_value) it)))))
+           (_.coverage [/.item /.dynamic]
+             (let [[actual_size copy] (/.dynamic (function (_ index)
+                                                   (do try.monad
+                                                     [it (/.item index expected_list)]
+                                                     (in [(++ index) it])))
+                                                 0)]
+               (and (n.= expected_size actual_size)
+                    (/#= expected_list copy))))
+           (_.coverage [/.indices /.static]
+             (let [[actual_size expected_indices] (/.static expected_size
+                                                            (function (_ index)
+                                                              [(++ index) index])
+                                                            0)]
+               (and (n.= expected_size actual_size)
+                    (/#= expected_indices
+                         (/.indices expected_size)))))
+           (_.coverage [/.enumeration]
+             (let [it (/.enumeration expected_list)]
+               (and (/#= (/.indices expected_size)
+                         (by /.functor each product.left it))
+                    (/#= expected_list
+                         (by /.functor each product.right it)))))
+           (_.coverage [/.zipped_2]
+             (by (/.equivalence (product.equivalence n.equivalence n.equivalence)) =
+                 (/.zipped_2 (/.indices expected_size) expected_list)
+                 (/.enumeration expected_list)))
+           (_.coverage [/.as_text]
+             (bit.= (/#= expected_list
+                         alternative_list)
+                    (text.= (/.as_text %.natural expected_list)
+                            (/.as_text %.natural alternative_list))))
+           (_.coverage [/.sub]
+             (let [it (/.sub size_of_complete_segment expected_list)]
+               (when size_of_complete_segment
+                 0 (by (/.equivalence /#=) = /.empty it)
+                 _ (and (/.every? (|>> /.size (n.<= size_of_complete_segment))
+                                  it)
+                        (/#= expected_list (by /.monad conjoint it))))))
            )))

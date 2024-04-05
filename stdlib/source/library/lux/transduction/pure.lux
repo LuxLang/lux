@@ -4,6 +4,9 @@
 (.using
  [library
   [lux (.except only and)
+   [abstract
+    [functor (.only Functor)]
+    [monoid (.only Monoid)]]
    ["[0]" function (.only)
     [predicate (.only Predicate)]
     [polytypism
@@ -12,12 +15,32 @@
     ["[0]" try]]
    [data
     [collection
-     ["[0]" dictionary (.only Dictionary)]]]]]
+     ["[0]" list (.use "[1]#[0]" functor)]
+     ["[0]" array
+      ["[1]" \\unsafe]]
+     ["[0]" dictionary (.only Dictionary)]]]
+   [concurrency
+    ["[0]" future (.only Future) (.use "[1]#[0]" monad)]]
+   [math
+    [number
+     ["n" natural]
+     ["[0]" i64]]]
+   [control
+    [io (.only io)]]]]
  ["[0]" //])
 
 (every .public (Transduction to_consume to_produce whole)
   (//.Transduction to_consume to_produce
                    whole whole))
+
+(the .public functor
+  (for_any (_ to_consume)
+    (Functor (Transduction to_consume)))
+  (implementation
+   (the (each value it)
+     (function (_ reduction)
+       (it (function (_ piece whole)
+             (reduction (value piece) whole)))))))
 
 (the .public nothing
   (for_any (_ it)
@@ -34,32 +57,31 @@
   (for_any (_ to_consume to_produce)
     (-> (-> to_consume to_produce)
         (Transduction to_consume to_produce)))
-  (function (_ mix part whole)
-    (mix (it part) whole)))
+  (by ..functor each it ..nothing))
 
 (the .public (only ?)
   (for_any (_ it)
     (-> (Predicate it)
         (Transduction it it)))
-  (function (_ mix part whole)
-    (if (? part)
-      (mix part whole)
+  (function (_ reduction piece whole)
+    (if (? piece)
+      (reduction piece whole)
       whole)))
 
-(the .public (many collection::mix)
+(the .public (many mix)
   (for_any (_ collection it)
     (-> (Mix collection)
         (Transduction (collection it) it)))
-  (function (_ mix part whole)
-    (collection::mix mix whole part)))
+  (function (_ reduction piece whole)
+    (mix reduction whole piece)))
 
 (the .public maybe
   (for_any (_ it)
     (Transduction (Maybe it) it))
-  (function (_ mix part whole)
-    (when part
-      {.#Some part}
-      (mix part whole)
+  (function (_ reduction piece whole)
+    (when piece
+      {.#Some piece}
+      (reduction piece whole)
       
       {.#None}
       whole)))
@@ -68,18 +90,51 @@
   (for_any (_ it)
     (-> (Dictionary it it)
         (Transduction it it)))
-  (function (_ mix part whole)
-    (mix (|> replacements
-             (dictionary.value part)
-             (try.else part))
-         whole)))
+  (function (_ reduction piece whole)
+    (reduction (|> replacements
+                   (dictionary.value piece)
+                   (try.else piece))
+               whole)))
 
-(the .public (in_series mix initial
+(the .public (in_series reduction initial
                         transduction
-                        collection::mix collection)
+                        mix collection)
   (for_any (_ collection to_consume to_mix whole)
-    (-> (//.Reduction to_mix whole) whole
+    (-> (//.Reduction whole to_mix) whole
         (Transduction to_consume to_mix)
         (Mix collection) (collection to_consume)
         whole))
-  (collection::mix (transduction mix) initial collection))
+  (mix (transduction reduction) initial collection))
+
+(every .public Parallelism
+  Natural)
+
+(the .public none
+  Parallelism
+  0)
+
+(the .public suggestion
+  Parallelism
+  ... 2^9 = 512
+  (i64.left_shifted 9 1))
+
+(the .public (in_parallel parallelism monoid
+                          transduction
+                          it)
+  (for_any (_ to_consume whole)
+    (-> Parallelism (Monoid whole)
+        (Transduction to_consume whole)
+        (List to_consume)
+        (Future whole)))
+  (with monoid
+    (let [in_series (in_series composite identity transduction list.mix)]
+      (when parallelism
+        ..none
+        (future#in (in_series it))
+        
+        _
+        (|> it
+            (list.sub parallelism)
+            (list#each (|>> in_series io future.soon))
+            (list.all' future.monad)
+            (future#each (list.mix composite identity)))))))
