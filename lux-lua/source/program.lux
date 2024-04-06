@@ -48,7 +48,7 @@
       [program (.only Program)]
       [translation (.only Host)]
       [analysis
-       [macro (.only Old_Expander Expander)]]
+       [macro (.only Expander)]]
       ["[0]" phase (.only Operation Phase)
        ["[0]" extension (.only Extender Handler)
         ["[0]" analysis
@@ -458,72 +458,41 @@
                    [net/sandius/rembulan/StateContext
                     net/sandius/rembulan/exec/DirectCallExecutor])
 
-                 (these (the (call_old_macro to_host [state_context executor] inputs lux macro)
-                          (-> (-> Any java/lang/Object) Baggage (Stack Code) Lux net/sandius/rembulan/runtime/LuaFunction
-                              (Try Any))
-                          (do try.monad
-                            [.let [inputs (ffi.array java/lang/Object
-                                                     [(as java/lang/Object (lux_structure to_host (as (Array java/lang/Object) inputs)))
-                                                      (as java/lang/Object (lux_structure to_host (as (Array java/lang/Object) lux)))])]
-                             output (net/sandius/rembulan/exec/DirectCallExecutor::call [state_context (as java/lang/Object macro) inputs] executor)]
-                            (|> output
-                                (array.item 0)
-                                try.trusted
-                                (as java/lang/Object)
-                                ..read)))
+                 (the (call_macro to_host [state_context executor] inputs lux macro)
+                   (-> (-> Any java/lang/Object) Baggage (List Code) Lux net/sandius/rembulan/runtime/LuaFunction
+                       (Try Any))
+                   (do try.monad
+                     [.let [inputs (ffi.array java/lang/Object
+                                              [(as java/lang/Object (lux_structure to_host (as (Array java/lang/Object) inputs)))
+                                               (as java/lang/Object (lux_structure to_host (as (Array java/lang/Object) lux)))])]
+                      output (net/sandius/rembulan/exec/DirectCallExecutor::call [state_context (as java/lang/Object macro) inputs] executor)]
+                     (|> output
+                         (array.item 0)
+                         try.trusted
+                         (as java/lang/Object)
+                         ..read)))
 
-                        (the (old_expander to_host baggage macro inputs lux)
-                          (-> (-> Any java/lang/Object) Baggage
-                              Old_Expander)
-                          (when (..ensure_function macro)
-                            {.#Some macro}
-                            (when (..call_old_macro to_host baggage inputs lux macro)
-                              {try.#Success output}
-                              (|> output
-                                  (as (Try [Lux (Stack Code)]))
-                                  {try.#Success})
+                 (the (expander to_host baggage macro inputs lux)
+                   (-> (-> Any java/lang/Object) Baggage
+                       Expander)
+                   (when (..ensure_function macro)
+                     {.#Some macro}
+                     (when (..call_macro to_host baggage inputs lux macro)
+                       {try.#Success output}
+                       (|> output
+                           (as (Try [Lux (List Code)]))
+                           {try.#Success})
 
-                              {try.#Failure error}
-                              {try.#Failure error})
+                       {try.#Failure error}
+                       {try.#Failure error})
 
-                            {.#None}
-                            (exception.except ..cannot_apply_a_non_function (as java/lang/Object macro)))))
-
-                 (these (the (call_macro to_host [state_context executor] inputs lux macro)
-                          (-> (-> Any java/lang/Object) Baggage (List Code) Lux net/sandius/rembulan/runtime/LuaFunction
-                              (Try Any))
-                          (do try.monad
-                            [.let [inputs (ffi.array java/lang/Object
-                                                     [(as java/lang/Object (lux_structure to_host (as (Array java/lang/Object) inputs)))
-                                                      (as java/lang/Object (lux_structure to_host (as (Array java/lang/Object) lux)))])]
-                             output (net/sandius/rembulan/exec/DirectCallExecutor::call [state_context (as java/lang/Object macro) inputs] executor)]
-                            (|> output
-                                (array.item 0)
-                                try.trusted
-                                (as java/lang/Object)
-                                ..read)))
-
-                        (the (expander to_host baggage macro inputs lux)
-                          (-> (-> Any java/lang/Object) Baggage
-                              Expander)
-                          (when (..ensure_function macro)
-                            {.#Some macro}
-                            (when (..call_macro to_host baggage inputs lux macro)
-                              {try.#Success output}
-                              (|> output
-                                  (as (Try [Lux (List Code)]))
-                                  {try.#Success})
-
-                              {try.#Failure error}
-                              {try.#Failure error})
-
-                            {.#None}
-                            (exception.except ..cannot_apply_a_non_function (as java/lang/Object macro))))))
+                     {.#None}
+                     (exception.except ..cannot_apply_a_non_function (as java/lang/Object macro)))))
 
      .lua
      (the (expander macro inputs lux)
        Expander
-       {try.#Success ((as Old_Macro' macro) inputs lux)}))
+       {try.#Success ((as Macro' macro) inputs lux)}))
 
 (for .jvm (these (expansion.let [$var_args (_.var "...")
                                  $str_rel_to_abs (_.var "_utf8_str_rel_to_abs")
@@ -903,32 +872,31 @@
   (-> Any platform.Custom)
   (undefined))
 
-(`` (`` (the _
-          (program [service cli.service]
-            (let [context (context.lua (cli.target service))]
-              (do io.monad
-                [(,, (for .jvm [baggage platform]
-                          .lua platform))
-                 ..platform]
-                (exec (do future.monad
-                        [_ (/.compiler ..lux_compiler
-                                       context
-                                       (,, (for .jvm (,, (these (..old_expander ..to_host baggage)
-                                                                (..expander ..to_host baggage)))
-                                                .lua ..expander))
-                                       analysis.bundle
-                                       (io.io platform)
-                                       translation.bundle
-                                       extension.empty
-                                       ..lux_program
-                                       (reference.constant lua/reference.system)
-                                       (for .jvm (..extender baggage)
-                                            .lua ..extender)
-                                       service
-                                       [(packager.package (_.manual "")
-                                                          _.code
-                                                          _.then
-                                                          (|>>))
-                                        (text "program" (its context.#artifact_extension context))])]
-                        (..declare_success! []))
-                  (io.io []))))))))
+(`` (the _
+      (program [service cli.service]
+        (let [context (context.lua (cli.target service))]
+          (do io.monad
+            [(,, (for .jvm [baggage platform]
+                      .lua platform))
+             ..platform]
+            (exec (do future.monad
+                    [_ (/.compiler ..lux_compiler
+                                   context
+                                   (for .jvm (..expander ..to_host baggage)
+                                        .lua ..expander)
+                                   analysis.bundle
+                                   (io.io platform)
+                                   translation.bundle
+                                   extension.empty
+                                   ..lux_program
+                                   (reference.constant lua/reference.system)
+                                   (for .jvm (..extender baggage)
+                                        .lua ..extender)
+                                   service
+                                   [(packager.package (_.manual "")
+                                                      _.code
+                                                      _.then
+                                                      (|>>))
+                                    (text "program" (its context.#artifact_extension context))])]
+                    (..declare_success! []))
+              (io.io [])))))))
