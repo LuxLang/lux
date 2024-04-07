@@ -1982,14 +1982,6 @@
                     {#None}
                     {#Left (.text_composite# "Unknown module: " module " @ " (name#as full_name))})))
 
-(def' .private (|Stack<Code>| expression)
-      (-> Code
-          Code)
-      (let' [type (as_variant (stack (as_name [..prelude "#Reification"])
-                                     (as_name [..prelude "Code"])
-                                     (as_name [..prelude "Stack"])))]
-            (as_form (stack (as_name [..prelude "is#"]) type expression))))
-
 (def' .private (untemplated_text value)
       (-> Text
           Code)
@@ -2498,22 +2490,6 @@
 
 (def' .public verbatim UnQuote ,')
 
-(def' .public ,*
-      Spliced_UnQuote
-      (let' ['stack#composite (as_form (stack (as_name [..prelude "in_module#"])
-                                              (as_text ..prelude)
-                                              (as_name [..prelude "stack#composite"])))]
-            (..spliced_unquote
-             (macro (_ tokens)
-               (.when# tokens
-                       (.list# tail it)
-                       (meta#in (list (as_form (stack 'stack#composite (|Stack<Code>| it) tail))))
-
-                       _
-                       (failure ..wrong_syntax))))))
-
-(def' .public also Spliced_UnQuote ,*)
-
 (def' .public |>
       Macro
       (macro (_ tokens)
@@ -2563,6 +2539,31 @@
 
                 _
                 (failure ..wrong_syntax))))
+
+(def' .private |Stack<Code>|
+      (-> Code
+          Code)
+      (function' [it]
+                 (` (..is# {..#Reification ..Code ..Stack}
+                           ((..in_module# (, (as_text ..prelude)) ..list#as_stack)
+                            (, it))))))
+
+(def' .public ,*
+      Spliced_UnQuote
+      (let' ['stack#composite (` (..in_module# (, (as_text ..prelude))
+                                               ..stack#composite))]
+            (..spliced_unquote
+             (macro (_ tokens)
+               (.when# tokens
+                       (.list# tail it)
+                       (meta#in (list (` ((, 'stack#composite)
+                                          (, (|Stack<Code>| it))
+                                          (, tail)))))
+
+                       _
+                       (failure ..wrong_syntax))))))
+
+(def' .public also Spliced_UnQuote ,*)
 
 (def' .private meta#failure
       Macro
@@ -3063,12 +3064,12 @@
               [_ {#Variant {#Top [_ {#Name name}] parts}}]
               (<| (function' [lux])
                   (meta#let lux [parts (monad#each#meta (normal_type type') parts)])
-                  (meta#return lux (` {(, (as_name name)) (,* parts)})))
+                  (meta#return lux (` {(, (as_name name)) (,* (list#of_stack parts))})))
 
               [_ {#Tuple members}]
               (<| (function' [lux])
                   (meta#let lux [members (monad#each#meta (normal_type type') members)])
-                  (meta#return lux (` (Tuple (,* members)))))
+                  (meta#return lux (` (Tuple (,* (list#of_stack members))))))
 
               [_ {#Form {#Top [_ {#Name ["library/lux" "in_module#"]}]
                               {#Top [_ {#Text module}]
@@ -3577,7 +3578,7 @@
                 {#Top value branches}
                 (do meta#monad
                   [expansion (when_expansion (list#of_stack branches))]
-                  (in (list (` (.when# (, value) (,* (list#as_stack expansion)))))))
+                  (in (list (` (.when# (, value) (,* expansion))))))
 
                 _
                 (failure ..wrong_syntax))))
@@ -3958,7 +3959,7 @@
                        body
 
                        _
-                       (` (function ((, (..as_local name)) (,* parameters))
+                       (` (function ((, (..as_local name)) (,* (list#of_stack parameters)))
                             (, body))))
                 body (when ?type
                        {#Some type}
@@ -4395,7 +4396,7 @@
     {#Some [tokens' [niladic (` .Any)]]}
 
     (stack#partial [_ {#Variant (stack#partial [_ {#Name ["" polyadic]}] whenT)}] tokens')
-    {#Some [tokens' [polyadic (` (..Tuple (,* whenT)))]]}
+    {#Some [tokens' [polyadic (` (..Tuple (,* (list#of_stack whenT))))]]}
 
     _
     {#None}))
@@ -4404,7 +4405,7 @@
   (macro (_ tokens)
     (when (everyP whenP (list#as_stack tokens))
       {#Some whens}
-      (meta#in (list (` (..Union (,* (stack#each product#right whens))))
+      (meta#in (list (` (..Union (,* (list#of_stack (stack#each product#right whens)))))
                      (as_variant (stack#each (function (_ when)
                                                (as_text (product#left when)))
                                              whens))))
@@ -4428,7 +4429,7 @@
       (list [_ {#Tuple record}])
       (when (everyP slotP record)
         {#Some slots}
-        (meta#in (list (` (..Tuple (,* (stack#each product#right slots))))
+        (meta#in (list (` (..Tuple (,* (list#of_stack (stack#each product#right slots)))))
                        (as_tuple (stack#each (function (_ slot)
                                                (as_text (product#left slot)))
                                              slots))))
@@ -4529,9 +4530,9 @@
     (stack#partial
      (` (the (, family)
           (Stack Name)
-          (stack (,* (stack#each (function (_ it)
-                                   (` [(, (as_text module)) (, (as_text it))]))
-                                 labels)))))
+          (stack (,* (list#of_stack (stack#each (function (_ it)
+                                                  (` [(, (as_text module)) (, (as_text it))]))
+                                                labels))))))
      (` (the (, export_policy) (, (as_local right))
           (<| (as (, label_type))
               (is Label)
@@ -4563,7 +4564,7 @@
                          {#Some it}
 
                          _
-                         {#Some (` (.for_any ((, type_name) (,* (stack#each as_local args)))
+                         {#Some (` (.for_any ((, type_name) (,* (list#of_stack (stack#each as_local args))))
                                      (, it)))}))]]
         (when it'
           {#Some it''}
@@ -4923,7 +4924,7 @@
        'arg (..generated_name "arg")]
       (meta#in (list (` (function ((, '_) (, 'arg))
                           (|> (, 'arg)
-                              (,* (list#as_stack tokens))))))))))
+                              (,* tokens)))))))))
 
 (the .public <<|
   (macro (_ tokens)
@@ -4931,7 +4932,7 @@
       ['_ (..generated_name "_")
        'arg (..generated_name "arg")]
       (meta#in (list (` (function ((, '_) (, 'arg))
-                          (<| (,* (list#as_stack tokens))
+                          (<| (,* tokens)
                               (, 'arg)))))))))
 
 (the .public except
@@ -5244,7 +5245,7 @@
                                                           'output
                                                           '_)))))
                                stack#conjoint)]]
-            (in (list (` (..when (, record) [(,* pattern)] (, 'output))))))))
+            (in (list (` (..when (, record) [(,* (list#of_stack pattern))] (, 'output))))))))
 
       (list [_ {#Tuple slots}] record)
       (meta#in (list (stack#mix (is (-> Code Code Code)
@@ -5372,7 +5373,7 @@
                               (, (as_text imported_module))
                               (, (as_text import_alias))
                               (, (as_text alias))
-                              (,* implementations)))}
+                              (,* (list#of_stack implementations))))}
                     stack#reversed
                     list#of_stack)))))
       
@@ -5424,7 +5425,7 @@
                                              (, (as_text current_module))
                                              (, (as_text imported_module))
                                              (, (as_text alias))
-                                             (,* parameters))))
+                                             (,* (list#of_stack parameters)))))
                                        referrals))))
 
       _
@@ -5448,7 +5449,7 @@
       (meta#in (list (` (..with (, implementation) (, (as_name member))))))
 
       (stack#partial implementation member args)
-      (meta#in (list (` ((..by (, implementation) (, member)) (,* args)))))
+      (meta#in (list (` ((..by (, implementation) (, member)) (,* (list#of_stack args))))))
       
       _
       (failure ..wrong_syntax))))
@@ -5490,7 +5491,7 @@
                                                          value
                                                          r_var)))))
                               stack#conjoint)]]
-            (in (list (` (..when (, record) [(,* pattern)] [(,* output)])))))))
+            (in (list (` (..when (, record) [(,* (list#of_stack pattern))] [(,* (list#of_stack output))])))))))
 
       (list [_ {#Tuple slots}] value record)
       (when slots
@@ -5515,7 +5516,7 @@
                                           [record (is (Stack (Stack Code)) {#Empty})]
                                           pairs)
                  accesses (stack#conjoint (stack#reversed accesses'))]]
-          (in (list (` (let [(,* accesses)]
+          (in (list (` (let [(,* (list#of_stack accesses))]
                          (, update_expr)))))))
       
       (list selector value)
@@ -5573,7 +5574,7 @@
                                                          (` ((, fun) (, r_var)))
                                                          r_var)))))
                               stack#conjoint)]]
-            (in (list (` (..when (, record) [(,* pattern)] [(,* output)])))))))
+            (in (list (` (..when (, record) [(,* (list#of_stack pattern))] [(,* (list#of_stack output))])))))))
 
       (list [_ {#Tuple slots}] fun record)
       (when slots
@@ -5585,8 +5586,8 @@
           ['record (..generated_name "record")
            'temp (..generated_name "temp")]
           (in (list (` (let [(, 'record) (, record)
-                             (, 'temp) (its [(,* slots)] (, 'record))]
-                         (has [(,* slots)] ((, fun) (, 'temp)) (, 'record))))))))
+                             (, 'temp) (its [(,* (list#of_stack slots))] (, 'record))]
+                         (has [(,* (list#of_stack slots))] ((, fun) (, 'temp)) (, 'record))))))))
 
       (list selector fun)
       (do meta#monad
@@ -5719,17 +5720,17 @@
                               {#None}        (failure ..wrong_syntax)))
                  init_types (monad#each#meta type_definition inits')
                  expected ..expected_type]
-                (meta#in (list (` ((.is# (-> (,* (stack#each type_code init_types))
+                (meta#in (list (` ((.is# (-> (,* (list#of_stack (stack#each type_code init_types)))
                                              (, (type_code expected)))
-                                         (function ((, name) (,* vars))
+                                         (function ((, name) (,* (list#of_stack vars)))
                                            (, body)))
-                                   (,* inits))))))
+                                   (,* (list#of_stack inits)))))))
               (do meta#monad
                 [aliases (monad#each#meta (is (-> Code (Meta Code))
                                               (function (_ _) (..generated_name "")))
                                           inits)]
-                (meta#in (list (` (..let [(,* (..interleaved aliases inits))]
-                                    (..loop ((, name) [(,* (..interleaved vars aliases))])
+                (meta#in (list (` (..let [(,* (list#of_stack (..interleaved aliases inits)))]
+                                    (..loop ((, name) [(,* (list#of_stack (..interleaved vars aliases)))])
                                       (, body)))))))))
 
           {#None}
@@ -5912,10 +5913,10 @@
            this_module ..current_module_name]
           (in (list (` (..macro ((, (as_local name)) (, 'tokens) (, 'compiler))
                          (when (, 'tokens)
-                           (list (,* (stack#each as_local args)))
+                           (list (,* (list#of_stack (stack#each as_local args))))
                            {.#Right [(, 'compiler)
-                                     (list (,* (stack#each (instantiated_template (simple_replacement_environment args))
-                                                           input_templates)))]}
+                                     (list (,* (list#of_stack (stack#each (instantiated_template (simple_replacement_environment args))
+                                                                          input_templates))))]}
                            
                            (, '_)
                            {.#Left ..wrong_syntax}))))))
@@ -6029,9 +6030,9 @@
                        (function (_ imported_module alias referrals)
                          (` (..refer (, (as_text imported_module))
                                      (, (as_text alias))
-                                     (,* (stack#each (function (_ [macro parameters])
-                                                       (` ((, (as_name macro)) (,* parameters))))
-                                                     referrals))))))]
+                                     (,* (list#of_stack (stack#each (function (_ [macro parameters])
+                                                                      (` ((, (as_name macro)) (,* (list#of_stack parameters)))))
+                                                                    referrals)))))))]
     (macro (_ _imports)
       (do meta#monad
         [current_module ..current_module_name
@@ -6179,7 +6180,7 @@
       [methods' (monad#each#meta complete_expansion (list#as_stack tokens))]
       (when (everyP methodP (stack#conjoint (stack#each list#as_stack methods')))
         {#Some methods}
-        (in (list (` (..Tuple (,* (stack#each product#right methods))))
+        (in (list (` (..Tuple (,* (list#of_stack (stack#each product#right methods)))))
                   (as_tuple (stack#each (|>> product#left as_text) methods))))
 
         {#None}
@@ -6249,14 +6250,14 @@
 
 (the .public variant
   (macro (_ it)
-    (meta#in (list (` {(,* (list#as_stack it))})))))
+    (meta#in (list (` {(,* it)})))))
 
 (alias [|]
        ..variant)
 
 (the .public tuple
   (macro (_ it)
-    (meta#in (list (` [(,* (list#as_stack it))])))))
+    (meta#in (list (` [(,* it)])))))
 
 (alias [& record]
        ..tuple)
@@ -6282,7 +6283,7 @@
 
 (the .public <-
   (macro (_ parameters)
-    (meta#in (list (` (.-> (,* (list#as_stack parameters))))))))
+    (meta#in (list (` (.-> (,* parameters)))))))
 
 ... https://en.wikipedia.org/wiki/Number#Classification
 (alias [N Nat]
@@ -6337,7 +6338,7 @@
 
 (the .public text
   (macro (_ tokens)
-    (meta#in (list (` (.text_composite# (,* (list#as_stack tokens))))))))
+    (meta#in (list (` (.text_composite# (,* tokens)))))))
 
 (every .public (Change it)
   (-> it

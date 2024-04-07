@@ -619,7 +619,6 @@ This function also returns nil meaning don't specify the indentation."
   ("by_example" 'defun)
   ("capability" 'defun)
 
-  ("if" 'defun)
   ("unless" 1)
   
   (let 'defun)
