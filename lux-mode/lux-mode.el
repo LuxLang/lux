@@ -390,7 +390,6 @@ Called by `imenu--generic-function'."
 												 "All" "for_all" "for_any" "for_every"
 												 "Ex" "there_exists" "for_some"
 												 "Interface"
-												 "Class"
 												 "type"))
 							(type//checking (altRE "is" "as" "let" "as_expected" "type_of" "sharing" "by_example" "hole"))
 							(type//dynamic (altRE "dynamic" "static"))
@@ -405,7 +404,6 @@ Called by `imenu--generic-function'."
 							(code//super-quotation (altRE "``" ",,"))
 							(code//macro (altRE "macro"))
 							;; Miscellaneous
-							(jvm-host (altRE "import" "export" "class" "interface" "object" "synchronized" "class_for"))
 							(alternative-format (altRE "character" "bin" "oct" "hex"))
 							(documentation (altRE "comment"))
 							(function-application (altRE "|>" "<|" "all"))
@@ -440,7 +438,6 @@ Called by `imenu--generic-function'."
 							data
 							code
 							;; ;;;;;;;;;;;;;;;;;;;;;;
-							jvm-host
 							alternative-format
 							documentation
 							function-application
@@ -607,11 +604,6 @@ This function also returns nil meaning don't specify the indentation."
   ("translation" 'defun)
   ("declaration" 'defun)
 
-  ("class" 'defun)
-  ("interface" 'defun)
-  ("import" 'defun)
-  ("export" 'defun)
-
   ("comment" 'defun)
   ("definition" 'defun)
 
@@ -638,7 +630,6 @@ This function also returns nil meaning don't specify the indentation."
   ("for_some" 'defun)
 
   (Rec 'defun)
-  ("Class" 'defun)
 
   (synchronized 'defun)
   (object 'defun)
