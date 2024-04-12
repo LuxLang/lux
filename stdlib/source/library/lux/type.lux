@@ -70,7 +70,7 @@
                                        type)]
     [inputs output]))
 
-(the .public (flat_application it)
+(the .public (flat_reification it)
   (-> Type
       [Type (List Type)])
   (.let [[abstraction parameters] (list.dynamic (.function (_ it)
@@ -147,7 +147,7 @@
         (text "+" (n#as id))
 
         {.#Reification param fun}
-        (.let [[type_func type_args] (flat_application type)]
+        (.let [[type_func type_args] (flat_reification type)]
           (text  "(" (as_text' name_format type_func) " " (|> type_args (list#each (as_text' name_format)) list.reversed (list.interposed " ") (list#mix text#composite "")) ")"))
 
         (,, (with_template' [<tag> <desc>]
@@ -182,8 +182,8 @@
 
 ... https://en.wikipedia.org/wiki/Lambda_calculus#%CE%B2-reduction
 (`` (the (reduced env type)
-      (-> (Stack Type) Type
-          Type)
+      (-> (List Type)
+          (Change Type))
       (when type
         {.#Nominal name params}
         {.#Nominal name (stack#each (reduced env) params)}
@@ -201,7 +201,7 @@
               [{<tag> old_env def}
                (when old_env
                  {.#Empty}
-                 {<tag> env def}
+                 {<tag> (list.as_stack env) def}
 
                  _
                  {<tag> (stack#each (reduced env) old_env) def})]
@@ -213,13 +213,12 @@
         (try.else (halt! (text "Unknown type parameter"
                                \n "      Index: " (n#as idx)
                                \n "Environment: " (|> env
-                                                      list.of_stack
                                                       list.enumeration
                                                       (list#each (.function (_ [index type])
                                                                    (text (n#as index)
                                                                          " " (..absolute_text type))))
                                                       (text.interposed (text \n "             ")))))
-                  (stack.item idx env))
+                  (list.item idx env))
         
         _
         type
@@ -284,32 +283,33 @@
 (alias [=]
        ..equivalence)
 
-(`` (the .public (applied params func)
-      (-> (Stack Type) Type
+(`` (the .public (reified parameters abstraction)
+      (-> (List Type) Type
           (Maybe Type))
-      (when params
-        {.#Empty}
-        {.#Some func}
+      (list.mix' maybe.monad
+                 (.function (on parameter abstraction)
+                   (when abstraction
+                     (,, (with_template' [<tag>]
+                           [{<tag> env body}
+                            {.#Some (reduced (list#composite (list abstraction parameter)
+                                                             (list.of_stack env))
+                                             body)}]
 
-        {.#Top param params'}
-        (when func
-          (,, (with_template' [<tag>]
-                [{<tag> env body}
-                 (|> body
-                     (reduced (stack.partial func param env))
-                     (applied params'))]
+                           [.#Universal]
+                           [.#Existential]))
 
-                [.#Universal]
-                [.#Existential]))
+                     {.#Reification parameter' abstraction}
+                     (do maybe.monad
+                       [abstraction (on parameter' abstraction)]
+                       (on parameter abstraction))
 
-          {.#Reification A F}
-          (applied (stack.partial A params) F)
-
-          {.#Named name unnamed}
-          (applied params unnamed)
-          
-          _
-          {.#None}))))
+                     {.#Named name abstraction}
+                     (on parameter abstraction)
+                     
+                     _
+                     {.#None}))
+                 abstraction
+                 parameters)))
 
 (`` (the .public (code type)
       (-> Type
@@ -371,41 +371,37 @@
 
 (with_template' [<name> <base> <ctor>]
   [(the .public (<name> types)
-     (-> (Stack Type)
+     (-> (List Type)
          Type)
-     (when types
-       {.#Empty}
+     (when (list.as_stack (list.reversed types))
+       (.stack)
        <base>
 
-       {.#Top type {.#Empty}}
+       (.stack type)
        type
 
        {.#Top type types'}
-       {<ctor> type (<name> types')}))]
+       (stack#mix (.function (_ left right)
+                    {<ctor> left right})
+                  type
+                  types')))]
 
   [variant Nothing .#Sum]
   [tuple   Any     .#Product]
   )
 
-(the .public (function inputs output)
-  (-> (Stack Type) Type
-      Type)
-  (when inputs
-    {.#Empty}
-    output
+(with_template' [,name ,tag ,pre_processing]
+  [(the .public (,name inputs output)
+     (-> (List Type) Type
+         Type)
+     (list#mix (.function (_ cause effect)
+                 {,tag cause effect})
+               output
+               (,pre_processing inputs)))]
 
-    {.#Top input inputs'}
-    {.#Function input (function inputs' output)}))
-
-(the .public (application params quant)
-  (-> (Stack Type) Type
-      Type)
-  (when params
-    {.#Empty}
-    quant
-
-    {.#Top param params'}
-    (application params' {.#Reification param quant})))
+  [function .#Function list.reversed]
+  [reification .#Reification |>]
+  )
 
 (with_template' [<name> <tag>]
   [(the .public (<name> size body)
@@ -413,7 +409,9 @@
          Type)
      (when size
        0 body
-       _  (|> body (<name> (-- size)) {<tag> (stack)})))]
+       _  (|> body
+              (<name> (-- size))
+              {<tag> (stack)})))]
 
   [univ_q .#Universal]
   [ex_q   .#Existential]
@@ -427,7 +425,7 @@
         (quantified? _type)
 
         {.#Reification A F}
-        (|> (..applied (stack A) F)
+        (|> (..reified (list A) F)
             (by maybe.monad each quantified?)
             (maybe.else false))
 
@@ -458,9 +456,9 @@
     (when type
       {.#Nominal name (stack element_type)}
       (if (text.= array.nominal name)
-        (.let [[depth element_type] (flat_array element_type)]
-          [(++ depth) element_type])
-        <default>)
+          (.let [[depth element_type] (flat_array element_type)]
+            [(++ depth) element_type])
+          <default>)
 
       _
       <default>)))
@@ -571,38 +569,38 @@
           Type)
       (.function (value it)
         (if (by ..equivalence = before it)
-          after
-          (when it
-            {.#Nominal name co_variant}
-            {.#Nominal name (stack#each value co_variant)}
+            after
+            (when it
+              {.#Nominal name co_variant}
+              {.#Nominal name (stack#each value co_variant)}
 
-            (,, (with_template' [<tag>]
-                  [{<tag> left right}
-                   {<tag> (value left)
-                          (value right)}]
+              (,, (with_template' [<tag>]
+                    [{<tag> left right}
+                     {<tag> (value left)
+                            (value right)}]
 
-                  [.#Sum]
-                  [.#Product]
-                  [.#Function]
-                  [.#Reification]))
+                    [.#Sum]
+                    [.#Product]
+                    [.#Function]
+                    [.#Reification]))
 
-            (,, (with_template' [<tag>]
-                  [{<tag> env body}
-                   {<tag> (stack#each value env)
-                          (value body)}]
+              (,, (with_template' [<tag>]
+                    [{<tag> env body}
+                     {<tag> (stack#each value env)
+                            (value body)}]
 
-                  [.#Universal]
-                  [.#Existential]))
+                    [.#Universal]
+                    [.#Existential]))
 
-            (,, (with_template' [<pattern>]
-                  [<pattern>
-                   it]
+              (,, (with_template' [<pattern>]
+                    [<pattern>
+                     it]
 
-                  [{.#Parameter _}]
-                  [{.#Variable _}]
-                  [{.#Opaque _}]
-                  [{.#Named _}]))
-            )))))
+                    [{.#Parameter _}]
+                    [{.#Variable _}]
+                    [{.#Opaque _}]
+                    [{.#Named _}]))
+              )))))
 
 (the .public let
   (syntax.macro (_ [bindings (?code.tuple (?.some (?.and ?code.any ?code.any)))

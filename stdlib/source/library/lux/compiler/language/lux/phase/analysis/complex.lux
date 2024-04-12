@@ -19,7 +19,7 @@
     ["[0]" text (.only)
      ["%" \\injection]]
     [collection
-     ["[0]" list]
+     ["[0]" list (.use "[1]#[0]" monad)]
      ["[0]" stack (.use "[1]#[0]" monad)]
      ["[0]" dictionary (.only Dictionary)]]]
    [math
@@ -55,10 +55,10 @@
 
 (template.with [<name>]
   [(exception.the .public (<name> [module type members])
-     (Exception [Text Type (Stack Code)])
+     (Exception [Text Type (List Code)])
      (exception.report
       (list ["Type" (type.as_text type)]
-            ["Expression" (code.relative module (` [(,* (list.of_stack members))]))])))]
+            ["Expression" (code.relative module (` [(,* members)]))])))]
 
   [invalid_tuple_type]
   [cannot_analyse_tuple]
@@ -86,13 +86,13 @@
          ["Expression" (code.relative module code)])))
 
 (exception.the .public (cannot_order_record [module @ code])
-  (Exception [Text Code (Stack [Name Code])])
+  (Exception [Text Code (List [Name Code])])
   (exception.report
    (list ["@" (code.as_text @)]
          ["Expression" (|> code
-                           (stack#each (function (_ [slot value])
-                                         (stack (code.name slot) value)))
-                           stack#conjoint
+                           (list#each (function (_ [slot value])
+                                        (list (code.name slot) value)))
+                           list#conjoint
                            code.tuple
                            (code.relative module))])))
 
@@ -104,10 +104,10 @@
         actual_size (list.size cases)]
     (if (and right?
              (n.< actual_size expected_size))
-      (type.variant (list.as_stack (list.after tag cases)))
-      (|> cases
-          (list.item tag)
-          (try.else .Nothing)))))
+        (type.variant (list.after tag cases))
+        (|> cases
+            (list.item tag)
+            (try.else .Nothing)))))
 
 (the .public (sum analyse lefts right? archive)
   (-> Phase Natural Bit Phase)
@@ -145,12 +145,12 @@
           {.#Universal _}
           (do !
             [[@instance :instance:] (/type.check check.existential)]
-            (<| (/type.expecting (maybe.trusted (type.applied (stack :instance:) expectedT)))
+            (<| (/type.expecting (maybe.trusted (type.reified (list :instance:) expectedT)))
                 (again valueC)))
           {.#Existential _}
           (<| /type.with_var
               (function (_ [@instance :instance:]))
-              (/type.expecting (maybe.trusted (type.applied (stack :instance:) expectedT)))
+              (/type.expecting (maybe.trusted (type.reified (list :instance:) expectedT)))
               (again valueC))
           
           {.#Reification inputT funT}
@@ -167,7 +167,7 @@
                 (/.except ..invalid_variant_type [here expectedT lefts right? valueC])))
 
             _
-            (when (type.applied (stack inputT) funT)
+            (when (type.reified (list inputT) funT)
               {.#Some outputT}
               (<| (/type.expecting outputT)
                   (again valueC))
@@ -222,10 +222,11 @@
           
           [{.#Top memberT {.#Empty}} _]
           (<| (/type.expecting memberT)
-              (by ! each (|>> stack) (analyse archive (code.tuple membersC+))))
+              (by ! each (|>> stack))
+              (analyse archive (code.tuple (list.of_stack membersC+))))
           
           [_ {.#Top memberC {.#Empty}}]
-          (<| (/type.expecting (type.tuple membersT+))
+          (<| (/type.expecting (type.tuple (list.of_stack membersT+)))
               (by ! each (|>> stack) (analyse archive memberC)))
           
           [{.#Top memberT membersT+'} {.#Top memberC membersC+'}]
@@ -238,7 +239,7 @@
           _
           (do !
             [[here _] module.current]
-            (/.except ..cannot_analyse_tuple [here expectedT members]))))))
+            (/.except ..cannot_analyse_tuple [here expectedT (list.of_stack members)]))))))
 
 (the .public (product analyse archive membersC)
   (-> Phase Archive (Stack Code)
@@ -246,7 +247,7 @@
   (do [! phase.monad]
     [expectedT meta.expected_type
      [here _] module.current]
-    (/.with_exception ..cannot_analyse_tuple [here expectedT membersC]
+    (/.with_exception ..cannot_analyse_tuple [here expectedT (list.of_stack membersC)]
       (when expectedT
         {.#Product _}
         (..typed_product analyse expectedT archive membersC)
@@ -266,22 +267,23 @@
             _
             ... Must infer...
             (do !
-              [membersTA (stack.each' ! (|>> (analyse archive) /type.inferring) membersC)
+              [membersTA (list.each' ! (|>> (analyse archive) /type.inferring)
+                                     (list.of_stack membersC))
                _ (/type.check (check.check expectedT
-                                           (type.tuple (stack#each product.left membersTA))))
+                                           (type.tuple (list#each product.left membersTA))))
                @ meta.provenance]
-              (in (/.tuple @ (list.of_stack (stack#each product.right membersTA)))))))
+              (in (/.tuple @ (list#each product.right membersTA))))))
 
         {.#Universal _}
         (do !
           [[@instance :instance:] (/type.check check.existential)]
-          (<| (/type.expecting (maybe.trusted (type.applied (stack :instance:) expectedT)))
+          (<| (/type.expecting (maybe.trusted (type.reified (list :instance:) expectedT)))
               (product analyse archive membersC)))
 
         {.#Existential _}
         (<| /type.with_var
             (function (_ [@instance :instance:]))
-            (/type.expecting (maybe.trusted (type.applied (stack :instance:) expectedT)))
+            (/type.expecting (maybe.trusted (type.reified (list :instance:) expectedT)))
             (product analyse archive membersC))
 
         {.#Reification inputT funT}
@@ -295,10 +297,10 @@
                   (product analyse archive membersC))
 
               _
-              (/.except ..invalid_tuple_type [here expectedT membersC])))
+              (/.except ..invalid_tuple_type [here expectedT (list.of_stack membersC)])))
 
           _
-          (when (type.applied (stack inputT) funT)
+          (when (type.reified (list inputT) funT)
             {.#Some outputT}
             (<| (/type.expecting outputT)
                 (product analyse archive membersC))
@@ -307,7 +309,7 @@
             (/.except ..not_a_quantified_type [funT])))
         
         _
-        (/.except ..invalid_tuple_type [here expectedT membersC])
+        (/.except ..invalid_tuple_type [here expectedT (list.of_stack membersC)])
         ))))
 
 ... There cannot be any ambiguity or improper syntax when analysing
@@ -323,10 +325,10 @@
     (when input
       (stack.partial [_ {.#Name ["" slotH]}] valueH tail)
       (if pattern_matching?
-        (phase#in {.#None})
-        (do phase.monad
-          [slotH (binding.normal ["" slotH])]
-          (again tail {.#Top [slotH valueH] output})))
+          (phase#in {.#None})
+          (do phase.monad
+            [slotH (binding.normal ["" slotH])]
+            (again tail {.#Top [slotH valueH] output})))
       
       (stack.partial [_ {.#Name slotH}] valueH tail)
       (do phase.monad
@@ -397,8 +399,8 @@
                         [[[{.#Some [leftsL right?L familyL]} typeL] valueL]
                          [[{.#Some [leftsR right?R familyR]} typeR] valueR]]
                         (if (n.= leftsL leftsR)
-                          (not right?R)
-                          (n.< leftsL leftsR))
+                            (not right?R)
+                            (n.< leftsL leftsR))
 
                         _
                         false)))
@@ -422,9 +424,9 @@
       (do !
         [.let [record (sorted_record record)]
          [here _] module.current
-         _ (phase.assertion ..cannot_order_record [here (` same_record?) original_record]
+         _ (phase.assertion ..cannot_order_record [here (` same_record?) (list.of_stack original_record)]
                             (same_record? record))
-         _ (phase.assertion ..cannot_order_record [here (` complete_record?) original_record]
+         _ (phase.assertion ..cannot_order_record [here (` complete_record?) (list.of_stack original_record)]
                             (complete_record? record))]
         (in (<| try.maybe
                 (do try.monad
@@ -448,12 +450,12 @@
     (when head_k
       ["" head_k']
       (if pattern_matching?
-        (phase#in {.#None})
-        (do phase.monad
-          [local_binding? (..local_binding? head_k')]
-          (if local_binding?
-            (in {.#None})
-            (order' head_k record))))
+          (phase#in {.#None})
+          (do phase.monad
+            [local_binding? (..local_binding? head_k')]
+            (if local_binding?
+                (in {.#None})
+                (order' head_k record))))
       
       _
       (order' head_k record))))
