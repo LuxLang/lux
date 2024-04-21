@@ -5,21 +5,18 @@
  [library
   [lux (.except text natural integer revolution local variant tuple)
    [abstract
-    [monad (.only do)]
     ["//" projection]]
    [error
-    ["[0]" try (.only Try)]
-    ["[0]" exception (.only Exception)]]
+    ["[0]" try]
+    ["[0]" exception]]
    [data
     ["[0]" bit]
-    ["[0]" text (.only)
-     ["%" \\injection]]
+    ["[0]" text]
     [collection
-     ["[0]" list (.use "[1]#[0]" functor)]
-     ["[0]" stack (.use "[1]#[0]" functor)]]]
+     ["[0]" list
+      ["[1]" \\projection]]]]
    [math
     [number
-     ["[0]" i64]
      ["[0]" natural]
      ["[0]" integer]
      ["[0]" revolution]
@@ -27,102 +24,30 @@
    [macro
     ["[0]" template]]
    [meta
-    ["[0]" name]]
-   [compiler
-    [arity (.only Arity)]
-    [reference (.only)
-     [variable (.only)]]]]]
- ["/" \\library (.only Environment)])
+    ["[0]" name]]]]
+ ["/" \\library])
 
-(template.with [<name>]
-  [(exception.the .public (<name> input)
-     (Exception (Stack /.Term))
-     (exception.report
-      (list ["Input" (exception.listing /.as_text (list.of_stack input))])))]
-
-  [cannot_parse]
-  [unconsumed_input]
-  )
+(exception.the .public not_expected)
 
 (every .public Projection
-  (//.Projection (Stack /.Term)))
-
-(the .public (value projection input)
-  (for_any (_ it)
-    (-> (Projection it) (Stack /.Term)
-        (Try it)))
-  (when (projection input)
-    {try.#Success [{.#Empty} value]}
-    {try.#Success value}
-    
-    {try.#Success [unconsumed _]}
-    (exception.except ..unconsumed_input unconsumed)
-
-    {try.#Failure error}
-    {try.#Failure error}))
-
-(the .public any
-  (Projection /.Term)
-  (function (_ input)
-    (when input
-      {.#Empty}
-      (exception.except ..cannot_parse input)
-      
-      {.#Top [head tail]}
-      {try.#Success [tail head]})))
-
-(the (remaining_inputs asts)
-  (-> (Stack /.Term)
-      Text)
-  (.text text.\n "Remaining input: "
-         (|> asts
-             list.of_stack
-             (list#each /.as_text)
-             (text.interposed " "))))
-
-(the .public end
-  (Projection Any)
-  (function (_ tokens)
-    (when tokens
-      {.#Empty}
-      {try.#Success [tokens []]}
-      
-      _
-      {try.#Failure (.text "Expected list of tokens to be empty!"
-                           (remaining_inputs tokens))})))
-
-(the .public end?
-  (Projection Bit)
-  (function (_ tokens)
-    {try.#Success [tokens (when tokens
-                            {.#Empty}
-                            true
-                            
-                            _
-                            false)]}))
+  (list.Projection /.Term))
 
 (template.with [<query> <assertion> <tag> <type> <eq>]
-  [(`` (these (the .public <query>
-                (Projection <type>)
-                (function (_ input)
-                  (when input
-                    (stack.partial (<tag> @ x) input')
-                    {try.#Success [input' x]}
+  [(these (the .public <query>
+            (Projection <type>)
+            (function (_ input)
+              (when (list.any input)
+                {try.#Success [input (<tag> @ it)]}
+                {try.#Success [input it]}
 
-                    _
-                    (exception.except ..cannot_parse input))))
+                else
+                (exception.except ..not_expected []))))
 
-              (the .public (<assertion> expected)
-                (-> <type> (Projection Any))
-                (function (_ input)
-                  (when input
-                    (stack.partial (<tag> @ actual) input')
-                    (if (by <eq> = expected actual)
-                      {try.#Success [input' []]}
-                      (exception.except ..cannot_parse input))
-
-                    _
-                    (exception.except ..cannot_parse input))))))]
+          (the .public (<assertion> expected)
+            (-> <type>
+                (Projection <type>))
+            (//.only (by <eq> = expected)
+                     <query>)))]
 
   [bit this_bit /.bit Bit bit.equivalence]
   [natural this_natural /.natural Natural natural.equivalence]
@@ -137,14 +62,16 @@
 
 (the .public (tuple projection)
   (for_any (_ it)
-    (-> (Projection it)
-        (Projection it)))
+    (Change (Projection it)))
   (function (_ input)
-    (when input
-      (stack.partial (/.tuple @ head) tail)
-      (do try.monad
-        [output (..value projection (list.as_stack head))]
-        {try.#Success [tail output]})
+    (when (list.any input)
+      {try.#Success [input (/.tuple @ input')]}
+      (when (list.value input' projection)
+        {try.#Success it}
+        {try.#Success [input it]}
 
-      _
-      (exception.except ..cannot_parse input))))
+        {try.#Failure error}
+        {try.#Failure error})
+
+      else
+      (exception.except ..not_expected []))))
