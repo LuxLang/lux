@@ -1,0 +1,104 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]
+    ["[0]" equivalence
+     ["[1]T" \\test]]
+    ["[0]" monoid
+     ["[1]T" \\test]]]
+   [control
+    ["[0]" maybe (.use "[1]#[0]" monad)]]
+   [data
+    ["[0]" bit]
+    ["[0]" text]
+    [collection
+     ["[0]" set]
+     ["[0]" list]]]
+   [math
+    ["[0]" random (.only Random)]
+    [number
+     ["n" natural]]]
+   [test
+    ["_" property (.only Test)]]]]
+ [\\library
+  ["[0]" /]])
+
+(the .public (random size random_key random_value)
+  (for_any (_ v)
+    (-> Natural (Random Text) (Random v)
+        (Random (/.List v))))
+  (do random.monad
+    [keys (random.set text.hash size random_key)
+     values (random.list size random_value)]
+    (in (list.zipped_2 (set.as_list keys)
+                       values))))
+
+(the .public test
+  Test
+  (<| (_.covering /._)
+      (_.for [/.List])
+      (do [! random.monad]
+        [.let [random_key (random.alphabetic 10)]
+         size (by ! each (n.% 100) random.natural)
+         sample (..random size random_key random.natural)
+
+         .let [keys (|> sample /.keys (set.of_list text.hash))]
+         extra_key (random.only (|>> (set.member? keys) not)
+                                random_key)
+         extra_value random.natural
+         shift random.natural]
+        (all _.and
+             (_.for [/.equivalence]
+                    (equivalenceT.spec (/.equivalence n.equivalence)
+                                       (..random size random_key random.natural)))
+             (_.for [/.monoid]
+                    (monoidT.spec (/.equivalence n.equivalence)
+                                  /.monoid
+                                  (..random 10 (random.lower_cased 1) random.natural)))
+             
+             (_.coverage [/.size]
+               (n.= size (/.size sample)))
+             (_.coverage [/.empty?]
+               (bit.= (n.= 0 (/.size sample))
+                      (/.empty? sample)))
+             (_.coverage [/.empty]
+               (/.empty? /.empty))
+             (_.coverage [/.keys /.values]
+               (by (/.equivalence n.equivalence) =
+                   sample
+                   (list.zipped_2 (/.keys sample)
+                                  (/.values sample))))
+             (_.coverage [/.contains?]
+               (and (list.every? (function (_ key)
+                                   (/.contains? key sample))
+                                 (/.keys sample))
+                    (not (/.contains? extra_key sample))))
+             (_.coverage [/.has]
+               (let [sample+ (/.has extra_key extra_value sample)]
+                 (and (not (/.contains? extra_key sample))
+                      (/.contains? extra_key sample+)
+                      (n.= (++ (/.size sample))
+                           (/.size sample+)))))
+             (_.coverage [/.value]
+               (|> sample
+                   (/.has extra_key extra_value)
+                   (/.value extra_key)
+                   (maybe#each (n.= extra_value))
+                   (maybe.else false)))
+             (_.coverage [/.revised]
+               (|> sample
+                   (/.has extra_key extra_value)
+                   (/.revised extra_key (n.+ shift))
+                   (/.value extra_key)
+                   (maybe#each (n.= (n.+ shift extra_value)))
+                   (maybe.else false)))
+             (_.coverage [/.lacks]
+               (|> sample
+                   (/.has extra_key extra_value)
+                   (/.lacks extra_key)
+                   (by (/.equivalence n.equivalence) = sample)))
+             ))))
