@@ -47,31 +47,31 @@
      ["@[0]" type]]]]])
 
 (exception.the .public (invalid [module syntax])
-  (Exception [Text Code])
+  (Exception [Text @type.Code])
   (exception.report
    (list ["Syntax" (code.relative module syntax)])))
 
 ... TODO: Replace with an inline function.
 (the variant_analysis
   (template.macro (_ analysis archive tag values)
-    ... (-> Phase Archive Name (Stack Code) (Operation /.Term))
+    ... (-> Phase Archive Name (Stack @type.Code) (Operation /.Term))
     [(when values
-       (stack value)
+       (list value)
        (/complex.variant analysis tag archive value)
 
        _
-       (/complex.variant analysis tag archive (code.tuple (list.of_stack values))))]))
+       (/complex.variant analysis tag archive (code.tuple values)))]))
 
 ... TODO: Replace with an inline function.
 (the sum_analysis
   (template.macro (_ analysis archive lefts right? values)
-    ... (-> Phase Archive Natural Bit (Stack Code) (Operation /.Term))
+    ... (-> Phase Archive Natural Bit (Stack @type.Code) (Operation /.Term))
     [(when values
-       (stack value)
+       (list value)
        (/complex.sum analysis lefts right? archive value)
 
        _
-       (/complex.sum analysis lefts right? archive (code.tuple (list.of_stack values))))]))
+       (/complex.sum analysis lefts right? archive (code.tuple values)))]))
 
 (every Macro_Abstraction
   [Name .Macro])
@@ -89,14 +89,14 @@
    {#Function Function_Abstraction}))
 
 (the (not_an_abstraction term)
-  (-> Code
+  (-> @type.Code
       Operation)
   (do //.monad
     [[here _] module.current]
     (//.except ..invalid [here term])))
 
 (the (macro_abstraction analysis archive term)
-  (-> Phase Archive Code
+  (-> Phase Archive @type.Code
       (Operation Macro_Abstraction))
   (do [! //.monad]
     [it (<| (/type.expecting @type.Macro)
@@ -111,7 +111,7 @@
       (..not_an_abstraction term))))
 
 (the (extension_abstraction analysis archive term)
-  (-> Phase Archive Code
+  (-> Phase Archive @type.Code
       (Operation Extension_Abstraction))
   (do //.monad
     [it (<| //.try
@@ -130,10 +130,10 @@
       (if (text.contains? (its exception.#label extension.defaults_cannot_be_referenced)
                           error)
           (when term
-            [_ {.#Name ["" _]}]
+            (@type.#Name _ ["" _])
             (..not_an_abstraction term)
             
-            [_ {.#Name it}]
+            (@type.#Name _ it)
             (in it)
 
             _
@@ -141,13 +141,13 @@
           (..not_an_abstraction term)))))
 
 (the (function_abstraction analysis archive term)
-  (-> Phase Archive Code
+  (-> Phase Archive @type.Code
       (Operation Function_Abstraction))
   (<| /type.inferring
       (analysis archive term)))
 
 (the (abstraction analysis archive term)
-  (-> Phase Archive Code
+  (-> Phase Archive @type.Code
       (Operation Abstraction))
   (all //.or
        (macro_abstraction analysis archive term)
@@ -158,7 +158,7 @@
 ... TODO: Replace with an inline function.
 (the reification
   (template.macro (_ extender expander analysis archive 'abstraction argsC+)
-    ... (-> Extender Expander Phase Archive Code (Stack Code) (Operation /.Term))
+    ... (-> Extender Expander Phase Archive @type.Code (Stack @type.Code) (Operation /.Term))
     [(do [! //.monad]
        [abstraction (abstraction analysis archive 'abstraction)]
        (when abstraction
@@ -183,9 +183,12 @@
   (-> Extender Expander
       Phase)
   (function (analysis archive code)
-    (<| (let [[@ code'] code])
-        ... The provenance must be set in the state for the sake
-        ... of having useful error messages.
+    ... The provenance must be set in the state for the sake
+    ... of having useful error messages.
+    (<| (let [@ (code.provenance code)
+              failure (do //.monad
+                        [[here _] module.current]
+                        (//.except ..invalid [here code]))])
         (/.with_provenance @)
         (`` (when code
               ... The `quoted_module` value is extracted from the name's provenance in order to solve a problem with macro expansion.
@@ -197,36 +200,41 @@
               ... In order to allow macros to reference any definition their owning module can see, when programmatically generating a name, they set themselves
               ... as the module in the name's provenance.
               ... The compiler then picks that up as the `quoted_module`, and uses it for name resolution in order to guarantee visibility of names in the expansion.
-              [[quoted_module _line _row] {.#Name it}]
+              (@type.#Name [quoted_module _line _row] it)
               (/reference.reference extender analysis archive quoted_module it)
 
-              (^.` ((^., functionC) (^.,* argsC+)))
-              (..reification extender expander analysis archive functionC argsC+)
+              (@type.#Form _ elems)
+              (when (list.as_stack elems)
+                (stack.partial functionC argsC+)
+                (..reification extender expander analysis archive functionC argsC+)
 
-              (^.` {(^., [_ {.#Name tag}]) (^.,* values)})
-              (..variant_analysis analysis archive tag values)
+                _
+                failure)
 
-              (^.` {(^., [_ {.#Bit right?}]) (^.,* values)})
-              (..sum_analysis analysis archive 0 right? values)
+              (@type.#Variant _ elems)
+              (when (list.as_stack elems)
+                (stack.partial (@type.#Name _ tag) values)
+                (..variant_analysis analysis archive tag (list.of_stack values))
 
-              (^.` {(^., [_ {.#Natural lefts}]) (^., [_ {.#Bit right?}]) (^.,* values)})
-              (..sum_analysis analysis archive lefts right? values)
+                (stack.partial (@type.#Bit _ right?) values)
+                (..sum_analysis analysis archive 0 right? (list.of_stack values))
 
-              (^.` [(^.,* elems)])
-              (/complex.record analysis archive elems)
+                (stack.partial (@type.#Natural _ lefts) (@type.#Bit _ right?) values)
+                (..sum_analysis analysis archive lefts right? (list.of_stack values))
+
+                _
+                failure)
+
+              (@type.#Tuple _ elems)
+              (/complex.record analysis archive (list.as_stack elems))
 
               (,, (template.with [<tag> <analyser>]
-                    [[_ {<tag> value}]
+                    [(<tag> _ value)
                      (<analyser> value)]
 
-                    [.#Text /simple.text]
-                    [.#Natural /simple.natural]
-                    [.#Bit /simple.bit]
-                    [.#Decimal /simple.decimal]
-                    [.#Integer /simple.integer]
-                    [.#Revolution /simple.revolution]))
-
-              _
-              (do //.monad
-                [[here _] module.current]
-                (//.except ..invalid [here code])))))))
+                    [@type.#Text /simple.text]
+                    [@type.#Natural /simple.natural]
+                    [@type.#Bit /simple.bit]
+                    [@type.#Decimal /simple.decimal]
+                    [@type.#Integer /simple.integer]
+                    [@type.#Revolution /simple.revolution])))))))

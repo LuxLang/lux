@@ -61,7 +61,7 @@
           ["Type" (type.as_text type)])))
 
 (exception.the .public (invalid [module it])
-  (Exception [Text Code])
+  (Exception [Text @type.Code])
   (exception.report
    (.list ["Pattern" (code.relative module it)])))
 
@@ -76,7 +76,7 @@
    (.list ["Type" (type.as_text type)])))
 
 (exception.the .public (non_exhaustive [module input branches coverage])
-  (Exception [Text Code (Stack [Code Code]) Coverage])
+  (Exception [Text @type.Code (Stack [@type.Code @type.Code]) Coverage])
   (exception.report
    (.list ["Input" (code.relative module input)]
           ["Branches" (|> branches
@@ -233,15 +233,15 @@
 
 (the (tuple_pattern_analysis pattern_analysis :input: sub_patterns next)
   (for_any (_ a)
-    (-> (-> Type Code (Operation a) (Operation [Pattern a]))
-        Type (Stack Code) (Operation a) (Operation [Pattern a])))
+    (-> (-> Type @type.Code (Operation a) (Operation [Pattern a]))
+        Type (Stack @type.Code) (Operation a) (Operation [Pattern a])))
   (do [! phase.monad]
     [[@ex_var+ :input:'] (/type.check (..tuple :input:))]
     (.when :input:'
       {.#Product _}
       (let [matches (loop (again [types (list.as_stack (type.flat_tuple :input:'))
                                   patterns sub_patterns
-                                  output (is (Stack [Type Code])
+                                  output (is (Stack [Type @type.Code])
                                              {.#Empty})])
                       (.when [types patterns]
                         [{.#Empty} {.#Empty}]
@@ -263,11 +263,11 @@
                         (undefined)))]
         (do !
           [[memberP+ thenA] (stack#mix (is (for_any (_ a)
-                                             (-> [Type Code] (Operation [(Stack Pattern) a])
+                                             (-> [Type @type.Code] (Operation [(Stack Pattern) a])
                                                  (Operation [(Stack Pattern) a])))
                                            (function (_ [memberT memberC] then)
                                              (do !
-                                               [[memberP [memberP+ thenA]] ((as (for_any (_ a) (-> Type Code (Operation a) (Operation [Pattern a])))
+                                               [[memberP [memberP+ thenA]] ((as (for_any (_ a) (-> Type @type.Code (Operation a) (Operation [Pattern a])))
                                                                                 pattern_analysis)
                                                                             memberT memberC then)]
                                                (in [(stack.partial memberP memberP+) thenA]))))
@@ -287,21 +287,21 @@
 (the name_of_type_of_list
   (its @type.#name @type.list))
 
-(the (list_pattern_analysis pattern_analysis type_of_input sub_patterns next)
+(the (analysis_of_list pattern_analysis type_of_input sub_patterns next)
   (for_any (_ it)
-    (-> (-> Type Code (Operation it) (Operation [Pattern it]))
-        Type (Stack Code) (Operation it) (Operation [Pattern it])))
+    (-> (-> Type @type.Code (Operation it) (Operation [Pattern it]))
+        Type (Stack @type.Code) (Operation it) (Operation [Pattern it])))
   (do [! phase.monad]
     [[@ex_var+ type_of_input] (/type.check (..list type_of_input))]
     (.when type_of_input
       {.#Nominal ..name_of_type_of_list (.stack type_of_item)}
       (do !
         [[sub_patterns thenA] (stack#mix (is (for_any (_ it)
-                                               (-> Code (Operation [(Stack Pattern) it])
+                                               (-> @type.Code (Operation [(Stack Pattern) it])
                                                    (Operation [(Stack Pattern) it])))
                                              (function (_ item then)
                                                (do !
-                                                 [[head [tail thenA]] ((as (for_any (_ a) (-> Type Code (Operation a) (Operation [Pattern a])))
+                                                 [[head [tail thenA]] ((as (for_any (_ a) (-> Type @type.Code (Operation a) (Operation [Pattern a])))
                                                                            pattern_analysis)
                                                                        type_of_item item then)]
                                                  (in [(stack.partial head tail) thenA]))))
@@ -319,7 +319,7 @@
         (/.except ..mismatch [here type_of_input (` (.list# (,* (list.of_stack sub_patterns))))])))))
 
 (every (Analysis it)
-  (-> Type Code (Operation it)
+  (-> Type @type.Code (Operation it)
       (Operation [Pattern it])))
 
 (the (anonymous_variant pattern_analysis
@@ -327,8 +327,8 @@
                         provenance lefts right? values)
   (for_any (_ it)
     (-> (Analysis it)
-        Type Code (Operation it)
-        Provenance Natural Bit (Stack Code)
+        Type @type.Code (Operation it)
+        Provenance Natural Bit (Stack @type.Code)
         (Operation [Pattern it])))
   (/.with_provenance provenance
     (do [! phase.monad]
@@ -342,12 +342,12 @@
             (^.multi {try.#Success caseT}
                      (n.< size_sum idx))
             (do !
-              [[testP nextA] (if (and (n.> size_sum size_sum)
-                                      (n.= (-- size_sum) idx))
-                                 (pattern_analysis (type.variant (list.after (-- size_sum) flat_sum))
-                                                   (` [(,* (list.of_stack values))])
-                                                   next)
-                                 (pattern_analysis caseT (` [(,* (list.of_stack values))]) next))
+              [[testP nextA] (pattern_analysis (if (and (n.> size_sum size_sum)
+                                                        (n.= (-- size_sum) idx))
+                                                   (type.variant (list.after (-- size_sum) flat_sum))
+                                                   caseT)
+                                               (code.tuple (list.of_stack values))
+                                               next)
                _ (/type.check (stack.each' check.monad check.forget! @ex_var+))]
               (in [(/pattern.variant [lefts right? testP])
                    nextA]))
@@ -369,10 +369,6 @@
           [[here _] module.current]
           (/.except ..mismatch [here :input:' pattern]))))))
 
-(the list_pattern
-  (template.macro (_ ,@ ,it)
-    [[,@ {.#Form (stack.partial [,@ {.#Name [.prelude extension.list]}] ,it)}]]))
-
 ... This function handles several concerns at once, but it must be that
 ... way because those concerns are interleaved when doing
 ... pattern-matching and they cannot be separated.
@@ -391,100 +387,115 @@
 ... pattern, and not separately.
 (the (pattern_analysis :input: pattern next)
   Analysis
-  (`` (.when pattern
-        [provenance {.#Name ["" name]}]
-        (/.with_provenance provenance
-          (do phase.monad
-            [outputA (/scope.with_local [name :input:]
-                       next)
-             idx /scope.next]
-            (in [{/pattern.#Bind idx} outputA])))
+  (let [failure (do phase.monad
+                  [[here _] module.current]
+                  (/.except ..invalid [here pattern]))]
+    (`` (.when pattern
+          (@type.#Name provenance ["" name])
+          (/.with_provenance provenance
+            (do phase.monad
+              [outputA (/scope.with_local [name :input:]
+                         next)
+               idx /scope.next]
+              (in [{/pattern.#Bind idx} outputA])))
 
-        (,, (template.with [<type> <input> <output>]
-              [[provenance <input>]
-               (simple_pattern_analysis <type> :input: provenance {/pattern.#Simple <output>} next)]
+          (,, (template.with [<type> ,tag <input> <output>]
+                [(,tag provenance <input>)
+                 (simple_pattern_analysis <type> :input: provenance {/pattern.#Simple <output>} next)]
 
-              [@type.Bit {.#Bit pattern_value} {/simple.#Bit pattern_value}]
-              [@type.Natural {.#Natural pattern_value} {/simple.#Natural pattern_value}]
-              [@type.Integer {.#Integer pattern_value} {/simple.#Integer pattern_value}]
-              [@type.Revolution {.#Revolution pattern_value} {/simple.#Revolution pattern_value}]
-              [@type.Decimal {.#Decimal pattern_value} {/simple.#Decimal pattern_value}]
-              [@type.Text {.#Text pattern_value} {/simple.#Text pattern_value}]
-              [Any {.#Tuple {.#Empty}} {/simple.#Unit}]))
-        
-        [provenance {.#Tuple (stack singleton)}]
-        (pattern_analysis :input: singleton next)
-        
-        [provenance {.#Tuple sub_patterns}]
-        (/.with_provenance provenance
-          (do [! phase.monad]
-            [record (//complex.normal true sub_patterns)
-             record_size,members,recordT (is (Operation (Maybe [Natural (Stack Code) Type]))
-                                             (.when record
-                                               {.#Some record}
-                                               (//complex.order true record)
+                [@type.Bit @type.#Bit pattern_value {/simple.#Bit pattern_value}]
+                [@type.Natural @type.#Natural pattern_value {/simple.#Natural pattern_value}]
+                [@type.Integer @type.#Integer pattern_value {/simple.#Integer pattern_value}]
+                [@type.Revolution @type.#Revolution pattern_value {/simple.#Revolution pattern_value}]
+                [@type.Decimal @type.#Decimal pattern_value {/simple.#Decimal pattern_value}]
+                [@type.Text @type.#Text pattern_value {/simple.#Text pattern_value}]
+                [Any @type.#Tuple (.list) {/simple.#Unit}]))
+          
+          (@type.#Tuple provenance (.list singleton))
+          (pattern_analysis :input: singleton next)
+          
+          (@type.#Tuple provenance sub_patterns)
+          (/.with_provenance provenance
+            (do [! phase.monad]
+              [record (//complex.normal true (list.as_stack sub_patterns))
+               record_size,members,recordT (is (Operation (Maybe [Natural (Stack @type.Code) Type]))
+                                               (.when record
+                                                 {.#Some record}
+                                                 (//complex.order true record)
 
-                                               {.#None}
-                                               (in {.#None})))]
-            (.when record_size,members,recordT
-              {.#Some [record_size members recordT]}
-              (do !
-                [_ (.when :input:
-                     {.#Variable @input}
-                     (/type.check (do check.monad
-                                    [? (check.bound? @input)]
-                                    (if ?
-                                        (in [])
-                                        (check.check :input: recordT))))
+                                                 {.#None}
+                                                 (in {.#None})))]
+              (.when record_size,members,recordT
+                {.#Some [record_size members recordT]}
+                (do !
+                  [_ (.when :input:
+                       {.#Variable @input}
+                       (/type.check (do check.monad
+                                      [? (check.bound? @input)]
+                                      (if ?
+                                          (in [])
+                                          (check.check :input: recordT))))
 
-                     _
-                     (in []))]
-                (.when members
-                  (stack singleton)
-                  (pattern_analysis :input: singleton next)
+                       _
+                       (in []))]
+                  (.when members
+                    (stack singleton)
+                    (pattern_analysis :input: singleton next)
 
-                  _
-                  (..tuple_pattern_analysis pattern_analysis :input: members next)))
-              
-              {.#None}
-              (..tuple_pattern_analysis pattern_analysis :input: sub_patterns next))))
+                    _
+                    (..tuple_pattern_analysis pattern_analysis :input: members next)))
+                
+                {.#None}
+                (..tuple_pattern_analysis pattern_analysis :input: (list.as_stack sub_patterns) next))))
 
-        (..list_pattern provenance sub_patterns)
-        (/.with_provenance provenance
-          (..list_pattern_analysis pattern_analysis :input: sub_patterns next))
+          (@type.#Form provenance every_item)
+          (.when (list.as_stack every_item)
+            (stack.partial (@type.#Name provenance [.prelude extension.list]) sub_patterns)
+            (/.with_provenance provenance
+              (..analysis_of_list pattern_analysis :input: sub_patterns next))
 
-        [provenance {.#Variant (stack.partial [_ {.#Bit right?}] values)}]
-        (anonymous_variant pattern_analysis
-                           :input: pattern next
-                           provenance 0 right? values)
+            _
+            failure)
 
-        [provenance {.#Variant (stack.partial [_ {.#Natural lefts}] [_ {.#Bit right?}] values)}]
-        (anonymous_variant pattern_analysis
-                           :input: pattern next
-                           provenance lefts right? values)
+          (@type.#Variant provenance every_item)
+          (.when (list.as_stack every_item)
+            (stack.partial (@type.#Bit _ right?) values)
+            (anonymous_variant pattern_analysis
+                               :input: pattern next
+                               provenance 0 right? values)
 
-        [provenance {.#Variant (stack.partial [_ {.#Name tag}] values)}]
-        (/.with_provenance provenance
-          (do phase.monad
-            [tag (binding.normal tag)
-             [lefts,right? variantT] (label.tag tag)
-             [lefts right?] (in (.when lefts,right?
-                                  {.#Some [lefts right? family]}
-                                  [lefts right?]
+            (stack.partial (@type.#Natural _ lefts) (@type.#Bit _ right?) values)
+            (anonymous_variant pattern_analysis
+                               :input: pattern next
+                               provenance lefts right? values)
 
-                                  {.#None}
-                                  [0 false]))
-             _ (/type.check (check.check :input: variantT))]
-            (pattern_analysis :input: (` {(, (code.natural lefts)) (, (code.bit right?)) (,* (list.of_stack values))}) next)))
+            (stack.partial (@type.#Name _ tag) values)
+            (/.with_provenance provenance
+              (do phase.monad
+                [tag (binding.normal tag)
+                 [lefts,right? variantT] (label.tag tag)
+                 [lefts right?] (in (.when lefts,right?
+                                      {.#Some [lefts right? family]}
+                                      [lefts right?]
 
-        _
-        (do phase.monad
-          [[here _] module.current]
-          (/.except ..invalid [here pattern]))
-        )))
+                                      {.#None}
+                                      [0 false]))
+                 _ (/type.check (check.check :input: variantT))]
+                (pattern_analysis :input:
+                                  (@type.variant_code (.list (@type.natural_code lefts)
+                                                             (@type.bit_code right?)
+                                                             (@type.tuple_code (list.of_stack values))))
+                                  next)))
+
+            _
+            failure)
+
+          _
+          failure
+          ))))
 
 (the .public (when analyse branches archive inputC)
-  (-> Phase (Stack [Code Code]) Phase)
+  (-> Phase (Stack [@type.Code @type.Code]) Phase)
   (.when branches
     {.#Top [patternH bodyH] branchesT}
     (do [! phase.monad]

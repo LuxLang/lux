@@ -3,7 +3,7 @@
 
 (.using
  [library
-  [lux (.except Name Type
+  [lux (.except Module Name Type
                 Bit
                 Text text
                 Decimal
@@ -13,18 +13,22 @@
                 Revolution revolution
                 Tag Slot
                 List list
-                Macro macro)
+                Macro macro Macro'
+
+                Provenance Code
+                #Bit #Natural #Integer #Revolution #Decimal #Text #Name #Form #Variant #Tuple)
    [data
     [collection
      ["[0]" list (.use "[1]#[0]" functor)
       ["[0]" property]]]]
    [meta
-    ["[0]" name]]]])
+    ["[0]" name]
+    ["[0]" provenance]]]])
 
-(the .public prefix
+(the prefix
   name.delimiter)
 
-(every .public Name
+(every .public Identity
   (Record
    [#alias .Text
     #name .Text]))
@@ -53,7 +57,7 @@
                              )]
                (these (with_template [,name ,type]
                         [(the .public ,name
-                           Name
+                           Identity
                            (let [proper (name.proper (.name ,name))]
                              [#alias proper
                               #name (.text ..prefix proper)]))]
@@ -83,13 +87,16 @@
 
                         ,each_integer
                         )
-                      (the .public each
+                      (the .public each_name
                         (property.List .Text)
                         (.list ,each_name))
                       ))
 
-(the .public Character
-  ..Natural)
+(the .public Module
+  ..Text)
+
+(the .public Name
+  (And ..Module ..Text))
 
 (the .public Type
   (type (Rec Type
@@ -115,4 +122,182 @@
            ... #Reification
            (And Type Type)
            ... #Named
-           (And (And ..Text ..Text) Type)))))
+           (And ..Name Type)))))
+
+(the .public Character
+  ..Natural)
+
+(the .public Provenance
+  (And ..Module ..Natural ..Natural))
+
+(the template#macro (.in_module# .prelude .template#macro))
+
+(the List'
+  (<| (template#macro (_ ,it))
+      [{.#Nominal (its #name ..list) (stack ,it)}]))
+
+(every .public Code
+  (for_any (Code _)
+    (let [Code (type (Code _))]
+      (Or
+       ... #Bit
+       (And ..Provenance ..Bit)
+       ... #Natural
+       (And ..Provenance ..Natural)
+       ... #Integer
+       (And ..Provenance ..Integer)
+       ... #Revolution
+       (And ..Provenance ..Revolution)
+       ... #Decimal
+       (And ..Provenance ..Decimal)
+       ... #Text
+       (And ..Provenance ..Text)
+       ... #Name
+       (And ..Provenance ..Name)
+       ... #Form
+       (And ..Provenance (List' Code))
+       ... #Variant
+       (And ..Provenance (List' Code))
+       ... #Tuple
+       (And ..Provenance (List' Code))))))
+
+(with_template [,right? ,lefts ,tag]
+  [(the .public ,tag
+     (<| (template#macro (_ ,where ,it))
+         [{,lefts ,right? [,where ,it]}]))]
+  
+  [#0 0 #Bit]
+  [#0 1 #Natural]
+  [#0 2 #Integer]
+  [#0 3 #Revolution]
+  [#0 4 #Decimal]
+  [#0 5 #Text]
+  [#0 6 #Name]
+  [#0 7 #Form]
+  [#0 8 #Variant]
+  [#1 8 #Tuple]
+  )
+
+(every (Injection it)
+  (-> it
+      ..Code))
+
+(the .public bit_code
+  (Injection ..Bit)
+  (|>> (..#Bit provenance.dummy)))
+
+(the .public natural_code
+  (Injection ..Natural)
+  (|>> (..#Natural provenance.dummy)))
+
+(the .public text_code
+  (Injection ..Text)
+  (|>> (..#Text provenance.dummy)))
+
+(the .public tuple_code
+  (Injection (List ..Code))
+  (|>> (..#Tuple provenance.dummy)))
+
+(the .public unit_code
+  ..Code
+  (..tuple_code (.list)))
+
+(the .public variant_code
+  (Injection (List ..Code))
+  (|>> (..#Variant provenance.dummy)))
+
+(the (code_of_stack code it)
+  (for_any (_ it)
+    (-> (Injection it)
+        (Injection (Stack it))))
+  (when it
+    {.#Empty}
+    (..variant_code (.list (..natural_code 0)
+                           (..bit_code #0)
+                           ..unit_code))
+
+    {.#Top head tail}
+    (..variant_code (.list (..natural_code 0)
+                           (..bit_code #1)
+                           (..tuple_code (.list (code head)
+                                                (code_of_stack code tail)))))))
+
+(the (code_of_name [module proper])
+  (Injection .Name)
+  (..tuple_code (.list (..text_code module)
+                       (..text_code proper))))
+
+(the (code it)
+  (Injection .Type)
+  (`` (when it
+        {.#Nominal name parameters}
+        (variant_code (.list (natural_code 0)
+                             (bit_code #0)
+                             (tuple_code (.list (text_code name)
+                                                (code_of_stack code parameters)))))
+
+        (,, (with_template [,lefts ,tag]
+              [{,tag left right}
+               (variant_code (.list (natural_code ,lefts)
+                                    (bit_code #0)
+                                    (tuple_code (.list (code left)
+                                                       (code right)))))]
+
+              [1 .#Sum]
+              [2 .#Product]
+              [3 .#Function]
+              [9 .#Reification]
+              ))
+
+        (,, (with_template [,lefts ,tag]
+              [{,tag it}
+               (variant_code (.list (natural_code ,lefts)
+                                    (bit_code #0)
+                                    (natural_code it)))]
+
+              [4 .#Parameter]
+              [5 .#Variable]
+              [6 .#Opaque]
+              ))
+
+        (,, (with_template [,lefts ,tag]
+              [{,tag closure body}
+               (variant_code (.list (natural_code ,lefts)
+                                    (bit_code #0)
+                                    (tuple_code (.list (code_of_stack code closure)
+                                                       (code body)))))]
+
+              [7 .#Universal]
+              [8 .#Existential]
+              ))
+        
+        {.#Named name anonymous}
+        (variant_code (.list (natural_code 9)
+                             (bit_code #1)
+                             (tuple_code (.list (code_of_name name)
+                                                (code anonymous)))))
+        )))
+
+(the (anonymous it)
+  (Change Type)
+  (when it
+    {.#Named _ it}
+    (anonymous it)
+
+    _
+    it))
+
+(expansion#let [,each (these ["module" ..Module]
+                             ["name" ..Name]
+                             ["provenance" ..Provenance]
+                             ["code" ..Code]
+                             ["type" ..Type])]
+               (the .public each_type
+                 (property.List ..Code)
+                 (|> (.list ,each)
+                     (list#each (function (_ [name type])
+                                  [name (..code (..anonymous type))])))))
+
+(the .public Macro'
+  (type (-> (List' ..Code)
+            (Meta (List' ..Code)))))
