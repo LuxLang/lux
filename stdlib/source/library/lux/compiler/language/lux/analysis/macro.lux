@@ -21,7 +21,8 @@
    [compiler
     ["@[0]" type]]]]
  [///
-  ["[0]" phase]])
+  ["[0]" phase]
+  ["[0]" analysis]])
 
 (exception.the .public (expansion_failed [module macro inputs error])
   (Exception [Text Name (List @type.Code) Text])
@@ -38,21 +39,30 @@
          ["Outputs" (exception.listing (code.relative module) outputs)])))
 
 (every .public Expander
-  (-> Macro (List @type.Code) Lux
-      (Try (Try [Lux (List @type.Code)]))))
+  (-> Macro (List @type.Code) analysis.State
+      (Try (Try [analysis.State (List @type.Code)]))))
+
+(the current_module
+  (analysis.Operation module.Name)
+  (function (_ state)
+    (when (its @type.#current_module state)
+      {.#Some it}
+      {try.#Success [state it]}
+
+      {.#None}
+      {try.#Failure module.no_current})))
 
 (the .public (expansion expander name macro inputs)
   (-> Expander Name Macro (List @type.Code)
-      (Meta (List @type.Code)))
+      (analysis.Operation (List @type.Code)))
   (function (_ state)
     (do try.monad
       [output (expander macro inputs state)]
       (when output
         {try.#Failure error}
-        ((is (Meta (List @type.Code))
-             (do meta.monad
-               [[here _] module.current]
-               (meta.failure (exception.error ..expansion_failed [here name inputs error]))))
+        ((do phase.monad
+           [here ..current_module]
+           (phase.failure (exception.error ..expansion_failed [here name inputs error])))
          state)
 
         _
@@ -60,8 +70,8 @@
 
 (the .public (single_expansion expander name macro inputs)
   (-> Expander Name Macro (List @type.Code)
-      (Meta @type.Code))
-  (do [! meta.monad]
+      (analysis.Operation @type.Code))
+  (do [! phase.monad]
     [expansion (..expansion expander name macro inputs)]
     (when expansion
       (list single)
@@ -69,5 +79,5 @@
 
       _
       (do !
-        [[here _] module.current]
-        (meta.failure (exception.error ..must_have_single_expansion [here name inputs expansion]))))))
+        [here ..current_module]
+        (phase.failure (exception.error ..must_have_single_expansion [here name inputs expansion]))))))
