@@ -15,7 +15,8 @@
     ["[0]" text (.only)
      ["%" \\injection]]
     [collection
-     ["[0]" stack (.use "[1]#[0]" mix functor)
+     ["[0]" stack (.use "[1]#[0]" mix functor)]
+     ["[0]" list (.use "[1]#[0]" mix functor monoid)
       ["[0]" property]]]]
    [macro
     ["[0]" template]]
@@ -59,11 +60,11 @@
 (the .public (empty hash)
   (-> Natural
       Module)
-  [.#module_hash    hash
+  [.#module_hash hash
    .#module_aliases (stack)
-   .#definitions    (stack)
-   .#imports        (stack)
-   .#module_state   {.#Active}])
+   .#definitions (stack)
+   .#imports (list)
+   .#module_state {.#Active}])
 
 (the .public (import module)
   (-> module.Name
@@ -73,11 +74,11 @@
                      module.current)]
     (function (_ state)
       {try.#Success [(revised @type.#modules
-                              (property.revised self_name (revised .#imports (function (_ current)
-                                                                               (if (stack.any? (text.= module)
-                                                                                               current)
-                                                                                   current
-                                                                                   {.#Top module current}))))
+                              (property.revised self_name (revised @type.#imports (function (_ current)
+                                                                                    (if (list.any? (text.= module)
+                                                                                                   current)
+                                                                                        current
+                                                                                        (list#composite current (list module))))))
                               state)
                      []]})))
 
@@ -90,7 +91,7 @@
      name (phase.of_try
            (do try.monad
              [origin (property.value origin modules)]
-             (property.value it (its .#module_aliases origin))))
+             (property.value it (list.of_stack (its .#module_aliases origin)))))
      module (/.with_lux
               (module.by_name name))]
     (in [name module])))
@@ -115,12 +116,13 @@
       (/.except ..cannot_re-use_alias [it module previous current])
       
       {try.#Failure _}
-      (function (_ state)
-        {try.#Success [(revised @type.#modules
-                                (property.revised current (revised .#module_aliases (is (-> (Stack [Text Text]) (Stack [Text Text]))
-                                                                                        (|>> {.#Top [it module]}))))
-                                state)
-                       []]}))))
+      (/.with_lux
+        (function (_ state)
+          {try.#Success [(revised .#modules
+                                  (property.revised current (revised .#module_aliases (is (-> (Stack [Text Text]) (Stack [Text Text]))
+                                                                                          (|>> {.#Top [it module]}))))
+                                  state)
+                         []]})))))
 
 (the .public (exists? module)
   (-> module.Name
@@ -144,42 +146,46 @@
   (do phase.monad
     [[self_name self] (/.with_lux
                         module.current)]
-    (function (_ state)
-      (when (property.value name (its .#definitions self))
-        {try.#Success [_ already_existing]}
-        ((/.except ..cannot_define_more_than_once [[self_name name] already_existing])
-         state)
+    (when (property.value name (list.of_stack (its .#definitions self)))
+      {try.#Success [_ already_existing]}
+      (/.except ..cannot_define_more_than_once [[self_name name] already_existing])
 
-        failure
-        {try.#Success [(revised @type.#modules
-                                (property.has self_name
-                                              (revised .#definitions
-                                                       (is (-> (Stack [Text [Bit Global]])
-                                                               (Stack [Text [Bit Global]]))
-                                                           (|>> {.#Top [name exported?,definition]}))
-                                                       self))
-                                state)
-                       []]}))))
+      failure
+      (/.with_lux
+        (function (_ state)
+          {try.#Success [(revised .#modules
+                                  (property.has self_name
+                                                (revised .#definitions
+                                                         (is (-> (Stack [Text [Bit Global]])
+                                                                 (Stack [Text [Bit Global]]))
+                                                             (|>> {.#Top [name exported?,definition]}))
+                                                         self))
+                                  state)
+                         []]})))))
 
 (the .public (override_definition [module proper] exported?,definition)
   (-> Name [Bit Global]
       (Operation Any))
-  (function (_ state)
-    {try.#Success [(revised @type.#modules
-                            (property.revised module
-                                              (revised .#definitions
-                                                       (property.has proper exported?,definition)))
-                            state)
-                   []]}))
+  (/.with_lux
+    (function (_ state)
+      {try.#Success [(revised @type.#modules
+                              (property.revised module
+                                                (revised .#definitions
+                                                         (|>> list.of_stack
+                                                              (property.has proper exported?,definition)
+                                                              list.as_stack)))
+                              state)
+                     []]})))
 
 (the .public (create hash name)
   (-> Natural module.Name
       (Operation Any))
-  (function (_ state)
-    {try.#Success [(revised @type.#modules
-                            (property.has name (..empty hash))
-                            state)
-                   []]}))
+  (/.with_lux
+    (function (_ state)
+      {try.#Success [(revised .#modules
+                              (property.has name (..empty hash))
+                              state)
+                     []]})))
 
 (the .public (with hash name action)
   (for_any (_ it)
@@ -197,28 +203,23 @@
   [(the .public (<setter> module_name)
      (-> module.Name
          (Operation Any))
-     (function (_ state)
-       (when (|> state
-                 (its @type.#modules)
-                 (property.value module_name))
-         {try.#Success module}
-         (let [active? (when (its .#module_state module)
-                         {.#Active}
-                         true
-                         
-                         _
-                         false)]
-           (if active?
-               {try.#Success [(revised @type.#modules
-                                       (property.has module_name (has .#module_state {<tag>} module))
-                                       state)
-                              []]}
-               ((/.except ..can_only_change_state_of_active_module [module_name {<tag>}])
-                state)))
-
-         failure
-         ((/.except ..unknown_module module_name)
-          state))))
+     (do phase.monad
+       [module (/.with_lux
+                 (module.by_name module_name))]
+       (let [active? (when (its .#module_state module)
+                       {.#Active}
+                       true
+                       
+                       _
+                       false)]
+         (if active?
+             (/.with_lux
+               (function (_ state)
+                 {try.#Success [(|> state
+                                    (revised .#modules
+                                             (property.has module_name (has .#module_state {<tag>} module))))
+                                []]}))
+             (/.except ..can_only_change_state_of_active_module [module_name {<tag>}])))))
    
    (the .public (<asker> module_name)
      (-> module.Name
