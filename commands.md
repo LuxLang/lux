@@ -13,6 +13,7 @@ cd ~/lux/ && find . -name '*.lux' | xargs wc -l | sort -rn
 
 ```
 cd ~/lux && grep -r "" --include *.lux | sort
+cd ~/lux && grep -RiIl 'BEFORE' | xargs sed -i 's/BEFORE/AFTER/g'
 ```
 
 ---
@@ -20,7 +21,6 @@ cd ~/lux && grep -r "" --include *.lux | sort
 # Clean everything
 
 ```
-cd ~/lux/lux-bootstrapper/ && lein clean && \
 cd ~/lux/lux-jvm/ && lein clean && \
 cd ~/lux/stdlib/ && lux clean && \
 cd ~/lux/lux-js/ && lux clean && \
