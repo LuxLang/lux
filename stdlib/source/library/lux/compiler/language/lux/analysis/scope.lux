@@ -6,6 +6,8 @@
   [lux (.except local with)
    [abstract
     [monad (.only do)]]
+   [function
+    [predicate (.only Predicate)]]
    [control
     ["[0]" maybe (.use "[1]#[0]" monad)]]
    [error
@@ -15,9 +17,9 @@
     ["[0]" text]
     ["[0]" product]
     [collection
-     ["[0]" list]
-     ["[0]" stack (.use "[1]#[0]" functor mix monoid)
-      ["[0]" property]]]]
+     ["[0]" list (.use "[1]#[0]" functor mix monoid)
+      ["[0]" property]]
+     ["[0]" stack (.use "[1]#[0]" functor mix monoid)]]]
    [compiler
     ["@[0]" type]]]]
  ["/" // (.only Environment Operation Phase)
@@ -29,35 +31,39 @@
      ["[0]" variable (.only Variable)]]]]])
 
 (every Local
-  (Bindings Text [Type Register]))
+  (@type.Bindings [Type Register]))
 
 (every Foreign
-  (Bindings Text [Type Variable]))
+  (@type.Bindings [Type Variable]))
 
 (the (local? name scope)
-  (-> Text Scope Bit)
+  (-> Text
+      (Predicate @type.Scope))
   (|> scope
-      (its [.#locals .#mappings])
+      (its [@type.#locals @type.#mappings])
       (property.contains? name)))
 
 (the (local name scope)
-  (-> Text Scope (Maybe [Type Variable]))
+  (-> Text @type.Scope
+      (Maybe [Type Variable]))
   (|> scope
-      (its [.#locals .#mappings])
+      (its [@type.#locals @type.#mappings])
       (property.value name)
       (maybe#each (function (_ [type value])
                     [type {variable.#Local value}]))))
 
 (the (captured? name scope)
-  (-> Text Scope Bit)
+  (-> Text
+      (Predicate @type.Scope))
   (|> scope
-      (its [.#captured .#mappings])
+      (its [@type.#captured @type.#mappings])
       (property.contains? name)))
 
 (the (captured name scope)
-  (-> Text Scope (Maybe [Type Variable]))
+  (-> Text @type.Scope
+      (Maybe [Type Variable]))
   (loop (again [idx 0
-                mappings (its [.#captured .#mappings] scope)])
+                mappings (list.as_stack (its [@type.#captured @type.#mappings] scope))])
     (when mappings
       {.#Top [_name [_source_type _source_ref]] mappings'}
       (if (text.= name _name)
@@ -68,12 +74,14 @@
       {.#None})))
 
 (the (reference? name scope)
-  (-> Text Scope Bit)
+  (-> Text
+      (Predicate @type.Scope))
   (or (local? name scope)
       (captured? name scope)))
 
 (the (reference name scope)
-  (-> Text Scope (Maybe [Type Variable]))
+  (-> Text @type.Scope
+      (Maybe [Type Variable]))
   (when (..local name scope)
     {.#Some type}
     {.#Some type}
@@ -82,7 +90,8 @@
     (..captured name scope)))
 
 (the .public (variable name)
-  (-> Text (Operation (Maybe [Type Variable])))
+  (-> Text
+      (Operation (Maybe [Type Variable])))
   (function (_ state)
     (let [[inner outer] (|> state
                             (its @type.#scopes)
@@ -94,13 +103,13 @@
         {.#Top maximum_outer _}
         (let [[ref_type init_ref] (maybe.else (undefined)
                                               (..reference name maximum_outer))
-              [ref inner'] (stack#mix (is (-> Scope [Variable (Stack Scope)] [Variable (Stack Scope)])
+              [ref inner'] (stack#mix (is (-> @type.Scope [Variable (Stack @type.Scope)] [Variable (Stack @type.Scope)])
                                           (function (_ scope ref+inner)
-                                            [{variable.#Foreign (its [.#captured .#counter] scope)}
-                                             {.#Top (revised .#captured
+                                            [{variable.#Foreign (its [@type.#captured @type.#counter] scope)}
+                                             {.#Top (revised @type.#captured
                                                              (is (-> Foreign Foreign)
-                                                                 (|>> (revised .#counter ++)
-                                                                      (revised .#mappings (property.has name [ref_type (product.left ref+inner)]))))
+                                                                 (|>> (revised @type.#counter ++)
+                                                                      (revised @type.#mappings (property.has name [ref_type (product.left ref+inner)]))))
                                                              scope)
                                                     (product.right ref+inner)}]))
                                       [init_ref {.#Empty}]
@@ -120,19 +129,19 @@
   (function (_ state)
     (when (its @type.#scopes state)
       {.#Top head tail}
-      (let [old_mappings (its [.#locals .#mappings] head)
-            new_var_id (its [.#locals .#counter] head)
-            new_head (revised .#locals
+      (let [old_mappings (its [@type.#locals @type.#mappings] head)
+            new_var_id (its [@type.#locals @type.#counter] head)
+            new_head (revised @type.#locals
                               (is (Change Local)
-                                  (|>> (revised .#counter ++)
-                                       (revised .#mappings (property.has name [type new_var_id]))))
+                                  (|>> (revised @type.#counter ++)
+                                       (revised @type.#mappings (property.has name [type new_var_id]))))
                               head)]
         (when (phase.value' (has @type.#scopes {.#Top new_head tail} state)
                             action)
           {try.#Success [state' output]}
           (when (its @type.#scopes state')
             {.#Top head' tail'}
-            (let [scopes' {.#Top (has .#locals (its .#locals head) head')
+            (let [scopes' {.#Top (has @type.#locals (its @type.#locals head) head')
                                  tail'}]
               {try.#Success [(has @type.#scopes scopes' state')
                              output]})
@@ -147,17 +156,16 @@
       (exception.except ..no_scope []))))
 
 (the empty
-  Scope
-  (let [bindings (is Bindings
-                     [.#counter 0
-                      .#mappings (stack)])]
-    [.#scope_name (stack)
-     .#inner_scopes 0
-     .#locals bindings
-     .#captured bindings]))
+  @type.Scope
+  (let [bindings (is @type.Bindings
+                     [@type.#counter 0
+                      @type.#mappings (list)])]
+    [@type.#locals bindings
+     @type.#captured bindings]))
 
 (the .public (reset action)
-  (for_any (_ a) (-> (Operation a) (Operation a)))
+  (for_any (_ it)
+    (Change (Operation it)))
   (function (_ state)
     (when (action (has @type.#scopes (stack ..empty) state))
       {try.#Success [state' output]}
@@ -168,9 +176,9 @@
       failure)))
 
 (the .public (with action)
-  (for_any (_ a)
-    (-> (Operation a)
-        (Operation [Scope a])))
+  (for_any (_ it)
+    (-> (Operation it)
+        (Operation [@type.Scope it])))
   (function (_ state)
     (when (action (revised @type.#scopes (|>> {.#Top ..empty}) state))
       {try.#Success [state' output]}
@@ -190,13 +198,13 @@
   (function (_ state)
     (when (its @type.#scopes state)
       {.#Top maximum _}
-      {try.#Success [state (its [.#locals .#counter] maximum)]}
+      {try.#Success [state (its [@type.#locals @type.#counter] maximum)]}
 
       {.#Empty}
       (exception.except ..no_scope []))))
 
 (the .public environment
-  (-> Scope (Environment Variable))
-  (|>> (its [.#captured .#mappings])
-       (stack#each (function (_ [_ [_ ref]]) ref))
-       list.of_stack))
+  (-> @type.Scope
+      (Environment Variable))
+  (|>> (its [@type.#captured @type.#mappings])
+       (list#each (function (_ [_ [_ ref]]) ref))))
