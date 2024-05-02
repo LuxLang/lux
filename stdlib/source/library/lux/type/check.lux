@@ -9,11 +9,13 @@
     [functor (.only Functor)]
     [monad (.only Monad do)]]
    [control
-    ["[0]" maybe]]
+    ["[0]" maybe]
+    ["[0]" state]]
    [error
     ["[0]" try (.only Try) (.use "[1]#[0]" functor)]
     ["[0]" exception (.only Exception)]]
    [function
+    [predicate (.only Predicate)]
     ["[0]" mixin (.only Mixin)]]
    [data
     ["[0]" product]
@@ -24,7 +26,8 @@
      ["[0]" set (.only Set)]]]
    [math
     [number
-     ["n" natural (.use "[1]#[0]" base_10)]]]
+     ["n" natural (.use "[1]#[0]" base_10)]
+     ["[0]" i64]]]
    [macro
     ["^" pattern]
     ["[0]" template]]]]
@@ -48,39 +51,16 @@
    (list ["Super type" (//.absolute_text super)]
          ["Sub type" (//.absolute_text sub)])))
 
-(every .public (Check it)
-  (-> Type_Context
-      (Try [Type_Context it])))
-
-(the .public functor
-  (Functor Check)
-  (implementation
-   (the (each f fa)
-     (function (_ context)
-       (when (fa context)
-         {try.#Success [context' output]}
-         {try.#Success [context' (f output)]}
-
-         {try.#Failure error}
-         {try.#Failure error})))))
+(every .public Check
+  (state.With Type_Context Try))
 
 (the .public monad
   (Monad Check)
-  (implementation
-   (the functor ..functor)
+  (state.with try.monad))
 
-   (the (in x)
-     (function (_ context)
-       {try.#Success [context x]}))
-
-   (the (conjoint ffa)
-     (function (_ context)
-       (when (ffa context)
-         {try.#Success [context' fa]}
-         (fa context')
-
-         {try.#Failure error}
-         {try.#Failure error})))))
+(the .public functor
+  (Functor Check)
+  (by ..monad functor))
 
 (use "/#[0]" ..monad)
 
@@ -617,6 +597,25 @@
   (.type (-> [(List Hypothesis) Type Type]
              (Check (List Hypothesis)))))
 
+(the limit (i64.left_shifted 7 1))
+
+(the not_too_many?
+  (Predicate (List Hypothesis))
+  (|>> list.size
+       (n.< ..limit)))
+
+(the (hypothesis_as_text it)
+  (text.Injection Hypothesis)
+  (text (//.as_text (its #super it))
+        " = "
+        (//.as_text (its #sub it))))
+
+(exception.the .public (too_many_hypotheses [it])
+  (Exception [(List Hypothesis)])
+  (exception.report
+   (list ["Limit" (n#as limit)]
+         ["Hypotheses" (exception.listing ..hypothesis_as_text it)])))
+
 (the (super_reification complete hypotheses super_parameter super_abstraction sub)
   (-> Complete_Subsumption
       (List Hypothesis) Type Type Type
@@ -625,9 +624,14 @@
                         #sub sub]]
     (if (hypothesized? new_hypothesis hypotheses)
         (/#in hypotheses)
+
+        (not_too_many? hypotheses)
         (do ..monad
           [super' (..on (list super_parameter) super_abstraction)]
-          (complete [(list#composite (list new_hypothesis) hypotheses) super' sub])))))
+          (complete [(list#composite (list new_hypothesis) hypotheses) super' sub]))
+
+        ... else
+        (..except ..too_many_hypotheses [hypotheses]))))
 
 (the (opaque_reification complete hypotheses
                          [super_quantification super_parameters]
