@@ -3,11 +3,12 @@
 
 (.using
  [library
-  [lux (.except with alias)
+  [lux (.except with alias all)
    [abstract
     [monad (.only do)]]
    [control
-    ["[0]" pipe]]
+    ["[0]" pipe]
+    ["[0]" maybe]]
    [error
     ["[0]" try]
     ["[0]" exception (.only Exception)]]
@@ -22,30 +23,34 @@
     ["[0]" template]]
    [meta
     ["[0]" module]
-    ["[0]" name]]
+    ["[0]" name]
+    ["[0]" label]]
    [compiler
-    ["@[0]" type]]]]
+    ["@[0]" type]]
+   ["[0]" type]]]
  ["/" // (.only Operation)
   [//
-   ["[0]" phase]]])
+   ["[0]" phase (.use "[1]#[0]" functor)]]])
 
-(exception.the .public (unknown_module module)
-  (Exception module.Name)
+(exception.the .public (not_known [module])
+  (Exception [module.Name])
   (exception.report
    (list ["Module" module])))
 
+(exception.the .public no_current)
+
 (exception.the .public (cannot_define_more_than_once [name already_existing])
-  (Exception [Name Global])
+  (Exception [Name @type.Global])
   (exception.report
    (list ["Definition" (name.as_text name)]
          ["Original" (when already_existing
-                       {.#Alias it}
+                       {@type.#Alias it}
                        (text "alias of " (name.as_text it))
                        
-                       {.#Definition it}
+                       {@type.#Definition it}
                        (text "definition " (name.as_text name))
 
-                       {.#Default it}
+                       {@type.#Default it}
                        (text "default " (name.as_text name)))])))
 
 (exception.the .public (can_only_change_state_of_active_module [module state])
@@ -59,19 +64,173 @@
 
 (the .public (empty hash)
   (-> Natural
-      Module)
+      @type.Module)
   [.#module_hash hash
    .#module_aliases (list)
    .#definitions (list)
    .#imports (list)
    .#module_state {.#Active}])
 
+... TODO: Remove this definition ASAP
+(the .public (by_name name)
+  (-> module.Name
+      (Operation @type.Module))
+  (function (_ state)
+    (when (|> state
+              (its @type.#modules)
+              (property.value name))
+      {try.#Success module}
+      {try.#Success [state module]}
+
+      failure
+      ((/.except ..not_known [name]) state))))
+
+... TODO: Remove this definition ASAP
+(the .public current_name
+  (Operation module.Name)
+  (function (_ state)
+    (when (its @type.#current_module state)
+      {.#Some it}
+      {try.#Success [state it]}
+
+      _
+      ((/.except ..no_current [name]) state))))
+
+... TODO: Remove this definition ASAP
+(the .public current
+  (Operation [module.Name @type.Module])
+  (do phase.monad
+    [name ..current_name
+     module (..by_name name)]
+    (in [name module])))
+
+... TODO: Remove this definition ASAP
+(the .public (normal name)
+  (-> Name
+      (Operation Name))
+  (when name
+    ["" name]
+    (by phase.monad each
+        (function (_ module)
+          [module name])
+        ..current_name)
+
+    _
+    (by phase.monad in name)))
+
+... TODO: Remove these definitions ASAP
+(template.with [,singular ,type ,cannot_access ,not_a ,unknown]
+  [(the .public (,singular it)
+     (-> Name
+         (Operation @type.Label))
+     (do phase.monad
+       [it (..normal it)
+        module (..by_name (name.module it))
+        this_module_name ..current_name]
+       (when (property.value (name.proper it) (its @type.#definitions module))
+         {try.#Success [exported? {@type.#Definition [def_type def_value]}]}
+         (if (.or (text.= this_module_name (name.module it))
+                  exported?)
+             (if (type.= ,type (@type.old def_type))
+                 (in (as @type.Label def_value))
+                 (/.except ,not_a [it]))
+             (/.except ,cannot_access [it this_module_name]))
+
+         failure
+         (/.except ,unknown [it]))))]
+
+  [tag @type.Tag label.cannot_access_tag label.not_a_tag label.unknown_tag]
+  [slot @type.Slot label.cannot_access_slot label.not_a_slot label.unknown_slot]
+  )
+
+... TODO: Remove this definition ASAP
+(the .public local#all
+  (Operation (Stack (property.List @type.Type)))
+  (function (_ lux)
+    (when (stack.inits (its @type.#scopes lux))
+      {try.#Success scopes}
+      {try.#Success [lux
+                     (stack#each (|>> (its [@type.#locals @type.#mappings])
+                                      (list#each (function (_ [name [type _]])
+                                                   [name type])))
+                                 scopes)]}
+
+      {try.#Failure error}
+      {try.#Failure error})))
+
+... TODO: Remove this definition ASAP
+(the .public (binding#macro full_name)
+  (-> Name
+      (Operation Macro))
+  (do phase.monad
+    [full_name (..normal full_name)]
+    (is (Operation Macro)
+        (function (_ lux)
+          (when (..current_name lux)
+            {try.#Success [_ this_module]}
+            (let [modules (its @type.#modules lux)]
+              (loop (macro [[module name] full_name])
+                (do try.monad
+                  [$module (property.value module modules)
+                   [exported? definition] (|> $module
+                                              (is @type.Module)
+                                              (its @type.#definitions)
+                                              (property.value name))]
+                  (when definition
+                    {@type.#Alias de_aliased}
+                    (macro de_aliased)
+                    
+                    {@type.#Definition [def_type def_value]}
+                    (if (or (type.= @type.Macro (@type.old def_type))
+                            (type.= .Macro (@type.old def_type)))
+                        {try.#Success [lux (as Macro def_value)]}
+                        {try.#Failure "..not_a_macro"})
+
+                    {@type.#Default _}
+                    {try.#Failure "..not_a_macro"}))))
+
+            {try.#Failure error}
+            {try.#Failure error})))))
+
+... TODO: Remove this definition ASAP
+(template.with [<name>]
+  [(the .public (<name> name)
+     (-> Name
+         (Operation [Bit @type.Global]))
+     (do phase.monad
+       [name (..normal name)
+        .let [[normal_module normal_proper] name]]
+       (function (_ lux)
+         (when (is (Maybe [Bit @type.Global])
+                   (do maybe.monad
+                     [it (|> lux
+                             (its @type.#modules)
+                             (property.value normal_module))]
+                     (|> it
+                         (its @type.#definitions)
+                         (property.value normal_proper))))
+           {.#Some exported?,definition}
+           {try.#Success [lux exported?,definition]}
+
+           _
+           {try.#Failure "Unknown definition."}))))]
+
+  [binding#definition]
+  )
+
+... TODO: Remove this definition ASAP
+(the .public (import#by? import module)
+  (-> Text Text
+      (Operation Bit))
+  (phase#each (|>> (its @type.#imports)
+                   (list.any? (text.= import)))
+              (..by_name module)))
+
 (the .public (import module)
   (-> module.Name
       (Operation Any))
   (do phase.monad
-    [[self_name _] (/.with_lux
-                     module.current)]
+    [self_name ..current_name]
     (function (_ state)
       {try.#Success [(revised @type.#modules
                               (property.revised self_name (revised @type.#imports (function (_ current)
@@ -82,18 +241,25 @@
                               state)
                      []]})))
 
+... TODO: Remove this definition ASAP
+(the .public all
+  (Operation (property.List @type.Module))
+  (function (_ state)
+    (|> state
+        (its @type.#modules)
+        [state]
+        {try.#Success})))
+
 (the .public (by_alias it origin)
   (-> Text module.Name
-      (Operation [module.Name Module]))
+      (Operation [module.Name @type.Module]))
   (do phase.monad
-    [modules (/.with_lux
-               module.all)
+    [modules ..all
      name (phase.of_try
            (do try.monad
              [origin (property.value origin modules)]
-             (property.value it (its .#module_aliases origin))))
-     module (/.with_lux
-              (module.by_name name))]
+             (property.value it (its @type.#module_aliases origin))))
+     module (..by_name name)]
     (in [name module])))
 
 (exception.the .public (cannot_re-use_alias [alias for previous origin])
@@ -108,8 +274,7 @@
   (-> Text module.Name
       (Operation Any))
   (do phase.monad
-    [[current _] (/.with_lux
-                   module.current)
+    [current ..current_name
      previous (phase.try (by_alias it current))]
     (when previous
       {try.#Success [previous _]}
@@ -139,7 +304,7 @@
         {try.#Success})))
 
 (the .public (override_definition [module proper] exported?,definition)
-  (-> Name [Bit Global]
+  (-> Name [Bit @type.Global]
       (Operation Any))
   (function (_ state)
     {try.#Success [(revised @type.#modules
@@ -150,12 +315,11 @@
                    []]}))
 
 (the .public (define name exported?,definition)
-  (-> Text [Bit Global]
+  (-> Text [Bit @type.Global]
       (Operation Any))
   (do phase.monad
-    [[self_name self] (/.with_lux
-                        module.current)]
-    (when (property.value name (its .#definitions self))
+    [[self_name self] ..current]
+    (when (property.value name (its @type.#definitions self))
       {try.#Success [_ already_existing]}
       (/.except ..cannot_define_more_than_once [[self_name name] already_existing])
 
@@ -174,13 +338,12 @@
 (the .public (with hash name action)
   (for_any (_ it)
     (-> Natural module.Name (Operation it)
-        (Operation [Module it])))
+        (Operation [@type.Module it])))
   (do phase.monad
     [_ (..create hash name)
      output (/.with_current_module name
               action)
-     module (/.with_lux
-              (module.by_name name))]
+     module (..by_name name)]
     (in [module output])))
 
 (template.with [<setter> <asker> <tag>]
@@ -188,9 +351,8 @@
      (-> module.Name
          (Operation Any))
      (do phase.monad
-       [module (/.with_lux
-                 (module.by_name module_name))]
-       (let [active? (when (its .#module_state module)
+       [module (..by_name module_name)]
+       (let [active? (when (its @type.#module_state module)
                        {.#Active}
                        true
                        
@@ -221,7 +383,7 @@
                           false)]}
 
          failure
-         ((/.except ..unknown_module module_name)
+         ((/.except ..not_known module_name)
           state))))]
 
   [set_active   active?   .#Active]

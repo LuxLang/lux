@@ -7,10 +7,12 @@
    [abstract
     [monad (.only do)]]
    [error
-    ["[0]" try]]
+    ["[0]" try]
+    ["[0]" exception]]
    ["[0]" function (.only)
     [predicate (.only Predicate)]]
    [data
+    ["[0]" product]
     ["[0]" text (.only)
      ["%" \\injection]]]
    [math
@@ -19,26 +21,28 @@
    ["[0]" type (.only)
     ["[0]" check (.only Check)]]
    ["[0]" meta (.only)
-    ["[0]" module]
     ["[0]" name]]
    [compiler
     ["@[0]" type]]]]
  ["/" // (.only Operation)
   [//
-   ["[0]" phase]]])
+   ["[0]" phase]
+   [analysis
+    ["[0]" module]]]])
 
 (the .public (check action)
   (for_any (_ it)
     (-> (Check it)
         (Operation it)))
   (function (_ state)
-    (when (action (its .#type_context state))
+    (when (action (@type.old_type_context (its @type.#type_context state)))
       {try.#Success [context' output]}
-      {try.#Success [(has .#type_context context' state)
+      {try.#Success [(has .#type_context (@type.new_type_context context') state)
                      output]}
 
       {try.#Failure error}
-      ((/.failure error) state))))
+      ((/.failure error) state)
+      )))
 
 (the prefix
   (text (name.as_text (name ..type)) "#"))
@@ -46,7 +50,7 @@
 (the .public (existential? type)
   (Predicate @type.Type)
   (when type
-    {.#Nominal actual {.#Empty}}
+    {@type.#Nominal actual (list)}
     (text.starts_with? ..prefix actual)
 
     _
@@ -55,40 +59,48 @@
 (the (existential' module id)
   (-> Text Natural
       @type.Type)
-  {.#Nominal (text ..prefix module "#" (%.natural id)) (stack)})
+  {@type.#Nominal (text ..prefix module "#" (%.natural id)) (list)})
 
 (the .public existential
   (Operation @type.Type)
-  (/.with_lux
-    (do phase.monad
-      [[module _] module.current
-       id meta.seed]
-      (in (..existential' module id)))))
+  (do [! phase.monad]
+    [module module.current_name]
+    (by ! each (..existential' module) /.seed)))
 
 (the .public (expecting expected)
   (for_any (_ it)
-    (-> @type.Type
+    (-> .Type
         (Change (Operation it))))
   (phase.localized (its @type.#expected)
                    (has @type.#expected)
-                   (function.constant {.#Some expected})))
+                   (function.constant {.#Some (@type.new expected)})))
 
 (the .public fresh
   (for_any (_ it)
     (Change (Operation it)))
   (phase.localized (its @type.#type_context)
                    (has @type.#type_context)
-                   (function.constant check.fresh_context)))
+                   (function.constant (@type.new_type_context check.fresh_context))))
+
+(exception.the .public no_expectation)
+
+... TODO: Remove this definition ASAP
+(the .public expectation
+  (Operation @type.Type)
+  (function (_ state)
+    (when (its @type.#expected state)
+      {.#Some it}
+      {try.#Success [state it]}
+      
+      {.#None}
+      ((/.except ..no_expectation []) state))))
 
 (the .public (inference actualT)
-  (-> @type.Type
+  (-> .Type
       (Operation Any))
   (do phase.monad
-    [[module _] (/.with_lux
-                  module.current)
-     expectedT (/.with_lux
-                 meta.expected_type)]
-    (..check (check.check expectedT actualT)
+    [expectedT ..expectation]
+    (..check (check.check (@type.old expectedT) actualT)
              ... (do [! check.monad]
              ...   [pre check.context
              ...    it (check.check expectedT actualT)
@@ -127,7 +139,7 @@
 
 (the .public (with_var it)
   (for_any (_ it)
-    (-> (-> [type.Variable @type.Type]
+    (-> (-> [type.Variable .Type]
             (Operation it))
         (Operation it)))
   (do phase.monad
@@ -140,7 +152,7 @@
 (the .public (inferring action)
   (for_any (_ it)
     (-> (Operation it)
-        (Operation [@type.Type it])))
+        (Operation [.Type it])))
   (<| ..with_var
       (function (_ [@it :it:]))
       (do phase.monad

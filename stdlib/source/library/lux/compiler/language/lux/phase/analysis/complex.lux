@@ -30,12 +30,13 @@
    ["[0]" type (.only)
     ["[0]" check]]
    ["[0]" meta (.only)
-    ["[0]" module]
     ["[0]" name]
     ["[0]" code]
     ["[0]" label]
     ["[0]" binding (.only)
-     ["[0]" local]]]]]
+     ["[0]" local]]]
+   [function
+    [predicate (.only Predicate)]]]]
  ["[0]" //
   ["[1][0]" simple]
   [///
@@ -43,7 +44,8 @@
    ["/" analysis (.only Operation Phase)
     ["[1][0]" complex (.only Tag)]
     ["[1][0]" type]
-    ["[1][0]" inference]]
+    ["[1][0]" inference]
+    ["[0]" module]]
    [///
     [meta
      [archive (.only Archive)]]
@@ -115,13 +117,10 @@
   (-> Phase Natural Bit Phase)
   (function (again valueC)
     (do [! phase.monad]
-      [expectedT (/.with_lux
-                   meta.expected_type)
+      [expectedT (by ! each @type.old /type.expectation)
        expectedT' (/type.check (check.clean (stack) expectedT))
-       @ (/.with_lux
-           meta.provenance)
-       [here _] (/.with_lux
-                  module.current)]
+       @ /.provenance
+       here module.current_name]
       (/.with_exception ..cannot_analyse_sum [here expectedT' lefts right? valueC]
         (when expectedT
           {.#Sum _}
@@ -187,40 +186,34 @@
   (-> Phase Name
       Phase)
   (do [! phase.monad]
-    [tag (/.with_lux
-           (binding.normal tag))
-     [lefts,right? variantT] (/.with_lux
-                               (label.tag tag))
+    [tag (module.normal tag)
+     [lefts,right? variantT] (module.tag tag)
      [lefts right?] (when lefts,right?
                       {.#Some [lefts right? family]}
                       (in [lefts right?])
 
                       {.#None}
                       (in [0 false]))
-     expectedT (/.with_lux
-                 meta.expected_type)]
-    (when expectedT
+     expectedT /type.expectation]
+    (when (@type.old expectedT)
       {.#Variable _}
       (do !
-        [inferenceT (/inference.variant lefts right? variantT)
+        [inferenceT (/inference.variant lefts right? (@type.old variantT))
          [inferredT valueA+] (/inference.general archive analyse inferenceT (stack valueC))
-         @ (/.with_lux
-             meta.provenance)]
+         @ /.provenance]
         (in (/.variant @ [lefts right? (|> valueA+ stack.head try.trusted)])))
 
-      _
+      else
       (do !
-        [[here _] (/.with_lux
-                    module.current)]
-        (/.with_exception ..cannot_analyse_variant [here expectedT tag valueC]
+        [here module.current_name]
+        (/.with_exception ..cannot_analyse_variant [here else tag valueC]
           (..sum analyse lefts right? archive valueC))))))
 
 (the (typed_product analyse expectedT archive members)
   (-> Phase Type Archive (Stack @type.Code)
       (Operation /.Term))
   (<| (do [! phase.monad]
-        [@ (/.with_lux
-             meta.provenance)])
+        [@ /.provenance])
       (by ! each (|>> list.of_stack (/.tuple @)))
       (is (Operation (Stack /.Term)))
       (loop (again [membersT+ (list.as_stack (type.flat_tuple expectedT))
@@ -249,18 +242,15 @@
           
           _
           (do !
-            [[here _] (/.with_lux
-                        module.current)]
+            [here module.current_name]
             (/.except ..cannot_analyse_tuple [here expectedT (list.of_stack members)]))))))
 
 (the .public (product analyse archive membersC)
   (-> Phase Archive (Stack @type.Code)
       (Operation /.Term))
   (do [! phase.monad]
-    [expectedT (/.with_lux
-                 meta.expected_type)
-     [here _] (/.with_lux
-                module.current)]
+    [expectedT (by ! each @type.old /type.expectation)
+     here module.current_name]
     (/.with_exception ..cannot_analyse_tuple [here expectedT (list.of_stack membersC)]
       (when expectedT
         {.#Product _}
@@ -285,8 +275,7 @@
                                      (list.of_stack membersC))
                _ (/type.check (check.check expectedT
                                            (type.tuple (list#each product.left membersTA))))
-               @ (/.with_lux
-                   meta.provenance)]
+               @ /.provenance]
               (in (/.tuple @ (list#each product.right membersTA))))))
 
         {.#Universal _}
@@ -342,14 +331,12 @@
       (if pattern_matching?
           (phase#in {.#None})
           (do phase.monad
-            [slotH (/.with_lux
-                     (binding.normal ["" slotH]))]
+            [slotH (module.normal ["" slotH])]
             (again tail {.#Top [slotH valueH] output})))
       
       (stack.partial (@type.#Name _ slotH) valueH tail)
       (do phase.monad
-        [slotH (/.with_lux
-                 (binding.normal slotH))]
+        [slotH (module.normal slotH)]
         (again tail {.#Top [slotH valueH] output}))
 
       {.#Empty}
@@ -360,26 +347,25 @@
 
 (the (local_binding? name)
   (-> Text
-      (Meta Bit))
-  (by meta.monad each
+      (Operation Bit))
+  (by phase.monad each
       (stack.any? (list.any? (|>> product.left (text.= name))))
-      local.all))
+      module.local#all))
 
 (the (slot it)
   (-> Name
-      (Meta Label))
-  (do meta.monad
-    [it (binding.normal it)]
-    (label.slot it)))
+      (Operation @type.Label))
+  (do phase.monad
+    [it (module.normal it)]
+    (module.slot it)))
 
 (the (slot_type [[_ it] _])
-  (-> [Label @type.Code]
+  (-> [@type.Label @type.Code]
       Type)
-  it)
+  (@type.old it))
 
 (the (same_record? it)
-  (-> (Stack [Label @type.Code])
-      Bit)
+  (Predicate (Stack [@type.Label @type.Code]))
   (when it
     (stack.partial head tail)
     (let [expected (slot_type head)]
@@ -389,8 +375,7 @@
     false))
 
 (the (complete_record? it)
-  (-> (Stack [Label @type.Code])
-      Bit)
+  (Predicate (Stack [@type.Label @type.Code]))
   (loop (again [expected_lefts 0
                 remaining it])
     (when remaining
@@ -408,8 +393,7 @@
       false)))
 
 (the sorted_record
-  (-> (Stack [Label @type.Code])
-      (Stack [Label @type.Code]))
+  (Change (Stack [@type.Label @type.Code]))
   (|>> list.of_stack
        (list.sorted (function (_ left right)
                       (when [left right]
@@ -430,8 +414,7 @@
   (-> Name (Stack [Name @type.Code])
       (Operation (Maybe [Natural (Stack @type.Code) Type])))
   (do [! phase.monad]
-    [record (<| /.with_lux
-                meta.try
+    [record (<| phase.try
                 (stack.each' ! (function (_ [slot value])
                                  (do !
                                    [slot (..slot slot)]
@@ -441,8 +424,7 @@
       {try.#Success record}
       (do !
         [.let [record (sorted_record record)]
-         [here _] (/.with_lux
-                    module.current)
+         here module.current_name
          _ (phase.assertion ..cannot_order_record [here (` ..same_record?) (list.of_stack original_record)]
                             (same_record? record))
          _ (phase.assertion ..cannot_order_record [here (` ..complete_record?) (list.of_stack original_record)]
@@ -452,7 +434,7 @@
                   [[[_ :record:] _] (stack.head record)]
                   (in [(stack.size record)
                        (stack#each product.right record)
-                       :record:])))))
+                       (@type.old :record:)])))))
 
       {try.#Failure error}
       (in {.#None}))))
@@ -471,8 +453,7 @@
       (if pattern_matching?
           (phase#in {.#None})
           (do phase.monad
-            [local_binding? (/.with_lux
-                              (..local_binding? head_k'))]
+            [local_binding? (..local_binding? head_k')]
             (if local_binding?
                 (in {.#None})
                 (order' head_k record))))
@@ -492,10 +473,8 @@
 
     (stack (@type.#Name _ pseudo_slot) singletonC)
     (do [! phase.monad]
-      [head_k (/.with_lux
-                (binding.normal pseudo_slot))
-       slot (/.with_lux
-              (meta.try (label.slot head_k)))]
+      [head_k (module.normal pseudo_slot)
+       slot (phase.try (module.slot head_k))]
       (when slot
         {try.#Success [lefts,right? recordT]}
         (when lefts,right?
@@ -524,15 +503,13 @@
 
             {.#Some [record_size membersC recordT]}
             (do !
-              [expectedT (/.with_lux
-                           meta.expected_type)]
-              (when expectedT
+              [expectedT /type.expectation]
+              (when (@type.old expectedT)
                 {.#Variable _}
                 (do !
                   [inferenceT (/inference.record record_size recordT)
                    [inferredT membersA] (/inference.general archive analyse inferenceT membersC)
-                   @ (/.with_lux
-                       meta.provenance)]
+                   @ /.provenance]
                   (in (/.tuple @ (list.of_stack membersA))))
 
                 _

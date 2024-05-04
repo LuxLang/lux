@@ -11,7 +11,7 @@
     [hash (.only Hash)]
     [monad (.only do)]]
    [control
-    ["[0]" maybe]]
+    ["[0]" maybe (.use "[1]#[0]" functor)]]
    [error
     ["[0]" try (.only Try)]
     ["[0]" exception (.only Exception)]]
@@ -22,7 +22,8 @@
      ["%" \\injection]]
     [collection
      ["[0]" list (.use "[1]#[0]" functor mix monoid)
-      ["?[1]" \\projection]]
+      ["?[1]" \\projection]
+      ["[0]" property (.use "[1]#[0]" functor)]]
      ["[0]" stack (.use "[1]#[0]" functor mix)]]]
    [math
     [number
@@ -296,8 +297,8 @@
 
 (the .public (with_source_code source action)
   (for_any (_ it)
-    (-> Source (Operation it)
-        (Operation it)))
+    (-> Source
+        (Change (Operation it))))
   (function (_ state)
     (let [old_source (its @type.#source state)]
       (.when (action (has @type.#source source state))
@@ -318,6 +319,12 @@
                        (has @type.#current_module))
                    (function.constant {.#Some name})))
 
+... TODO: Remove this definition ASAP
+(the .public provenance
+  (Operation Provenance)
+  (function (_ state)
+    {try.#Success [state (its @type.#provenance state)]}))
+
 (the .public (with_provenance provenance action)
   (for_any (_ it)
     (-> Provenance (Operation it)
@@ -333,6 +340,12 @@
 
             failure
             failure)))))
+
+... TODO: Remove this definition ASAP
+(the .public seed
+  (Operation Natural)
+  (function (_ state)
+    {try.#Success [state (its @type.#seed state)]}))
 
 (the (located provenance error)
   (-> Provenance Text
@@ -403,15 +416,10 @@
   [set_provenance     Provenance @type.#provenance     value]
   )
 
-(the .public (provenance file)
-  (-> Text
-      Provenance)
-  [file 1 0])
-
 (the .public (source file code)
   (-> Text Text
       Source)
-  [(provenance file) 0 code])
+  [[file 1 0] 0 code])
 
 (the dummy_source
   Source
@@ -452,6 +460,7 @@
 (the no_adjustment_is_necessary!
   (type.= ..State .Lux))
 
+... TODO: Remove ASAP
 (the .public as_lux
   (static.if ..no_adjustment_is_necessary!
              ..as_is
@@ -462,52 +471,19 @@
                     .#source (its @type.#source it)
                     .#provenance (its @type.#provenance it)
                     .#current_module (its @type.#current_module it)
-                    .#modules (its @type.#modules it)
+                    .#modules (|> (its @type.#modules it)
+                                  (property#each @type.old_module))
                     .#scopes (stack#each (function (_ it)
-                                           [.#scope_name (stack)
-                                            .#inner_scopes 0
-                                            .#locals (revised .#mappings list.as_stack (its @type.#locals it))
-                                            .#captured (revised .#mappings list.as_stack (its @type.#captured it))])
+                                           [.#locals (|> (its @type.#locals it)
+                                                         (revised @type.#mappings (property#each (product.then @type.old function.identity))))
+                                            .#captured (|> (its @type.#captured it)
+                                                           (revised @type.#mappings (property#each (product.then @type.old function.identity))))])
                                          (its @type.#scopes it))
-                    .#type_context (its @type.#type_context it)
-                    .#expected (its @type.#expected it)
+                    .#type_context (|> (its @type.#type_context it)
+                                       (revised @type.#var_bindings (list#each (product.then function.identity (maybe#each @type.old)))))
+                    .#expected (maybe#each @type.old (its @type.#expected it))
                     .#seed (its @type.#seed it)
                     .#eval (its @type.#eval it)]))))
-
-(the of_lux
-  (static.if ..no_adjustment_is_necessary!
-             ..as_is
-             (is (-> .Lux
-                     ..State)
-                 (function (_ it)
-                   [@type.#info (its .#info it)
-                    @type.#source (its .#source it)
-                    @type.#provenance (its .#provenance it)
-                    @type.#current_module (its .#current_module it)
-                    @type.#modules (its .#modules it)
-                    @type.#scopes (stack#each (function (_ it)
-                                                [@type.#locals (revised .#mappings list.of_stack (its .#locals it))
-                                                 @type.#captured (revised .#mappings list.of_stack (its .#captured it))])
-                                              (its .#scopes it))
-                    @type.#type_context (its .#type_context it)
-                    @type.#expected (its .#expected it)
-                    @type.#seed (its .#seed it)
-                    @type.#eval (its .#eval it)]))))
-
-(the .public with_lux
-  (static.if ..no_adjustment_is_necessary!
-             ..as_is
-             (is (for_any (_ it)
-                   (-> (Meta it)
-                       (Operation it)))
-                 (function (_ it)
-                   (function (_ state)
-                     (.when (it (as_lux state))
-                       {try.#Success [state it]}
-                       {try.#Success [(..of_lux state) it]}
-                       
-                       {try.#Failure error}
-                       {try.#Failure error}))))))
 
 (the .public (delegated extender analysis archive extension parameters)
   (-> Extender Phase Archive Name (List @type.Code)
@@ -515,7 +491,7 @@
   (do phase.monad
     [lux phase.state]
     (extension.reification extender
-                           (..as_lux lux) analysis archive
+                           lux analysis archive
                            .Analysis extension parameters
                            (|>>)
                            (function (_ _) {.#None}))))

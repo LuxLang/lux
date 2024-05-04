@@ -30,7 +30,6 @@
     ["^" pattern]
     ["[0]" template]]
    ["[0]" meta (.only)
-    ["[0]" module]
     ["[0]" binding]
     ["[0]" name]
     [module
@@ -46,7 +45,8 @@
    ["[0]" analysis (.only Operation Phase Bundle)
     [evaluation (.only Eval)]
     ["[0]A" type]
-    ["[0]" scope]]
+    ["[0]" scope]
+    ["[0]" module]]
    [///
     ["[0]" reference]
     [meta
@@ -103,8 +103,7 @@
                                    (<| (typeA.expecting argT)
                                        (analysis archive argC)))
                                  (list.zipped_2 inputsT+ args))
-               @ (analysis.with_lux
-                   meta.provenance)]
+               @ analysis.provenance]
               (in [@ {analysis.#Extension (..translation extension_name) argsA}]))
             (analysis.except ..incorrect_arity [num_expected num_actual]))))))
 
@@ -138,8 +137,7 @@
                          (|>> (analysis archive)
                               (typeA.expecting input))
                          args)
-       @ (analysis.with_lux
-           meta.provenance)]
+       @ analysis.provenance]
       (in [@ {analysis.#Extension [.prelude (next extension_name)] argsA}]))))
 
 ... TODO: Get rid of this ASAP
@@ -169,8 +167,7 @@
        (do [! phase.monad]
          [input (<| (typeA.expecting @type.Character)
                     (analysis archive input))
-          expectedT (analysis.with_lux
-                      meta.expected_type)
+          expectedT (by ! each @type.old typeA.expectation)
           conditionals (list.each' ! (.function (_ [cases branch])
                                        (<| (by ! each (|>> [cases]))
                                            (typeA.expecting expectedT)
@@ -179,8 +176,7 @@
                                    conditionals)
           else (<| (typeA.expecting expectedT)
                    (analysis archive else))
-          @ (analysis.with_lux
-              meta.provenance)]
+          @ analysis.provenance]
          (in (|> conditionals
                  (list#each (.function (_ [cases branch])
                               (<| (analysis.tuple @)
@@ -209,8 +205,7 @@
           (.function (_ [@var :var:]))
           (do [! phase.monad]
             [_ (typeA.inference (.type (Either @type.Text :var:)))
-             @ (analysis.with_lux
-                 meta.provenance)]
+             @ analysis.provenance]
             (|> opC
                 (analysis archive)
                 (typeA.expecting (.type (-> .Any :var:)))
@@ -225,7 +220,7 @@
    [(?.and ?list.any ?list.any)
     (.function (_ extension_name analysis archive [module 'expression])
       (do [! phase.monad]
-        [module (eval archive @type.Text module)]
+        [module (eval archive (@type.new @type.Text) module)]
         (analysis.with_current_module (as Text module)
           (analysis archive (code.with [(as Text module) 0 0] 'expression)))))]))
 
@@ -236,8 +231,8 @@
    [(?.and ?list.any ?list.any)
     (.function (_ extension_name analysis archive [typeC valueC])
       (do [! phase.monad]
-        [actualT (by ! each (|>> (as .Type))
-                     (eval archive @type.Type typeC))
+        [actualT (by ! each (|>> (as @type.Type) @type.old)
+                     (eval archive (@type.new @type.Type) typeC))
          _ (typeA.inference actualT)]
         (<| (typeA.expecting actualT)
             (analysis archive valueC))))]))
@@ -249,8 +244,8 @@
    [(?.and ?list.any ?list.any)
     (.function (_ extension_name analysis archive [typeC valueC])
       (do [! phase.monad]
-        [actualT (by ! each (|>> (as .Type))
-                     (eval archive @type.Type typeC))
+        [actualT (by ! each (|>> (as @type.Type) @type.old)
+                     (eval archive (@type.new @type.Type) typeC))
          _ (typeA.inference actualT)
          [valueT valueA] (typeA.inferring (analysis archive valueC))]
         (in valueA)))]))
@@ -277,10 +272,10 @@
 ... the exception is only ever raised _after_ the inference.
 (the (global_default name [type _])
   (for_any (_ it)
-    (-> Name Default
+    (-> Name @type.Default
         (Operation it)))
   (do phase.monad
-    [_ (typeA.inference type)]
+    [_ (typeA.inference (@type.old type))]
     (analysis.except ///.defaults_cannot_be_referenced [name])))
 
 (the .public global
@@ -291,32 +286,27 @@
       (loop (de_aliased [validated_access? false
                          def_name def_name])
         (do [! phase.monad]
-          [(^.let def_name [::module ::name]) (analysis.with_lux
-                                                (binding.normal def_name))
-           [exported? constant] (analysis.with_lux
-                                  (binding.definition def_name))
-           [current _] (analysis.with_lux
-                         module.current)
+          [(^.let def_name [::module ::name]) (module.normal def_name)
+           [exported? constant] (module.binding#definition def_name)
+           current module.current_name
            .let [expected (..expected_module current quoted_module)]
-           imported! (analysis.with_lux
-                       (import.by? ::module expected))]
+           imported! (module.import#by? ::module expected)]
           (if (let [in_the_same_module? (text.= expected ::module)
                     can_access_export? (and exported? imported!)]
                 (or validated_access?
                     in_the_same_module?
                     can_access_export?))
               (.when constant
-                {.#Alias real_def_name}
+                {@type.#Alias real_def_name}
                 (de_aliased true real_def_name)
                 
-                {.#Definition [type _]}
+                {@type.#Definition [type _]}
                 (do !
-                  [_ (typeA.inference type)
-                   @ (analysis.with_lux
-                       meta.provenance)]
+                  [_ (typeA.inference (@type.old type))
+                   @ analysis.provenance]
                   (in (analysis.constant @ def_name)))
 
-                {.#Default it}
+                {@type.#Default it}
                 (global_default def_name it))
               (analysis.except ..cannot_access_global [expected def_name])))))]))
 
@@ -336,8 +326,7 @@
           {.#Some [local_type local_reference]}
           (do !
             [_ (typeA.inference local_type)
-             @ (analysis.with_lux
-                 meta.provenance)]
+             @ analysis.provenance]
             (in (analysis.variable @ local_reference)))
 
           {.#None}
@@ -350,8 +339,7 @@
     (.function (_ extension_name analysis archive [])
       (do phase.monad
         [_ (typeA.inference @type.Natural)
-         @ (analysis.with_lux
-             meta.provenance)]
+         @ analysis.provenance]
         (in (analysis.natural @ (++ (.universe#))))))]))
 
 (the when
@@ -383,8 +371,7 @@
          (do phase.monad
            [.let [[numerator denominator] (,normal [numerator denominator])]
             _ (typeA.inference ,type)
-            @ (analysis.with_lux
-                meta.provenance)]
+            @ analysis.provenance]
            (in (analysis.tuple @ (list (,numerator_analysis @ numerator)
                                        (analysis.natural @ denominator))))))]))]
 
@@ -467,8 +454,7 @@
       (if (list.empty? elements)
           (do [! phase.monad]
             [_ (typeA.inference @type.List)
-             @ (analysis.with_lux
-                 meta.provenance)]
+             @ analysis.provenance]
             (in [@ {analysis.#Extension (..translation extension_name) (list)}]))
           (<| typeA.with_var
               (.function (_ [_ it]))
@@ -477,8 +463,7 @@
                  elements (list.each' ! (|>> (analysis archive)
                                              (typeA.expecting it))
                                       elements)
-                 @ (analysis.with_lux
-                     meta.provenance)]
+                 @ analysis.provenance]
                 (in (|> elements
                         {analysis.#Extension (..translation extension_name)}
                         [@]))))))]))
@@ -491,8 +476,7 @@
       (<| typeA.with_var
           (.function (_ [_ type_of_item]))
           (do [! phase.monad]
-            [@ (analysis.with_lux
-                 meta.provenance)
+            [@ analysis.provenance
              _ (typeA.inference @type.Natural)]
             (|> it
                 (analysis archive)
@@ -509,8 +493,7 @@
       (<| typeA.with_var
           (.function (_ [_ type_of_item]))
           (do [! phase.monad]
-            [@ (analysis.with_lux
-                 meta.provenance)
+            [@ analysis.provenance
              _ (typeA.inference type_of_item)
              address (<| (typeA.expecting @type.Natural)
                          (analysis archive)
@@ -530,8 +513,7 @@
       (<| typeA.with_var
           (.function (_ [_ type_of_item]))
           (do [! phase.monad]
-            [@ (analysis.with_lux
-                 meta.provenance)
+            [@ analysis.provenance
              .let [type_of_list (.type (@type.List type_of_item))
                    segment (|>> (analysis archive)
                                 (typeA.expecting type_of_list))]
@@ -571,8 +553,7 @@
               
               {try.#Failure _}
               (analysis.except ..type_is_not_known [it]))
-         @ (analysis.with_lux
-             meta.provenance)
+         @ analysis.provenance
          _ (typeA.inference @type.Text)]
         (in (analysis.text @ it))))]))
 
