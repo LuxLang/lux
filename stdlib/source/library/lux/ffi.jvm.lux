@@ -72,7 +72,7 @@
 (template.with [<name> <class>]
   [(`` (the .public <name>
          .Type
-         {.#Nominal <class> {.#Empty}}))]
+         {.#Nominal <class> (list)}))]
 
   [Boolean   box.boolean]
   [Byte      box.byte]
@@ -88,7 +88,7 @@
 (template.with [<name> <class>]
   [(`` (the .public <name>
          .Type
-         {.#Nominal (reflection.reflection <class>) {.#Empty}}))]
+         {.#Nominal (reflection.reflection <class>) (list)}))]
 
   ... Primitives
   [boolean   reflection.boolean]
@@ -391,11 +391,14 @@
                 [projection.upper? limit (parameter_type value_type limit)]
                 [projection.class? [parameters name]
                  (` (.Nominal (, (code.text name))
-                              [(,* (list#each (parameter_type value_type) parameters))]))]
+                              [(,* (list#each (|>> (parameter_type value_type)
+                                                   (list (code.bit .co_variant))
+                                                   code.tuple)
+                                              parameters))]))]
                 [projection.array? elementT
                  (when (projection.primitive? elementT)
                    {.#Some elementT}
-                   (` {.#Nominal (, (code.text (..reflection (jvm.array elementT)))) {.#Empty}})
+                   (` {.#Nominal (, (code.text (..reflection (jvm.array elementT)))) (.list)})
                    
                    {.#None}
                    (` (array.Array (, (value_type elementT)))))]))
@@ -1425,7 +1428,8 @@
     (in (list (` (.jvm_object_null#))))))
 
 (the .public (null? obj)
-  (-> (.Nominal "java.lang.Object") Bit)
+  (-> (.Nominal "java.lang.Object")
+      Bit)
   (.jvm_object_null?# obj))
 
 (the .public ???
@@ -1493,7 +1497,9 @@
            .Type
            (for_any ((, (' '_)) (,* params'))
              (.Nominal (, (code.text full_name))
-                       [(,* params')])))))))
+                       [(,* (list#each (|>> (list (code.bit .co_variant))
+                                            code.tuple)
+                                       params'))])))))))
 
 (the (member_type_vars class_tvars member)
   (-> (List (Type Var)) Import_Member_Declaration (List (Type Var)))
@@ -1688,7 +1694,10 @@
                                   _
                                   (let [=class_tvars (list#each ..var$' class_tvars)]
                                     (` (for_any ((, '_) (,* =class_tvars))
-                                         (.Nominal (, (code.text full_name)) [(,* =class_tvars)]))))))
+                                         (.Nominal (, (code.text full_name))
+                                                   [(,* (list#each (|>> (list (code.bit .co_variant))
+                                                                        code.tuple)
+                                                                   =class_tvars))]))))))
                  getter_interop (.is (-> Text Code)
                                      (function (_ name)
                                        (let [getter_name (code.name ["" (..import_name import_format method_prefix name)])]
@@ -1845,7 +1854,7 @@
 
 (the interface?
   (for_any (_ a)
-    (-> (.Nominal "java.lang.Class" [a])
+    (-> (.Nominal "java.lang.Class" [[#1 a]])
         Bit))
   (|>> (.jvm_member_invoke_virtual# [] "java.lang.Class" "isInterface" [])
        .jvm_object_cast#
@@ -1853,7 +1862,7 @@
        (.as Bit)))
 
 (the load_class
-  (-> external.Name (Try (.Nominal "java.lang.Class" [Any])))
+  (-> external.Name (Try (.Nominal "java.lang.Class" [[#1 Any]])))
   (|>> (.as (.Nominal "java.lang.String"))
        ["Ljava/lang/String;"]
        (.jvm_member_invoke_static# [] "java.lang.Class" "forName" [])
@@ -1899,7 +1908,7 @@
           (`` (if (,, (template.with [<type>]
                         [(text.= (..reflection <type>) name)
                          (when params
-                           {.#Empty}
+                           (list)
                            (by meta.monad in <type>)
 
                            _
@@ -1917,7 +1926,7 @@
                   (,, (template.with [<type>]
                         [(text.= (..reflection (jvm.array <type>)) name)
                          (when params
-                           {.#Empty}
+                           (list)
                            (by meta.monad in (jvm.array <type>))
 
                            _
@@ -1934,7 +1943,7 @@
 
                   (text.= array.nominal name)
                   (when params
-                    {.#Top {.#Reification writeLT {.#Reification readLT _Mutable}} {.#Empty}}
+                    (list [.co_variant {.#Reification writeLT {.#Reification readLT _Mutable}}])
                     (by meta.monad each jvm.array
                         (lux_type->jvm_type context readLT))
 
@@ -1943,19 +1952,21 @@
 
                   (text.starts_with? descriptor.array_prefix name)
                   (when params
-                    {.#Empty}
+                    (list)
                     (let [[_ unprefixed] (maybe.trusted (text.split_by descriptor.array_prefix name))]
                       (by meta.monad each jvm.array
-                          (lux_type->jvm_type context {.#Nominal unprefixed (stack)})))
+                          (lux_type->jvm_type context {.#Nominal unprefixed (list)})))
 
                     _
                     <failure>)
 
                   ... else
-                  (by meta.monad each (function (_ parameters) (jvm.class parameters name))
+                  (by meta.monad each
+                      (function (_ parameters)
+                        (jvm.class parameters name))
                       (.is (Meta (List (Type Parameter)))
                            (list.each' meta.monad
-                                       (function (_ paramLT)
+                                       (function (_ [polarity paramLT])
                                          (do meta.monad
                                            [paramJT (lux_type->jvm_type context paramLT)]
                                            (when (projection.parameter? paramJT)
@@ -1964,7 +1975,7 @@
 
                                              {.#None}
                                              <failure>)))
-                                       (list.of_stack params))))))
+                                       params)))))
 
           {.#Reification A F}
           (when (type.reified (list A) F)
