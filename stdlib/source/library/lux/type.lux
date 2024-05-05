@@ -59,12 +59,21 @@
   [flat_ex_q   .#Existential]
   )
 
+(the template#macro (.in_module# .prelude .template#macro))
+(the function_type (.type_name# "function"))
+
+(`` (the .public Function
+      (template#macro (_ ,left ,right)
+                      [{.#Nominal (,, (static ..function_type))
+                                  (.list [(,, (static .contra_variant)) ,left]
+                                         [(,, (static .co_variant)) ,right])}])))
+
 (the .public (flat_function type)
   (-> Type
       [(List Type) Type])
   (.let [[output inputs] (list.dynamic (.function (_ it)
                                          (when it
-                                           {.#Function in out}
+                                           (Function in out)
                                            {.#Some [out in]}
 
                                            _
@@ -85,13 +94,21 @@
                                                 it)]
     [abstraction (list.reversed parameters)]))
 
-(with_template' [<name> <tag>]
-  [(the .public (<name> it)
+(the sum_type (.type_name# "sum"))
+(the product_type (.type_name# "product"))
+(with_template' [<name> ,name ,constructor]
+  [(`` (the .public ,constructor
+         (template#macro (_ ,left ,right)
+                         [{.#Nominal (,, (static ,name))
+                                     (.list [(,, (static .co_variant)) ,left]
+                                            [(,, (static .co_variant)) ,right])}])))
+
+   (the .public (<name> it)
      (-> Type
          (List Type))
      (.let [[right lefts] (list.dynamic (.function (_ it)
                                           (when it
-                                            {<tag> left right}
+                                            (,constructor left right)
                                             {.#Some [right left]}
 
                                             _
@@ -99,14 +116,37 @@
                                         it)]
        (list#composite lefts (list right))))]
 
-  [flat_variant .#Sum]
-  [flat_tuple   .#Product]
+  [flat_variant ..sum_type Sum]
+  [flat_tuple   ..product_type Product]
   )
 
 (`` (the (as_text' name_format type)
       (-> (Format Text Name) Type
           Text)
       (when type
+        (,, (with_template' [,type <open> <close> <flat>]
+              [(,type _ _)
+               (text <open>
+                     (|> (<flat> type)
+                         (list#each (as_text' name_format))
+                         list.reversed
+                         (list.interposed " ")
+                         (list#mix text#composite ""))
+                     <close>)]
+
+              [..Sum  "(Or " ")" flat_variant]
+              [..Product "["   "]" flat_tuple]))
+
+        (..Function _ _)
+        (.let [[ins out] (flat_function type)]
+          (text  "(-> "
+                 (|> ins
+                     (list#each (as_text' name_format))
+                     list.reversed
+                     (list.interposed " ")
+                     (list#mix text#composite ""))
+                 " " (as_text' name_format out) ")"))
+
         {.#Nominal name params}
         (text "(Nominal "
               (text.enclosed' text.double_quote name)
@@ -119,29 +159,6 @@
                   (text.interposed " ")
                   (text.enclosed ["[" "]"]))
               ")")
-
-        (,, (with_template' [<tag> <open> <close> <flat>]
-              [{<tag> _}
-               (text <open>
-                     (|> (<flat> type)
-                         (list#each (as_text' name_format))
-                         list.reversed
-                         (list.interposed " ")
-                         (list#mix text#composite ""))
-                     <close>)]
-
-              [.#Sum  "(Or " ")" flat_variant]
-              [.#Product "["   "]" flat_tuple]))
-
-        {.#Function input output}
-        (.let [[ins out] (flat_function type)]
-          (text  "(-> "
-                 (|> ins
-                     (list#each (as_text' name_format))
-                     list.reversed
-                     (list.interposed " ")
-                     (list#mix text#composite ""))
-                 " " (as_text' name_format out) ")"))
 
         {.#Parameter idx}
         (n#as idx)
@@ -196,14 +213,8 @@
                                      [polarity (reduced env it)])
                                    params)}
         
-        (,, (with_template' [<tag>]
-              [{<tag> left right}
-               {<tag> (reduced env left) (reduced env right)}]
-
-              [.#Sum]
-              [.#Product]
-              [.#Function]
-              [.#Reification]))
+        {.#Reification left right}
+        {.#Reification (reduced env left) (reduced env right)}
         
         (,, (with_template' [<tag>]
               [{<tag> old_env def}
@@ -257,17 +268,10 @@
                      [.#Parameter]
                      ))
 
-               (,, (with_template' [<tag>]
-                     [[{<tag> reference_left reference_right}
-                       {<tag> it_left it_right}]
-                      (and (= reference_left it_left)
-                           (= reference_right it_right))]
-
-                     [.#Function]
-                     [.#Reification]
-                     [.#Sum]
-                     [.#Product]
-                     ))
+               [{.#Reification reference_left reference_right}
+                {.#Reification it_left it_right}]
+               (and (= reference_left it_left)
+                    (= reference_right it_right))
 
                [{.#Named _ reference} it]
                (= reference it)
@@ -338,15 +342,9 @@
               [.#Opaque]
               [.#Parameter]))
 
-        (,, (with_template' [<tag>]
-              [{<tag> left right}
-               (` {<tag> (, (code left))
-                         (, (code right))})]
-
-              [.#Sum]
-              [.#Product]
-              [.#Function]
-              [.#Reification]))
+        {.#Reification left right}
+        (` {.#Reification (, (code left))
+                          (, (code right))})
 
         {.#Named name sub_type}
         (code.name name)
@@ -378,7 +376,7 @@
     _
     it))
 
-(with_template' [<name> <base> <ctor>]
+(with_template' [<name> <base> ,type]
   [(the .public (<name> types)
      (-> (List Type)
          Type)
@@ -391,31 +389,34 @@
 
        {.#Top type types'}
        (stack#mix (.function (_ left right)
-                    {<ctor> left right})
+                    (,type left right))
                   type
                   types')))]
 
-  [variant Nothing .#Sum]
-  [tuple   Any     .#Product]
+  [variant Nothing ..Sum]
+  [tuple   Any     ..Product]
   )
 
-(with_template' [,name ,tag ,pre_processing]
-  [(the .public (,name inputs output)
-     (-> (List Type) Type
-         Type)
-     (list#mix (.function (_ cause effect)
-                 {,tag cause effect})
-               output
-               (,pre_processing inputs)))]
+(the .public (function inputs output)
+  (-> (List Type)
+      (Change Type))
+  (list#mix (.function (_ cause effect)
+              (..Function cause effect))
+            output
+            (list.reversed inputs)))
 
-  [function .#Function list.reversed]
-  [reification .#Reification |>]
-  )
+(the .public (reification parameters abstraction)
+  (-> (List Type)
+      (Change Type))
+  (list#mix (.function (_ parameter abstraction)
+              {.#Reification parameter abstraction})
+            abstraction
+            parameters))
 
 (with_template' [<name> <tag>]
   [(the .public (<name> size body)
-     (-> Natural Type
-         Type)
+     (-> Natural
+         (Change Type))
      (when size
        0 body
        _  (|> body
@@ -586,15 +587,9 @@
                                            [polarity (value it)])
                                          co_variant)}
 
-              (,, (with_template' [<tag>]
-                    [{<tag> left right}
-                     {<tag> (value left)
-                            (value right)}]
-
-                    [.#Sum]
-                    [.#Product]
-                    [.#Function]
-                    [.#Reification]))
+              {.#Reification left right}
+              {.#Reification (value left)
+                             (value right)}
 
               (,, (with_template' [<tag>]
                     [{<tag> env body}
