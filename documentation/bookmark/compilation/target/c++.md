@@ -1,6 +1,5 @@
 # Memory management
 
-0. []()
 0. [Memory and Performance Overhead of Smart Pointers](https://www.modernescpp.com/index.php/memory-and-performance-overhead-of-smart-pointer)
 0. [](https://coderedirect.com/questions/464444/c-atomic-cascompare-and-swap-operation-does-not-change-value)
 0. [C++ Shared_Ptr implementation](https://codereview.stackexchange.com/questions/254279/c-shared-ptr-implementation)
@@ -22,6 +21,7 @@
 
 # Reference
 
+0. [Lightning Talk: Writing a Better std::move - Jonathan Müller - CppCon 2023](https://www.youtube.com/watch?v=hvnl6T2MnUk)
 0. [CppCon 2018: Tom Poole “Why and How to Roll Your Own std::function Implementation”](https://www.youtube.com/watch?v=VY83afAJUIg)
 0. [Writing custom C++20 coroutine systems](https://www.chiark.greenend.org.uk/~sgtatham/quasiblog/coroutines-c++20/)
 0. [STX](https://lamarrr.github.io/STX/)

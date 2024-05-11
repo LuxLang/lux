@@ -160,8 +160,12 @@
                   (text.enclosed ["[" "]"]))
               ")")
 
-        {.#Parameter idx}
-        (n#as idx)
+        {.#Parameter parameter level}
+        (text "(" (when parameter
+                    .abstraction "abstraction"
+                    .argument "argument")
+              " " (n#as level)
+              ")")
 
         {.#Variable id}
         (text "-" (n#as id))
@@ -175,15 +179,16 @@
 
         (,, (with_template' [<tag> <desc>]
               [{.#Quantification <tag> env body}
-               (text "("
-                     <desc>
-                     " {"
-                     (|> env
-                         list.of_stack
-                         (list#each (as_text' name_format))
-                         (text.interposed " "))
-                     "} "
-                     (as_text' name_format body)
+               (text "(" <desc>
+                     " " (|> env
+                             list.of_stack
+                             (list#each (.function (_ [abstraction argument])
+                                          (text "[" (as_text' name_format abstraction)
+                                                " " (as_text' name_format argument)
+                                                "]")))
+                             (text.interposed " ")
+                             (text.enclosed ["{" "}"]))
+                     " " (as_text' name_format body)
                      ")")]
 
               [.universal "for_any"]
@@ -205,7 +210,7 @@
 
 ... https://en.wikipedia.org/wiki/Lambda_calculus#%CE%B2-reduction
 (`` (the (reduced env type)
-      (-> (List Type)
+      (-> (Stack [Type Type])
           (Change Type))
       (when type
         {.#Nominal name params}
@@ -220,22 +225,34 @@
         {.#Quantification quantification
                           (when old_env
                             {.#Empty}
-                            (list.as_stack env)
+                            env
 
                             _
-                            (stack#each (reduced env) old_env))
+                            (stack#each (.function (_ [abstraction argument])
+                                          [(reduced env abstraction)
+                                           (reduced env argument)])
+                                        old_env))
                           def}
         
-        {.#Parameter idx}
-        (try.else (halt! (text "Unknown type parameter"
-                               \n "      Index: " (n#as idx)
-                               \n "Environment: " (|> env
-                                                      list.enumeration
-                                                      (list#each (.function (_ [index type])
-                                                                   (text (n#as index)
-                                                                         " " (..absolute_text type))))
-                                                      (text.interposed (text \n "             ")))))
-                  (list.item idx env))
+        {.#Parameter parameter idx}
+        (when (stack.item idx env)
+          {try.#Success [abstraction argument]}
+          (when parameter
+            .abstraction abstraction
+            .argument argument)
+
+          failure
+          (halt! (text "Unknown type parameter"
+                       \n "  Parameter: " (bit.as_text parameter)
+                       \n "      Index: " (n#as idx)
+                       \n "Environment: " (|> env
+                                              list.of_stack
+                                              list.enumeration
+                                              (list#each (.function (_ [index [abstraction argument]])
+                                                           (text (n#as index)
+                                                                 " " (..absolute_text abstraction)
+                                                                 " " (..absolute_text argument))))
+                                              (text.interposed (text \n "             "))))))
         
         _
         type
@@ -257,13 +274,16 @@
                         reference_parameters
                         it_parameters))
 
+               [{.#Parameter parameter_of_reference level_of_reference} {.#Parameter parameter_of_it level_of_it}]
+               (and (bit.= parameter_of_reference parameter_of_it)
+                    (n.= level_of_reference level_of_it))
+
                (,, (with_template' [<tag>]
                      [[{<tag> reference} {<tag> it}]
                       (n.= reference it)]
 
                      [.#Variable]
                      [.#Opaque]
-                     [.#Parameter]
                      ))
 
                [{.#Reification reference_left reference_right}
@@ -280,7 +300,7 @@
                [{.#Quantification quantification_of_reference reference_closure reference_body}
                 {.#Quantification quantification_of_it it_closure it_body}]
                (and (bit.= quantification_of_reference quantification_of_it)
-                    (by (stack.equivalence =) = reference_closure it_closure)
+                    (by (stack.equivalence (product.equivalence = =)) = reference_closure it_closure)
                     (= reference_body it_body))
 
                _
@@ -297,8 +317,8 @@
                  (.function (on parameter abstraction)
                    (when abstraction
                      {.#Quantification quantification env body}
-                     {.#Some (reduced (list#composite (list abstraction parameter)
-                                                      (list.of_stack env))
+                     {.#Some (reduced {.#Top [abstraction parameter]
+                                             env}
                                       body)}
 
                      {.#Reification parameter' abstraction}
@@ -325,13 +345,16 @@
                                                   (, (code it))]))
                                             params)))})
 
+        {.#Parameter parameter level}
+        (` {.#Parameter (, (code.bit parameter))
+                        (, (code.natural level))})
+
         (,, (with_template' [<tag>]
               [{<tag> idx}
                (` {<tag> (, (code.natural idx))})]
 
               [.#Variable]
-              [.#Opaque]
-              [.#Parameter]))
+              [.#Opaque]))
 
         {.#Reification left right}
         (` {.#Reification (, (code left))
@@ -342,7 +365,10 @@
 
         {.#Quantification quantification env body}
         (` {.#Quantification (, (code.bit quantification))
-                             (.stack (,* (list.of_stack (stack#each code env))))
+                             (.stack (,* (list.of_stack (stack#each (.function (_ [abstraction argument])
+                                                                      (` [(, (code abstraction))
+                                                                          (, (code argument))]))
+                                                                    env))))
                              (, (code body))})
         )))
 
@@ -577,7 +603,10 @@
 
               {.#Quantification quantification env body}
               {.#Quantification quantification
-                                (stack#each value env)
+                                (stack#each (.function (_ [abstraction argument])
+                                              [(value abstraction)
+                                               (value argument)])
+                                            env)
                                 (value body)}
 
               (,, (with_template' [<pattern>]
