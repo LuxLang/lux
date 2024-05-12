@@ -41,7 +41,7 @@
 (the .public recursive_iteration
   (template.macro (_)
     [{.#Reification (..recursion_parameter)
-                    {.#Parameter 0}}]))
+                    {.#Parameter .argument 0}}]))
 
 (template.with [<name>]
   [(exception.the .public (<name> type)
@@ -82,7 +82,8 @@
                       (text.interposed ""))])))
 
 (every .public Env
-  (Dictionary Natural [Type Code]))
+  (Dictionary Natural [[Type Code]
+                       [Type Code]]))
 
 (every .public (Projection it)
   (//.Projection [Env Natural (List Type)]
@@ -161,26 +162,30 @@
     (try#each (|>> [[env items_read pass_through]])
               (value' env poly types))))
 
-(the (label idx)
-  (-> Natural
+(the (label prefix idx)
+  (-> Text Natural
       Code)
-  (code.local (text "label" text.tab (n#as idx))))
+  (code.local (text prefix text.tab (n#as idx))))
 
-(the .public (with_extension type poly)
+(the .public (with_extension [abstraction argument] poly)
   (for_any (_ it)
-    (-> Type (Projection it)
-        (Projection [Code it])))
+    (-> [Type Type] (Projection it)
+        (Projection [[Code Code] it])))
   (.function (_ [env inputs])
     (let [current_id (dictionary.size env)
-          'var (label current_id)]
-      (when (//.value [(dictionary.has current_id [type 'var] env)
+          'abstraction (label "abstraction" current_id)
+          'argument (label "argument" current_id)]
+      (when (//.value [(dictionary.has current_id
+                                       [[abstraction 'abstraction]
+                                        [argument 'argument]]
+                                       env)
                        inputs]
                       poly)
-        {try.#Failure error}
-        {try.#Failure error}
-
         {try.#Success [[_ inputs'] output]}
-        {try.#Success [[env inputs'] ['var output]]}))))
+        {try.#Success [[env inputs'] [['abstraction 'argument] output]]}
+
+        {try.#Failure error}
+        {try.#Failure error}))))
 
 (template.with [<name> <flattener> <exception>]
   [(`` (the .public (<name> poly)
@@ -192,7 +197,7 @@
            (let [members (<flattener> (/.anonymous headT))]
              (if (n.> 1 (list.size members))
                  (local members poly)
-                 (//.failure (exception.error <exception> headT)))))))]
+                 (//.failure (exception.error <exception> [headT])))))))]
 
   [variant /.flat_variant ..not_variant]
   [tuple   /.flat_tuple   ..not_tuple]
@@ -216,29 +221,33 @@
      funcI (by ! each dictionary.size ..env)
      [num_args non_poly] (local (list headT) ..polymorphic')
      env ..env
-     .let [funcL (label funcI)
+     .let [funcL (label "abstraction" funcI)
            [all_varsL env'] (loop (again [current_arg 0
                                           env' env
                                           all_varsL (is (List Code) (list))])
                               (if (n.< num_args current_arg)
                                   (if (n.= 0 current_arg)
-                                      (let [varL (label (++ funcI))]
+                                      (let [varL (label "argument" (++ funcI))]
                                         (again (++ current_arg)
                                                (|> env'
-                                                   (dictionary.has funcI [headT funcL])
-                                                   (dictionary.has (++ funcI) [{.#Parameter (++ funcI)} varL]))
+                                                   (dictionary.has funcI [[headT funcL]
+                                                                          [{.#Parameter .argument funcI} varL]]))
                                                (list#composite (list varL) all_varsL)))
-                                      (let [partialI (|> current_arg (n.* 2) (n.+ funcI))
-                                            partial_varI (++ partialI)
-                                            partial_varL (label partial_varI)
+                                      (let [partial_level (n.+ funcI)
+                                            partial_var (|>> partial_level (label "partial"))
+
+                                            partial_argument (partial_level current_arg)
+                                            'partial_var (partial_var current_arg)
                                             partialC (` ((, funcL) (,* (|> (list.indices num_args)
-                                                                           (list#each (|>> (n.* 2) ++ (n.+ funcI) label))
+                                                                           (list#each partial_var)
                                                                            list.reversed))))]
                                         (again (++ current_arg)
                                                (|> env'
-                                                   (dictionary.has partialI [(recursion_parameter) partialC])
-                                                   (dictionary.has partial_varI [{.#Parameter partial_varI} partial_varL]))
-                                               (list#composite (list partial_varL) all_varsL))))
+                                                   (dictionary.has partial_argument [[(recursion_parameter)
+                                                                                      partialC]
+                                                                                     [{.#Parameter .argument partial_argument}
+                                                                                      'partial_var]]))
+                                               (list#composite (list 'partial_var) all_varsL))))
                                   [all_varsL env']))]]
     (<| (with_env env')
         (local (list non_poly))
@@ -287,10 +296,9 @@
 (the .public (argument env idx)
   (-> Env Natural
       Natural)
-  (let [env_level (n./ 2 (dictionary.size env))
-        parameter_level (n./ 2 idx)
-        parameter_idx (n.% 2 idx)]
-    (|> env_level -- (n.- parameter_level) (n.* 2) (n.+ parameter_idx))))
+  (|> (dictionary.size env)
+      --
+      (n.- idx)))
 
 (the .public parameter
   (Projection Code)
@@ -298,16 +306,19 @@
     [env ..env
      headT any]
     (when headT
-      {.#Parameter idx}
+      {.#Parameter parameter idx}
       (when (dictionary.value (..argument env idx) env)
-        {try.#Success [poly_type poly_code]}
-        (in poly_code)
+        {try.#Success [[abstraction_type abstraction_code]
+                       [argument_type argument_code]]}
+        (in (when parameter
+              .abstraction abstraction_code
+              .argument argument_code))
 
         failure
-        (//.failure (exception.error ..unknown_parameter headT)))
+        (//.failure (exception.error ..unknown_parameter [headT])))
 
       _
-      (//.failure (exception.error ..not_parameter headT)))))
+      (//.failure (exception.error ..not_parameter [headT])))))
 
 (the .public (this_parameter id)
   (-> Natural
@@ -316,10 +327,10 @@
     [env ..env
      headT any]
     (when headT
-      {.#Parameter idx}
+      {.#Parameter .argument idx}
       (if (n.= id (..argument env idx))
           (in [])
-          (//.failure (exception.error ..wrong_parameter [{.#Parameter id} headT])))
+          (//.failure (exception.error ..wrong_parameter [{.#Parameter .argument id} headT])))
 
       _
       (//.failure (exception.error ..not_parameter headT)))))
@@ -355,10 +366,9 @@
     (when (/.anonymous headT)
       (..recursive_definition headT')
       (do !
-        [[recT _ output] (|> poly
-                             (with_extension (recursion_parameter))
-                             (with_extension headT)
-                             (local (list headT')))]
+        [[[recT _] output] (|> poly
+                               (with_extension [headT (recursion_parameter)])
+                               (local (list headT')))]
         (in [recT output]))
 
       _
@@ -371,7 +381,8 @@
      headT any]
     (when (/.anonymous headT)
       (^.multi (..recursive_iteration)
-               [(dictionary.value 0 env) {try.#Success [self_type self_call]}])
+               [(dictionary.value 0 env) {try.#Success [[self_type self_call]
+                                                        [argument_type argument_call]]}])
       (in self_call)
 
       _

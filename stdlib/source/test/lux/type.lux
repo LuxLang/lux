@@ -69,7 +69,7 @@
   (Random Type)
   (|> (random.alpha_numeric 1)
       (by random.monad each (function (_ name)
-                              {.#Nominal name (stack)}))))
+                              {.#Nominal name (list)}))))
 
 (the test|matches
   Test
@@ -168,52 +168,46 @@
                (!expect (^.multi {try.#Failure error}
                                  (exception.is? \\projection.not_parameter error)))))
          (_.coverage [\\projection.unknown_parameter]
-           (|> (\\projection.value \\projection.parameter {.#Parameter parameter})
+           (|> (\\projection.value \\projection.parameter {.#Parameter .argument parameter})
                (!expect (^.multi {try.#Failure error}
                                  (exception.is? \\projection.unknown_parameter error)))))
          (_.coverage [\\projection.with_extension]
-           (|> (\\projection.value (<| (\\projection.with_extension quantification)
-                                       (\\projection.with_extension argument)
+           (|> (\\projection.value (<| (\\projection.with_extension [quantification argument])
                                        \\projection.any)
                                    not_parameter)
-               (!expect (^.multi {try.#Success [quantification::binding argument::binding actual]}
+               (!expect (^.multi {try.#Success [[quantification::binding argument::binding] actual]}
                                  (same? not_parameter actual)))))
          (_.coverage [\\projection.parameter]
-           (|> (\\projection.value (<| (\\projection.with_extension quantification)
-                                       (\\projection.with_extension argument)
+           (|> (\\projection.value (<| (\\projection.with_extension [quantification argument])
                                        \\projection.parameter)
-                                   {.#Parameter 0})
-               (!expect {try.#Success [quantification::binding argument::binding _]})))
+                                   {.#Parameter .abstraction 0})
+               (!expect {try.#Success [[quantification::binding argument::binding] _]})))
          (_.coverage [\\projection.argument]
            (let [argument? (is (-> Natural Natural Bit)
                                (function (_ @ expected)
-                                 (|> (\\projection.value (<| (\\projection.with_extension quantification)
-                                                             (\\projection.with_extension argument)
-                                                             (\\projection.with_extension quantification)
-                                                             (\\projection.with_extension argument)
+                                 (|> (\\projection.value (<| (\\projection.with_extension [quantification argument])
+                                                             (\\projection.with_extension [quantification argument])
                                                              (do <>.monad
                                                                [env \\projection.env
                                                                 _ \\projection.any]
                                                                (in (\\projection.argument env @))))
                                                          not_parameter)
-                                     (!expect (^.multi {try.#Success [_ _ _ _ actual]}
+                                     (!expect (^.multi {try.#Success [[_ _] [_ _] actual]}
                                                        (n.= expected actual))))))]
              (and (argument? 0 2)
                   (argument? 1 3)
                   (argument? 2 0))))
          (_.coverage [\\projection.wrong_parameter]
-           (|> (\\projection.value (<| (\\projection.with_extension quantification)
-                                       (\\projection.with_extension argument)
+           (|> (\\projection.value (<| (\\projection.with_extension [quantification argument])
                                        (\\projection.this_parameter 1))
-                                   {.#Parameter 0})
+                                   {.#Parameter .abstraction 0})
                (!expect (^.multi {try.#Failure error}
                                  (exception.is? \\projection.wrong_parameter error)))))
          (_.coverage [\\projection.this_parameter]
-           (|> (\\projection.value (<| (\\projection.with_extension quantification)
-                                       (\\projection.with_extension argument)
+           (|> (\\projection.value (<| (\\projection.with_extension [quantification argument])
                                        (\\projection.this_parameter 0))
-                                   {.#Parameter 0})
-               (!expect {try.#Success [quantification::binding argument::binding _]})))
+                                   {.#Parameter .abstraction 0})
+               (!expect {try.#Success [[quantification::binding argument::binding] _]})))
          )))
 
 (the test|polymorphic
@@ -370,17 +364,23 @@
      (let [pairG (random.and again again)
            un_parameterized (is (Random Type)
                                 (all random.either
-                                     (random#each (|>> {.#Nominal}) (random.and ..proper (random.stack 0 again)))
-                                     (random#each (|>> {.#Nominal}) (random.and ..proper (random.stack 1 again)))
-                                     (random#each (|>> {.#Nominal}) (random.and ..proper (random.stack 2 again)))
-                                     (random#each (|>> {.#Sum}) pairG)
-                                     (random#each (|>> {.#Product}) pairG)
-                                     (random#each (|>> {.#Function}) pairG)
+                                     (random#each (|>> {.#Nominal}) (random.and ..proper (random.list 0 (random.and random.bit again))))
+                                     (random#each (|>> {.#Nominal}) (random.and ..proper (random.list 1 (random.and random.bit again))))
+                                     (random#each (|>> {.#Nominal}) (random.and ..proper (random.list 2 (random.and random.bit again))))
+                                     (random#each (function (_ [left right])
+                                                    (/.Sum left right))
+                                                  pairG)
+                                     (random#each (function (_ [left right])
+                                                    (/.Product left right))
+                                                  pairG)
+                                     (random#each (function (_ [left right])
+                                                    (/.Function left right))
+                                                  pairG)
                                      ))]
        (when parameters
          0 un_parameterized
          _ (|> random.natural
-               (random#each (|>> (n.% parameters) {.#Parameter}))
+               (random#each (|>> (n.% parameters) {.#Parameter .argument}))
                (random.either un_parameterized)))))))
 
 (the .public (random parameters)
@@ -423,7 +423,8 @@
               members (|> (..random 0)
                           (random.only (function (_ type)
                                          (when type
-                                           (^.or {.#Sum _} {.#Product _})
+                                           (^.or (/.Sum left right)
+                                                 (/.Product left right))
                                            false
 
                                            _
@@ -451,7 +452,7 @@
                       (do maybe.monad
                         [partial (/.reified (list Bit) Annotated)
                          full (/.reified (list Integer) partial)]
-                        (in (by /.equivalence = full {.#Product Bit Integer}))))
+                        (in (by /.equivalence = full (/.Product Bit Integer)))))
                   (|> (/.reified (list Bit) Text)
                       (pipe.when
                         {.#None}
@@ -465,7 +466,10 @@
               extra (|> (..random 0)
                         (random.only (function (_ type)
                                        (when type
-                                         (^.or {.#Function _} {.#Reification _})
+                                         (/.Function left right)
+                                         false
+
+                                         {.#Reification _}
                                          false
 
                                          _
@@ -491,7 +495,8 @@
               body_type (|> (..random 0)
                             (random.only (function (_ type)
                                            (when type
-                                             (^.or {.#Universal _} {.#Existential _})
+                                             (^.or {.#Quantification .universal _}
+                                                   {.#Quantification .existential _})
                                              false
 
                                              _
@@ -517,7 +522,7 @@
               element_type (|> (..random 0)
                                (random.only (function (_ type)
                                               (when type
-                                                {.#Nominal name (stack element_type)}
+                                                {.#Nominal name (list [polarity element_type])}
                                                 (not (text.= array.nominal name))
 
                                                 _

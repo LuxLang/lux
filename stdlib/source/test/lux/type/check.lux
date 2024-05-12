@@ -50,20 +50,26 @@
    (function (_ again)
      (let [pairG (random.and again again)
            quantifiedG (random.and (random#in (stack)) (type' (++ num_vars)))
-           random_pair (random.either (random.either (random#each (|>> {.#Sum}) pairG)
-                                                     (random#each (|>> {.#Product}) pairG))
-                                      (random.either (random#each (|>> {.#Function}) pairG)
+           random_pair (random.either (random.either (random#each (function (_ [left right])
+                                                                    (//.Sum left right))
+                                                                  pairG)
+                                                     (random#each (function (_ [left right])
+                                                                    (//.Product left right))
+                                                                  pairG))
+                                      (random.either (random#each (function (_ [left right])
+                                                                    (//.Function left right))
+                                                                  pairG)
                                                      (random#each (|>> {.#Reification}) pairG)))
            random_id (let [random_id (random.either (random#each (|>> {.#Variable}) random.natural)
                                                     (random#each (|>> {.#Opaque}) random.natural))]
                        (when num_vars
                          0 random_id
-                         _ (random.either (random#each (|>> (n.% num_vars) (n.* 2) ++ {.#Parameter}) random.natural)
+                         _ (random.either (random#each (|>> (n.% num_vars) {.#Parameter .argument}) random.natural)
                                           random_id)))
-           random_quantified (random.either (random#each (|>> {.#Universal}) quantifiedG)
-                                            (random#each (|>> {.#Existential}) quantifiedG))]
+           random_quantified (random.either (random#each (|>> {.#Quantification .universal}) quantifiedG)
+                                            (random#each (|>> {.#Quantification .existential}) quantifiedG))]
        (all random.either
-            (random#each (|>> {.#Nominal}) (random.and ..proper (random#in (stack))))
+            (random#each (|>> {.#Nominal}) (random.and ..proper (random#in (list))))
             random_pair
             random_id
             random_quantified
@@ -77,20 +83,22 @@
 (the (valid_type? type)
   (-> Type Bit)
   (`` (when type
-        {.#Nominal name params}
-        (stack.every? valid_type? params)
-        
-        {.#Opaque id}
-        true
-
         (,, (template.with [<tag>]
-              [{<tag> left right}
+              [(<tag> left right)
                (and (valid_type? left)
                     (valid_type? right))]
 
-              [.#Sum]
-              [.#Product]
-              [.#Function]))
+              [//.Sum]
+              [//.Product]
+              [//.Function]))
+
+        {.#Nominal name params}
+        (list.every? (function (_ [polarity it])
+                       (valid_type? it))
+                     params)
+        
+        {.#Opaque id}
+        true
 
         {.#Named name type'}
         (valid_type? type')
@@ -125,7 +133,8 @@
   (-> Natural (Random Type))
   (do random.monad
     [nominal (random.upper_cased 3)
-     parameters (random.stack parameters (nominal_type (-- parameters)))]
+     parameters (random.list parameters (random.and random.bit
+                                                    (nominal_type (-- parameters))))]
     (in {.#Nominal nominal parameters})))
 
 (the clean_type
@@ -257,7 +266,7 @@
   (Random Type)
   (do random.monad
     [name (random.upper_cased 10)]
-    (in {.#Nominal name (stack)})))
+    (in {.#Nominal name (list)})))
 
 (the (non_twins = random)
   (for_any (_ a) (-> (-> a a Bit) (Random a) (Random [a a])))
@@ -275,22 +284,22 @@
 (the (handles_nominal_types! name/0 name/1 parameter/0 parameter/1)
   (-> Text Text Type Type Bit)
   (let [names_matter!
-        (and (..succeeds? (/.check {.#Nominal name/0 (stack)}
-                                   {.#Nominal name/0 (stack)}))
-             (..fails? (/.check {.#Nominal name/0 (stack)}
-                                {.#Nominal name/1 (stack)})))
+        (and (..succeeds? (/.check {.#Nominal name/0 (list)}
+                                   {.#Nominal name/0 (list)}))
+             (..fails? (/.check {.#Nominal name/0 (list)}
+                                {.#Nominal name/1 (list)})))
 
         parameters_matter!
-        (and (..succeeds? (/.check {.#Nominal name/0 (stack parameter/0)}
-                                   {.#Nominal name/0 (stack parameter/0)}))
-             (..fails? (/.check {.#Nominal name/0 (stack parameter/0)}
-                                {.#Nominal name/0 (stack parameter/1)})))
+        (and (..succeeds? (/.check {.#Nominal name/0 (list [.co_variant parameter/0])}
+                                   {.#Nominal name/0 (list [.co_variant parameter/0])}))
+             (..fails? (/.check {.#Nominal name/0 (list [.co_variant parameter/0])}
+                                {.#Nominal name/0 (list [.co_variant parameter/1])})))
 
         covariant_parameters!
-        (and (..succeeds? (/.check {.#Nominal name/0 (stack Super)}
-                                   {.#Nominal name/0 (stack Sub)}))
-             (..fails? (/.check {.#Nominal name/0 (stack Sub)}
-                                {.#Nominal name/0 (stack Super)})))]
+        (and (..succeeds? (/.check {.#Nominal name/0 (list [.co_variant Super])}
+                                   {.#Nominal name/0 (list [.co_variant Sub])}))
+             (..fails? (/.check {.#Nominal name/0 (list [.co_variant Sub])}
+                                {.#Nominal name/0 (list [.co_variant Super])})))]
     (and names_matter!
          parameters_matter!
          covariant_parameters!)))
@@ -298,15 +307,15 @@
 (template.with [<assertion> <combinator>]
   [(the (<assertion> name/0 name/1)
      (-> Text Text Bit)
-     (let [pair/0 {<combinator> {.#Nominal name/0 (stack)} {.#Nominal name/0 (stack)}}
-           pair/1 {<combinator> {.#Nominal name/1 (stack)} {.#Nominal name/1 (stack)}}
+     (let [pair/0 (<combinator> {.#Nominal name/0 (list)} {.#Nominal name/0 (list)})
+           pair/1 (<combinator> {.#Nominal name/1 (list)} {.#Nominal name/1 (list)})
            
            invariant!
            (and (..succeeds? (/.check pair/0 pair/0))
                 (..fails? (/.check pair/0 pair/1)))
 
-           super_pair {<combinator> Super Super}
-           sub_pair {<combinator> Sub Sub}
+           super_pair (<combinator> Super Super)
+           sub_pair (<combinator> Sub Sub)
            
            covariant!
            (and (..succeeds? (/.check super_pair sub_pair))
@@ -314,17 +323,17 @@
        (and invariant!
             covariant!)))]
 
-  [handles_products! .#Product]
-  [handles_sums! .#Sum]
+  [handles_products! //.Product]
+  [handles_sums! //.Sum]
   )
 
 (the (handles_function_variance! nominal)
   (-> Type Bit)
   (let [functions_have_contravariant_inputs!
-        (..succeeds? (/.check {.#Function Sub nominal} {.#Function Super nominal}))
+        (..succeeds? (/.check (//.Function Sub nominal) (//.Function Super nominal)))
         
         functions_have_covariant_outputs!
-        (..succeeds? (/.check {.#Function nominal Super} {.#Function nominal Sub}))]
+        (..succeeds? (/.check (//.Function nominal Super) (//.Function nominal Sub)))]
     (and functions_have_contravariant_inputs!
          functions_have_covariant_outputs!)))
 
@@ -576,29 +585,33 @@
                        [leftT dirty_type
                         rightT dirty_type]
                        (in (function (_ holeT)
-                             {<tag> (leftT holeT) (rightT holeT)})))]
+                             (<tag> (leftT holeT) (rightT holeT)))))]
 
-                    [.#Sum]
-                    [.#Product]
-                    [.#Function]
-                    [.#Reification]
+                    [//.Sum]
+                    [//.Product]
+                    [//.Function]
                     ))
+              (do random.monad
+                [leftT dirty_type
+                 rightT dirty_type]
+                (in (function (_ holeT)
+                      {.#Reification (leftT holeT) (rightT holeT)})))
               (do [! random.monad]
                 [name (random.upper_cased 10)
                  parameterT dirty_type]
                 (in (function (_ holeT)
-                      {.#Nominal name (stack (parameterT holeT))})))
+                      {.#Nominal name (list [.co_variant (parameterT holeT)])})))
               (,, (template.with [<tag>]
                     [(do [! random.monad]
                        [funcT dirty_type
                         argT dirty_type
                         body random.natural]
                        (in (function (_ holeT)
-                             {<tag> (stack (funcT holeT) (argT holeT))
-                                    {.#Parameter body}})))]
+                             {.#Quantification <tag> (stack [(funcT holeT) (argT holeT)])
+                                               {.#Parameter .argument body}})))]
 
-                    [.#Universal]
-                    [.#Existential]
+                    [.universal]
+                    [.existential]
                     ))
               )))))
 
@@ -641,16 +654,16 @@
   (do random.monad
     [nominal (random.upper_cased 10)
      example ..clean_type]
-    (in (and (/.< {.#Nominal nominal (stack)}
-                  {.#Nominal nominal (stack)})
-             (/.< {.#Nominal nominal (stack .Any)}
-                  {.#Nominal nominal (stack example)})
-             (not (/.< {.#Nominal nominal (stack example)}
-                       {.#Nominal nominal (stack .Any)}))
-             (/.< {.#Nominal nominal (stack example)}
-                  {.#Nominal nominal (stack .Nothing)})
-             (not (/.< {.#Nominal nominal (stack .Nothing)}
-                       {.#Nominal nominal (stack example)}))
+    (in (and (/.< {.#Nominal nominal (list)}
+                  {.#Nominal nominal (list)})
+             (/.< {.#Nominal nominal (list [.co_variant .Any])}
+                  {.#Nominal nominal (list [.co_variant example])})
+             (not (/.< {.#Nominal nominal (list [.co_variant example])}
+                       {.#Nominal nominal (list [.co_variant .Any])}))
+             (/.< {.#Nominal nominal (list [.co_variant example])}
+                  {.#Nominal nominal (list [.co_variant .Nothing])})
+             (not (/.< {.#Nominal nominal (list [.co_variant .Nothing])}
+                       {.#Nominal nominal (list [.co_variant example])}))
              ))))
 
 (the for_subsumption|sum
@@ -658,14 +671,14 @@
   (do random.monad
     [left ..clean_type
      right ..clean_type]
-    (in (and (/.< {.#Sum .Any .Any}
-                  {.#Sum left right})
-             (not (/.< {.#Sum left right}
-                       {.#Sum .Any .Any}))
-             (/.< {.#Sum left right}
-                  {.#Sum .Nothing .Nothing})
-             (not (/.< {.#Sum .Nothing .Nothing}
-                       {.#Sum left right}))
+    (in (and (/.< (//.Sum .Any .Any)
+                  (//.Sum left right))
+             (not (/.< (//.Sum left right)
+                       (//.Sum .Any .Any)))
+             (/.< (//.Sum left right)
+                  (//.Sum .Nothing .Nothing))
+             (not (/.< (//.Sum .Nothing .Nothing)
+                       (//.Sum left right)))
              ))))
 
 (the for_subsumption|product
@@ -673,14 +686,14 @@
   (do random.monad
     [left ..clean_type
      right ..clean_type]
-    (in (and (/.< {.#Product .Any .Any}
-                  {.#Product left right})
-             (not (/.< {.#Product left right}
-                       {.#Product .Any .Any}))
-             (/.< {.#Product left right}
-                  {.#Product .Nothing .Nothing})
-             (not (/.< {.#Product .Nothing .Nothing}
-                       {.#Product left right}))
+    (in (and (/.< (//.Product .Any .Any)
+                  (//.Product left right))
+             (not (/.< (//.Product left right)
+                       (//.Product .Any .Any)))
+             (/.< (//.Product left right)
+                  (//.Product .Nothing .Nothing))
+             (not (/.< (//.Product .Nothing .Nothing)
+                       (//.Product left right)))
              ))))
 
 (the for_subsumption|function
@@ -688,12 +701,12 @@
   (do random.monad
     [left ..clean_type
      right ..clean_type]
-    (in (and (/.< {.#Function .Nothing .Any}
-                  {.#Function left right})
-             (not (/.< {.#Function left right}
-                       {.#Function .Nothing .Any}))
-             (not (/.< {.#Function .Any .Nothing}
-                       {.#Function left right}))
+    (in (and (/.< (//.Function .Nothing .Any)
+                  (//.Function left right))
+             (not (/.< (//.Function left right)
+                       (//.Function .Nothing .Any)))
+             (not (/.< (//.Function .Any .Nothing)
+                       (//.Function left right)))
              ))))
 
 (template.with [<tag> <name>]
