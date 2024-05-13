@@ -8,7 +8,7 @@
    [abstract
     [monad (.only do)]]
    [error
-    ["[0]" try (.only Try) (.use "[1]#[0]" functor)]
+    ["[0]" try (.only Try)]
     ["[0]" exception (.only Exception)]]
    [data
     [collection
@@ -21,6 +21,23 @@
     ["^" pattern]
     ["[0]" template]]]]
  ["[0]" //])
+
+(the try#in
+  (template.macro (_ ,it)
+    [{try.#Success ,it}]))
+
+(the try#let
+  (template.macro (_ ,binding ,value ,body)
+    [(when ,value
+       {try.#Success ,binding}
+       ,body
+
+       {try.#Failure error}
+       {try.#Failure error})]))
+
+(the try#each
+  (template.macro (_ ,binding ,value ,body)
+    [(try#let ,binding ,value (try#in ,body))]))
 
 (every .public Binding
   (Maybe Type))
@@ -49,6 +66,10 @@
 
 (the It ..Environment)
 
+(every .public Change
+  (-> ..It
+      (Try ..It)))
+
 (the .public empty
   ..It
   (list))
@@ -66,8 +87,8 @@
           (exception.except ..not_known [expected])))))
 
 (the .public (has variable it)
-  (-> //.Variable ..It
-      (Try ..It))
+  (-> //.Variable
+      Change)
   (when (..position variable it)
     {try.#Failure error}
     {try.#Success (list#composite it (list [variable (..un_bound)]))}
@@ -104,56 +125,47 @@
                   {.#None}))))
 
 (the (revised expected binding it)
-  (-> //.Variable Binding ..It
-      (Try ..It))
-  (|> it
-      (..position expected)
-      (try#each (function (_ item)
-                  (list.revised item
-                                (function (_ [actual var_type])
-                                  [actual binding])
-                                it)))))
+  (-> //.Variable Binding
+      Change)
+  (<| (try#each item (..position expected it))
+      (list.revised item
+                    (function (_ [actual var_type])
+                      [actual binding])
+                    it)))
 
 (the .public (binding variable it)
   (-> //.Variable
       (Query Binding))
-  (|> (..its variable it)
-      (try#each (function (_ it)
-                  (when it
-                    (^.or (..bound {.#Variable _})
-                          (..un_bound))
-                    (..un_bound)
+  (<| (try#each it (..its variable it))
+      (when it
+        (^.or (..bound {.#Variable _})
+              (..un_bound))
+        (..un_bound)
 
-                    bound
-                    bound)))))
+        bound
+        bound)))
 
 (the .public (type variable it)
   (-> //.Variable
       (Query Type))
-  (do try.monad
-    [it (..binding variable it)]
-    (when it
-      (..bound it)
-      (in it)
+  (<| (try#let it (..binding variable it))
+      (when it
+        (..bound it)
+        (try#in it)
 
-      un_bound
-      (exception.except ..not_bound [variable]))))
+        un_bound
+        (exception.except ..not_bound [variable]))))
 
 (the .public (bound? variable it)
   (-> //.Variable
       (Query Bit))
-  (do try.monad
-    [it (..binding variable it)]
-    (in (when it
-          (..bound it)
-          true
+  (<| (try#let it (..binding variable it))
+      (try#in (when it
+                (..bound it)
+                true
 
-          un_bound
-          false))))
-
-(every .public Change
-  (-> ..It
-      (Try ..It)))
+                un_bound
+                false))))
 
 (exception.the .public (cannot_bind_again [variable wanted current])
   (Exception [//.Variable Type Type])
@@ -165,21 +177,19 @@
 (the .public (new variable type it)
   (-> //.Variable Type
       Change)
-  (do try.monad
-    [binding (..its variable it)]
-    (when binding
-      (..un_bound)
-      (..revised variable {.#Some type} it)
+  (<| (try#let binding (..its variable it))
+      (when binding
+        (..un_bound)
+        (..revised variable {.#Some type} it)
 
-      (..bound current)
-      (exception.except ..cannot_bind_again [variable type current]))))
+        (..bound current)
+        (exception.except ..cannot_bind_again [variable type current]))))
 
 (the .public (changed variable binding it)
   (-> //.Variable Binding
       Change)
-  (do try.monad
-    [variable_is_known! (..its variable it)]
-    (..revised variable binding it)))
+  (<| (try#let variable_is_known! (..its variable it))
+      (..revised variable binding it)))
 
 (every .public Ring
   (Stack //.Variable))
@@ -210,18 +220,14 @@
       {try.#Failure error}
       {try.#Failure error})))
 
-... TODO: Can be optimized...
 (the .public (two left right it)
   (-> //.Variable //.Variable
       Change)
-  (do try.monad
-    [it (..new left {.#Variable right} it)]
-    (..new right {.#Variable left} it)))
+  (<| (try#let it (..new left {.#Variable right} it))
+      (..new right {.#Variable left} it)))
 
-... TODO: Can be optimized...
 (the .public (three interpose to from it)
   (-> //.Variable //.Variable //.Variable
       Change)
-  (do try.monad
-    [it (..changed from (..bound {.#Variable interpose}) it)]
-    (..changed interpose (..bound {.#Variable to}) it)))
+  (<| (try#let it (..changed from (..bound {.#Variable interpose}) it))
+      (..changed interpose (..bound {.#Variable to}) it)))
