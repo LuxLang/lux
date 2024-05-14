@@ -1,5 +1,6 @@
 # Reference
 
+0. [Pushing CSS :has() to its limits - hover-highlighted parentheses, variable bindings, and more](https://blog.mjgrzymek.com/blog/css-has)
 0. [Tree-edit: Structural editing in Emacs for any™ language!](https://github.com/ethan-leba/tree-edit)
 0. [Awesome Structure Editors](https://github.com/yairchu/awesome-structure-editors)
 0. [Restructuring Structure Editing](https://tylr.fun/essay/)

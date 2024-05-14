@@ -17,36 +17,43 @@
     ["[0]" nominal]
     ["[0]" variance (.only Mutable)]]]])
 
-(every .public (Thread ! a)
-  (-> ! a))
+(every .public (Thread thread it)
+  (-> thread
+      it))
 
-(nominal.every (Box'' t a)
-  (Array a)
+(nominal.every (Box' thread r w)
+  (Array (Mutable r w))
 
-  (every .public (Box' t r w)
-    (Box'' t (Mutable r w)))
-
-  (every .public (Box t a)
-    (Box'' t (Mutable a a)))
+  (every .public (Box thread it)
+    (Box' thread it it))
 
   (the .public (box init)
-    (for_any (_ a) (-> a (for_any (_ !) (Thread ! (Box ! a)))))
-    (function (_ !)
+    (for_any (_ it)
+      (-> it
+          (for_any (_ thread)
+            (Thread thread (Box thread it)))))
+    (function (_ thread)
       (|> (array.empty 1)
           (array.has! 0 (variance.write init))
           nominal.abstraction)))
 
   (the .public (read! box)
-    (for_any (_ ! r w) (-> (Box' ! r w) (Thread ! r)))
-    (function (_ !)
+    (for_any (_ thread to_read to_write)
+      (-> (Box' thread to_read to_write)
+          (Thread thread to_read)))
+    (function (_ thread)
       (|> box
           nominal.reification
           (array.item 0)
           variance.read)))
 
   (the .public (write! value box)
-    (for_any (_ r w) (-> w (for_any (_ !) (-> (Box' ! r w) (Thread ! Any)))))
-    (function (_ !)
+    (for_any (_ to_read to_write)
+      (-> to_write
+          (for_any (_ thread)
+            (-> (Box' thread to_read to_write)
+                (Thread thread Any)))))
+    (function (_ thread)
       (|> box
           nominal.reification
           (array.has! 0 (variance.write value))
@@ -54,42 +61,49 @@
   )
 
 (the .public (value thread)
-  (for_any (_ a)
-    (-> (for_any (_ !) (Thread ! a))
-        a))
-  (thread []))
+  (for_any (_ it thread)
+    (-> (Thread thread it)
+        it))
+  (thread (as_expected [])))
 
 (the .public io
-  (for_any (_ a)
-    (-> (for_any (_ !) (Thread ! a))
-        (IO a)))
-  (|>> ..value io.io))
+  (for_any (_ it thread)
+    (-> (Thread thread it)
+        (IO it)))
+  (|>> ..value
+       io.io))
 
 (the .public functor
-  (for_any (_ !) (Functor (Thread !)))
+  (for_any (_ thread)
+    (Functor (Thread thread)))
   (implementation
    (the (each f)
      (function (_ fa)
-       (function (_ !)
-         (f (fa !)))))))
+       (function (_ thread)
+         (f (fa thread)))))))
 
 (the .public monad
-  (for_any (_ !) (Monad (Thread !)))
+  (for_any (_ thread)
+    (Monad (Thread thread)))
   (implementation
    (the functor ..functor)
 
    (the (in value)
-     (function (_ !)
+     (function (_ thread)
        value))
 
    (the (conjoint ffa)
-     (function (_ !)
-       ((ffa !) !)))))
+     (function (_ thread)
+       ((ffa thread) thread)))))
 
-(the .public (update! f box)
-  (for_any (_ ! r w) (-> (-> r w) (Box' ! r w) (Thread ! [r w])))
+(the .public (update! change box)
+  (for_any (_ to_read to_write)
+    (-> (-> to_read to_write)
+        (for_any (_ thread)
+          (-> (Box' thread to_read to_write)
+              (Thread thread [to_read to_write])))))
   (do ..monad
     [old (read! box)
-     .let [new (f old)]
+     .let [new (change old)]
      _ (write! new box)]
     (in [old new])))
