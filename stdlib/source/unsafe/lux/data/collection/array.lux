@@ -22,10 +22,10 @@
 (the name_of_type
   (.type_name# "array"))
 
-(`` (every .public (Array' read write)
+(`` (every .public (Array' to_write to_read)
       {.#Nominal (,, (static ..name_of_type))
-                 (list [(,, (static ..contra_variant)) write]
-                       [(,, (static ..co_variant)) read])}))
+                 (list [(,, (static ..contra_variant)) to_write]
+                       [(,, (static ..co_variant)) to_read])}))
 
 (every .public (Array it)
   (Array' it it))
@@ -35,11 +35,9 @@
 
 (the .public empty
   (macro (_ ,size)
-    [((.is (.for_any (_ it)
-             (.-> ..Index
-                  (..Array it)))
-           (.function (_ size)
-             (.array# size)))
+    [((.is (.-> ..Index
+                ..Array)
+           (.|>> .array#))
       ,size)]))
 
 (the .public size
@@ -50,11 +48,23 @@
   (macro (_ ,reference ,it)
     [(.int_<# (.integer ,reference) (.integer ,it))]))
 
+(the n#after
+  (macro (_ ,offset ,it)
+    [(.i64_+# ,offset ,it)]))
+
+(`` (the n#next
+      (macro (_ ,it)
+        [(,, (n#after 1 ,it))])))
+
+(the n#previous
+  (macro (_ ,it)
+    [(.i64_-# 1 ,it)]))
+
 (`` (the .public has?
       (macro (_ ,index ,it)
-        [((.is (.for_any (_ read write)
+        [((.is (.for_any (_ to_write to_read)
                  (.-> ..Index
-                      (predicate.Predicate (..Array' read write))))
+                      (predicate.Predicate (..Array' to_write to_read))))
                (.function (_ index it)
                  (.and (,, (n#< (..size it) index))
                        (.array_has?# index it))))
@@ -78,9 +88,9 @@
 
 (the .public revised!
   (macro (revised! <index> <$> <array>)
-    [((.is (.for_any (_ read write)
-             (.-> ..Index (.-> read write) (..Array' read write)
-                  (..Array' read write)))
+    [((.is (.for_any (_ to_write to_read)
+             (.-> ..Index (.-> to_read to_write)
+                  (.Change (..Array' to_write to_read))))
            (.function (revised! index $ array)
              (.if (..has? index array)
                   (..has! index ($ (..item index array)) array)
@@ -89,9 +99,9 @@
 
 (the .public upsert!
   (macro (upsert! <index> <default> <$> <array>)
-    [((.is (.for_any (_ read write)
-             (.-> ..Index read (.-> read write) (..Array' read write)
-                  (..Array' read write)))
+    [((.is (.for_any (_ to_write to_read)
+             (.-> ..Index to_read (.-> to_read to_write)
+                  (.Change (..Array' to_write to_read))))
            (.function (upsert! index default $ array)
              (..has! index
                      ($ (.if (..has? index array)
@@ -102,48 +112,48 @@
 
 (`` (the .public copy!
       (macro (copy! <length> <src_start> <src_array> <dest_start> <dest_array>)
-        [((.is (.for_any (_ read write any)
-                 (.-> ..Index ..Index (..Array' write any) ..Index (..Array' read write)
-                      (..Array' read write)))
+        [((.is (.for_any (_ to_write to_read any)
+                 (.-> ..Index ..Index (..Array' any to_write) ..Index
+                      (.Change (..Array' to_write to_read))))
                (.function (copy! length src_start src_array dest_start dest_array)
                  (.loop (again [offset 0])
                    (.if (,, (n#< length offset))
                         (.exec
-                          (.if (..has? (.i64_+# offset src_start) src_array)
-                               (..has! (.i64_+# offset dest_start)
-                                       (..item (.i64_+# offset src_start) src_array)
+                          (.if (..has? (,, (n#after offset src_start)) src_array)
+                               (..has! (,, (n#after offset dest_start))
+                                       (..item (,, (n#after offset src_start)) src_array)
                                        dest_array)
-                               (..lacks! (.i64_+# offset dest_start) dest_array))
-                          (again (.i64_+# 1 offset)))
+                               (..lacks! (,, (n#after offset dest_start)) dest_array))
+                          (again (,, (n#next offset))))
                         dest_array))))
           <length> <src_start> <src_array> <dest_start> <dest_array>)])))
 
 (with_template [<name> <when_lacks> <when_has>]
   [(`` (the .public <name>
          (macro (<name> <array>)
-           [((.is (.for_any (_ read write)
-                    (.-> (..Array' read write)
+           [((.is (.for_any (_ to_write to_read)
+                    (.-> (..Array' to_write to_read)
                          ..Index))
                   (.function (occupancy array)
                     (.let [size (..size array)]
                       (.loop (again [index 0
                                      it 0])
                         (.if (,, (n#< size index))
-                             (again (.i64_+# 1 index) (.if (..has? index array)
-                                                           <when_has>
-                                                           <when_lacks>))
+                             (again (,, (n#next index)) (.if (..has? index array)
+                                                             <when_has>
+                                                             <when_lacks>))
                              it)))))
              <array>)])))]
 
-  [occupancy it (.i64_+# 1 it)]
-  [vacancy (.i64_+# 1 it) it]
+  [occupancy it (,, (n#next it))]
+  [vacancy (,, (n#next it)) it]
   )
 
 (`` (the .public only!
       (macro (only! <?> <it>)
-        [((.is (.for_any (_ read write)
-                 (.-> (.-> read .Bit) (..Array' read write)
-                      (..Array' read write)))
+        [((.is (.for_any (_ to_write to_read)
+                 (.-> (predicate.Predicate to_read)
+                      (.Change (..Array' to_write to_read))))
                (.function (only! ? it)
                  (.let [size (..size it)]
                    (.loop (again [index 0])
@@ -154,7 +164,7 @@
                                       it
                                       (..lacks! index it))
                                  it)
-                            (again (.i64_+# 1 index)))
+                            (again (,, (n#next index))))
                           it)))))
           <?> <it>)])))
 
@@ -164,8 +174,8 @@
 (with_template [<name> <predicate> <test> <type> <term>]
   [(`` (the .public <name>
          (macro (<name> <?> <it>)
-           [((.is (.for_any (_ read write)
-                    (.-> <predicate> (..Array' read write)
+           [((.is (.for_any (_ to_write to_read)
+                    (.-> <predicate> (..Array' to_write to_read)
                          (try.Try <type>)))
                   (.function (<name> ? it)
                     (.let [size (..size it)]
@@ -175,20 +185,19 @@
                                   (.let [it (..item index it)]
                                     (.if <test>
                                          {try.#Success <term>}
-                                         (again (.i64_+# 1 index))))
-                                  (again (.i64_+# 1 index)))
+                                         (again (,, (n#next index)))))
+                                  (again (,, (n#next index))))
                              {try.#Failure ..no_example})))))
              <?> <it>)])))]
 
-  [example (.-> read .Bit) (? it) read it]
-  [example' (.-> ..Index read .Bit) (? index it) [..Index read] [index it]]
+  [example (predicate.Predicate to_read) (? it) to_read it]
+  [example' (.-> ..Index (predicate.Predicate to_read)) (? index it) [..Index to_read] [index it]]
   )
 
 (the .public clone
   (macro (clone <it>)
     [((.is (.for_any (_ it)
-             (.-> (..Array it)
-                  (..Array it)))
+             (.Change (..Array it)))
            (.function (clone it)
              (.let [size (..size it)]
                (..copy! size 0 it 0 (..empty size)))))
@@ -196,9 +205,9 @@
 
 (`` (the .public =
       (macro (= <//#=> <left/*> <right/*>)
-        [((.is (.for_any (_ read write_left write_right)
-                 (.-> (equivalence.Equivalence read)
-                      (.-> (..Array' read write_left) (..Array' read write_right)
+        [((.is (.for_any (_ any_left any_right to_read)
+                 (.-> (equivalence.Equivalence to_read)
+                      (.-> (..Array' any_left to_read) (..Array' any_right to_read)
                            .Bit)))
                (.function (= //#= left/* right/*)
                  (.let [size (..size left/*)]
@@ -209,38 +218,38 @@
                                      (.if (..has? index right/*)
                                           (.and (//#= (..item index left/*)
                                                       (..item index right/*))
-                                                (again (.i64_+# 1 index)))
+                                                (again (,, (n#next index))))
                                           .false)
                                      (..lacks? index right/*))
                                 true))))))
           <//#=> <left/*> <right/*>)])))
 
-(the .public composite
-  (macro (composite <left/*> <right/*>)
-    [((.is (.for_any (_ it)
-             (.-> (..Array' it .Nothing) (..Array' it .Nothing)
-                  (..Array it)))
-           (.function (composite left/* right/*)
-             (.let [|left| (..size left/*)
-                    |right| (..size right/*)]
-               (.|> (..empty (.i64_+# |left| |right|))
-                    (..copy! |left| 0 left/* 0)
-                    (..copy! |right| 0 right/* |left|)))))
-      <left/*> <right/*>)]))
+(`` (the .public composite
+      (macro (composite <left/*> <right/*>)
+        [((.is (.for_any (_ any_left any_right to_read)
+                 (.-> (..Array' any_left to_read) (..Array' any_right to_read)
+                      (..Array to_read)))
+               (.function (composite left/* right/*)
+                 (.let [|left| (..size left/*)
+                        |right| (..size right/*)]
+                   (.|> (..empty (,, (n#after |left| |right|)))
+                        (..copy! |left| 0 left/* 0)
+                        (..copy! |right| 0 right/* |left|)))))
+          <left/*> <right/*>)])))
 
 (`` (the .public mix
       (macro (mix <$> <init> <it>)
-        [((.is (.for_any (_ read write state)
-                 (.-> (.-> ..Index read state state) state (..Array' read write)
+        [((.is (.for_any (_ to_write to_read state)
+                 (.-> (.-> ..Index to_read (.Change state)) state (..Array' to_write to_read)
                       state))
                (.function (mix $ init it)
                  (.let [size (..size it)]
                    (.loop (again [index 0
                                   so_far init])
                      (.if (,, (n#< size index))
-                          (again (.i64_+# 1 index) (.if (..has? index it)
-                                                        ($ index (..item index it) so_far)
-                                                        so_far))
+                          (again (,, (n#next index)) (.if (..has? index it)
+                                                          ($ index (..item index it) so_far)
+                                                          so_far))
                           so_far)))))
           <$> <init> <it>)])))
 
@@ -257,17 +266,17 @@
 (with_template [<name> <init> <op>]
   [(`` (the .public <name>
          (macro (<name> <?> <it>)
-           [((.is (.for_any (_ read write)
-                    (.-> (predicate.Predicate read)
-                         (predicate.Predicate (..Array' read write))))
+           [((.is (.for_any (_ to_write to_read)
+                    (.-> (predicate.Predicate to_read)
+                         (predicate.Predicate (..Array' to_write to_read))))
                   (.function (<name> ? it)
                     (.let [size (..size it)]
                       (.loop (again [index 0])
                         (.if (,, (n#< size index))
                              (.if (..has? index it)
                                   (<op> (? (..item index it))
-                                        (again (.i64_+# 1 index)))
-                                  (again (.i64_+# 1 index)))
+                                        (again (,, (n#next index))))
+                                  (again (,, (n#next index))))
                              <init>)))))
              <?> <it>)])))]
 
@@ -280,14 +289,14 @@
 
 (`` (the .public one
       (macro (one <?> <it>)
-        [((.is (.for_any (_ read read' write)
-                 (.-> (.-> read (.Maybe read')) (..Array' read write)
-                      (try.Try read')))
+        [((.is (.for_any (_ to_write to_read to_read')
+                 (.-> (.-> to_read (.Maybe to_read')) (..Array' to_write to_read)
+                      (try.Try to_read')))
                (.function (one ? it)
                  (.let [size (..size it)]
                    (.loop (again [index 0])
                      (.if (,, (n#< size index))
-                          (<| (..expansion#let [<again> (again (.i64_+# 1 index))])
+                          (<| (..expansion#let [<again> (again (,, (n#next index)))])
                               (.if (..has? index it)
                                    (.when (? (..item index it))
                                      {.#None}
@@ -299,25 +308,25 @@
                           {try.#Failure ..no_one})))))
           <?> <it>)])))
 
-(the .public of_stack
-  (macro (of_stack <input>)
-    [((.is (.for_any (_ it)
-             (.-> (.Stack it)
-                  (..Array it)))
-           (.function (of_stack input)
-             (.let [size (stack.size input)
-                    output (..empty size)]
-               (.loop (again [index 0
-                              input input])
-                 (.when input
-                   {.#Empty}
-                   output
-                   
-                   {.#Top head tail}
-                   (.exec
-                     (..has! index head output)
-                     (again (.i64_+# 1 index) tail)))))))
-      <input>)]))
+(`` (the .public of_stack
+      (macro (of_stack <input>)
+        [((.is (.for_any (_ it)
+                 (.-> (.Stack it)
+                      (..Array it)))
+               (.function (of_stack input)
+                 (.let [size (stack.size input)
+                        output (..empty size)]
+                   (.loop (again [index 0
+                                  input input])
+                     (.when input
+                       {.#Empty}
+                       output
+                       
+                       {.#Top head tail}
+                       (.exec
+                         (..has! index head output)
+                         (again (,, (n#next index)) tail)))))))
+          <input>)])))
 
 (the underflow
   ..Index
@@ -325,15 +334,15 @@
 
 (`` (the as_stack|-default
       (macro (_ <empty> <array>)
-        [((.is (.for_any (_ read write)
-                 (.-> (.Stack read) (..Array' read write)
-                      (.Stack read)))
+        [((.is (.for_any (_ to_write to_read)
+                 (.-> (.Stack to_read) (..Array' to_write to_read)
+                      (.Stack to_read)))
                (.function (_ empty array)
-                 (.loop (again [index (.i64_-# 1 (..size array))
+                 (.loop (again [index (,, (n#previous (..size array)))
                                 output empty])
                    (.if (.i64_=# (,, (.static ..underflow)) index)
                         output
-                        (again (.i64_-# 1 index)
+                        (again (,, (n#previous index))
                                (.if (..lacks? index array)
                                     output
                                     {.#Top (..item index array) output}))))))
@@ -341,16 +350,16 @@
 
 (`` (the as_stack|+default
       (macro (_ <default> <array>)
-        [((.is (.for_any (_ read write)
-                 (.-> read (..Array' read write)
-                      (.Stack read)))
+        [((.is (.for_any (_ to_write to_read)
+                 (.-> to_read (..Array' to_write to_read)
+                      (.Stack to_read)))
                (.function (_ default array)
-                 (.loop (again [index (.i64_-# 1 (..size array))
+                 (.loop (again [index (,, (n#previous (..size array)))
                                 output (`` (.is (.Stack (,, (.these (,, (.type_of default)))))
                                                 {.#Empty}))])
                    (.if (.i64_=# (,, (.static ..underflow)) index)
                         output
-                        (again (.i64_-# 1 index)
+                        (again (,, (n#previous index))
                                {.#Top (.if (..lacks? index array)
                                            default
                                            (..item index array))
@@ -359,9 +368,9 @@
 
 (`` (the .public as_stack
       (macro (_ <default> <array>)
-        [((.is (.for_any (_ read write)
-                 (.-> (.Maybe read) (..Array' read write)
-                      (.Stack read)))
+        [((.is (.for_any (_ to_write to_read)
+                 (.-> (.Maybe to_read) (..Array' to_write to_read)
+                      (.Stack to_read)))
                (.function (_ default array)
                  (.when default
                    {.#Some default}
