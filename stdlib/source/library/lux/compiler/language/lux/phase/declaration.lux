@@ -12,8 +12,7 @@
    [data
     ["[0]" text]
     [collection
-     ["[0]" list]
-     ["[0]" stack (.use "[1]#[0]" mix monoid)]]]
+     ["[0]" list (.use "[1]#[0]" mix monoid)]]]
    [macro
     ["^" pattern]
     ["[0]" expansion]]
@@ -45,21 +44,19 @@
 
 (the (requiring phase archive expansion)
   (for_any (_ anchor expression declaration)
-    (-> (Phase anchor expression declaration) Archive (Stack @type.Code)
+    (-> (Phase anchor expression declaration) Archive (List @type.Code)
         (Operation anchor expression declaration /.Requirements)))
-  (when expansion
-    {.#Empty}
-    (//#in /.no_requirements)
-    
-    {.#Top head tail}
-    (do //.monad
-      [head' (phase archive head)
-       tail' (requiring phase archive tail)]
-      (in (/.merge_requirements head' tail')))))
+  (list.mix' //.monad
+             (function (_ head tail)
+               (by //.monad each
+                   (/.merge_requirements tail)
+                   (phase archive head)))
+             /.no_requirements
+             expansion))
 
 (every Outcome
   (Variant
-   {#More (Stack @type.Code)}
+   {#More (List @type.Code)}
    {#Done /.Requirements}))
 
 (the (macro_or_extension analysis archive whole_term function_term)
@@ -99,6 +96,14 @@
             (//.except ..not_a_declaration [here function_term]))
           (//.except ..not_a_declaration [here function_term])))))
 
+(the (failure code)
+  (-> Code
+      Operation)
+  (do //.monad
+    [here (<| /.of_analysis
+              module.current_name)]
+    (//.except ..not_a_declaration [here code])))
+
 (expansion.let [<lux_def_module> (these {@type.#Form @module
                                                      (list {@type.#Name @extension [..prelude "module#"]}
                                                            {@type.#Tuple @annotations annotations})})]
@@ -117,43 +122,40 @@
                                                      (its [/.#translation /.#phase] state)])
                               archive)
                extension_eval (as (-> Any @type.Eval)
-                                  (wrapper (as_expected compiler_eval)))
-               failure (do !
-                         [here (<| /.of_analysis
-                                   module.current_name)]
-                         (//.except ..not_a_declaration [here code]))]
+                                  (wrapper (as_expected compiler_eval)))]
          _ (//.with (has [/.#analysis /.#state @type.#eval] extension_eval state))]
         (when code
           {@type.#Form _ it}
-          (when (list.as_stack it)
-            (stack.partial term inputs)
+          (when (list.item 0 it)
+            {try.#Success term}
             (do !
               [macro|extension (macro_or_extension analysis archive code term)
-               expansion|requirements (extension.reification extender
-                                                             (its [/.#analysis /.#state] state) again archive
-                                                             .Declaration macro|extension (list.of_stack inputs)
-                                                             (|>> {#Done})
-                                                             (function (_ _)
-                                                               {.#Some (<| /.of_analysis
-                                                                           (do !
-                                                                             [macro (binding.macro macro|extension)
-                                                                              expansion (analysis/macro.expansion expander macro|extension macro (list.of_stack inputs))]
-                                                                             (in {#More (list.as_stack expansion)})))}))]
+               expansion|requirements (let [inputs (list.after 1 it)]
+                                        (extension.reification extender
+                                                               (its [/.#analysis /.#state] state) again archive
+                                                               .Declaration macro|extension inputs
+                                                               (|>> {#Done})
+                                                               (function (_ _)
+                                                                 {.#Some (<| /.of_analysis
+                                                                             (do !
+                                                                               [macro (binding.macro macro|extension)
+                                                                                expansion (analysis/macro.expansion expander macro|extension macro inputs)]
+                                                                               (in {#More expansion})))})))]
               (when expansion|requirements
-                {.#Left expansion}
-                (when expansion
-                  (stack.partial <lux_def_module> referrals)
+                {#More expansion}
+                (when (list.item 0 expansion)
+                  {try.#Success <lux_def_module>}
                   (|> (again archive <lux_def_module>)
-                      (by ! each (revised /.#referrals (stack#composite referrals))))
+                      (by ! each (revised /.#referrals (list#composite (list.after 1 expansion)))))
 
                   _
                   (..requiring again archive expansion))
 
-                {.#Right requirements}
+                {#Done requirements}
                 (in requirements)))
 
             _
-            failure)
+            (..failure code))
 
           _
-          failure)))))
+          (..failure code))))))
