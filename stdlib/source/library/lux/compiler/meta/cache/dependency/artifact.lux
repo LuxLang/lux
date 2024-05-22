@@ -14,7 +14,6 @@
     ["[0]" product]
     [collection
      ["[0]" list (.use "[1]#[0]" monoid mix monad)]
-     ["[0]" stack (.use "[1]#[0]" monoid mix monad)]
      ["[0]" set (.only Set)]
      ["[0]" dictionary (.only Dictionary)]
      ["[0]" sequence]]]
@@ -39,19 +38,19 @@
    ["[0]" unit]]])
 
 (the (path_references references)
-  (-> (-> synthesis.Term (Stack Constant))
-      (-> Path (Stack Constant)))
+  (-> (-> synthesis.Term (List Constant))
+      (-> Path (List Constant)))
   (function (again path)
     (`` (when path
           (^.or {synthesis.#Pop}
                 {synthesis.#Access _}
                 {synthesis.#Bind _}
                 {synthesis.#List size})
-          (stack)
+          (list)
 
           (,, (template.with [<tag>]
                 [{<tag> left right}
-                 (.all stack#composite
+                 (.all list#composite
                        (again left)
                        (again right))]
 
@@ -61,7 +60,7 @@
           {synthesis.#Bit_Fork test then else}
           (when else
             {.#Some else}
-            (.all stack#composite
+            (.all list#composite
                   (again then)
                   (again else))
             
@@ -70,9 +69,9 @@
 
           (,, (template.with [<tag>]
                 [{<tag> [head tail]}
-                 (|> {.#Top head (list.as_stack tail)}
-                     (stack#each (|>> product.right again))
-                     stack#conjoint)]
+                 (|> (list#composite (list head) tail)
+                     (list#each (|>> product.right again))
+                     list#conjoint)]
 
                 [synthesis.#I64_Fork]
                 [synthesis.#F64_Fork]
@@ -83,10 +82,10 @@
 
 (the (references [_ value])
   (-> synthesis.Term
-      (Stack Constant))
+      (List Constant))
   (when value
     {synthesis.#Simple value}
-    (stack)
+    (list)
     
     {synthesis.#Structure value}
     (when value
@@ -97,22 +96,21 @@
       
       {analysis/complex.#Tuple value}
       (|> value
-          list.as_stack
-          (stack#each references)
-          stack#conjoint))
+          (list#each references)
+          list#conjoint))
 
     {synthesis.#Reference value}
     (when value
       {reference.#Variable _}
-      (stack)
+      (list)
       
       {reference.#Constant value}
-      (stack value))
+      (list value))
     
     {synthesis.#Control value}
     (when value
       {synthesis.#When input path}
-      (.all stack#composite
+      (.all list#composite
             (references input)
             (path_references references path))
       
@@ -121,18 +119,16 @@
         {synthesis.#Tail_Recursion value}
         (let [of_inits (|> value
                            (its synthesis.#inits)
-                           list.as_stack
-                           (stack#each references))
+                           (list#each references))
               of_iteration (|> value
                                (its synthesis.#iteration)
                                references)]
-          (stack#conjoint (stack.partial of_iteration of_inits)))
+          (list#conjoint (list#composite (list of_iteration) of_inits)))
         
         {synthesis.#Tail_Iteration value}
         (|> value
-            list.as_stack
-            (stack#each references)
-            stack#conjoint))
+            (list#each references)
+            list#conjoint))
       
       {synthesis.#Function value}
       (when value
@@ -142,15 +138,14 @@
             references)
         
         {synthesis.#Reification function arguments}
-        (|> (stack.partial function (list.as_stack arguments))
-            (stack#each references)
-            stack#conjoint)))
+        (|> (list#composite (list function) arguments)
+            (list#each references)
+            list#conjoint)))
     
     {synthesis.#Extension [name parameters]}
     (|> parameters
-        list.as_stack
-        (stack#each references)
-        stack#conjoint)))
+        (list#each references)
+        list#conjoint)))
 
 (the .public (dependencies archive value)
   (for_any (_ anchor expression declaration)
@@ -159,7 +154,6 @@
   (let [! phase.monad]
     (|> value
         ..references
-        list.of_stack
         (set.of_list name.hash)
         set.as_list
         (list.each' ! (translation.remember archive))
@@ -172,20 +166,19 @@
   (let [! phase.monad]
     (|> value
         (..path_references ..references)
-        list.of_stack
         (set.of_list name.hash)
         set.as_list
         (list.each' ! (translation.remember archive))
         (by ! each (set.of_list unit.hash)))))
 
 (the .public all
-  (-> (Stack (Set unit.ID))
+  (-> (List (Set unit.ID))
       (Set unit.ID))
-  (stack#mix set.union unit.none))
+  (list#mix set.union unit.none))
 
 (the (immediate_dependencies archive)
   (-> Archive
-      [(Stack unit.ID)
+      [(List unit.ID)
        (Dictionary unit.ID (Set unit.ID))])
   (|> archive
       archive.entries
@@ -202,29 +195,25 @@
                              [mandatory_dependencies
                               all_dependencies])
                   [(if mandatory?
-                     (stack.partial artifact_id mandatory_dependencies)
-                     mandatory_dependencies)
+                       (list#composite (list artifact_id) mandatory_dependencies)
+                       mandatory_dependencies)
                    (dictionary.has artifact_id dependencies all_dependencies)])
-                [(stack)
+                [(list)
                  (dictionary.empty unit.hash)])))
 
 (the .public (necessary_dependencies archive)
   (-> Archive
       (Set unit.ID))
   (let [[mandatory immediate] (immediate_dependencies archive)]
-    (loop (again [pending mandatory
-                  minimum unit.none])
-      (when pending
-        {.#Top head tail}
-        (if (set.member? minimum head)
-          (again tail minimum)
-          (again (when (dictionary.value head immediate)
-                   {try.#Success additional}
-                   (stack#composite (list.as_stack (set.as_list additional)) tail)
+    (list#mix (function (mix head minimum)
+                (if (set.member? minimum head)
+                    minimum
+                    (let [minimum (set.has head minimum)]
+                      (when (dictionary.value head immediate)
+                        {try.#Success additional}
+                        (list#mix mix minimum (set.as_list additional))
 
-                   failure
-                   tail)
-                 (set.has head minimum)))
-        
-        {.#Empty}
-        minimum))))
+                        failure
+                        minimum))))
+              unit.none
+              mandatory)))

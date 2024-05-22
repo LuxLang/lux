@@ -25,7 +25,6 @@
     [collection
      ["[0]" list (.use "[1]#[0]" monad mix monoid)
       ["?[1]" \\projection]]
-     ["[0]" stack (.use "[1]#[0]" monad mix monoid)]
      ["[0]" set (.only Set)]
      ["[0]" stream (.only Stream)]
      ["[0]" dictionary (.only Dictionary)]]
@@ -207,31 +206,32 @@
   (n.- (n./ 2 id) level))
 
 (the (parameter_name [type_function_name type_function_arguments] level id)
-  (-> [Text (Stack Text)] Natural Natural
+  (-> [Text (List Text)] Natural Natural
       Text)
   (if (type_parameter? id)
       (let [parameter_id (..parameter_id level id)]
-        (when (stack.item parameter_id type_function_arguments)
+        (when (list.item parameter_id type_function_arguments)
           {try.#Success found}
           found
 
           _
-          (let [parameter_id (n.- (stack.size type_function_arguments) parameter_id)]
+          (let [parameter_id (n.- (list.size type_function_arguments) parameter_id)]
             (|> type_variable_names
                 (stream.only (function (_ var_name)
-                               (not (stack.member? text.equivalence type_function_arguments var_name))))
+                               (not (list.member? text.equivalence type_function_arguments var_name))))
                 (stream.item parameter_id)))))      
       type_function_name))
 
 (the (level_parameters offset level)
   (-> Natural Natural
-      (Stack Text))
+      (List Text))
   (if (n.= 0 level)
-      (stack)
+      (list)
       (|> level
           --
           (enum.range n.enum 0)
-          (stack#each (|>> (n.+ (++ offset)) parameter_type_name)))))
+          list.of_stack
+          (list#each (|>> (n.+ (++ offset)) parameter_type_name)))))
 
 (the (nested line_prefix body)
   (-> Text Text
@@ -297,7 +297,7 @@
             (text.enclosed ["(Nominal " ")"]))
 
         {.#Parameter parameter idx}
-        (parameter_name [type_function_name (stack)] level idx)
+        (parameter_name [type_function_name (list)] level idx)
 
         (,, (template.with [<tag>]
               [{<tag> id}
@@ -311,7 +311,7 @@
                (let [[level' body] (<flat> type)
                      args (level_parameters level level')
                      body_doc (%type' (n.+ level level') type_function_name nestable? module body)]
-                 (text "(" <name> " " "(_ " (|> args list.of_stack (text.interposed " ")) ")"
+                 (text "(" <name> " " "(_ " (|> args (text.interposed " ")) ")"
                        (if nestable?
                            (text \n (nested "  " body_doc))
                            (text " " body_doc))
@@ -358,58 +358,58 @@
         {.#None})))
 
 (the (type_definition' nestable? level arity type_function_info tags module type)
-  (-> Bit Natural Natural [Text (Stack Text)] (Stack Text) Text Type
+  (-> Bit Natural Natural [Text (List Text)] (List Text) Text Type
       Text)
   (`` (when tags
-        (stack single_tag)
+        (list single_tag)
         (text "(Record" \n
-              " [#" single_tag " " (type_definition' false level arity type_function_info {.#None} module type) "])")
+              " [#" single_tag " " (type_definition' false level arity type_function_info (list) module type) "])")
 
         _
         (when type
           (type.Sum _ _)
           (let [members (type.flat_variant type)]
             (when tags
-              {.#Empty}
+              (list)
               (text "(Or "
                     (|> members
-                        (list#each (type_definition' false level arity type_function_info {.#None} module))
+                        (list#each (type_definition' false level arity type_function_info (list) module))
                         (text.interposed " "))
                     ")")
 
               _
               (|> members
-                  (list.zipped_2 (list.of_stack tags))
+                  (list.zipped_2 tags)
                   (list#each (function (_ [t_name type])
                                (when type
                                  (type.Product _ _)
                                  (let [types (type.flat_tuple type)]
                                    (text " {" t_name " "
                                          (|> types
-                                             (list#each (type_definition' false level arity type_function_info {.#None} module))
+                                             (list#each (type_definition' false level arity type_function_info (list) module))
                                              (text.interposed " "))
                                          "}"))
 
                                  _
-                                 (text " {" t_name " " (type_definition' false level arity type_function_info {.#None} module type) "}"))))
+                                 (text " {" t_name " " (type_definition' false level arity type_function_info (list) module type) "}"))))
                   (text.interposed \n)
                   (text.enclosed [(text "(Variant" \n) ")"]))))
 
           (type.Product _ _)
           (let [members (type.flat_tuple type)]
             (when tags
-              {.#Empty}
+              (list)
               (text "["
                     (|> members
-                        (list#each (type_definition' false level arity type_function_info {.#None} module))
+                        (list#each (type_definition' false level arity type_function_info (list) module))
                         (text.interposed " "))
                     "]")
 
               _
               (|> members
-                  (list.zipped_2 (list.of_stack tags))
+                  (list.zipped_2 tags)
                   (list#each (function (_ [t_name type])
-                               (text t_name " " (type_definition' false level arity type_function_info {.#None} module type))))
+                               (text t_name " " (type_definition' false level arity type_function_info (list) module type))))
                   (text.interposed (text \n "  "))
                   (text.enclosed [" [" "]"])
                   (text.enclosed [(text "(Record" \n) ")"]))))
@@ -418,10 +418,10 @@
           (let [[ins out] (type.flat_function type)]
             (text  "(-> "
                    (|> ins
-                       (list#each (type_definition' false level arity type_function_info {.#None} module))
+                       (list#each (type_definition' false level arity type_function_info (list) module))
                        (text.interposed " "))
                    " "
-                   (type_definition' false level arity type_function_info {.#None} module out)
+                   (type_definition' false level arity type_function_info (list) module out)
                    ")"))
 
           {.#Nominal name params}
@@ -432,7 +432,7 @@
                 _
                 (|> params
                     (list#each (function (_ [polarity it])
-                                 (type_definition' false level arity type_function_info {.#None} module it)))
+                                 (type_definition' false level arity type_function_info (list) module it)))
                     (text.interposed " ")
                     (text (%.text name) " ")))
               (text.enclosed ["(Nominal " ")"]))
@@ -453,9 +453,12 @@
                        args (level_parameters (n.- arity level) level')
                        body_doc (type_definition' nestable? (n.+ level level') arity type_function_info tags module body)
                        fn_name (when type_function_info
-                                 [fn_name {.#Empty}] fn_name
-                                 _ "_")]
-                   (text "(" <name> " " "(" fn_name " " (text.interposed " " (list.of_stack args)) ")"
+                                 [fn_name (list)]
+                                 fn_name
+                                 
+                                 _
+                                 "_")]
+                   (text "(" <name> " " "(" fn_name " " (text.interposed " " args) ")"
                          (if nestable?
                              (text \n (..nested "  " body_doc))
                              (text " " body_doc))
@@ -480,7 +483,7 @@
           (let [[type_func type_arguments] (type.flat_reification type)]
             (text  "(" (type_definition' false level arity type_function_info tags module type_func)
                    " " (|> type_arguments
-                           (list#each (type_definition' false level arity type_function_info {.#None} module))
+                           (list#each (type_definition' false level arity type_function_info (list) module))
                            (text.interposed " "))
                    ")"))
 
@@ -489,9 +492,9 @@
           ))))
 
 (the (type_definition module [name parameters] tags type)
-  (-> Text [Text (Stack Text)] (Stack Text) Type
+  (-> Text [Text (List Text)] (List Text) Type
       Text)
-  (let [arity (stack.size parameters)]
+  (let [arity (list.size parameters)]
     (when (parameterized_type arity type)
       {.#Some type}
       (type_definition' true (-- arity) arity [name parameters] tags module type)
@@ -561,10 +564,10 @@
                                           type.anonymous
                                           ((debug.private ..type_definition)
                                            (, 'module)
-                                           [(, (code.text (product.right name))) (stack (,* (list#each code.text parameters)))]
-                                           (.stack (,* (|> tags
-                                                           (try.else (list))
-                                                           (list#each (|>> name.proper code.text))))))
+                                           [(, (code.text (product.right name))) (list (,* (list#each code.text parameters)))]
+                                           (.list (,* (|> tags
+                                                          (try.else (list))
+                                                          (list#each (|>> name.proper code.text))))))
                                           (text "... " ((debug.private ..type_documentation) (, 'module) (, 'type)) text.\n)
                                           md.raw_code))
                                    (` (md.raw_code ((debug.private ..type_documentation) (, 'module) (, 'type))))))))
@@ -679,10 +682,9 @@
           (name.proper (its #global left))))
 
 (the definitions_documentation
-  (-> (Stack Definition)
+  (-> (List Definition)
       (Markdown Block))
-  (|>> list.of_stack
-       (list.sorted ..definition#<)
+  (|>> (list.sorted ..definition#<)
        (list#each (its #documentation))
        (list#mix md.then md.empty)))
 
@@ -728,10 +730,9 @@
                                                      (set.of_list text.hash))]}))))))))
 
 (the listing
-  (-> (Stack Text)
+  (-> (List Text)
       (Markdown Block))
-  (|>> list.of_stack
-       (list.sorted text#<)
+  (|>> (list.sorted text#<)
        (list#each (function (_ definition)
                     [(md.snippet definition)
                      {.#None}]))
@@ -747,17 +748,15 @@
            (|> (set.as_list it)
                (list.only (|>> (text.= descriptor.runtime) not))
                (list.sorted text#<)
-               list.as_stack
-               (stack#each (function (_ it)
-                             [(md.link (md.text it) (text "#" it))
-                              {.#None}]))
-               list.of_stack
+               (list#each (function (_ it)
+                            [(md.link (md.text it) (text "#" it))
+                             {.#None}]))
                md.bullet_list)
            )))
 
 (the (module_documentation dependers [module definitions])
   (-> (Dictionary descriptor.Module (Set descriptor.Module))
-      [Module (Stack Definition)]
+      [Module (List Definition)]
       (Markdown Block))
   (let [(open "_[0]") module]
     (all md.then
@@ -778,16 +777,16 @@
          
          (md.heading/3 (md.text "Definitions"))
          (|> definitions
-             (stack.only (|>> (its #global)
-                              name.proper
-                              (set.member? _#coverage)))
+             (list.only (|>> (its #global)
+                             name.proper
+                             (set.member? _#coverage)))
              ..definitions_documentation)
 
          ... Missing documentation
          (when (|> definitions
-                   (stack#mix (function (_ definition missing)
-                                (set.lacks (name.proper (its #global definition)) missing))
-                              _#coverage)
+                   (list#mix (function (_ definition missing)
+                               (set.lacks (name.proper (its #global definition)) missing))
+                             _#coverage)
                    set.as_list)
            (list)
            md.empty
@@ -795,17 +794,17 @@
            missing
            (all md.then
                 (md.heading/3 (md.text "Missing documentation"))
-                (..listing (list.as_stack missing))))
+                (..listing missing)))
          
          ... Un-expected documentation
          (when (|> definitions
-                   (stack.only (|>> (its #global)
-                                    name.proper
-                                    (set.member? _#coverage)
-                                    not))
-                   (stack#each (|>> (its #global)
-                                    name.proper)))
-           {.#Empty}
+                   (list.only (|>> (its #global)
+                                   name.proper
+                                   (set.member? _#coverage)
+                                   not))
+                   (list#each (|>> (its #global)
+                                   name.proper)))
+           (list)
            md.empty
            
            un_expected
@@ -816,73 +815,70 @@
 
 ... https://en.wiktionary.org/wiki/depender
 (the dependers
-  (-> (Stack [descriptor.Module Module])
+  (-> (List [descriptor.Module Module])
       (Dictionary descriptor.Module (Set descriptor.Module)))
-  (stack#mix (function (_ [name module] it)
-               (list#mix (function (_ import it)
-                           (dictionary.revised' import (set.empty text.hash) (set.has name) it))
-                         it
-                         (set.as_list (its #dependees module))))
-             (dictionary.empty text.hash)))
+  (list#mix (function (_ [name module] it)
+              (list#mix (function (_ import it)
+                          (dictionary.revised' import (set.empty text.hash) (set.has name) it))
+                        it
+                        (set.as_list (its #dependees module))))
+            (dictionary.empty text.hash)))
 
 (the index
-  (-> (Stack [Module (Stack Definition)])
+  (-> (List [Module (List Definition)])
       (Markdown Block))
-  (|>> (stack#each (function (_ [module defs])
-                     (all md.then
-                          (md.heading/5 (let [it (its #module module)]
-                                          (md.link (md.text it) (text "#" it))))
-                          (|> defs
-                              list.of_stack
-                              (list.sorted ..definition#<)
-                              (list#each (function (_ it)
-                                           (let [[module proper] (its #global it)]
-                                             [(md.link (md.text proper) (..link (its #global it)))
-                                              {.#None}])))
-                              md.bullet_list)
-                          )))
-       (stack#mix (function (_ right left)
-                    (md.then left right))
-                  (md.heading/1 (md.text "Index")))))
+  (|>> (list#each (function (_ [module defs])
+                    (all md.then
+                         (md.heading/5 (let [it (its #module module)]
+                                         (md.link (md.text it) (text "#" it))))
+                         (|> defs
+                             (list.sorted ..definition#<)
+                             (list#each (function (_ it)
+                                          (let [[module proper] (its #global it)]
+                                            [(md.link (md.text proper) (..link (its #global it)))
+                                             {.#None}])))
+                             md.bullet_list)
+                         )))
+       (list#mix (function (_ right left)
+                   (md.then left right))
+                 (md.heading/1 (md.text "Index")))))
 
 (the .public (markdown it)
-  (-> (Stack Documentation)
+  (-> (List Documentation)
       Text)
   (let [with_modules (list#mix (function (_ doc it)
                                  (if (dictionary.key? it (its #module doc))
                                      it
-                                     (dictionary.has (its #module doc) [doc (stack)] it)))
-                               (is (Dictionary Text [Module (Stack Definition)])
+                                     (dictionary.has (its #module doc) [doc (list)] it)))
+                               (is (Dictionary Text [Module (List Definition)])
                                    (dictionary.empty text.hash))
-                               (sum.rights (list.of_stack it)))
+                               (sum.rights it))
         with_definitions (list#mix (function (_ doc it)
                                      (let [module (name.module (its #global doc))]
                                        (if (dictionary.key? it module)
                                            (dictionary.revised module
                                                                (function (_ [module defs])
-                                                                 [module (stack.partial doc defs)])
+                                                                 [module (list#composite (list doc) defs)])
                                                                it)
                                            it)))
                                    with_modules
-                                   (sum.lefts (list.of_stack it)))
+                                   (sum.lefts it))
         dependers (|> with_modules
                       dictionary.entries
                       (list#each (function (_ [name [module definitons]])
                                    [name module]))
-                      list.as_stack
                       ..dependers)
         it (|> with_definitions
                dictionary.values
                (list.sorted (function (_ left right)
                               (text#< (its #module (product.left right))
-                                      (its #module (product.left left)))))
-               list.as_stack)]
+                                      (its #module (product.left left))))))]
     (md.markdown
      (all md.then
           (index it)
           (md.heading/1 (md.text "Documentation"))
           (|> it
-              (stack#each (..module_documentation dependers))
-              (stack.interposed md.horizontal_rule)
-              (stack#mix md.then (is (Markdown Block) md.empty)))
+              (list#each (..module_documentation dependers))
+              (list.interposed md.horizontal_rule)
+              (list#mix md.then (is (Markdown Block) md.empty)))
           ))))
