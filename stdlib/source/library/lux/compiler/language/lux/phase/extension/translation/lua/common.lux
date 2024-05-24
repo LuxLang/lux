@@ -3,7 +3,7 @@
 
 (.using
  [library
-  [lux (.except)
+  [lux (.except list)
    [abstract
     [monad (.only do)]
     ["<>" projection]]
@@ -16,16 +16,19 @@
     ["[0]" product]
     [collection
      ["[0]" dictionary]
-     ["[0]" list (.use "[1]#[0]" functor mix)]]]
+     ["[0]" list (.use "[1]#[0]" functor mix)
+      ["?[1]" \\projection]]]]
    [macro
     ["[0]" template]]
    [target
     ["_" lua]]
    [compiler
     [meta
-     [archive (.only Archive)]]]]]
+     [archive (.only Archive)]]
+    ["[0]" extension (.only)
+     ["[1]/[0]" lux]]]]]
  [/////
-  ["[0]" extension]
+  ["//" extension]
   [translation
    [extension (.only Nullary Unary Binary Trinary Variadic
                      nullary unary binary trinary variadic)]
@@ -49,7 +52,7 @@
          (-> Phase Archive s (Operation _.Expression))]
         Handler))
   (function (_ phase archive input)
-    (when (?synthesis.value input projection)
+    (when (?list.value input projection)
       {try.#Success input'}
       (handler phase archive input')
 
@@ -58,7 +61,7 @@
 
 (the !unary
   (template.macro (_ function)
-    [(|>> list _.apply (|> (_.var function)))]))
+    [(|>> .list _.apply (|> (_.var function)))]))
 
 (the .public (statement expression archive synthesis)
   Phase!
@@ -67,7 +70,7 @@
         [@ {synthesis.#Extension [.prelude "when_char#|translation"] parameters}]
         (do phase.monad
           [body (expression archive synthesis)]
-          (in (as _.Statement body)))
+          (in (as (-> _.Expression _.Statement) body)))
         
         (,, (template.with [<tag>]
               [(<tag> @ value)
@@ -134,11 +137,11 @@
 ... TODO: Get rid of this ASAP
 (the lux//syntax_char_case!
   (..custom [(all <>.and
-                  ?synthesis.any
-                  ?synthesis.any
+                  ?list.any
+                  ?list.any
                   (<>.some (?synthesis.tuple (all <>.and
                                                   (?synthesis.tuple (<>.many ?synthesis.i64))
-                                                  ?synthesis.any))))
+                                                  ?list.any))))
              (function (_ phase archive [input else conditionals])
                (|> conditionals
                    (list#each (function (_ [chars branch])
@@ -159,15 +162,15 @@
                              {synthesis.#Then else})
                    [input]
                    (//when.when! statement phase archive)
-                   (by phase.monad each (|>> (as _.Expression)))))]))
+                   (by phase.monad each (|>> (as (-> _.Statement _.Expression))))))]))
 
-(the with_basic_extensions
+(the with_basic
   (-> Bundle Bundle)
   (|>> (dictionary.has "when_char#|translation" lux//syntax_char_case!)
        (dictionary.has "is?#|translation" (binary (product.uncurried _.=)))
        (dictionary.has "try#|translation" (unary //runtime.lux//try))))
 
-(the with_i64_extensions
+(the with_i64
   (-> Bundle Bundle)
   (|>> (dictionary.has "i64_and#|translation" (binary (product.uncurried _.bit_and)))
        (dictionary.has "i64_or#|translation" (binary (product.uncurried _.bit_or)))
@@ -180,7 +183,7 @@
        (dictionary.has "i64_-#|translation" (binary (product.uncurried _.-)))
        ))
 
-(the with_integer_extensions
+(the with_integer
   (-> Bundle Bundle)
   (|>> (dictionary.has "int_<#|translation" (binary (product.uncurried _.<)))
        (dictionary.has "int_*#|translation" (binary (product.uncurried _.*)))
@@ -191,13 +194,13 @@
        (dictionary.has "int_char#|translation" (unary (!unary "utf8.char")))
        ))
 
-(the with_decimal_extensions
+(the with_decimal
   (-> Bundle Bundle)
   (|>> (dictionary.has "f64_+#|translation" (binary (product.uncurried _.+)))
        (dictionary.has "f64_-#|translation" (binary (product.uncurried _.-)))
        (dictionary.has "f64_*#|translation" (binary (product.uncurried _.*)))
        (dictionary.has "f64_/#|translation" (binary (product.uncurried _./)))
-       (dictionary.has "f64_%#|translation" (binary (product.uncurried (function (_ parameter subject) (_.apply (list subject parameter) (_.var "math.fmod"))))))
+       (dictionary.has "f64_%#|translation" (binary (product.uncurried (function (_ parameter subject) (_.apply (.list subject parameter) (_.var "math.fmod"))))))
        
        (dictionary.has "f64_=#|translation" (binary (product.uncurried _.=)))
        (dictionary.has "f64_<#|translation" (binary (product.uncurried _.<)))
@@ -229,10 +232,10 @@
          (|> left (_.concat right))
 
          parts
-         (_.apply (list (_.array (list.of_stack parts)))
+         (_.apply (.list (_.array (list.of_stack parts)))
                   (_.var "table.concat")))))
 
-(the with_text_extensions
+(the with_text
   (-> Bundle Bundle)
   (|>> (dictionary.has "text_=#|translation" (binary (product.uncurried _.=)))
        (dictionary.has "text_<#|translation" (binary (product.uncurried _.<)))
@@ -248,21 +251,114 @@
 
 (the (io//log! messageO)
   (Unary _.Expression)
-  (|> (_.apply (list messageO) (_.var "print"))
+  (|> (_.apply (.list messageO) (_.var "print"))
       (_.or //runtime.unit)))
 
-(the with_io_extensions
+(the with_io
   (-> Bundle Bundle)
   (|>> (dictionary.has "log!#|translation" (unary ..io//log!))
        (dictionary.has "error#|translation" (unary (!unary "error")))))
 
+(the list
+  (Variadic _.Expression)
+  (|>> list.of_stack
+       _.array))
+
+(the list_size
+  (Unary _.Expression)
+  _.length)
+
+(the (list_item [address it])
+  (Binary _.Expression)
+  (_.item (_.+ (_.int +1) address)
+          it))
+
+(the (list_composite' output input)
+  (-> _.Var _.Expression
+      _.Statement)
+  (let [_ (_.var "_")
+        value (_.var "value")]
+    (_.for_in (.list _ value)
+              (_.ipairs/1 input)
+              (_.; (_.apply (.list output value)
+                            (_.var "table.insert"))))))
+
+(the (list_composite [left right])
+  (Binary _.Expression)
+  (|> (let [it (_.var "it")]
+        (_.closure (.list it)
+                   (all _.then
+                        (list_composite' it left)
+                        (list_composite' it right)
+                        (_.return it)
+                        )))
+      (_.apply (.list (_.array (.list))))))
+
+(the with_list
+  (Change Bundle)
+  (|>> (dictionary.has (extension.translation extension/lux.list)
+                       (variadic ..list))
+       (dictionary.has (extension.translation extension/lux.list_size)
+                       (unary ..list_size))
+       (dictionary.has (extension.translation extension/lux.list_item)
+                       (binary ..list_item))
+       (dictionary.has (extension.translation extension/lux.list_composite)
+                       (binary ..list_composite))
+       ))
+
+(the array
+  (Unary _.Expression)
+  (|>> ["n"]
+       .list
+       _.table))
+
+(the array_size
+  (Unary _.Expression)
+  ..list_size)
+
+(the array_its
+  (Binary _.Expression)
+  ..list_item)
+
+(the (array_has? [address it])
+  (Binary _.Expression)
+  (|> (array_its [address it])
+      (_.= _.nil)
+      _.not))
+
+(the (array_has [address value it])
+  (Trinary _.Expression)
+  (//runtime.array//write address value it))
+
+(the (array_lacks [address it])
+  (Binary _.Expression)
+  (array_has [address _.nil it]))
+
+(the with_array
+  (Change Bundle)
+  (|>> (dictionary.has (extension.translation extension/lux.array)
+                       (unary ..array))
+       (dictionary.has (extension.translation extension/lux.array_size)
+                       (unary ..array_size))
+       (dictionary.has (extension.translation extension/lux.array_its)
+                       (binary ..array_its))
+       (dictionary.has (extension.translation extension/lux.array_has?)
+                       (binary ..array_has?))
+       (dictionary.has (extension.translation extension/lux.array_has)
+                       (trinary ..array_has))
+       (dictionary.has (extension.translation extension/lux.array_lacks)
+                       (binary ..array_lacks))
+       ))
+
 (the .public bundle
   Bundle
-  (|> extension.empty
-      with_basic_extensions
-      with_i64_extensions
-      with_integer_extensions
-      with_decimal_extensions
-      with_text_extensions
-      with_io_extensions
+  (|> //.empty
+      with_basic
+      with_i64
+      with_integer
+      with_decimal
+      with_text
+      with_io
+      with_list
+      with_array
       ))

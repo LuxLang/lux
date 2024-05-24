@@ -18,6 +18,7 @@
     ["[0]" text (.only)
      ["%" \\injection]]
     [collection
+     ["[0]" stack]
      ["[0]" list (.use "[1]#[0]" monoid monad mix)
       ["?[1]" \\projection]]]]
    ["[0]" macro (.only with_names)
@@ -88,7 +89,7 @@
                 (the analysis
                   (template.macro (_ <name> <bindings> <projection> <inputs> <body>)
                     [(the .public <name>
-                       (<| (as .Analysis)
+                       (<| (as (-> Any .Analysis))
                            (.function (_ phase archive inputs))
                            (.function (_ state))
                            (let [<bindings> [phase archive state]]
@@ -177,7 +178,7 @@
                                     <body> ?list.any])
                     (with_names ['_ 'phase 'archive 'inputs 'state]
                       (in (list (` (the .public (, <name>)
-                                     (<| (as .Translation)
+                                     (<| (as (-> Any .Translation))
                                          (.function ((, '_) (, 'phase) (, 'archive) (, 'inputs)))
                                          (.function ((, '_) (, 'state)))
                                          (let [(, <bindings>) [(, 'phase) (, 'archive) (, 'state)]]
@@ -225,7 +226,7 @@
 
                 (the .public undefined?
                   (template.macro (undefined? <it>)
-                    [(.as .Bit
+                    [(.as (-> Any .Bit)
                           (..undefined?|analysis <it>))]))
 
                 (translation undefined|translation
@@ -313,7 +314,7 @@
 
                 (the .public object
                   (syntax.macro (_ [it (<>.some ?list.any)])
-                    (in (list (` (.as (..Object .Any)
+                    (in (list (` (.as (-> Any (..Object .Any))
                                       (..object|analysis (,* it))))))))
 
                 (translation set|translation
@@ -350,7 +351,7 @@
                   (syntax.macro (_ [field ?list.any
                                     value ?list.any
                                     object ?list.any])
-                    (in (list (` (.as .Any
+                    (in (list (` (.as (-> Any .Any)
                                       (..set|analysis (, field) (, value) (, object))))))))
                 )
      ... else
@@ -631,9 +632,9 @@
                                Code)
                            (` (.let [(, 'it') (, output)]
                                 (, (if (its #optional? it)
-                                       (` (.if (<host_?> (, 'it'))
-                                               {.#None}
-                                               {.#Some (, 'it')}))
+                                       (` (.if (not (<host_?> (, 'it')))
+                                               {.#Some (, 'it')}
+                                               {.#None}))
                                        (` (.if (.not (<host_?> (, 'it')))
                                                (, 'it')
                                                (.halt! "Invalid output."))))))))))]
@@ -717,24 +718,29 @@
                  'parameters (..parameters :parameters:)
                  :output: (its [#anonymous #output] it)
                  :input:/* (when :parameters:
-                             {.#Empty}
+                             (list)
                              (list (` []))
                              
-                             parameters
-                             (list#each ..output_type :parameters:))]
+                             not_empty!
+                             (list#each ..output_type :parameters:))
+
+                 type_of_return (|>> ..output_type
+                                     (..input_type input))
+                 type_of_any_return (|>> (has #mandatory (` .Any))
+                                         type_of_return)]
              (` (the ((, 'it) [(,* (list#each (its #mandatory) 'parameters))])
                   (.for_any ((, 'it) (,* 'variables))
                     (-> [(,* :input:/*)]
-                        (, (|> :output:
-                               ..output_type
-                               (..input_type input)))))
+                        (, (type_of_return :output:))))
                   (.exec
                     (,* import!)
-                    (.as_expected
-                     (, (<| (..input_term input)
-                            (..lux_optional :output:)
-                            (` (<apply> (.as_expected (, source))
-                                        [(,* (list#each ..host_optional 'parameters))]))))))))))
+                    (.as (.for_any ((, 'it) (,* 'variables))
+                           (-> (, (type_of_any_return :output:))
+                               (, (type_of_return :output:))))
+                         (, (<| (..input_term input)
+                                (..lux_optional :output:)
+                                (` (<apply> (.as_expected (, source))
+                                            [(,* (list#each ..host_optional 'parameters))]))))))))))
 
          (the (namespaced namespace host_module class alias member)
            (-> Namespace Text Text Alias Text
@@ -758,14 +764,14 @@
                      (` (<import> (, (code.text (text.replaced .module_delimiter "." class)))))
                      
                      ... else
-                     (when (text.all_split_by .module_delimiter class)
+                     (when (list.as_stack (text.all_split_by .module_delimiter class))
                        {.#Top head tail}
-                       (list#mix (.function (_ sub super)
-                                   (` (<get> (, (code.text sub))
-                                             (.as (..Object .Any)
-                                                  (, super)))))
-                                 (` (<import> (, (code.text head))))
-                                 tail)
+                       (stack.mix (.function (_ sub super)
+                                    (` (<get> (, (code.text sub))
+                                              (.as (-> Any (..Object .Any))
+                                                   (, super)))))
+                                  (` (<import> (, (code.text head))))
+                                  tail)
                        
                        {.#Empty}
                        (` (<import> (, (code.text class))))))))
@@ -819,7 +825,7 @@
                         (, (<| (..input_term input)
                                (..lux_optional :output:)
                                (` (<new> (, (for .js (` (<constant> (, (code.text (..host_path class_name)))))
-                                                 .python (` (.as ..Function
+                                                 .python (` (.as (-> Any ..Function)
                                                                  (, (..imported class_name))))))
                                          [(,* (list#each ..host_optional 'parameters))]))))))))))
 
@@ -838,17 +844,17 @@
                          (..namespaced namespace host_module class_name alias)
                          code.local)
                  :field: (its #anonymous it)
-                 get (` (.as (io.IO (, (..output_type :field:)))
+                 get (` (.as (-> Any (io.IO (, (..output_type :field:))))
                              (io.io (, (<| (lux_optional :field:)
                                            (for .js (` (<constant> (, (code.text (text (..host_path class_name) "." field)))))
                                                 .ruby (` (<constant> (, (code.text (text (..host_path class_name) "::" field)))))
                                                 ... else
                                                 (` (<get> (, (code.text field))
                                                           (, (..imported class_name))))))))))
-                 set (` (.as (io.IO .Any)
+                 set (` (.as (-> Any (io.IO .Any))
                              (io.io (, (for .js (` (..set (, (code.text field))
                                                           (, (host_optional (optional_value :field: (` ((,' ,) (, 'it))))))
-                                                          (.as (..Object .Any)
+                                                          (.as (-> Any (..Object .Any))
                                                                (<constant> (, (code.text (..host_path class_name)))))))
                                             .ruby (` (<set> (, (code.text field))
                                                             (, (host_optional (optional_value :field: (` ((,' ,) (, 'it))))))
@@ -913,7 +919,7 @@
                                          (for .js (` (<constant> (, (code.text (text (..host_path class_name) "." method)))))
                                               .ruby (` (<constant> (, (code.text (text (..host_path class_name) "::" method)))))
                                               (` (<get> (, (code.text method))
-                                                        (.as (..Object .Any)
+                                                        (.as (-> Any (..Object .Any))
                                                              (, (..imported class_name))))))))))
 
          (the (virtual_method_definition host_module [class_name class_parameters] alias namespace it)
@@ -931,20 +937,25 @@
                  'parameters (..parameters :parameters:)
                  'class_variables (list#each code.local class_parameters)
                  'class (` ((, (code.local (maybe.else class_name alias))) (,* 'class_variables)))
-                 :output: (its #output procedure)]
+                 :output: (its #output procedure)
+
+                 type_of_return (|>> ..output_type
+                                     (..input_type input))
+                 type_of_any_return (|>> (has #mandatory (` .Any))
+                                         type_of_return)]
              (` (the ((, 'it) [(,* (list#each (its #mandatory) 'parameters))] (, 'it))
                   (.for_any ((, 'it) (,* 'class_variables) (,* 'input_variables))
                     (.-> [(,* (list#each ..output_type :parameters:))]
                          (, 'class)
-                         (, (|> :output:
-                                ..output_type
-                                (..input_type input)))))
-                  (.as_expected
-                   (, (<| (..input_term input)
-                          (..lux_optional :output:)
-                          (` (<do> (, (code.text method))
-                                   (, 'it)
-                                   [(,* (list#each ..host_optional 'parameters))])))))))))
+                         (, (type_of_return :output:))))
+                  (.as (.for_any ((, 'it) (,* 'class_variables) (,* 'input_variables))
+                         (-> (, (type_of_any_return :output:))
+                             (, (type_of_return :output:))))
+                       (, (<| (..input_term input)
+                              (..lux_optional :output:)
+                              (` (<do> (, (code.text method))
+                                       (, 'it)
+                                       [(,* (list#each ..host_optional 'parameters))])))))))))
 
          (the (method_definition import! host_module class alias namespace it)
            (-> (List Code) Text Declaration Alias Namespace Method
@@ -982,7 +993,9 @@
                                        (,* 'class_variables)))]
                    (in (list#composite (list (` (.every (, declaration)
                                                   (..Object (.Nominal (, (code.text (..host_path class_name)))
-                                                                      [(,* 'class_variables)])))))
+                                                                      [(,* (list#each (|>> (list (code.bit .co_variant))
+                                                                                           code.tuple)
+                                                                                      'class_variables))])))))
                                        (list#each (.function (_ member)
                                                     (`` (`` (when member
                                                               (,, (for .lua (,, (these))
@@ -1006,12 +1019,12 @@
                                                       (<code>.tuple (<>.some (<>.and ?list.any ?list.any)))))
                                   type ?list.any
                                   term ?list.any])
-                  (in (list (` (.<| (.as ..Function)
+                  (in (list (` (.<| (.as (-> Any ..Function))
                                     (<function> (, (code.natural (list.size inputs))))
-                                    (.as (.-> [(,* (list.repeated (list.size inputs) (` .Any)))]
-                                              .Any))
-                                    (.is (.-> [(,* (list#each product.right inputs))]
-                                              (, type)))
+                                    (.as (-> (.-> [(,* (list#each product.right inputs))]
+                                                  (, type))
+                                             (.-> [(,* (list.repeated (list.size inputs) (` .Any)))]
+                                                  .Any)))
                                     (.function ((, (code.local self)) [(,* (list#each product.left inputs))])
                                       (, term)))))))))
 
@@ -1024,7 +1037,7 @@
                                              [head tail] (<code>.tuple (<>.and <code>.local (<>.some <code>.local)))])
                              (with_names ['_]
                                (let [global (` (.js_constant# (, (code.text head))))]
-                                 (when tail
+                                 (when (list.as_stack tail)
                                    {.#Empty}
                                    (in (list (` (is (.Maybe (, type))
                                                     (when (..type_of (, global))
@@ -1032,7 +1045,7 @@
                                                       {.#None}
 
                                                       (, '_)
-                                                      {.#Some (as (, type) (, global))})))))
+                                                      {.#Some (as (-> Any (, type)) (, global))})))))
                                    
                                    {.#Top [next tail]}
                                    (let [delimiter "."]
@@ -1068,7 +1081,7 @@
                            (|> (..global (Object Any) [process])
                                (maybe#each (|>> []
                                                 (.js_apply# (.js_constant# "Object.prototype.toString.call"))
-                                                (as Text)
+                                                (as (-> Any Text))
                                                 (text.= "[object process]")))
                                (maybe.else false))))
               (these)))
