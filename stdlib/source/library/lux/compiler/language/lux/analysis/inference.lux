@@ -40,13 +40,13 @@
     ["@[0]" type]]]])
 
 (exception.the .public (cannot_infer [module type arguments])
-  (Exception [Text Type (List @type.Code)])
+  (Exception [module.Name Type (List @type.Code)])
   (exception.report
    (list ["Type" (type.as_text type)]
          ["Arguments" (exception.listing (code.relative module) arguments)])))
 
 (exception.the .public (cannot_infer_argument [module type argument])
-  (Exception [Text Type @type.Code])
+  (Exception [module.Name Type @type.Code])
   (exception.report
    (list ["Type" (type.as_text type)]
          ["Argument" (code.relative module argument)])))
@@ -93,6 +93,13 @@
               {.#Named _})
         :it:)))
 
+(the (cannot_infer! inference arguments)
+  (-> Type (Stack @type.Code)
+      (Operation Nothing))
+  (do phase.monad
+    [here module.current_name]
+    (/.except ..cannot_infer [here inference (list.of_stack arguments)])))
+
 ... Type-inference works by applying some (potentially quantified) type
 ... to a sequence of values.
 ... Function types are used for this, although inference is not always
@@ -100,41 +107,37 @@
 ... tagged variants).
 ... But, so long as the type being used for the inference can be treated
 ... as a function type, this method of inference should work.
-(the (general' variables archive analyse inferT args)
-  (-> (Stack type.Variable) Archive Phase Type (Stack @type.Code)
-      (Operation [Type_Context
-                  (Stack type.Variable)
-                  Type
-                  (Stack /.Term)]))
+(the .public (general archive analysis morphism args)
+  (-> Archive Phase Type (Stack @type.Code)
+      (Operation [Type (Stack /.Term)]))
   (when args
     {.#Empty}
     (do phase.monad
-      [just_before (/type.check check.context)
-       _ (/type.inference inferT)]
-      (in [just_before variables inferT (stack)]))
+      [_ (/type.inference morphism)]
+      (in [morphism (stack)]))
     
     {.#Top argC args'}
-    (when inferT
+    (when morphism
       {.#Named name unnamedT}
-      (general' variables archive analyse unnamedT args)
+      (general archive analysis unnamedT args)
 
       {.#Quantification .universal _}
       (do phase.monad
         [[@variable :variable:] (/type.check check.var)]
-        (general' (stack.partial @variable variables) archive analyse (maybe.trusted (type.reified (list :variable:) inferT)) args))
+        (general archive analysis (maybe.trusted (type.reified (list :variable:) morphism)) args))
 
       {.#Quantification .existential _}
       (do phase.monad
         [:ex: /type.existential]
-        (general' variables archive analyse (maybe.trusted (type.reified (list :ex:) inferT)) args))
+        (general archive analysis (maybe.trusted (type.reified (list :ex:) morphism)) args))
 
       {.#Reification inputT transT}
       (when (type.reified (list inputT) transT)
         {.#Some outputT}
-        (general' variables archive analyse outputT args)
+        (general archive analysis outputT args)
 
         {.#None}
-        (/.except ..invalid_type_application [inferT]))
+        (/.except ..invalid_type_application [morphism]))
 
       ... Arguments are inferred back-to-front because, by convention,
       ... Lux functions take the most important arguments *last*, which
@@ -145,64 +148,25 @@
       ... things together more easily.
       (type.Function inputT outputT)
       (do phase.monad
-        [[just_before variables outputT' args'A] (general' variables archive analyse outputT args')
+        [[outputT' args'A] (general archive analysis outputT args')
          here module.current_name
          argA (<| (/.with_exception ..cannot_infer_argument [here inputT argC])
                   (/type.expecting inputT)
-                  (analyse archive argC))]
-        (in [just_before variables outputT' (stack.partial argA args'A)]))
+                  (analysis archive argC))]
+        (in [outputT' (stack.partial argA args'A)]))
 
-      {.#Variable infer_id}
+      {.#Variable morphism'}
       (do phase.monad
-        [here module.current_name
-         ?inferT' (phase.try (/type.check (check.type infer_id)))]
-        (when ?inferT'
-          {try.#Success inferT'}
-          (general' variables archive analyse inferT' args)
+        [morphism' (phase.try (/type.check (check.type morphism')))]
+        (when morphism'
+          {try.#Success morphism}
+          (general archive analysis morphism args)
 
           _
-          (/.except ..cannot_infer [here inferT (list.of_stack args)])))
+          (cannot_infer! morphism args)))
 
       _
-      (do phase.monad
-        [here module.current_name]
-        (/.except ..cannot_infer [here inferT (list.of_stack args)])))
-    ))
-
-(the .public (general archive analyse inferT args)
-  (-> Archive Phase Type (Stack @type.Code)
-      (Operation [Type (Stack /.Term)]))
-  (do [! phase.monad]
-    [[just_before variables :inference: terms] (general' (stack) archive analyse inferT args)]
-    (in [:inference: terms])
-    ... (when variables
-    ...   (stack)
-    ...   (in [:inference: terms])
-
-    ...   _
-    ...   (do !
-    ...     [:inference: (/type.check
-    ...                   (do [! check.monad]
-    ...                     [quantifications (stack.mix' ! (function (_ @variable level)
-    ...                                                     (do !
-    ...                                                       [:variable: (check.try (check.identity variables @variable))]
-    ...                                                       (when :variable:
-    ...                                                         {try.#Success _}
-    ...                                                         (in level)
-
-    ...                                                         {try.#Failure _}
-    ...                                                         (do !
-    ...                                                           [.let [:variable: {.#Parameter .argument level}]
-    ...                                                            _ (check.bind :variable: @variable)]
-    ...                                                           (in (++ level))))))
-    ...                                                 0
-    ...                                                 variables)
-    ...                      :inference:' (by ! each (type.univ_q quantifications) (check.clean variables :inference:))
-    ...                      _ (check.with just_before)]
-    ...                     (in :inference:')))
-    ...      _ (/type.inference :inference:)]
-    ...     (in [:inference: terms])))
-    ))
+      (cannot_infer! morphism args))))
 
 (the (with_recursion @self recursion)
   (-> Natural Type
