@@ -18,7 +18,7 @@ cd ~/lux/lux-js/ \
 ```
 ## Build JVM-based compiler
 cd ~/lux/lux-js/ \
-&& lux clean \
+&& lux with jvm clean \
 && lux with jvm build \
 && mv target/program.jar jvm_based_compiler.jar
 
