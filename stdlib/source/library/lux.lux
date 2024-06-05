@@ -1754,66 +1754,67 @@
                 _
                 (failure ..wrong_syntax))))
 
-(the' .private (monad#each m f xs)
-      (for_any (_ ! input output)
-        (-> ($ Monad !)
-            (-> input ($ ! output))
-            ($ Stack input)
-            ($ ! ($ Stack output))))
-      (let' [[..#in in ..#then _] m]
-            (.when# xs
-                    {#Empty}
-                    (in {#Empty})
-                    
-                    {#Top x xs'}
-                    (do m
-                      [y (f x)
-                       ys (monad#each m f xs')]
-                      (in {#Top y ys})))))
+(the' .private (monad#each#maybe $ items)
+      (for_any (_ input output)
+        (-> (-> input ($ Maybe output))
+            ($ List input)
+            ($ Maybe ($ List output))))
+      ((.is# (for_any (_ input output)
+               (-> (-> input ($ Maybe output)) ($ Stack input) ($ List output)
+                   ($ Maybe ($ List output))))
+             (function' (again $ items output)
+                        (.when# items
+                                {#Empty}
+                                {#Some output}
+                                
+                                {#Top head tail}
+                                (.when# ($ head)
+                                        {#Right head}
+                                        (again $ tail (.list_composite# output (list head)))
+
+                                        {#None}
+                                        {#None}))))
+       $
+       (list#as_stack items)
+       (list)))
 
 (the' .private (monad#each#meta $ items)
       (for_any (_ input output)
         (-> (-> input
                 ($ Meta output))
-            (-> ($ Stack input)
-                ($ Meta ($ Stack output)))))
-      (function' (_ lux)
-                 ((.is# (for_any (_ input output)
-                          (-> Lux (-> input ($ Meta output)) ($ Stack input) ($ Stack output)
-                              ($ Either Text (And Lux ($ Stack output)))))
-                        (function' (again lux $ items output)
-                                   (.when# items
-                                           {#Empty}
-                                           {#Right [lux (stack#reversed output)]}
-                                           
-                                           {#Top head tail}
-                                           (.when# ($ head lux)
-                                                   {#Right [lux head]}
-                                                   (again lux $ tail {#Top head output})
+            (-> ($ List input)
+                ($ Meta ($ List output)))))
+      ((.is# (for_any (_ input output)
+               (-> (-> input ($ Meta output)) ($ Stack input) ($ List output)
+                   ($ Meta ($ List output))))
+             (function' (again $ items output lux)
+                        (.when# items
+                                {#Empty}
+                                {#Right [lux output]}
+                                
+                                {#Top head tail}
+                                (.when# ($ head lux)
+                                        {#Right [lux head]}
+                                        (again $ tail (.list_composite# output (list head)) lux)
 
-                                                   {#Left failure}
-                                                   {#Left failure}))))
-                  lux
-                  $
-                  items
-                  {#Empty})))
+                                        {#Left failure}
+                                        {#Left failure}))))
+       $
+       (list#as_stack items)
+       (list)))
 
-(the' .private (monad#mix m f y xs)
+(the' .private (monad#mix ! mix initial_state items)
       (for_any (_ ! mix input)
         (-> ($ Monad !)
             (-> input mix ($ ! mix))
-            mix
-            ($ Stack input)
-            ($ ! mix)))
-      (let' [[..#in in ..#then _] m]
-            (.when# xs
-                    {#Empty}
-                    (in y)
-                    
-                    {#Top x xs'}
-                    (do m
-                      [y' (f x y)]
-                      (monad#mix m f y' xs')))))
+            (-> mix ($ List input) ($ ! mix))))
+      (list#mix (function' (_ partial state)
+                           (do !
+                             [state state]
+                             (mix partial state)))
+                (let' [[..#in in ..#then _] !]
+                      (in initial_state))
+                items))
 
 (the' .public if
       Macro
@@ -2291,10 +2292,10 @@
                                                   _
                                                   (expanded_list head tail)))
                                empty_list
-                               (list#as_stack (list#reversed elements)))
+                               (list#reversed elements))
                     (do meta#monad
-                      [=elements (monad#each#meta (untemplated replace? subst) (list#as_stack elements))]
-                      (in (code#list (list#of_stack =elements)))))]
+                      [=elements (monad#each#meta (untemplated replace? subst) elements)]
+                      (in (code#list =elements))))]
         (in (with_provenance @composite
               (code#variant (list (code#name [..prelude tag])
                                   ..no_provenance
@@ -2678,9 +2679,9 @@
       Type
       ($ Property_List Code))
 
-(the' .private (replacement_environment each_variable each_value)
+(the' .private replacement_environment
       (Function ($ List Text) (Function ($ List Code) Replacement_Environment))
-      (list#zipped_2 each_variable each_value))
+      list#zipped_2)
 
 (the' .private (replacement for)
       (Function Text (Function Replacement_Environment ($ Maybe Code)))
@@ -2728,27 +2729,35 @@
             ($ Stack it)))
       (stack#mix stack#composite {#Empty} (stack#reversed xs)))
 
+(the' .private list#conjoint
+      (for_any (_ it)
+        (-> ($ List ($ List it))
+            ($ List it)))
+      (list#mix' (function' (_ _ right left)
+                            (.list_composite# left right))
+                 (list)))
+
 (the' .private with_template
       Macro
       (macro (_ tokens)
         (.when# (list#split 2 tokens)
                 [(.list# {#Tuple _ bindings} {#Tuple _ templates})
                  data]
-                (.when# [(monad#each maybe#monad ..proper_name (list#as_stack bindings))
-                         (monad#each maybe#monad ..tuple_list (list#as_stack data))]
+                (.when# [(monad#each#maybe ..proper_name bindings)
+                         (monad#each#maybe ..tuple_list data)]
                         [{#Some bindings'} {#Some data'}]
-                        (let' [reification (.is# (-> Replacement_Environment ($ Stack Code))
+                        (let' [reification (.is# (-> Replacement_Environment ($ List Code))
                                                  (function' (_ env)
-                                                            (stack#each (realized_template env) (list#as_stack templates))))
-                               num_bindings (stack#size bindings')]
-                              (if (stack#every? (function' (_ it) (|> it .list_size# (.i64_=# num_bindings)))
-                                                data')
+                                                            (list#each (realized_template env)
+                                                                       templates)))
+                               num_bindings (.list_size# bindings')]
+                              (if (list#every? (function' (_ it) (|> it .list_size# (.i64_=# num_bindings)))
+                                               data')
                                   (|> data'
-                                      (stack#each (all function#composite
-                                                       reification
-                                                       (replacement_environment (list#of_stack bindings'))))
-                                      stack#conjoint
-                                      list#of_stack
+                                      (list#each (all function#composite
+                                                      reification
+                                                      (replacement_environment bindings')))
+                                      list#conjoint
                                       meta#in)
                                   (failure ..wrong_syntax)))
 
@@ -3022,8 +3031,8 @@
                           (.when# ?macro
                                   {#Some macro}
                                   (<| (meta#let lux [maximum_level_expansion ((.as# (-> Macro Macro') macro) args)])
-                                      (meta#let lux [recursive_expansion (monad#each#meta complete_expansion (list#as_stack maximum_level_expansion))])
-                                      (meta#return lux (list#of_stack (stack#conjoint (stack#each list#as_stack recursive_expansion)))))
+                                      (meta#let lux [recursive_expansion (monad#each#meta complete_expansion maximum_level_expansion)])
+                                      (meta#return lux (list#conjoint recursive_expansion)))
                                   
                                   {#None}
                                   (meta#return lux (list token))))
@@ -3052,16 +3061,16 @@
                 (failure ..wrong_syntax))))
 
 (the' .private (type_reification abstraction parameters)
-      (-> Code ($ Stack Code)
+      (-> Code ($ List Code)
           Code)
-      (stack#mix (.is# (-> Code Code Code)
-                       (function' (_ parameter abstraction)
-                                  (` {..#Reification (, parameter) (, abstraction)})))
-                 abstraction
-                 parameters))
+      (list#mix (.is# (-> Code Code Code)
+                      (function' (_ parameter abstraction)
+                                 (` {..#Reification (, parameter) (, abstraction)})))
+                abstraction
+                parameters))
 
 (the' .private (normal_type_reification normal_type abstraction parameters)
-      (-> (-> Code ($ Meta Code)) Code ($ Stack Code)
+      (-> (-> Code ($ Meta Code)) Code ($ List Code)
           ($ Meta Code))
       (<| (function' (_ lux))
           (meta#let lux [parameters (monad#each#meta normal_type parameters)])
@@ -3088,7 +3097,7 @@
                               (meta#failure ..type_must_have_singular_expansion)))
                   
                   {#None}
-                  ((normal_type_reification normal_type {#Name @ binding} (list#as_stack parameters)) lux))))
+                  ((normal_type_reification normal_type {#Name @ binding} parameters) lux))))
 
 (the' .private (normal_type type' it)
       ($ Change (-> Code ($ Meta Code)))
@@ -3140,8 +3149,8 @@
 
               {#Variant _ it}
               (<| (function' (_ lux))
-                  (meta#let lux [it (monad#each#meta (normal_type type') (list#as_stack it))])
-                  (meta#return lux (` {(,* (list#of_stack it))})))
+                  (meta#let lux [it (monad#each#meta (normal_type type') it)])
+                  (meta#return lux (` {(,* it)})))
 
               {#Tuple _ (.list# {#Bit _ polarity} it)}
               (<| (function' (_ lux))
@@ -3150,16 +3159,16 @@
 
               {#Tuple _ it}
               (<| (function' (_ lux))
-                  (meta#let lux [it (monad#each#meta (normal_type type') (list#as_stack it))])
-                  (meta#return lux (` (Tuple (,* (list#of_stack it))))))
+                  (meta#let lux [it (monad#each#meta (normal_type type') it)])
+                  (meta#return lux (` (Tuple (,* it)))))
 
               {#Form _ binding,parameters}
               (.when# (list#split 1 binding,parameters)
                       [(.list# {#Name @name ["library/lux" "list#"]})
                        members]
                       (<| (function' (_ lux))
-                          (meta#let lux [members (monad#each#meta (normal_type type') (list#as_stack members))])
-                          (meta#return lux (untemplated_list (list#of_stack members))))
+                          (meta#let lux [members (monad#each#meta (normal_type type') members)])
+                          (meta#return lux (untemplated_list members)))
 
                       [(.list# {#Name @binding binding})
                        parameters]
@@ -3168,7 +3177,7 @@
                                   ["" local]
                                   (.when# (in_env local lux)
                                           {#Some type_of_local}
-                                          ((normal_type_reification (normal_type type') {#Name @binding binding} (list#as_stack parameters)) lux)
+                                          ((normal_type_reification (normal_type type') {#Name @binding binding} parameters) lux)
                                           
                                           not_a_local
                                           ((expanded_type_reification (normal_type type') @binding binding parameters) lux))
@@ -3180,7 +3189,7 @@
                        args]
                       (<| (function' (_ lux))
                           (meta#let lux [type_fn (normal_type type' type_fn)])
-                          (meta#let lux [args (monad#each#meta (normal_type type') (list#as_stack args))])
+                          (meta#let lux [args (monad#each#meta (normal_type type') args)])
                           (meta#return lux (type_reification type_fn args)))
 
                       _
@@ -3471,18 +3480,18 @@
 
                                {#Form meta parts}
                                (do meta#monad
-                                 [=parts (monad#each#meta (literal only_global?) (list#as_stack parts))]
-                                 (in {#Form meta (list#of_stack =parts)}))
+                                 [=parts (monad#each#meta (literal only_global?) parts)]
+                                 (in {#Form meta =parts}))
 
                                {#Variant meta parts}
                                (do meta#monad
-                                 [=parts (monad#each#meta (literal only_global?) (list#as_stack parts))]
-                                 (in {#Variant meta (list#of_stack =parts)}))
+                                 [=parts (monad#each#meta (literal only_global?) parts)]
+                                 (in {#Variant meta =parts}))
 
                                {#Tuple meta parts}
                                (do meta#monad
-                                 [=parts (monad#each#meta (literal only_global?) (list#as_stack parts))]
-                                 (in {#Tuple meta (list#of_stack =parts)}))
+                                 [=parts (monad#each#meta (literal only_global?) parts)]
+                                 (in {#Tuple meta =parts}))
 
                                _
                                ... TODO: Figure out why this doesn't work:
@@ -3521,13 +3530,13 @@
           (.when# ?macro
                   {#Some macro}
                   (<| (meta#let lux [expansion ((as (-> Macro Macro') macro) args)])
-                      (meta#let lux [expansion' (monad#each#meta total_expansion (list#as_stack expansion))])
-                      (meta#return lux (list#of_stack (stack#conjoint (stack#each list#as_stack expansion')))))
+                      (meta#let lux [expansion' (monad#each#meta total_expansion expansion)])
+                      (meta#return lux (list#conjoint expansion')))
                   
                   {#None}
-                  (<| (meta#let lux [args' (monad#each#meta total_expansion (list#as_stack args))])
-                      (meta#return lux (list (code#form (list#of_stack {#Top {#Name @name name}
-                                                                             (stack#conjoint (stack#each list#as_stack args'))}))))))))
+                  (<| (meta#let lux [args' (monad#each#meta total_expansion args)])
+                      (meta#return lux (list (code#form (.list_composite# (list {#Name @name name})
+                                                                          (list#conjoint args')))))))))
 
 (the' .private (total_expansion syntax)
       (-> Code
@@ -3540,18 +3549,18 @@
 
                       else
                       (<| (function' (_ lux))
-                          (meta#let lux [members' (monad#each#meta total_expansion (list#as_stack it))])
-                          (meta#return lux (list (code#form (list#of_stack (stack#conjoint (stack#each list#as_stack members'))))))))
+                          (meta#let lux [members' (monad#each#meta total_expansion it)])
+                          (meta#return lux (list (code#form (list#conjoint members'))))))
 
               {#Variant _ members}
               (<| (function' (_ lux))
-                  (meta#let lux [members' (monad#each#meta total_expansion (list#as_stack members))])
-                  (meta#return lux (list (code#variant (list#of_stack (stack#conjoint (stack#each list#as_stack members')))))))
+                  (meta#let lux [members' (monad#each#meta total_expansion members)])
+                  (meta#return lux (list (code#variant (list#conjoint members')))))
 
               {#Tuple _ members}
               (<| (function' (_ lux))
-                  (meta#let lux [members' (monad#each#meta total_expansion (list#as_stack members))])
-                  (meta#return lux (list (code#tuple (list#of_stack (stack#conjoint (stack#each list#as_stack members')))))))
+                  (meta#let lux [members' (monad#each#meta total_expansion members)])
+                  (meta#return lux (list (code#tuple (list#conjoint members')))))
 
               _
               (meta#in (list syntax))))
@@ -4337,7 +4346,7 @@
 (the .public implementation
   (macro (_ tokens)
     (do meta#monad
-      [tokens' (monad#each#meta complete_expansion (list#as_stack tokens))
+      [tokens' (monad#each#meta complete_expansion tokens)
        implementation_type ..expected_type
        tags+type (every_slot implementation_type)
        tags (is (Meta (List Name))
@@ -4353,7 +4362,7 @@
                                            [(product#right tag)
                                             (code#name tag)])
                                          tags))]
-       members (monad#each#meta (is (-> Code (Meta (Stack Code)))
+       members (monad#each#meta (is (-> Code (Meta (List Code)))
                                     (function (_ token)
                                       (when token
                                         {#Form _ (list {#Name _ [..prelude "def#"]}
@@ -4362,15 +4371,15 @@
                                                        export_policy)}
                                         (when (property#value slot_name tag_mappings)
                                           {#Some tag}
-                                          (in (stack tag value))
+                                          (in (list tag value))
 
                                           _
                                           (failure (.text_composite# "Unknown implementation member: " slot_name)))
 
                                         _
                                         (failure ..invalid_implementation_member))))
-                                (stack#conjoint (stack#each list#as_stack tokens')))]
-      (in (list (code#tuple (list#of_stack (stack#conjoint members))))))))
+                                (list#conjoint tokens'))]
+      (in (list (code#tuple (list#conjoint members)))))))
 
 (the (text#interposed delimiter parts)
   (-> Text (Stack Text)
@@ -4701,14 +4710,6 @@
        ?#body
        ?#rest))
 
-(the list#conjoint
-  (for_any (_ it)
-    (-> (List (List it))
-        (List it)))
-  (list#mix' (function (_ _ right left)
-               (.list_composite# left right))
-             (list)))
-
 (the ^#or
   (pattern
    (macro (_ tokens)
@@ -4768,10 +4769,10 @@
                                      "   Relative Root: " relative_root \n))))))
 
 (the (imports_of nested? relative_root context imports)
-  (-> Bit Text (Stack Text) (Stack Code)
-      (Meta (Stack Importation)))
+  (-> Bit Text (Stack Text) (List Code)
+      (Meta (List Importation)))
   (do meta#monad
-    [imports' (monad#each#meta (is (-> Code (Meta (Stack Importation)))
+    [imports' (monad#each#meta (is (-> Code (Meta (List Importation)))
                                    (function (_ token)
                                      (when (?#value (list token)
                                                     (?#tuple (?#or (all ?#and
@@ -4789,16 +4790,16 @@
 
                                                                  {#None}
                                                                  (..absolute_module_name nested? relative_root module_name))
-                                          sub_imports (imports_of #1 absolute_module_name context (list#as_stack extra))]
+                                          sub_imports (imports_of #1 absolute_module_name context extra)]
                                          (in (when referral
                                                (list)
                                                sub_imports
                                                
                                                _
-                                               (stack#partial [#import_name absolute_module_name
-                                                               #import_alias {#None}
-                                                               #import_referrals referral]
-                                                              sub_imports))))
+                                               (.list_composite# (list [#import_name absolute_module_name
+                                                                        #import_alias {#None}
+                                                                        #import_referrals referral])
+                                                                 sub_imports))))
 
                                        {#Some {#Right [alias module_name referral extra]}}
                                        (do meta#monad
@@ -4809,21 +4810,21 @@
                                                                  {#None}
                                                                  (..absolute_module_name nested? relative_root module_name))
                                           .let [module_alias (..module_alias {#Top module_name context} alias)]
-                                          sub_imports (imports_of #1 absolute_module_name {#Top module_alias context} (list#as_stack extra))]
+                                          sub_imports (imports_of #1 absolute_module_name {#Top module_alias context} extra)]
                                          (in (when referral
                                                (list)
                                                sub_imports
                                                
                                                _
-                                               (stack#partial [#import_name absolute_module_name
-                                                               #import_alias {#Some module_alias}
-                                                               #import_referrals referral]
-                                                              sub_imports))))
+                                               (.list_composite# (list [#import_name absolute_module_name
+                                                                        #import_alias {#Some module_alias}
+                                                                        #import_referrals referral])
+                                                                 sub_imports))))
 
                                        else
                                        (failure ..wrong_syntax))))
                                imports)]
-    (in (stack#conjoint imports'))))
+    (in (list#conjoint imports'))))
 
 (the (exported_definitions module state)
   (-> Text
@@ -4892,15 +4893,15 @@
             #0
             whens))
 
-(the (test_referrals current_module imported_module all_defs referred_defs)
-  (-> Text Text (List Text) (List Text)
-      (Meta (Stack Any)))
+(the (test_referrals current_module imported_module all_defs)
+  (-> Text Text (List Text)
+      (-> (List Text)
+          (Meta (List Any))))
   (monad#each#meta (is (-> Text (Meta Any))
                        (function (_ _def)
                          (if (list#member? all_defs _def)
                              (meta#in [])
-                             (failure (.text_composite# _def " is not defined in module " imported_module " @ " current_module)))))
-                   (list#as_stack referred_defs)))
+                             (failure (.text_composite# _def " is not defined in module " imported_module " @ " current_module)))))))
 
 (the (alias_definition imported_module def)
   (-> Text Text
@@ -5121,26 +5122,24 @@
                                   (in [(stack (code#name slot)
                                               (code#name local))
                                        [local implementation]])))
-                              (stack#zipped_2 (list#as_stack tags) members))]
+                              (list#zipped_2 tags (list#of_stack members)))]
     (in [(|> pattern
-             (stack#each product#left)
-             stack#conjoint
-             list#of_stack
+             (list#each (|>> product#left list#of_stack))
+             list#conjoint
              code#tuple)
          (stack#all (function (_ [_ [sub_binding sub_implementation]])
                       (do maybe#monad
                         [sub_implementation sub_implementation]
                         (in [sub_binding sub_implementation])))
-                    pattern)])))
+                    (list#as_stack pattern))])))
 
 (the (open_layers alias interfaces body)
   (-> Text (List Implementation_Interface) Code
       (Meta [Code Code]))
   (do meta#monad
-    [layer (monad#each#meta (open_layer alias) (list#as_stack interfaces))
-     .let [pattern (code#tuple (list#each product#left (list#of_stack layer)))
+    [layer (monad#each#meta (open_layer alias) interfaces)
+     .let [pattern (code#tuple (list#each product#left layer))
            next (|> layer
-                    list#of_stack
                     (list#each (|>> product#right list#of_stack))
                     list#conjoint)]]
     (when next
@@ -5271,7 +5270,7 @@
 
 (the (open_declaration imported_module alias tags my_tag_index [module proper] source type)
   (-> Text Text (List Name) Natural Name Code Type
-      (Meta (Stack Code)))
+      (Meta (List Code)))
   (do meta#monad
     [output (every_slot type)
      '_ (..generated_name "'_")
@@ -5289,20 +5288,20 @@
     (when output
       {#Some [tags' members']}
       (do meta#monad
-        [decls' (monad#each#meta (is (-> [Natural Name Type] (Meta (Stack Code)))
+        [decls' (monad#each#meta (is (-> [Natural Name Type] (Meta (List Code)))
                                      (function (_ [sub_tag_index sname stype])
                                        (open_declaration imported_module alias tags' sub_tag_index sname source+ stype)))
-                                 (enumeration (stack#zipped_2 (list#as_stack tags') members')))]
-        (in (stack#conjoint decls')))
+                                 (list#of_stack (enumeration (stack#zipped_2 (list#as_stack tags') members'))))]
+        (in (list#conjoint decls')))
 
       _
-      (in (stack (` (.def# (, (code#local (..module_alias (stack proper imported_module) alias)))
-                           (, source+)
-                           ..private)))))))
+      (in (list (` (.def# (, (code#local (..module_alias (stack proper imported_module) alias)))
+                          (, source+)
+                          ..private)))))))
 
 (the (implementation_declarations imported_module alias implementation)
   (-> Text Text Name
-      (Meta (Stack Code)))
+      (Meta (List Code)))
   (do meta#monad
     [interface (type_definition implementation)
      output (every_slot interface)]
@@ -5310,19 +5309,19 @@
       {#Some [slots terms]}
       (do meta#monad
         [.let ['implementation (code#name implementation)]
-         declarations (monad#each#meta (is (-> [Natural Name Type] (Meta (Stack Code)))
+         declarations (monad#each#meta (is (-> [Natural Name Type] (Meta (List Code)))
                                            (function (_ [index slot_label slot_type])
                                              (open_declaration imported_module alias slots index slot_label 'implementation slot_type)))
-                                       (enumeration (stack#zipped_2 (list#as_stack slots) terms)))]
-        (in (stack#conjoint declarations)))
+                                       (list#of_stack (enumeration (stack#zipped_2 (list#as_stack slots) terms))))]
+        (in (list#conjoint declarations)))
 
       _
       (failure (.text_composite# "Can only 'use' implementations: " (name#as implementation)
                                  " : " (type#as_text interface))))))
 
 (the (localized module global)
-  (-> Text Name
-      Name)
+  (-> Text
+      (Change Name))
   (when global
     ["" local]
     [module local]
@@ -5354,9 +5353,8 @@
           (do meta#monad
             [declarations (|> implementations
                               (list#each (localized imported_module))
-                              list#as_stack
                               (monad#each#meta (implementation_declarations import_alias alias)))]
-            (in (list#of_stack (stack#conjoint declarations))))
+            (in (list#conjoint declarations)))
           
           {#Right implementations}
           (do meta#monad
@@ -5374,7 +5372,7 @@
                                                            (in [{#Top (` (.def# (, 'implementation) (, it) ..private)) pre_defs}
                                                                 {#Top 'implementation implementations}]))))
                                                      [(stack) (stack)]
-                                                     (list#as_stack implementations)))
+                                                     implementations))
              .let [[pre_defs implementations] pre_defs,implementations]]
             (in (|> pre_defs
                     {#Top (` (..use
@@ -5467,25 +5465,27 @@
                                              (do meta#monad
                                                ['slot (..generated_name "")]
                                                (in [r_slot_name r_idx 'slot]))))
-                                       (enumeration (list#as_stack family)))
+                                       (list#of_stack (enumeration (list#as_stack family))))
              .let [pattern (|> pattern'
-                               (stack#each (is (-> [Name Natural Code] (Stack Code))
-                                               (function (_ [r_slot_name r_idx r_var])
-                                                 (stack (code#name r_slot_name)
-                                                        r_var))))
-                               stack#conjoint)
+                               (list#each (is (-> [Name Natural Code] (List Code))
+                                              (function (_ [r_slot_name r_idx r_var])
+                                                (list (code#name r_slot_name)
+                                                      r_var))))
+                               list#conjoint)
                    idx (if right?
                            (is Natural (.i64_+# 1 lefts))
                            lefts)
                    output (|> pattern'
-                              (stack#each (is (-> [Name Natural Code] (Stack Code))
-                                              (function (_ [r_slot_name r_idx r_var])
-                                                (stack (code#name r_slot_name)
-                                                       (if (.i64_=# idx r_idx)
-                                                           value
-                                                           r_var)))))
-                              stack#conjoint)]]
-            (in (list (` (..when (, record) [(,* (list#of_stack pattern))] [(,* (list#of_stack output))])))))))
+                              (list#each (is (-> [Name Natural Code] (List Code))
+                                             (function (_ [r_slot_name r_idx r_var])
+                                               (list (code#name r_slot_name)
+                                                     (if (.i64_=# idx r_idx)
+                                                         value
+                                                         r_var)))))
+                              list#conjoint)]]
+            (in (list (` (..when (, record)
+                           [(,* pattern)]
+                           [(,* output)])))))))
 
       (list {#Tuple _ slots}
             value
@@ -5499,19 +5499,19 @@
           [bindings (monad#each#meta (is (-> Code (Meta Code))
                                          (function (_ _)
                                            (..generated_name "temp")))
-                                     (list#as_stack slots))
-           .let [pairs (stack#zipped_2 (list#as_stack slots) bindings)
-                 update_expr (stack#mix (is (-> [Code Code] Code Code)
-                                            (function (_ [s b] v)
-                                              (` (..has (, s) (, v) (, b)))))
-                                        value
-                                        (stack#reversed pairs))
-                 [_ accesses'] (stack#mix (is (-> [Code Code] [Code (Stack (Stack Code))] [Code (Stack (Stack Code))])
-                                              (function (_ [new_slot new_binding] [old_record accesses'])
-                                                [(` (its (, new_slot) (, new_binding)))
-                                                 {#Top (stack new_binding old_record) accesses'}]))
-                                          [record (is (Stack (Stack Code)) {#Empty})]
-                                          pairs)
+                                     slots)
+           .let [pairs (list#zipped_2 slots bindings)
+                 update_expr (list#mix (is (-> [Code Code] Code Code)
+                                           (function (_ [s b] v)
+                                             (` (..has (, s) (, v) (, b)))))
+                                       value
+                                       (list#reversed pairs))
+                 [_ accesses'] (list#mix (is (-> [Code Code] [Code (Stack (Stack Code))] [Code (Stack (Stack Code))])
+                                             (function (_ [new_slot new_binding] [old_record accesses'])
+                                               [(` (its (, new_slot) (, new_binding)))
+                                                {#Top (stack new_binding old_record) accesses'}]))
+                                         [record (is (Stack (Stack Code)) {#Empty})]
+                                         pairs)
                  accesses (stack#conjoint (stack#reversed accesses'))]]
           (in (list (` (let [(,* (list#of_stack accesses))]
                          (, update_expr)))))))
@@ -5553,25 +5553,27 @@
                                              (do meta#monad
                                                ['slot (..generated_name "")]
                                                (in [r_slot_name r_idx 'slot]))))
-                                       (enumeration (list#as_stack family)))
+                                       (list#of_stack (enumeration (list#as_stack family))))
              .let [pattern (|> pattern'
-                               (stack#each (is (-> [Name Natural Code] (Stack Code))
-                                               (function (_ [r_slot_name r_idx r_var])
-                                                 (stack (code#name r_slot_name)
-                                                        r_var))))
-                               stack#conjoint)
+                               (list#each (is (-> [Name Natural Code] (List Code))
+                                              (function (_ [r_slot_name r_idx r_var])
+                                                (list (code#name r_slot_name)
+                                                      r_var))))
+                               list#conjoint)
                    idx (if right?
                            (is Natural (.i64_+# 1 lefts))
                            lefts)
                    output (|> pattern'
-                              (stack#each (is (-> [Name Natural Code] (Stack Code))
-                                              (function (_ [r_slot_name r_idx r_var])
-                                                (stack (code#name r_slot_name)
-                                                       (if (.i64_=# idx r_idx)
-                                                           (` ((, fun) (, r_var)))
-                                                           r_var)))))
-                              stack#conjoint)]]
-            (in (list (` (..when (, record) [(,* (list#of_stack pattern))] [(,* (list#of_stack output))])))))))
+                              (list#each (is (-> [Name Natural Code] (List Code))
+                                             (function (_ [r_slot_name r_idx r_var])
+                                               (list (code#name r_slot_name)
+                                                     (if (.i64_=# idx r_idx)
+                                                         (` ((, fun) (, r_var)))
+                                                         r_var)))))
+                              list#conjoint)]]
+            (in (list (` (..when (, record)
+                           [(,* pattern)]
+                           [(,* output)])))))))
 
       (list {#Tuple _ slots} fun record)
       (when slots
@@ -5612,26 +5614,26 @@
                           (?#form ?#rest))
                (?#value tokens))
        {#Some [[bindings templates] data branches]}
-       (when (is (Maybe (Stack Code))
+       (when (is (Maybe (List Code))
                  (do maybe#monad
-                   [bindings' (monad#each maybe#monad ..proper_name (list#as_stack bindings))
-                    data' (monad#each maybe#monad ..tuple_list (list#as_stack data))]
-                   (let [num_bindings (stack#size bindings')]
-                     (if (stack#every? (|>> .list_size# (.i64_=# num_bindings))
-                                       data')
+                   [bindings' (monad#each#maybe ..proper_name bindings)
+                    data' (monad#each#maybe ..tuple_list data)]
+                   (let [num_bindings (.list_size# bindings')]
+                     (if (list#every? (|>> .list_size# (.i64_=# num_bindings))
+                                      data')
                          (let [reification (is (-> Replacement_Environment
-                                                   (Stack Code))
+                                                   (List Code))
                                                (function (_ env)
-                                                 (stack#each (realized_template env)
-                                                             (list#as_stack templates))))]
+                                                 (list#each (realized_template env)
+                                                            templates)))]
                            (|> data'
-                               (stack#each (|>> (replacement_environment (list#of_stack bindings'))
-                                                reification))
-                               stack#conjoint
+                               (list#each (|>> (replacement_environment bindings')
+                                               reification))
+                               list#conjoint
                                in))
                          {#None}))))
          {#Some output}
-         (meta#in (.list_composite# (list#of_stack output) branches))
+         (meta#in (.list_composite# output branches))
          
          {#None}
          (failure ..wrong_syntax))
@@ -5642,8 +5644,7 @@
 (with_template [<name> <extension>]
   [(the .public <name>
      (for_any (_ it)
-       (-> (I64 it)
-           (I64 it)))
+       (Change (I64 it)))
      (|>> (<extension> 1)))]
 
   [++ .i64_+#]
@@ -5721,8 +5722,8 @@
                 inits (stack#each product#right pairs)]
             (if (stack#every? name? inits)
                 (do meta#monad
-                  [inits' (is (Meta (Stack Name))
-                              (when (monad#each maybe#monad ..full_name inits)
+                  [inits' (is (Meta (List Name))
+                              (when (monad#each#maybe ..full_name (list#of_stack inits))
                                 {#Some inits'}
                                 (meta#in inits')
                                 
@@ -5730,7 +5731,7 @@
                                 (failure ..wrong_syntax)))
                    init_types (monad#each#meta type_definition inits')
                    expected ..expected_type]
-                  (meta#in (list (` ((.is# (-> (,* (list#of_stack (stack#each type_code init_types)))
+                  (meta#in (list (` ((.is# (-> (,* (list#each type_code init_types))
                                                (, (type_code expected)))
                                            (function ((, name) (,* (list#of_stack vars)))
                                              (, body)))
@@ -5738,9 +5739,9 @@
                 (do meta#monad
                   [aliases (monad#each#meta (is (-> Code (Meta Code))
                                                 (function (_ _) (..generated_name "")))
-                                            inits)]
-                  (meta#in (list (` (..let [(,* (list#of_stack (..interleaved aliases inits)))]
-                                      (..loop ((, name) [(,* (list#of_stack (..interleaved vars aliases)))])
+                                            (list#of_stack inits))]
+                  (meta#in (list (` (..let [(,* (list#of_stack (..interleaved (list#as_stack aliases) inits)))]
+                                      (..loop ((, name) [(,* (list#of_stack (..interleaved vars (list#as_stack aliases))))])
                                         (, body)))))))))
 
           {#None}
@@ -6045,17 +6046,17 @@
     (macro (_ _imports)
       (do meta#monad
         [current_module ..current_module_name
-         imports (imports_of #0 current_module {#Empty} (list#as_stack _imports))
+         imports (imports_of #0 current_module {#Empty} _imports)
          .let [referrals (list#each (is (-> Importation
                                             Code)
                                         (function (_ [module_name m_alias =refer])
                                           (refer_code module_name (..maybe#else "" m_alias) =refer)))
-                                    (list#of_stack imports))
+                                    imports)
                importations (list#each (is (-> Importation
                                                Code)
                                            (function (_ [module_name m_alias =refer])
                                              (` [(, (code#text module_name)) (, (code#text (..maybe#else "" m_alias)))])))
-                                       (list#of_stack imports))]]
+                                       imports)]]
         (in (.list_composite# (list (` (.module# [(,* importations)])))
                               referrals))))))
 
@@ -6078,11 +6079,10 @@
    [(do meta#monad
       [<*>' (monad#each#meta embedded_expansions <*>)]
       (in [(|> <*>'
-               stack#reversed
-               (stack#each (|>> product#left list#as_stack))
-               (stack#mix stack#composite (stack))
-               list#of_stack)
-           {<tag> <@> (list#of_stack (stack#each product#right <*>'))}]))]))
+               list#reversed
+               (list#each product#left)
+               list#conjoint)
+           {<tag> <@> (list#each product#right <*>')}]))]))
 
 (the (embedded_expansions code)
   (-> Code
@@ -6092,7 +6092,7 @@
     (when (list#split 1 original_name,parameters)
       [(.list# {#Name @name original_name})
        parameters]
-      (<| (expansion#let [<failure> (aggregate_embedded_expansions embedded_expansions @ #Form (stack#partial {#Name @name original_name} (list#as_stack parameters)))])
+      (<| (expansion#let [<failure> (aggregate_embedded_expansions embedded_expansions @ #Form (.list_composite# (list {#Name @name original_name}) parameters))])
           (do meta#monad
             [resolved_name (..normal original_name)
              ?resolved_name (meta#try (..global_name resolved_name))]
@@ -6117,11 +6117,11 @@
                       <failure>))))))
 
       else
-      (aggregate_embedded_expansions embedded_expansions @ #Form (list#as_stack original_name,parameters)))
+      (aggregate_embedded_expansions embedded_expansions @ #Form original_name,parameters))
 
     (with_template#pattern [<tag>]
       [{<tag> @ parts}
-       (aggregate_embedded_expansions embedded_expansions @ <tag> (list#as_stack parts))])
+       (aggregate_embedded_expansions embedded_expansions @ <tag> parts)])
     ([#Variant]
      [#Tuple])
     
@@ -6165,8 +6165,8 @@
 (the .public Interface
   (macro (_ tokens)
     (do meta#monad
-      [methods' (monad#each#meta complete_expansion (list#as_stack tokens))]
-      (when (?#value (list#conjoint (list#of_stack methods'))
+      [methods' (monad#each#meta complete_expansion tokens)]
+      (when (?#value (list#conjoint methods')
                      (?#some ?#method))
         {#Some methods}
         (in (list (` (..Tuple (,* (list#each product#left methods))))
