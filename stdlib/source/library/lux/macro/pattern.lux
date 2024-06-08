@@ -5,18 +5,18 @@
  [library
   [lux (.except UnQuote unquote unquote_macro
                 Spliced_UnQuote spliced_unquote spliced_unquote_macro
-                or let |>
-                ` , ,*)
+                or let |>)
    [abstract
     [monad (.only do)]]
    [control
     ["[0]" maybe]]
    [error
     ["[0]" try]]
+   [function
+    [predicate (.only Predicate)]]
    [data
     [collection
-     ["[0]" list (.use "[1]#[0]" monoid monad mix)]
-     ["[0]" stack (.use "[1]#[0]" monoid monad mix)]]]
+     ["[0]" list (.use "[1]#[0]" monoid monad)]]]
    ["[0]" meta (.use "[1]#[0]" monad)]]]
  ["[0]" // (.only with_names)
   ["[0]" vocabulary]
@@ -24,19 +24,8 @@
 
 (the with_template (.in_module# .prelude .with_template))
 
-(the locally
-  (macro (_ tokens lux)
-    (.let [[prelude _] (name ._)]
-      (when tokens
-        (list {.#Name @ ["" name]})
-        {.#Right [lux (list (.` (.in_module# (., {.#Text @ prelude})
-                                             (., {.#Name @ [prelude name]}))))]}
-
-        _
-        {.#Left ""}))))
-
 (with_template [<name>]
-  [(the <name> (..locally <name>))]
+  [(the <name> (.in_module# .prelude <name>))]
 
   [function#composite]
 
@@ -54,7 +43,6 @@
 
   [code#local]
 
-  [code#list]
   [code#bit]
   [code#natural]
   [code#integer]
@@ -63,15 +51,26 @@
 
   [one_expansion]
   [with_provenance]
+
+  [?#value]
+  [?#and]
+  [?#form]
+  [?#rest]
+  [?#any]
+  [?#name]
+  [?#local]
+  [?#tuple]
   )
 
 (the .public or
   (pattern
    (macro (_ tokens)
-     (when (list.as_stack tokens)
-       (stack.partial {.#Form _ patterns}
-                      body
-                      branches)
+     (when (.|> (all ?#and
+                     (?#form ?#rest)
+                     ?#any
+                     ?#rest)
+                (?#value tokens))
+       {.#Some [patterns body branches]}
        (when patterns
          (list)
          (meta.failure .wrong_syntax)
@@ -80,8 +79,9 @@
          (.let [pairs (.|> patterns
                            (list#each (function (_ pattern) (list pattern body)))
                            list#conjoint)]
-           (meta#in (list#composite pairs (list.of_stack branches)))))
-       _
+           (meta#in (list#composite pairs branches))))
+
+       else
        (meta.failure .wrong_syntax)))))
 
 (every Level
@@ -89,257 +89,97 @@
 
 (the (level it)
   (-> Code
-      (Meta Level))
-  (meta#in (when it
-             {.#Tuple _ (list expr binding)}
-             [expr binding]
+      Level)
+  (when it
+    {.#Tuple _ (list expr binding)}
+    [expr binding]
 
-             _
-             [it (.` #1)])))
+    _
+    [it (` #1)]))
 
-(every Multi
-  [Code (Stack Level)])
+(the binding?
+  (Predicate Code)
+  (|>> (match? {.#Name _ _})))
 
-(the .public empty_multi-level
-  Error
-  "Multi-level patterns cannot be empty.")
+(the ('multi '_ levels body)
+  (-> Code (List Code) Code
+      Code)
+  (.|> levels
+       list.reversed
+       (list#each ..level)
+       (list.mix (function (_ [calculation pattern] success)
+                   (` (when (, calculation)
+                        (, pattern)
+                        (, success)
 
-(the (multiP levels)
-  (-> (Stack Code) (Meta Multi))
-  (when levels
-    {.#Empty}
-    (meta.failure ..empty_multi-level)
-
-    {.#Top init extras}
-    (do meta.monad
-      [extras' (stack.each' meta.monad ..level extras)]
-      (in [init extras']))))
-
-(the (multiG '_ [[init_pattern levels] body])
-  (-> Code [Multi Code]
-      (List Code))
-  (.let [inner_pattern_body (stack#mix (function (_ [calculation pattern] success)
-                                         (.let [bind? (when pattern
-                                                        {.#Name _ _}
-                                                        true
-
-                                                        _
-                                                        false)]
-                                           (.` (when (., calculation)
-                                                 (., pattern)
-                                                 (., success)
-
-                                                 (.,* (if bind?
-                                                          (list)
-                                                          (list '_ (.` {.#None}))))))))
-                                       (.` {.#Some (., body)})
-                                       (stack.reversed levels))]
-    (list init_pattern inner_pattern_body)))
+                        (,* (if (binding? pattern)
+                                (list)
+                                (list '_ (` {.#None})))))))
+                 (` {.#Some (, body)}))))
 
 (the .public multi
   (pattern
    (macro (_ tokens)
-     (when (list.split 2 tokens)
-       [(list {.#Form _meta levels}
-              body)
-        next_branches]
+     (when (.|> (all ?#and
+                     (?#form (?#and ?#any ?#rest))
+                     ?#any
+                     ?#rest)
+                (?#value tokens))
+       {.#Some [[init levels] body next_branches]}
        (with_names ['temp]
          (do meta.monad
-           [mlc (multiP (list.as_stack levels))
-            .let [initial_bind? (when mlc
-                                  [{.#Name _ _} _]
-                                  true
-
-                                  _
-                                  false)]
-            expected ..expected_type]
+           [expected ..expected_type]
            (in (list 'temp
-                     (.` (.when (.is# {.#Reification (., (type_code expected)) Maybe}
-                                      (.when (., 'temp)
-                                        (.,* (multiG 'temp [mlc body]))
+                     (` (.when (.is# {.#Reification (, (type_code expected)) Maybe}
+                                     (.when (, 'temp)
+                                       (, init)
+                                       (, ('multi 'temp levels body))
 
-                                        (.,* (if initial_bind?
-                                                 (list)
-                                                 (list 'temp (.` {.#None}))))))
-                           {.#Some (., 'temp)}
-                           (., 'temp)
+                                       (,* (if (binding? init)
+                                               (list)
+                                               (list 'temp (` {.#None}))))))
+                          {.#Some (, 'temp)}
+                          (, 'temp)
 
-                           {.#None}
-                           (.when (., 'temp)
-                             (.,* next_branches))))))))
+                          {.#None}
+                          (.when (, 'temp)
+                            (,* next_branches))))))))
        
-       _
+       else
        (meta.failure .wrong_syntax)))))
 
 (the .public let
   (pattern
    (macro (_ tokens)
-     (when (list.as_stack tokens)
-       (stack.partial {.#Form _meta (list {.#Name _ ["" name]}
-                                          pattern)}
-                      body
-                      branches)
+     (when (.|> (all ?#and
+                     (?#form (?#and ?#local ?#any))
+                     ?#any
+                     ?#rest)
+                (?#value tokens))
+       {.#Some [[name pattern] body branches]}
        (.let ['whole (code#local name)]
          (meta#in (list#composite (list 'whole
-                                        (.` (when (., 'whole) (., pattern) (., body))))
-                                  (list.of_stack branches))))
+                                        (` (when (, 'whole) (, pattern) (, body))))
+                                  branches)))
        
-       _
+       else
        (meta.failure .wrong_syntax)))))
 
 (the .public |>
   (pattern
    (macro (_ tokens)
-     (when (list.split 2 tokens)
-       [(list {.#Form _meta (list {.#Name _ ["" name]}
-                                  {.#Tuple _ steps})}
-              body)
-        branches]
+     (when (.|> (all ?#and
+                     (?#form (?#and ?#local (?#tuple ?#rest)))
+                     ?#any
+                     ?#rest)
+                (?#value tokens))
+       {.#Some [[name steps] body branches]}
        (.let ['name (code#local name)]
          (meta#in (list#composite (list 'name
-                                        (.` (.let [(., 'name) (.|> (., 'name)
-                                                                   (.,* steps))]
-                                              (., body))))
+                                        (` (.let [(, 'name) (.|> (, 'name)
+                                                                 (,* steps))]
+                                             (, body))))
                                   branches)))
        
-       _
-       (meta.failure .wrong_syntax)))))
-
-(the (name$ [module name])
-  (-> Name Code)
-  (.` [(., (code#text module)) (., (code#text name))]))
-
-(the (untemplated_partial_stack last inits)
-  (-> Code (Stack Code) Code)
-  (when inits
-    {.#Empty}
-    last
-
-    {.#Top [init inits']}
-    (.` {.#Top (., init) (., (untemplated_partial_stack last inits'))})))
-
-(vocabulary.def
- [.public Spliced_UnQuote]
- [.public spliced_unquote]
- [.public spliced_unquote_macro]
- [.private named_spliced_unquote])
-
-(the (untemplated_composite <tag> 'meta untemplated_pattern elems)
-  (-> Code Code (-> Code (Meta Code))
-      (-> (List Code) (Meta Code)))
-  (expansion.let [<default> (do meta.monad
-                              [=elems (list.each' meta.monad untemplated_pattern elems)]
-                              (in (.` {(., <tag>) (., 'meta) (., (code#list =elems))})))]
-    (when (list.as_stack (list.reversed elems))
-      {.#Top {.#Form _ global,parameters}
-             inits}
-      (when (list.as_stack global,parameters)
-        {.#Top {.#Name _ global} parameters}
-        (do meta.monad
-          [micro (meta.try (..named_spliced_unquote global))]
-          (when micro
-            {try.#Success micro}
-            (do meta.monad
-              [output (..one_expansion ((//.function micro) (list.of_stack parameters)))
-               =inits (stack.each' meta.monad untemplated_pattern (stack.reversed inits))]
-              (in (.` {(., <tag>) (., 'meta) (., (untemplated_partial_stack output =inits))})))
-            
-            {try.#Failure error}
-            <default>))
-
-        else
-        <default>)
-
-      _
-      <default>)))
-
-(the .public ,*
-  (..spliced_unquote
-   (macro (_ tokens)
-     (when tokens
-       (list it)
-       (by meta.monad in tokens)
-
-       _
-       (meta.failure .wrong_syntax)))))
-
-(vocabulary.def
- [.public UnQuote]
- [.public unquote]
- [.public unquote_macro]
- [.private named_unquote])
-
-(the (untemplated_pattern pattern)
-  (-> Code
-      (Meta Code))
-  (with_names ['meta]
-    (`` (when pattern
-          (,, (with_template [<tag> <gen>]
-                [{<tag> _ value}
-                 (meta#in (.` {<tag> (., 'meta) (., (<gen> value))}))]
-
-                [.#Bit code#bit]
-                [.#Natural code#natural]
-                [.#Integer code#integer]
-                [.#Revolution code#revolution]
-                [.#Decimal code#decimal]
-                [.#Text code#text]
-                [.#Name name$]))
-
-          {.#Form @composite global,parameters}
-          (when (list.as_stack global,parameters)
-            {.#Top {.#Name @global global} parameters}
-            (do [! meta.monad]
-              [micro (meta.try (..named_unquote global))]
-              (when micro
-                {try.#Success micro}
-                (do !
-                  [output (..one_expansion ((//.function micro) (list.of_stack parameters)))]
-                  (in (with_provenance @composite
-                        output)))
-                
-                {try.#Failure error}
-                (untemplated_composite (.` .#Form) 'meta untemplated_pattern
-                                       (list.of_stack {.#Top {.#Name @global global} parameters}))))
-
-            else
-            (untemplated_composite (.` .#Form) 'meta untemplated_pattern global,parameters))
-
-          (,, (with_template [<tag>]
-                [{<tag> _ it}
-                 (untemplated_composite (.` <tag>) 'meta untemplated_pattern it)]
-
-                [.#Variant]
-                [.#Tuple]))
-          ))))
-
-(the .public `
-  (pattern
-   (macro (_ tokens)
-     (when (list.as_stack tokens)
-       (stack.partial {.#Form _meta (list template)}
-                      body
-                      branches)
-       (meta#each (function (_ pattern)
-                    (.|> branches
-                         list.of_stack
-                         (list#composite (list pattern body))))
-                  (untemplated_pattern template))
-
-       (stack template)
-       (meta#each (|>> list)
-                  (untemplated_pattern template))
-
-       _
-       (meta.failure .wrong_syntax)))))
-
-(the .public ,
-  UnQuote
-  (..unquote
-   (macro (_ tokens)
-     (when tokens
-       (list it)
-       (by meta.monad in (list it))
-
-       _
+       else
        (meta.failure .wrong_syntax)))))
