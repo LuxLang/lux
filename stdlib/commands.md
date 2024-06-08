@@ -108,7 +108,7 @@ cd ~/lux/stdlib/ \
 cd ~/lux/stdlib/ \
 && lux with aedifex clean \
 && lux with aedifex build \
-&& mv target/aedifex/program.jar aedifex.jar
+&& mv target/jvm/program.jar aedifex.jar
 ```
 
 ## Test
