@@ -1,5 +1,6 @@
 # Reference
 
+0. [The Trouble with Turmeric: Liver Injury Lotto](https://vajenda.substack.com/p/the-trouble-with-turmeric)
 0. [plasticlist](https://www.plasticlist.org/)
 0. [Organ & Body Donations: Last Week Tonight with John Oliver (HBO)](https://www.youtube.com/watch?v=Tn7egDQ9lPg)
 0. [Explained: The sugar coating of life](https://news.mit.edu/2023/explained-glycoscience-carbohydrates-1201)

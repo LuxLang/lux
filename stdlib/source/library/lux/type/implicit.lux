@@ -17,10 +17,9 @@
     ["[0]" text (.only)
      ["%" \\injection]]
     [collection
-     ["[0]" list (.use "[1]#[0]" monad mix)
+     ["[0]" list (.use "[1]#[0]" monad monoid)
       ["?[1]" \\projection]
       ["[0]" property]]
-     ["[0]" stack (.use "[1]#[0]" monad mix)]
      ["[0]" dictionary (.only Dictionary)]]]
    [math
     ["[0]" number (.only)
@@ -165,58 +164,56 @@
         (let [candidate (//.de_aliased candidate)])
         <found?>)))
 
-(the (available_definitions sig_type source_module target_module constants aggregate)
+(the (available_definitions sig_type source_module target_module constants)
   (-> Type Text Text (property.List [Bit Definition])
-      (Change (Stack [Name Type])))
-  (list#mix (function (_ [name [exported? [def_type def_value]]] aggregate)
+      (List [Name Type]))
+  (list.all (function (_ [name [exported? [def_type def_value]]])
               (if (and (or (text.= target_module source_module)
                            exported?)
                        (compatible_type? sig_type def_type))
-                  {.#Top [[source_module name] def_type] aggregate}
-                  aggregate))
-            aggregate
+                  {.#Some [[source_module name] def_type]}
+                  {.#None}))
             constants))
 
 (the (local_env sig_type)
   (-> Type
-      (Meta (Stack [Name Type])))
+      (Meta (List [Name Type])))
   (do meta.monad
     [local_batches local.all
      .let [total_locals (|> local_batches
-                            (stack#each list.as_stack)
-                            stack#conjoint
-                            (stack#mix (function (_ [name type] table)
-                                         (try.else table (dictionary.has' name type table)))
-                                       (is (Dictionary Text Type)
-                                           (dictionary.empty text.hash))))]]
+                            list.of_stack
+                            list#conjoint
+                            (list.mix (function (_ [name type] table)
+                                        (try.else table (dictionary.has' name type table)))
+                                      (is (Dictionary Text Type)
+                                          (dictionary.empty text.hash))))]]
     (in (|> total_locals
             dictionary.entries
             (list.all (function (_ [name type])
                         (if (compatible_type? sig_type type)
                             {.#Some [["" name] type]}
-                            {.#None})))
-            list.as_stack))))
+                            {.#None})))))))
 
 (the (local_structs sig_type)
   (-> Type
-      (Meta (Stack [Name Type])))
+      (Meta (List [Name Type])))
   (do [! meta.monad]
     [[this_module_name _] module.current
      definitions (binding.resolved_globals this_module_name)]
-    (in (available_definitions sig_type this_module_name this_module_name definitions {.#Empty}))))
+    (in (available_definitions sig_type this_module_name this_module_name definitions))))
 
 (the (imported_structs sig_type)
   (-> Type
-      (Meta (Stack [Name Type])))
+      (Meta (List [Name Type])))
   (do [! meta.monad]
     [[this_module_name _] module.current
      imported_modules (import.all this_module_name)
      accessible_definitions (list.each' ! binding.resolved_globals imported_modules)]
-    (in (list#mix (function (_ [imported_module definitions] tail)
-                    (available_definitions sig_type imported_module this_module_name definitions tail))
-                  {.#Empty}
-                  (list.zipped_2 imported_modules
-                                 accessible_definitions)))))
+    (in (|> (list.zipped_2 imported_modules
+                           accessible_definitions)
+            (list#each (function (_ [imported_module definitions])
+                         (available_definitions sig_type imported_module this_module_name definitions)))
+            list#conjoint))))
 
 (the (on_argument arg func)
   (-> Type Type
@@ -243,54 +240,54 @@
 
 (the (concrete_type type)
   (-> Type
-      (Check [(Stack Natural) Type]))
+      (Check [(List Natural) Type]))
   (when type
     {.#Quantification .universal _}
     (do check.monad
       [[id var] check.var
        [ids final_output] (concrete_type (maybe.trusted (//.reified (list var) type)))]
-      (in [{.#Top id ids}
+      (in [(list#composite (list id) ids)
            final_output]))
     
     _
-    (by check.monad in [(stack) type])))
+    (by check.monad in [(list) type])))
 
 (the (ensure_function_application! member_type input_types expected_output)
-  (-> Type (Stack Type) Type
+  (-> Type (List Type) Type
       (Check []))
   (do check.monad
-    [actual_output (stack.mix' check.monad ..on_argument member_type input_types)]
+    [actual_output (list.mix' check.monad ..on_argument member_type input_types)]
     (check.check expected_output actual_output)))
 
 (every Instance
   (Rec Instance
     (Record
      [#constructor Name
-      #dependencies (Stack Instance)])))
+      #dependencies (List Instance)])))
 
 (the (candidate_provision provision context dep alts)
   (-> (-> Lux Type_Context Type (Check Instance))
-      Type_Context Type (Stack [Name Type])
-      (Meta (Stack Instance)))
+      Type_Context Type (List [Name Type])
+      (Meta (List Instance)))
   (do meta.monad
     [compiler meta.compiler_state]
     (when (|> alts
-              (stack#each (function (_ [alt_name alt_type])
-                            (when (check.value context
-                                               (do [! check.monad]
-                                                 [[tvars alt_type] (concrete_type alt_type)
-                                                  .let [[deps alt_type] (//.flat_function alt_type)]
-                                                  _ (check.check dep alt_type)
-                                                  context' check.context]
-                                                 (stack.each' ! (provision compiler context')
-                                                              (list.as_stack deps))))
-                              {.#Left error}
-                              (stack)
+              (list#each (function (_ [alt_name alt_type])
+                           (when (check.value context
+                                              (do [! check.monad]
+                                                [[tvars alt_type] (concrete_type alt_type)
+                                                 .let [[deps alt_type] (//.flat_function alt_type)]
+                                                 _ (check.check dep alt_type)
+                                                 context' check.context]
+                                                (list.each' ! (provision compiler context')
+                                                            deps)))
+                             {.#Left error}
+                             (list)
 
-                              {.#Right =deps}
-                              (stack [alt_name =deps]))))
-              stack#conjoint)
-      {.#Empty}
+                             {.#Right =deps}
+                             (list [alt_name =deps]))))
+              list#conjoint)
+      (list)
       (meta.failure (text "No candidates for provisioning: " (//.as_text dep)))
 
       found
@@ -309,49 +306,48 @@
 
     {.#Right candidates}
     (when candidates
-      {.#Empty}
+      (list)
       (check.failure (text "No candidates for provisioning: " (//.as_text dep)))
 
-      {.#Top winner {.#Empty}}
+      (list winner)
       (by check.monad in winner)
 
-      _
-      (check.failure (text "Too many candidates for provisioning: " (//.as_text dep) " --- " (%.stack (|>> product.left name.as_text) candidates))))
+      too_many!
+      (check.failure (text "Too many candidates for provisioning: " (//.as_text dep) " --- " (list.as_text (|>> product.left name.as_text) candidates))))
     ))
 
 (the (candidate_alternatives sig_type member_idx input_types output_type alts)
-  (-> Type Natural (Stack Type) Type (Stack [Name Type])
-      (Meta (Stack Instance)))
+  (-> Type Natural (List Type) Type (List [Name Type])
+      (Meta (List Instance)))
   (do meta.monad
     [compiler meta.compiler_state
      context meta.type_context]
-    (when (|> alts
-              (stack#each (function (_ [alt_name alt_type])
-                            (when (<| (check.value context)
-                                      (do [! check.monad]
-                                        [[tvars alt_type] (concrete_type alt_type)
-                                         .let [[deps alt_type] (//.flat_function alt_type)]
-                                         _ (check.check alt_type sig_type)
-                                         member_type (member_type member_idx alt_type)
-                                         _ (ensure_function_application! member_type input_types output_type)
-                                         context' check.context]
-                                        (stack.each' ! (provision sig_type compiler context')
-                                                     (list.as_stack deps))))
-                              {.#Left error}
-                              (stack)
+    (when (list.all (function (_ [alt_name alt_type])
+                      (when (<| (check.value context)
+                                (do [! check.monad]
+                                  [[tvars alt_type] (concrete_type alt_type)
+                                   .let [[deps alt_type] (//.flat_function alt_type)]
+                                   _ (check.check alt_type sig_type)
+                                   member_type (member_type member_idx alt_type)
+                                   _ (ensure_function_application! member_type input_types output_type)
+                                   context' check.context]
+                                  (list.each' ! (provision sig_type compiler context')
+                                              deps)))
+                        {.#Left error}
+                        {.#None}
 
-                              {.#Right =deps}
-                              (stack [alt_name =deps]))))
-              stack#conjoint)
-      {.#Empty}
-      (meta.failure (text "No alternatives for " (//.as_text (//.function (list.of_stack input_types) output_type))))
+                        {.#Right =deps}
+                        {.#Some [alt_name =deps]}))
+                    alts)
+      (list)
+      (meta.failure (text "No alternatives for " (//.as_text (//.function input_types output_type))))
 
       found
       (in found))))
 
 (the (alternatives sig_type member_idx input_types output_type)
-  (-> Type Natural (Stack Type) Type
-      (Meta (Stack Instance)))
+  (-> Type Natural (List Type) Type
+      (Meta (List Instance)))
   (let [test (candidate_alternatives sig_type member_idx input_types output_type)]
     (all meta.either
          (do meta.monad [alts (..local_env sig_type)] (test alts))
@@ -378,11 +374,11 @@
   (-> Instance
       Code)
   (when dependencies
-    {.#Empty}
+    (list)
     (code.name constructor)
 
     _
-    (` ((, (code.name constructor)) (,* (list.of_stack (stack#each instance$ dependencies)))))))
+    (` ((, (code.name constructor)) (,* (list#each instance$ dependencies))))))
 
 (the .public any
   (syntax.macro (_ [member <code>.name
@@ -394,12 +390,12 @@
         [[member_idx sig_type] (..implicit_member member)
          input_types (list.each' ! ..implicit_type args)
          output_type meta.expected_type
-         chosen_ones (alternatives sig_type member_idx (list.as_stack input_types) output_type)]
+         chosen_ones (alternatives sig_type member_idx input_types output_type)]
         (when chosen_ones
-          (stack)
+          (list)
           (meta.failure (text "No implementation could be found for member: " (name.as_text member)))
 
-          (stack chosen)
+          (list chosen)
           (in (list (` (.by (, (instance$ chosen))
                             (, (code.local (product.right member)))
                             (,* (list#each code.name args))))))
@@ -407,7 +403,6 @@
           _
           (meta.failure (text "Too many implementations available: "
                               (|> chosen_ones
-                                  list.of_stack
                                   (list#each (|>> product.left name.as_text))
                                   (text.interposed ", "))
                               " --- for type: " (//.as_text sig_type)))))
