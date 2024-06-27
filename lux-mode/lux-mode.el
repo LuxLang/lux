@@ -347,7 +347,11 @@ Called by `imenu--generic-function'."
 ;; https://www.emacswiki.org/emacs/RegularExpression
 (defconst lux-font-lock-keywords
   (eval-when-compile
-	(let* ((natural_unit "[°g%‰‱]")
+	(let* ((suffix_of_binary_notation "b")
+		   (every_digit_of_binary_notation (+class "0-1"))
+		   (binary_notation (concat every_digit_of_binary_notation suffix_of_binary_notation))
+
+		   (natural_unit "[°g%‰‱]")
 		   (decimal_unit (altRE natural_unit
 								"[πτ]"))
 
@@ -374,7 +378,7 @@ Called by `imenu--generic-function'."
 		   (identifier_t "][)(}{.\"[:space:]")
 		   (identifier_h (concat identifier_t "0-9"))
 		   (identifier (concat (-class identifier_h) (-class identifier_t) "*"))
-		   (bitRE (literal (altRE "#0" "#1")))
+
 		   (specialRE (let (;; Control
 							(control//flow (altRE "when" "exec" "let" "loop" "do" "be"
 												  "if" "unless"))
@@ -466,7 +470,7 @@ Called by `imenu--generic-function'."
 								 in-local))
 		   (typeRE (concat global_prefix (+class identifier_h|type) (-class identifier_t) "*"))
 		   (labelRE (concat global_prefix (+class identifier_h|label) (-class identifier_t) "+"))
-		   (literalRE (altRE bitRE ;; Bit literals
+		   (literalRE (altRE (literal binary_notation) ;; Bit literals
 							 (literal natural)
 							 (literal integer)
 							 (literal revolution)
