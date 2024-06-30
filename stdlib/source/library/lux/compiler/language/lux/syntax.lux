@@ -30,11 +30,11 @@
 (.using
  [library
   [lux (.except Alias
-                natural revolution)
+                natural revolution or)
    [abstract
     [monad (.only do)]
     ["<>" projection]]
-   [error
+   [error (.only error)
     ["[0]" try]
     ["[0]" exception (.only Exception)]]
    [data
@@ -166,6 +166,9 @@
   [(the .public ,name ,suffix)]
 
   ["b" suffix_of_binary]
+  ["o" suffix_of_octal]
+  ["d" suffix_of_decimal]
+  ["h" suffix_of_hexadecimal]
   )
 
 (exception.the .public (end_of_file [module])
@@ -229,10 +232,14 @@
       (Result it)))
 
 (expansion.let [,bit_false (these "0")
-                ,bit_true (these "1")]
-  (these (expansion.let [,every_digit_of_binary (these ,bit_false ,bit_true)
-                         <digits> (these ,every_digit_of_binary "2" "3" "4" "5" "6" "7" "8" "9")
-                         <non_name_characters> (template.with [<character>]
+                ,bit_true (these "1")
+                
+                ,every_digit_of_binary (these ,bit_false ,bit_true)
+                ,every_digit_of_octal (these ,every_digit_of_binary "2" "3" "4" "5" "6" "7")
+                ,every_digit_of_decimal (these ,every_digit_of_octal "8" "9")
+                ,every_digit_of_hexadecimal (these ,every_digit_of_decimal "A" "B" "C" "D" "E" "F")
+                ,delimiter_of_digit (static ..digit_delimiter)]
+  (these (expansion.let [<non_name_characters> (template.with [<character>]
                                                  [(,, (static <character>))]
 
                                                  [text.space]
@@ -241,36 +248,36 @@
                                                  [..open_form] [..close_form]
                                                  [..open_variant] [..close_variant]
                                                  [..open_tuple] [..close_tuple]
-                                                 [..text_delimiter])
-                         <digit_delimiter> (static ..digit_delimiter)]
-           (these (the !if_binary?
-                    (template.macro (_ character then else)
-                      [(.when_char# character
-                                    [[,every_digit_of_binary]
-                                     then]
+                                                 [..text_delimiter])]
+           (these (template.with [,single ,multiple ,every_digit]
+                    [(the ,single
+                       (template.macro (_ character then else)
+                         [(.when_char# character
+                                       [,every_digit
+                                        then]
 
-                                    ... else
-                                    else)]))
+                                       ... else
+                                       else)]))
 
-                  (the !if_digit?
-                    (template.macro (_ character then else)
-                      [(.when_char# character
-                                    [[<digits>]
-                                     then]
+                     (the ,multiple
+                       (template.macro (_ character then else_options else)
+                         [(`` (.when_char# character
+                                           [,every_digit
+                                            then
 
-                                    ... else
-                                    else)]))
+                                            [,delimiter_of_digit]
+                                            then
 
-                  (the !if_digit?+
-                    (template.macro (_ character then else_options else)
-                      [(`` (.when_char# character
-                                        [[<digits> <digit_delimiter>]
-                                         then
+                                            (,, (template.spliced else_options))]
 
-                                         (,, (template.spliced else_options))]
+                                           ... else
+                                           else))]))]
 
-                                        ... else
-                                        else))]))
+                    [!if_binary? !if_binary?+ [,every_digit_of_binary]]
+                    [!if_octal? !if_octal?+ [,every_digit_of_octal]]
+                    [!if_decimal? !if_decimal?+ [,every_digit_of_decimal]]
+                    [!if_hexadecimal? !if_hexadecimal?+ [,every_digit_of_hexadecimal]]
+                    )
 
                   (`` (the !if_name_character?|tail
                         (template.macro (_ character then else)
@@ -284,7 +291,7 @@
                   (`` (the !if_name_character?|head
                         (template.macro (_ character then else)
                           [(.when_char# character
-                                        [[<non_name_characters> <digits>]
+                                        [[<non_name_characters> ,every_digit_of_decimal]
                                          else]
 
                                         ... else
@@ -342,6 +349,24 @@
                                        <end>
                                        @code]
                                       output)
+                           
+                           {.#Left error}
+                           (..failure [,where <start> @code]
+                                      error))]))
+
+                    (the value_with_suffix
+                      (template.macro (_ the_globals ,where <start> <end> <format>)
+                        [(when (|> @code
+                                   (!clip <start> <end>)
+                                   (text.replaced ..digit_delimiter "")
+                                   (by <format> of))
+                           {.#Right output}
+                           (let [<end>' (after <end>)]
+                             (..success [(let [[where::file where::line where::column] ,where]
+                                           [where::file where::line (!n/+ (!n/- <start> <end>') where::column)])
+                                         <end>'
+                                         @code]
+                                        output))
                            
                            {.#Left error}
                            (..failure [,where <start> @code]
@@ -436,15 +461,72 @@
                         [(!letE [source' full_name] (..full_name_projection the_globals aliases offset source)
                                 (..success source' {tag where full_name}))]))
 
-                    (inlined (natural the_globals start where offset)
-                      (-> types_of_the_globals Offset Provenance Offset
-                          (Result Nat))
-                      (loop (next ['end offset])
-                        (<| (with_character the_globals 'end 'character (..value the_globals where start 'end n.base_10))
-                            (!if_digit?+ 'character
+                    (the .public error_of_natural_is_not_valid
+                      (error "error_of_natural_is_not_valid"))
+
+                    (the (natural_is_not_valid the_globals @)
+                      (-> types_of_the_globals
+                          (Projection Natural))
+                      (..failure @ ..error_of_natural_is_not_valid))
+
+                    (template.with [,format ,name ,predicate ,suffix ,parent]
+                      [(the (,name the_globals @)
+                         (-> types_of_the_globals
+                             (Projection Natural))
+                         (<| (let [[where start @code] @])
+                             (loop (next ['end start]))
+                             (with_character the_globals 'end 'character (natural_is_not_valid the_globals @))
+                             (,predicate 'character
                                          (next (after 'end))
                                          []
-                                         (..value the_globals where start 'end n.base_10)))))
+                                         (`` (.when_char# 'character
+                                                          [[(,, (static ,suffix))]
+                                                           (..value_with_suffix the_globals where start 'end ,format)]
+
+                                                          ... else
+                                                          (,parent the_globals @))))))]
+
+                      [n.base_16 natural_in_hexadecimal !if_hexadecimal?+ ..suffix_of_hexadecimal
+                       natural_is_not_valid]
+                      [n.base_10 natural_in_decimal !if_decimal?+ ..suffix_of_decimal
+                       natural_in_hexadecimal]
+                      [n.base_08 natural_in_octal !if_octal?+ ..suffix_of_octal
+                       natural_in_decimal]
+                      )
+
+                    (the (natural_in_default the_globals @)
+                      (-> types_of_the_globals
+                          (Projection Natural))
+                      (<| (let [[where start @code] @])
+                          (loop (next ['end start]))
+                          (expansion.let [,else (..value the_globals where start 'end n.base_10)])
+                          (with_character the_globals 'end 'character ,else)
+                          (!if_decimal?+ 'character
+                                         (next (after 'end))
+                                         []
+                                         ,else)))
+
+                    (the (or left right)
+                      (for_any (_ it)
+                        (-> (-> types_of_the_globals
+                                (Projection it))
+                            (-> types_of_the_globals
+                                (Projection it))
+                            (-> types_of_the_globals
+                                (Projection it))))
+                      (function (_ the_globals @)
+                        (when (left the_globals @)
+                          {.#Left error}
+                          (right the_globals @)
+
+                          success
+                          success)))
+
+                    (the natural
+                      (-> types_of_the_globals
+                          (Projection Natural))
+                      (or natural_in_octal
+                          natural_in_default))
 
                     (the (decimal the_globals start where offset)
                       (-> types_of_the_globals Offset Provenance Offset
@@ -459,53 +541,54 @@
                         (loop (again [end offset
                                       exponent (static ..no_exponent)])
                           (<| (with_character the_globals end character/0 <success>)
-                              (`` (`` (!if_digit?+ character/0
-                                                   (again (after end) exponent)
+                              (`` (`` (!if_decimal?+ character/0
+                                                     (again (after end) exponent)
 
-                                                   [["e" "E"]
-                                                    (if (same? (static ..no_exponent) exponent)
-                                                        (<| (with_character the_globals (after end) character/1 <failure>)
-                                                            (`` (.when_char# character/1
-                                                                             [[<signs>]
-                                                                              (<| (with_character the_globals (!n/+ 2 end) character/2 <failure>)
-                                                                                  (!if_digit?+ character/2
-                                                                                               (again (!n/+ 3 end) character/0)
-                                                                                               []
-                                                                                               <failure>))]
-                                                                             ... else
-                                                                             <failure>)))
-                                                        <success>)
+                                                     [["e" "E"]
+                                                      (if (same? (static ..no_exponent) exponent)
+                                                          (<| (with_character the_globals (after end) character/1 <failure>)
+                                                              (`` (.when_char# character/1
+                                                                               [[<signs>]
+                                                                                (<| (with_character the_globals (!n/+ 2 end) character/2 <failure>)
+                                                                                    (!if_decimal?+ character/2
+                                                                                                   (again (!n/+ 3 end) character/0)
+                                                                                                   []
+                                                                                                   <failure>))]
+                                                                               ... else
+                                                                               <failure>)))
+                                                          <success>)
 
-                                                    (,, (template.with [,unit]
-                                                          [[(,, (static.text (its unit.#suffix ,unit)))]
-                                                           (<| (!letE [[where' numerator_end _] numerator] (..value the_globals where start end decimal.base_10))
-                                                               (let [denominator (n.decimal (its unit.#factor ,unit))])
-                                                               (..success [where' (after numerator_end) @code]
-                                                                          {@type.#Decimal where (decimal./ denominator numerator)}))]
+                                                      (,, (template.with [,unit]
+                                                            [[(,, (static.text (its unit.#suffix ,unit)))]
+                                                             (<| (!letE [[where' numerator_end _] numerator] (..value the_globals where start end decimal.base_10))
+                                                                 (let [denominator (n.decimal (its unit.#factor ,unit))])
+                                                                 (..success [where' (after numerator_end) @code]
+                                                                            {@type.#Decimal where (decimal./ denominator numerator)}))]
 
-                                                          [unit.degree]
-                                                          [unit.gradian]
-                                                          [unit.per_cent]
-                                                          [unit.per_mille]
-                                                          [unit.per_myriad]
-                                                          ))
-                                                    (,, (template.with [,unit]
-                                                          [[(,, (static.text (its unit.#suffix ,unit)))]
-                                                           (<| (!letE [[where' numerator_end _] numerator] (..value the_globals where start end decimal.base_10))
-                                                               (..success [where' (after numerator_end) @code]
-                                                                          {@type.#Decimal where (decimal.* (its unit.#factor ,unit)
-                                                                                                           numerator)}))]
+                                                            [unit.degree]
+                                                            [unit.gradian]
+                                                            [unit.per_cent]
+                                                            [unit.per_mille]
+                                                            [unit.per_myriad]
+                                                            ))
+                                                      (,, (template.with [,unit]
+                                                            [[(,, (static.text (its unit.#suffix ,unit)))]
+                                                             (<| (!letE [[where' numerator_end _] numerator] (..value the_globals where start end decimal.base_10))
+                                                                 (..success [where' (after numerator_end) @code]
+                                                                            {@type.#Decimal where (decimal.* (its unit.#factor ,unit)
+                                                                                                             numerator)}))]
 
-                                                          [unit.radian]
-                                                          [unit.turn]
-                                                          ))]
+                                                            [unit.radian]
+                                                            [unit.turn]
+                                                            ))]
 
-                                                   <success>)))))))
+                                                     <success>)))))))
 
-                    (inlined (rational the_globals numerator denominator_start where)
-                      (-> types_of_the_globals Integer Offset Provenance
-                          (Result @type.Code))
-                      (<| (!letE [[where' denominator_end _] denominator] (..natural the_globals denominator_start where denominator_start))
+                    (the (rational numerator the_globals @)
+                      (-> Integer types_of_the_globals
+                          (Projection @type.Code))
+                      (<| (!letE [[where' denominator_end @code] denominator] (..natural the_globals @))
+                          (let [[where _] @])
                           (..success [where' denominator_end @code]
                                      (..as_rational where numerator denominator))))
 
@@ -515,30 +598,30 @@
                       (expansion.let [,success (..number the_globals start end integer.base_10 @type.#Integer)]
                         (loop (again [end offset])
                           (<| (with_character the_globals end character ,success)
-                              (`` (`` (!if_digit?+ character
-                                                   (again (after end))
+                              (`` (`` (!if_decimal?+ character
+                                                     (again (after end))
 
-                                                   [[(,, (static ..decimal_delimiter))]
-                                                    (..decimal the_globals start where (after end))
+                                                     [[(,, (static ..decimal_delimiter))]
+                                                      (..decimal the_globals start where (after end))
 
-                                                    [(,, (static rational.delimiter))]
-                                                    (!letE [_ numerator] (..value the_globals where start end integer.base_10)
-                                                           (..rational the_globals numerator (after end) where))
+                                                      [(,, (static rational.delimiter))]
+                                                      (!letE [_ numerator] (..value the_globals where start end integer.base_10)
+                                                             (..rational numerator the_globals [where (after end) @code]))
 
-                                                    (,, (template.with [,unit]
-                                                          [[(,, (static.text (its unit.#suffix ,unit)))]
-                                                           (!letE [[where' numerator_end _] numerator] (..value the_globals where start end integer.base_10)
-                                                                  (..success [where' (after numerator_end) @code]
-                                                                             (..as_rational where numerator (its unit.#factor ,unit))))]
+                                                      (,, (template.with [,unit]
+                                                            [[(,, (static.text (its unit.#suffix ,unit)))]
+                                                             (!letE [[where' numerator_end _] numerator] (..value the_globals where start end integer.base_10)
+                                                                    (..success [where' (after numerator_end) @code]
+                                                                               (..as_rational where numerator (its unit.#factor ,unit))))]
 
-                                                          [unit.degree]
-                                                          [unit.gradian]
-                                                          [unit.per_cent]
-                                                          [unit.per_mille]
-                                                          [unit.per_myriad]
-                                                          ))]
+                                                            [unit.degree]
+                                                            [unit.gradian]
+                                                            [unit.per_cent]
+                                                            [unit.per_mille]
+                                                            [unit.per_myriad]
+                                                            ))]
 
-                                                   ,success)))))))
+                                                     ,success)))))))
 
                     (inlined (revolution the_globals start where offset)
                       (-> types_of_the_globals Offset Provenance Offset
@@ -546,27 +629,30 @@
                       (expansion.let [,success (..number the_globals start 'end revolution.base_10 @type.#Revolution)]
                         (loop (next ['end offset])
                           (<| (with_character the_globals 'end 'character ,success)
-                              (!if_digit?+ 'character
-                                           (next (after 'end))
-                                           []
-                                           ,success)))))
+                              (!if_decimal?+ 'character
+                                             (next (after 'end))
+                                             []
+                                             ,success)))))
 
-                    (inlined (fraction the_globals numerator denominator_start where)
-                      (-> types_of_the_globals Natural Offset Provenance
-                          (Result @type.Code))
-                      (<| (!letE [[where' denominator_end _] denominator] (..natural the_globals denominator_start where denominator_start))
+                    (the (fraction numerator the_globals @)
+                      (-> Natural types_of_the_globals
+                          (Projection @type.Code))
+                      (<| (!letE [[where' denominator_end @code] denominator] (..natural the_globals @))
+                          (let [[where _] @])
                           (..success [where' denominator_end @code]
                                      (..as_fraction where numerator denominator))))
 
-                    (inlined (positive the_globals start where offset)
-                      (-> types_of_the_globals Offset Provenance Offset
-                          (Result @type.Code))
-                      (<| (!letE [[where' numerator_end _] numerator] (..natural the_globals start where offset))
-                          (expansion.let [,natural (..number the_globals start numerator_end n.base_10 @type.#Natural)])
+                    (the (positive the_globals @)
+                      (-> types_of_the_globals
+                          (Projection @type.Code))
+                      (<| (let [[where start @code] @])
+                          (!letE [[where' numerator_end _] numerator] (..natural the_globals @))
+                          (expansion.let [,natural (..success [where' numerator_end @code]
+                                                              {@type.#Natural where numerator})])
                           (with_character the_globals numerator_end potential_delimiter ,natural)
                           (`` (`` (.when_char# potential_delimiter
                                                [[(,, (static fraction.delimiter))]
-                                                (..fraction the_globals numerator (after numerator_end) where')
+                                                (..fraction numerator the_globals [where' (after numerator_end) @code])
 
                                                 (,, (template.with [,unit]
                                                       [[(,, (static.text (its unit.#suffix ,unit)))]
@@ -588,9 +674,9 @@
                       (template.macro (_ the_globals offset where aliases end)
                         [(<| (let ['offset/1 (after offset)])
                              (with_character the_globals 'offset/1 'character/1 end)
-                             (!if_digit? 'character/1
-                                         (signed_projection the_globals offset where (after/2 offset))
-                                         (!full_name_projection the_globals offset [where (after offset) @code] where aliases @type.#Name)))]))
+                             (!if_decimal? 'character/1
+                                           (signed_projection the_globals offset where (after/2 offset))
+                                           (!full_name_projection the_globals offset [where (after offset) @code] where aliases @type.#Name)))]))
 
                     (the !horizontal
                       (template.macro (_ the_globals where offset)
@@ -690,14 +776,14 @@
                                                                                          {@type.#Bit where <bit>})]
 
                                                                              ... else
-                                                                             (..positive the_globals offset/0 where (after offset/0))))]
+                                                                             (..positive the_globals @)))]
 
                                                            [,bit_false .false]
                                                            [,bit_true .true]))]
 
                                                     ... else
-                                                    (..positive the_globals offset/0 where (after offset/0))))))
-                             
+                                                    (..positive the_globals @)))))
+
                              (the .public (parse @code @module aliases)
                                (-> Source_Code module.Name Aliases
                                    (Projection @type.Code))
@@ -746,24 +832,24 @@
                                                              (<| (let [offset/1 (after offset/0)])
                                                                  (with_character the_globals offset/1 character/1
                                                                    (!end_of_file the_globals where offset/1))
-                                                                 (!if_digit? character/1
-                                                                             ... It's a Revolution.
-                                                                             (..revolution the_globals offset/0 where (after offset/1))
-                                                                             ... It's either a name, or a comment.
-                                                                             (.when_char# character/1
-                                                                                          [[(,, (static name.delimiter))]
-                                                                                           ... It's either a name, or a comment.
-                                                                                           (<| (let [offset/2 (after offset/1)])
-                                                                                               (with_character the_globals offset/2 character/2
-                                                                                                 (!end_of_file the_globals where offset/2))
-                                                                                               (.when_char# character/2
-                                                                                                            [[(,, (static name.delimiter))]
-                                                                                                             ... It's a comment.
-                                                                                                             <comment_projection>]
-                                                                                                            ... It's a name.
-                                                                                                            <implicit_name>))]
-                                                                                          ... It's a name.
-                                                                                          <implicit_name>))))
+                                                                 (!if_decimal? character/1
+                                                                               ... It's a Revolution.
+                                                                               (..revolution the_globals offset/0 where (after offset/1))
+                                                                               ... It's either a name, or a comment.
+                                                                               (.when_char# character/1
+                                                                                            [[(,, (static name.delimiter))]
+                                                                                             ... It's either a name, or a comment.
+                                                                                             (<| (let [offset/2 (after offset/1)])
+                                                                                                 (with_character the_globals offset/2 character/2
+                                                                                                   (!end_of_file the_globals where offset/2))
+                                                                                                 (.when_char# character/2
+                                                                                                              [[(,, (static name.delimiter))]
+                                                                                                               ... It's a comment.
+                                                                                                               <comment_projection>]
+                                                                                                              ... It's a name.
+                                                                                                              <implicit_name>))]
+                                                                                            ... It's a name.
+                                                                                            <implicit_name>))))
 
                                                            [(,, (static ..positive_sign))
                                                             (,, (static ..negative_sign))]
@@ -771,13 +857,13 @@
                                                                                (!end_of_file the_globals where offset/0))]
 
                                                           ... else
-                                                          (!if_binary? character/0
-                                                                       (..bit the_globals [where offset/0 @code])
-                                                                       (!if_digit? character/0
-                                                                                   ... Natural number
-                                                                                   (..positive the_globals offset/0 where (after offset/0))
-                                                                                   ... Name
-                                                                                   (!full_name_projection the_globals offset/0 <consume_1> where aliases @type.#Name)))
+                                                          (<| (!if_binary? character/0
+                                                                           (..bit the_globals [where offset/0 @code]))
+                                                              ... Natural number
+                                                              (!if_decimal? character/0
+                                                                            (..positive the_globals [where offset/0 @code]))
+                                                              ... Name
+                                                              (!full_name_projection the_globals offset/0 <consume_1> where aliases @type.#Name))
                                                           )))
                                        )))))
                       )
