@@ -40,7 +40,7 @@
   (-> Natural (/.Message Natural Natural))
   (function (_ state self)
     (let [state' (n.+ increment state)]
-      (future#in {try.#Success [state' state']}))))
+      (future#pure {try.#Success [state' state']}))))
 
 (the (mailed? outcome)
   (-> (Try Any) Bit)
@@ -57,7 +57,7 @@
                              (/.Mail a)))
                        (function (_ transform)
                          (function (_ state actor)
-                           (|> state transform {try.#Success} future#in))))
+                           (|> state transform {try.#Success} future#pure))))
            ++! (is (/.Mail Natural) (as_mail ++))
            --! (is (/.Mail Natural) (as_mail --))]]
     (<| (_.covering /._)
@@ -74,107 +74,107 @@
                                  [actor (/.spawn! /.default 0)
                                   poisoned? (/.poison! actor)
                                   alive? (/.alive? actor)]
-                                 (in (and (..mailed? poisoned?)
-                                          (not alive?)))))
+                                 (pure (and (..mailed? poisoned?)
+                                            (not alive?)))))
 
                      cannot_poison_more_than_once!
                      (io.value (do io.monad
                                  [actor (/.spawn! /.default 0)
                                   first_time? (/.poison! actor)
                                   second_time? (/.poison! actor)]
-                                 (in (and (..mailed? first_time?)
-                                          (not (..mailed? second_time?))))))]
+                                 (pure (and (..mailed? first_time?)
+                                            (not (..mailed? second_time?))))))]
                  (and poisoned_actors_die!
                       cannot_poison_more_than_once!)))
 
              (let [[read write] (is [(Future Text) (Resolver Text)]
                                     (future.future []))]
-               (in (do future.monad
-                     [_ (future.soon (do io.monad
-                                       [actor (/.spawn! (is (/.Behavior Any)
-                                                            (function (_ message state self)
-                                                              (do [! future.monad]
-                                                                [outcome (message state self)]
-                                                                (when outcome
-                                                                  {try.#Failure cause}
-                                                                  (do !
-                                                                    [_ (future.soon (write cause))]
-                                                                    (in outcome))
-                                                                  
-                                                                  {try.#Success _}
-                                                                  (in outcome)))))
-                                                        [])]
-                                       (/.poison! actor)))
-                      _ (future.delay 100)
-                      it (future.soon (future.value read))]
-                     (unit.coverage [/.poisoned]
+               (pure (do future.monad
+                       [_ (future.soon (do io.monad
+                                         [actor (/.spawn! (is (/.Behavior Any)
+                                                              (function (_ message state self)
+                                                                (do [! future.monad]
+                                                                  [outcome (message state self)]
+                                                                  (when outcome
+                                                                    {try.#Failure cause}
+                                                                    (do !
+                                                                      [_ (future.soon (write cause))]
+                                                                      (pure outcome))
+                                                                    
+                                                                    {try.#Success _}
+                                                                    (pure outcome)))))
+                                                          [])]
+                                         (/.poison! actor)))
+                        _ (future.delay 100)
+                        it (future.soon (future.value read))]
+                       (unit.coverage [/.poisoned]
+                         (when it
+                           {.#Some error}
+                           (exception.is? /.poisoned error)
+
+                           {.#None}
+                           false)))))
+
+             (pure (do future.monad
+                     [sent? (future.soon (do io.monad
+                                           [actor (/.spawn! /.default 0)
+                                            sent? (/.mail! ++! actor)]
+                                           (pure (..mailed? sent?))))]
+                     (unit.coverage [/.Behavior /.Mail
+                                     /.default /.spawn! /.mail!]
+                       sent?)))
+
+             (pure (do future.monad
+                     [it (future.soon (do io.monad
+                                        [counter (/.spawn! /.default 0)
+                                         _ (/.poison! counter)]
+                                        (/.mail! ++! counter)))]
+                     (unit.coverage [/.dead]
                        (when it
-                         {.#Some error}
-                         (exception.is? /.poisoned error)
+                         {try.#Success outcome}
+                         false
 
-                         {.#None}
-                         false)))))
-
-             (in (do future.monad
-                   [sent? (future.soon (do io.monad
-                                         [actor (/.spawn! /.default 0)
-                                          sent? (/.mail! ++! actor)]
-                                         (in (..mailed? sent?))))]
-                   (unit.coverage [/.Behavior /.Mail
-                                   /.default /.spawn! /.mail!]
-                     sent?)))
-
-             (in (do future.monad
-                   [it (future.soon (do io.monad
-                                      [counter (/.spawn! /.default 0)
-                                       _ (/.poison! counter)]
-                                      (/.mail! ++! counter)))]
-                   (unit.coverage [/.dead]
-                     (when it
-                       {try.#Success outcome}
-                       false
-
-                       {try.#Failure error}
-                       (exception.is? /.dead error)))))
+                         {try.#Failure error}
+                         (exception.is? /.dead error)))))
 
              (let [die! (is (/.Mail Natural)
                             (function (_ state actor)
-                              (future#in (exception.except ..got_wrecked []))))]
-               (in (do future.monad
-                     [it (future.soon (do io.monad
-                                        [actor (/.spawn! /.default initial_state)
-                                         sent? (/.mail! die! actor)
-                                         alive? (/.alive? actor)
-                                         obituary (/.obituary' actor)]
-                                        (in {try.#Success [actor sent? alive? obituary]})))]
-                     (unit.coverage [/.Obituary /.obituary']
+                              (future#pure (exception.except ..got_wrecked []))))]
+               (pure (do future.monad
+                       [it (future.soon (do io.monad
+                                          [actor (/.spawn! /.default initial_state)
+                                           sent? (/.mail! die! actor)
+                                           alive? (/.alive? actor)
+                                           obituary (/.obituary' actor)]
+                                          (pure {try.#Success [actor sent? alive? obituary]})))]
+                       (unit.coverage [/.Obituary /.obituary']
+                         (when it
+                           {try.#Success [actor sent? alive? {.#Some [error state (list single_pending_message)]}]}
+                           (and (..mailed? sent?)
+                                (not alive?)
+                                (exception.is? ..got_wrecked error)
+                                (n.= initial_state state)
+                                (same? die! single_pending_message))
+
+                           _
+                           false)))))
+
+             (pure (do future.monad
+                     [counter (future.soon (/.spawn! ..counter 0))
+                      it (do (try.with future.monad)
+                           [output_1 (/.request! (count! 1) counter)
+                            output_2 (/.request! (count! 1) counter)
+                            output_3 (/.request! (count! 1) counter)]
+                           (pure (and (n.= 1 output_1)
+                                      (n.= 2 output_2)
+                                      (n.= 3 output_3))))]
+                     (unit.coverage [/.Message /.request!]
                        (when it
-                         {try.#Success [actor sent? alive? {.#Some [error state (list single_pending_message)]}]}
-                         (and (..mailed? sent?)
-                              (not alive?)
-                              (exception.is? ..got_wrecked error)
-                              (n.= initial_state state)
-                              (same? die! single_pending_message))
+                         {try.#Success outcome}
+                         outcome
 
-                         _
-                         false)))))
-
-             (in (do future.monad
-                   [counter (future.soon (/.spawn! ..counter 0))
-                    it (do (try.with future.monad)
-                         [output_1 (/.request! (count! 1) counter)
-                          output_2 (/.request! (count! 1) counter)
-                          output_3 (/.request! (count! 1) counter)]
-                         (in (and (n.= 1 output_1)
-                                  (n.= 2 output_2)
-                                  (n.= 3 output_3))))]
-                   (unit.coverage [/.Message /.request!]
-                     (when it
-                       {try.#Success outcome}
-                       outcome
-
-                       {try.#Failure error}
-                       false))))
+                         {try.#Failure error}
+                         false))))
              
              (do !
                [num_events (by ! each (|>> (n.% 10) ++) random.natural)
@@ -183,87 +183,87 @@
                 .let [expected (list.first num_observations events)
                       sink (is (Atom (Sequence Natural))
                                (atom.atom sequence.empty))]]
-               (in (do future.monad
-                     [agent (future.soon
-                             (do [! io.monad]
-                               [agent (/.spawn! /.default 0)
-                                _ (/.observe! (function (_ event stop)
-                                                (function (_ events_seen self)
-                                                  (future.soon
-                                                   (if (n.< num_observations events_seen)
-                                                       (do !
-                                                         [_ (atom.update! (sequence.suffix event) sink)]
-                                                         (in {try.#Success (++ events_seen)}))
-                                                       (do !
-                                                         [_ stop]
-                                                         (in {try.#Failure "YOLO"}))))))
-                                              (frp.sequential 0 events)
-                                              agent)]
-                               (in agent)))
-                      _ (/.obituary agent)
-                      actual (future.soon (atom.read! sink))]
-                     (unit.coverage [/.Stop /.observe! /.obituary]
-                       (by (list.equivalence n.equivalence) =
-                           expected
-                           (sequence.as_list actual))))))
-             (in (do future.monad
-                   [actor (future.soon (/.spawn! /.default initial_state))
-                    actual (/.request! /.state actor)]
-                   (unit.coverage [/.state]
-                     (<| (try.else false)
-                         (do try.monad
-                           [actual actual]
-                           (in (same? initial_state actual)))))))
-             (in (do future.monad
-                   [actor (future.soon (/.spawn! /.default initial_state))
-                    before,after (/.request! (/.update ++) actor)
-                    actual (/.request! /.state actor)]
-                   (unit.coverage [/.update]
-                     (<| (try.else false)
-                         (do try.monad
-                           [[before after] before,after
-                            actual actual]
-                           (in (and (n.= (++ before) after)
-                                    (same? after actual))))))))
-             (in (do future.monad
-                   [actor (future.soon (/.spawn! /.default initial_state))
-                    before,after (/.request! (/.update ++) actor)
-                    _ (/.request! (/.reset initial_state) actor)
-                    actual (/.request! /.state actor)]
-                   (unit.coverage [/.reset]
-                     (<| (try.else false)
-                         (do try.monad
-                           [[before after] before,after
-                            actual actual]
-                           (in (and (n.= (++ before) after)
-                                    (same? initial_state before)
-                                    (same? initial_state actual))))))))
-             (in (do future.monad
-                   [actor (future.soon (/.spawn! (/.validated (n.< initial_state) /.default)
-                                                 initial_state))
-                    before,after (/.request! (/.update --) actor)
-                    actual (/.request! /.state actor)]
-                   (unit.coverage [/.validated]
-                     (<| (try.else false)
-                         (do try.monad
-                           [[before after] before,after
-                            actual actual]
-                           (in (and (n.= (-- before) after)
-                                    (same? after actual))))))))
-             (in (do future.monad
-                   [actor (future.soon (/.spawn! (/.validated (n.< initial_state) /.default)
-                                                 initial_state))
-                    before,after (/.request! (/.update ++) actor)
-                    [cause_of_death state pending] (/.obituary actor)
-                    actual (/.request! /.state actor)]
-                   (unit.coverage [/.invalid]
-                     (when [before,after actual]
-                       [{try.#Success [before after]}
-                        {try.#Failure afterwards}]
-                       (and (n.= (++ before) after)
-                            (exception.is? /.invalid cause_of_death)
-                            (exception.is? /.dead afterwards))
+               (pure (do future.monad
+                       [agent (future.soon
+                               (do [! io.monad]
+                                 [agent (/.spawn! /.default 0)
+                                  _ (/.observe! (function (_ event stop)
+                                                  (function (_ events_seen self)
+                                                    (future.soon
+                                                     (if (n.< num_observations events_seen)
+                                                         (do !
+                                                           [_ (atom.update! (sequence.suffix event) sink)]
+                                                           (pure {try.#Success (++ events_seen)}))
+                                                         (do !
+                                                           [_ stop]
+                                                           (pure {try.#Failure "YOLO"}))))))
+                                                (frp.sequential 0 events)
+                                                agent)]
+                                 (pure agent)))
+                        _ (/.obituary agent)
+                        actual (future.soon (atom.read! sink))]
+                       (unit.coverage [/.Stop /.observe! /.obituary]
+                         (by (list.equivalence n.equivalence) =
+                             expected
+                             (sequence.as_list actual))))))
+             (pure (do future.monad
+                     [actor (future.soon (/.spawn! /.default initial_state))
+                      actual (/.request! /.state actor)]
+                     (unit.coverage [/.state]
+                       (<| (try.else false)
+                           (do try.monad
+                             [actual actual]
+                             (pure (same? initial_state actual)))))))
+             (pure (do future.monad
+                     [actor (future.soon (/.spawn! /.default initial_state))
+                      before,after (/.request! (/.update ++) actor)
+                      actual (/.request! /.state actor)]
+                     (unit.coverage [/.update]
+                       (<| (try.else false)
+                           (do try.monad
+                             [[before after] before,after
+                              actual actual]
+                             (pure (and (n.= (++ before) after)
+                                        (same? after actual))))))))
+             (pure (do future.monad
+                     [actor (future.soon (/.spawn! /.default initial_state))
+                      before,after (/.request! (/.update ++) actor)
+                      _ (/.request! (/.reset initial_state) actor)
+                      actual (/.request! /.state actor)]
+                     (unit.coverage [/.reset]
+                       (<| (try.else false)
+                           (do try.monad
+                             [[before after] before,after
+                              actual actual]
+                             (pure (and (n.= (++ before) after)
+                                        (same? initial_state before)
+                                        (same? initial_state actual))))))))
+             (pure (do future.monad
+                     [actor (future.soon (/.spawn! (/.validated (n.< initial_state) /.default)
+                                                   initial_state))
+                      before,after (/.request! (/.update --) actor)
+                      actual (/.request! /.state actor)]
+                     (unit.coverage [/.validated]
+                       (<| (try.else false)
+                           (do try.monad
+                             [[before after] before,after
+                              actual actual]
+                             (pure (and (n.= (-- before) after)
+                                        (same? after actual))))))))
+             (pure (do future.monad
+                     [actor (future.soon (/.spawn! (/.validated (n.< initial_state) /.default)
+                                                   initial_state))
+                      before,after (/.request! (/.update ++) actor)
+                      [cause_of_death state pending] (/.obituary actor)
+                      actual (/.request! /.state actor)]
+                     (unit.coverage [/.invalid]
+                       (when [before,after actual]
+                         [{try.#Success [before after]}
+                          {try.#Failure afterwards}]
+                         (and (n.= (++ before) after)
+                              (exception.is? /.invalid cause_of_death)
+                              (exception.is? /.dead afterwards))
 
-                       _
-                       false))))
+                         _
+                         false))))
              ))))
