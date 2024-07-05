@@ -343,6 +343,9 @@ Called by `imenu--generic-function'."
 (defun some (it)
   (concat it "*"))
 
+(defun many (it)
+  (concat it "+"))
+
 (defun literal (content)
   (concat "\\<" content "\\>"))
 
@@ -357,16 +360,24 @@ Called by `imenu--generic-function'."
 (defun digits* (characters)
   (some (orRE separator_of_digits characters)))
 
+(defun digits+ (characters)
+  (many (orRE separator_of_digits characters)))
+
 (defun digits (characters)
   (andRE characters
 		 (digits* characters)))
+
+(defun digits_2* (characters)
+  (andRE characters
+		 (digits+ characters)))
 
 ;; https://www.emacswiki.org/emacs/RegularExpression
 (defconst lux-font-lock-keywords
   (eval-when-compile
 	(let* ((suffix_of_binary_notation "b")
 		   (every_digit_of_binary_notation (+class "0-1"))
-		   (binary_notation (andRE every_digit_of_binary_notation suffix_of_binary_notation))
+		   (bit (andRE every_digit_of_binary_notation suffix_of_binary_notation))
+		   (binary_notation (andRE (digits_2* every_digit_of_binary_notation) suffix_of_binary_notation))
 
 		   (suffix_of_octal_notation "o")
 		   (every_digit_of_octal_notation (orRE every_digit_of_binary_notation (+class "2-7")))
@@ -387,7 +398,8 @@ Called by `imenu--generic-function'."
 		   (decimal_unit (orRE natural_unit
 							   "[πτ]"))
 
-		   (natural (orRE octal_notation
+		   (natural (orRE binary_notation
+						  octal_notation
 						  decimal_notation
 						  hexadecimal_notation
 						  default_notation))
@@ -504,7 +516,7 @@ Called by `imenu--generic-function'."
 								in-local))
 		   (typeRE (concat global_prefix (+class identifier_h|type) (-class identifier_t) "*"))
 		   (labelRE (concat global_prefix (+class identifier_h|label) (-class identifier_t) "+"))
-		   (literalRE (orRE (literal binary_notation) ;; Bit literals
+		   (literalRE (orRE (literal bit)
 							(literal natural)
 							(literal integer)
 							(literal revolution)
