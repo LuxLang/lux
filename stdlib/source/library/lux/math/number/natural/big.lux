@@ -1,0 +1,470 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except Natural macro)
+   [abstract
+    [monad (.only do)]]
+   [error (.only error)]
+   [data
+    ["[0]" product]
+    [collection
+     ["[0]" list (.use "[1]#[0]" monoid)]]]
+   [math
+    ["[0]" random (.only Random) (.use "[1]#[0]" monad)]]]]
+ ["[0]" // (.only)
+  [//
+   ["[0]" i64]]])
+
+(the Digit
+  //.Number)
+
+(every .public Number
+  (List Digit))
+
+(the .public Natural
+  ..Number)
+
+(the It ..Number)
+
+(the with_template (.in_module# .prelude .with_template))
+(the macro (.in_module# .prelude .template#macro))
+
+(the zero'
+  (macro (_)
+    [(.list)]))
+
+(the one'
+  (macro (_)
+    [(.list 1)]))
+
+(the .public zero
+  It
+  (zero'))
+
+(the .public one
+  It
+  (one'))
+
+(the .public (random digits)
+  (-> //.Number
+      (Random It))
+  (when digits
+    0 (random#pure ..zero)
+    _ (do random.monad
+        [head (random.only (//.> 0) random.natural)
+         tail (random.list (-- digits) random.natural)]
+        (pure (list#composite (list head) tail)))))
+
+(the .public =
+  (-> It It
+      Bit)
+  (by (list.equivalence //.equivalence) =))
+
+(the end
+  //.Number
+  (-- 0))
+
+(the .public (< reference it)
+  (-> It It
+      Bit)
+  (let [size_of_reference (list.size reference)
+        size_of_it (list.size it)]
+    (if (//.= size_of_reference size_of_it)
+        (loop (< [digit (-- size_of_reference)])
+          (when digit
+            ..end
+            false
+
+            else
+            (let [digit_of_reference (.list_item# digit reference)
+                  digit_of_it (.list_item# digit it)]
+              (or (//.< digit_of_reference digit_of_it)
+                  (and (//.= digit_of_reference digit_of_it)
+                       (< (-- digit)))))))
+        (//.< size_of_reference size_of_it))))
+
+(the .public (> reference it)
+  (-> It It
+      Bit)
+  (< it reference))
+
+(with_template [,<> ,<>=]
+  [(the .public (,<>= reference it)
+     (-> It It
+         Bit)
+     (or (,<> reference it)
+         (= reference it)))]
+
+  [< <=]
+  [> >=]
+  )
+
+(with_template [,<> ,name]
+  [(the .public (,name reference it)
+     (-> It It
+         It)
+     (if (,<> reference it)
+         it
+         reference))]
+
+  [> major]
+  [< minor]
+  )
+
+(the mask_16 (i64.mask 16))
+
+(with_template [,right ,name]
+  [(the ,name
+     (macro (_ ,it)
+       [(|> ,it
+            (i64.right_shifted ,right)
+            (i64.and ..mask_16))]))]
+
+  [00 digit_1/4]
+  [16 digit_2/4]
+  [32 digit_3/4]
+  [48 digit_4/4]
+  )
+
+(the mask_32 (i64.mask 32))
+
+(the digit_1/2
+  (macro (_ ,it)
+    [(i64.and ..mask_32 ,it)]))
+
+(the digit_2/2
+  (macro (_ ,it)
+    [(i64.right_shifted 32 ,it)]))
+
+(with_template [,right ,name]
+  [(the ,name
+     (macro (_ ,it)
+       [(i64.left_shifted ,right ,it)]))]
+
+  [16 up_1/4]
+  [32 up_1/2]
+  )
+
+(the top_bit (-- i64.width))
+
+(the can_overflow?
+  (macro (_ ,it)
+    [(i64.one? ..top_bit ,it)]))
+
+(the (+' origin it)
+  (-> Digit Digit
+      [Digit Digit])
+  (let [origin_can_overflow? (can_overflow? origin)
+        it_can_overflow? (can_overflow? it)
+        low (//.+ origin it)]
+    [(if (and origin_can_overflow?
+              it_can_overflow?)
+         1
+
+         (or origin_can_overflow?
+             it_can_overflow?)
+         (if (can_overflow? low)
+             0
+             1)
+
+         ... else
+         0)
+     low]))
+
+(the digit
+  (macro (_ ,size ,context ,choice)
+    [(if (//.< ,size ,choice)
+         (.list_item# ,choice ,context)
+         0)]))
+
+(the .public (+ origin it)
+  (-> It It
+      It)
+  (let [size_of_origin (list.size origin)
+        size_of_it (list.size it)
+        minimum_size (//.major size_of_origin size_of_it)]
+    (|> (list.dynamic (function (_ [digit carry])
+                        (if (//.< minimum_size digit)
+                            (let [digit_of_origin (..digit size_of_origin origin digit)
+                                  digit_of_it (..digit size_of_it it digit)
+                                  [carry' digit'] (+' digit_of_origin digit_of_it)
+                                  [carry'' digit''] (+' carry digit')]
+                              {.#Some [[(++ digit)
+                                        (//.+ carry' carry'')]
+                                       digit'']})
+
+                            (//.= minimum_size digit)
+                            (when carry
+                              0 {.#None}
+                              _ {.#Some [[(++ digit)
+                                          0]
+                                         carry]})
+
+                            ... else
+                            {.#None}))
+                      [0 0])
+        product.right)))
+
+(every .public Subtraction
+  (Record
+   [#value It
+    #offset It]))
+
+(the .public (- origin it)
+  (-> It It
+      Subtraction)
+  (let [negative? (< origin it)
+        major (if negative?
+                  origin
+                  it)
+        minor (if negative?
+                  it
+                  origin)
+        size_of_minor (list.size minor)
+        size_of_major (list.size major)
+        maximum_size (//.major size_of_minor size_of_major)
+        last (-- maximum_size)
+        [[_ _ last_non_zero] it] (list.dynamic (function (it [current carry last_non_zero])
+                                                 (if (//.< maximum_size current)
+                                                     (let [current_of_minor' (..digit size_of_minor minor current)
+                                                           carry_overflows? (//.> (i64.not current_of_minor') carry)
+                                                           current_of_minor (//.+ carry current_of_minor')
+                                                           current_of_major (..digit size_of_major major current)
+                                                           must_carry? (or carry_overflows?
+                                                                           (//.> current_of_major current_of_minor))]
+                                                       {.#Some [[(++ current)
+                                                                 (if must_carry?
+                                                                     1
+                                                                     0)
+                                                                 (if (//.= current_of_minor current_of_major)
+                                                                     last_non_zero
+                                                                     current)]
+                                                                (//.- current_of_minor current_of_major)]})
+                                                     {.#None}))
+                                               [0 0 (-- 0)])
+        it (if (//.= last last_non_zero)
+               it
+               (list.first (++ last_non_zero) it))]
+    (if negative?
+        [#offset it
+         #value ..zero]
+        [#offset ..zero
+         #value it])))
+
+(the halves
+  (macro (_ ,2/2 ,1/2 ,it)
+    ['temporary ,it
+     ,2/2 (..digit_2/2 'temporary)
+     ,1/2 (..digit_1/2 'temporary)]))
+
+(the (*''' scale it)
+  (-> Digit Digit
+      [Digit Digit])
+  (`` (let [(,, (halves scale_1/2 scale_2/2 scale))
+            (,, (halves it_1/2 it_2/2 it))
+            (,, (halves remainder digit_11 (//.* scale_2/2 it_2/2)))
+            (,, (halves digit_21 remainder (//.+ (//.* scale_1/2 it_2/2) remainder)))
+
+            top_1/2 (//.+ (//.* scale_2/2 it_1/2) remainder)
+            remainder (digit_2/2 top_1/2)]
+        [(all //.+ (//.* scale_1/2 it_1/2) digit_21 remainder)
+         (//.+ (up_1/2 top_1/2) digit_11)])))
+
+(the (*'' scale it)
+  (-> Digit
+      (Change It))
+  (let [size (list.size it)]
+    (|> (list.dynamic (function (_ [current carry])
+                        (if (//.< size current)
+                            (let [[high low] (*''' scale (.list_item# current it))
+                                  [carry low] (+' carry low)]
+                              {.#Some [[(++ current)
+                                        (//.+ carry high)]
+                                       low]})
+
+                            (//.> 0 carry)
+                            {.#Some [[current
+                                      0]
+                                     carry]}
+
+                            ... else
+                            {.#None}))
+                      [0 0])
+        product.right)))
+
+(the (*' level scale it)
+  (-> //.Number Digit
+      (Change It))
+  (when scale
+    0 ..zero
+    _ (let [left (when scale
+                   1 it
+                   _ (*'' scale it))]
+        (if (= ..zero left)
+            ..zero
+            (when level
+              0 left
+              _ (list#composite (list.repeated level 0) left))))))
+
+(the .public (* scale it)
+  (-> It It
+      It)
+  (let [[_ it] (list.mix (function (_ scale [level accumulation])
+                           [(++ level)
+                            (+ (*' level scale it)
+                               accumulation)])
+                         [0 ..zero]
+                         scale)]
+    it))
+
+(the .public division_by_zero
+  (error "division_by_zero"))
+
+(the .public (logarithm_2 it)
+  (-> It
+      //.Number)
+  (when (list.size it)
+    0
+    0
+
+    digits
+    (let [last_digit (-- digits)]
+      (|> last_digit
+          (..digit digits it)
+          i64.highest_bit
+          (//.+ (//.* 64 last_digit))))))
+
+(the (with_padding zeroes)
+  (-> //.Number
+      (Change It))
+  (list#composite (list.repeated zeroes 0)))
+
+(the (with_shift exponent it)
+  (-> //.Number
+      (Change It))
+  (let [block (//.- exponent i64.width)
+        mask (i64.left_shifted block (i64.mask exponent))
+        size (list.size it)]
+    (|> (list.dynamic (function (_ [@ carry])
+                        (if (//.< size @)
+                            (let [digit (.list_item# @ it)
+                                  carry' (|> digit
+                                             (i64.and mask)
+                                             (i64.right_shifted block))
+                                  digit' (|> digit
+                                             (i64.left_shifted exponent)
+                                             (i64.or carry))]
+                              {.#Some [[(++ @)
+                                        carry']
+                                       digit']})
+                            
+                            (//.= 0 carry)
+                            {.#None}
+
+                            ... else
+                            {.#Some [[(++ @)
+                                      0]
+                                     carry]}))
+                      [0 0])
+        product.right)))
+
+(the (left_shifted exponent it)
+  (-> //.Number
+      (Change It))
+  (when it
+    (..zero')
+    ..zero
+
+    else
+    (when (//./% i64.width exponent)
+      [0 0]
+      it
+
+      [zeroes 0]
+      (with_padding zeroes it)
+
+      [0 exponent]
+      (with_shift exponent it)
+      
+      [zeroes shift]
+      (|> it
+          (with_shift exponent)
+          (with_padding zeroes)))))
+
+(the .public (exponential_2 exponent)
+  (-> //.Number
+      It)
+  (left_shifted exponent ..one))
+
+(the as_text
+  (-> It
+      Text)
+  (|>> list.reversed
+       (list.as_text (by //.base_10 as))))
+
+(the .public (/ scale it)
+  (-> It It
+      It)
+  (when scale
+    (zero')
+    (halt! ..division_by_zero)
+
+    (one')
+    it
+
+    else
+    (when it
+      (zero')
+      ..zero
+
+      else
+      (if (< scale it)
+          ..zero
+
+          (= scale it)
+          ..one
+
+          ... else
+          (when (//.- (logarithm_2 scale) (logarithm_2 it))
+            0
+            ..one
+
+            it/scale
+            (let [scale' (left_shifted it/scale scale)]
+              (if (= it scale')
+                  (exponential_2 it/scale)
+
+                  (< it scale')
+                  (let [remainder (|> it
+                                      (- scale')
+                                      (its #value))]
+                    (|> remainder
+                        (/ scale)
+                        (+ (exponential_2 it/scale))))
+
+                  ... else
+                  (let [it/scale (-- it/scale)
+                        scale' (left_shifted it/scale scale)
+                        remainder (|> it
+                                      (- scale')
+                                      (its #value))]
+                    (|> remainder
+                        (/ scale)
+                        (+ (exponential_2 it/scale)))))))))))
+
+(the .public (/% scale it)
+  (-> It It
+      [It It])
+  (let [quotient (/ scale it)
+        flat (* scale quotient)]
+    [quotient
+     (|> it
+         (- flat)
+         (its #value))]))
+
+(the .public (% scale it)
+  (-> It It
+      It)
+  (product.right (/% scale it)))
