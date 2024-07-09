@@ -21,7 +21,7 @@
 0. https://github.com/wexond/wexond
 0. http://next.atlas.engineer
 0. https://workona.com/
-0. https://luakit.github.io/
+0. [luakit: A fast, extensible, and customizable web browser](https://luakit.github.io/)
 0. https://www.thurrott.com/cloud/web-browsers/204669/opera-web-browser-is-reborn
 
 # Security

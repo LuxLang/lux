@@ -5,7 +5,17 @@
  [library
   [lux (.except)
    [abstract
-    [monad (.only do)]]
+    [monad (.only do)]
+    ["[0]" hash
+     ["[1]T" \\test]]
+    ["[0]" format
+     ["[1]T" \\test]]
+    ["[0]" equivalence
+     ["[1]T" \\test]]
+    ["[0]" order
+     ["[1]T" \\test]]
+    ["[0]" monoid
+     ["[1]T" \\test]]]
    [data
     ["[0]" bit]
     ["[0]" text]
@@ -13,6 +23,10 @@
      ["[0]" list]]]
    [function
     [predicate (.only Predicate)]]
+   [macro
+    ["[0]" template]]
+   [meta
+    ["[0]" static]]
    [math
     ["[0]" random]
     [number
@@ -28,17 +42,76 @@
   (|>> list.reversed
        (list.as_text (by natural.base_10 as))))
 
-(the (subtraction_as_text it)
-  (-> /.Subtraction
-      Text)
-  (text (number_as_text (its /.#value it))
-        "-"
-        (number_as_text (its /.#offset it))))
-
-(the .public test
+(the test_for_every_interface
   Test
-  (<| (_.covering /._)
-      (do [! random.monad]
+  (`` (all _.and
+           (_.for [/.equivalence /.=]
+                  (static.when (same? /.equivalence /.=)
+                    (equivalenceT.spec /.equivalence (/.random 3))))
+           (_.for [/.hash]
+                  (hashT.spec /.hash (/.random 1)))
+           (_.for [/.order /.<]
+                  (orderT.spec /.order (/.random 3)))
+           (,, (template.with [<composite> <monoid>]
+                 [(_.for [<monoid> <composite>]
+                         (static.when (same? <composite> (by <monoid> composite))
+                           (monoidT.spec /.equivalence <monoid> (/.random 3))))]
+                 
+                 [/.+ /.addition]
+                 [/.* /.multiplication]
+
+                 [/.major /.maximum]
+                 ))
+           (,, (template.with [<format>]
+                 [(_.for [<format>]
+                         (formatT.spec /.equivalence <format> (/.random 3)))]
+
+                 [/.base_02]
+                 [/.base_08]
+                 [/.base_10]
+                 [/.base_16]
+                 ))
+           )))
+
+(the lattice
+  Test
+  (<| (do [! random.monad]
+        [left (/.random 3)
+         right (/.random 3)
+
+         digits (by ! each (natural.% 4)
+                    random.natural)
+         
+         expected (/.random digits)])
+      (all _.and
+           (_.coverage [/.lcm /.least_common_multiple
+                        /.multiple?]
+             (and (/.= /.zero
+                       (/.least_common_multiple /.zero expected))
+                  (/.= (/.least_common_multiple right left)
+                       (/.least_common_multiple left right))
+                  (and (/.multiple? left (/.least_common_multiple left right))
+                       (/.multiple? right (/.least_common_multiple left right)))
+                  (alias? /.least_common_multiple /.lcm)))
+           (_.coverage [/.gcd /.greatest_common_divisor
+                        /.divisor?]
+             (and (/.= expected
+                       (/.greatest_common_divisor /.zero expected))
+                  (/.= (/.greatest_common_divisor right left)
+                       (/.greatest_common_divisor left right))
+                  (and (/.divisor? left (/.greatest_common_divisor left right))
+                       (/.divisor? right (/.greatest_common_divisor left right)))
+                  (alias? /.greatest_common_divisor /.gcd)))
+           (_.coverage [/.co_prime?]
+             (and (bit.= (/.co_prime? expected expected)
+                         (/.= /.one expected))
+                  (bit.= (/.= /.one (/.greatest_common_divisor left right))
+                         (/.co_prime? left right))))
+           )))
+
+(the comparison
+  Test
+  (<| (do [! random.monad]
         [bit_0 random.bit
          bit_1 random.bit
          bit_2 random.bit
@@ -61,13 +134,9 @@
          it_1 (/.random 3)
          it_2 (/.random 3)
 
-         exponent_0 (by ! each (natural.% 200) random.natural)
-         exponent_1 (by ! each (natural.% 200) random.natural)])
-      (_.for [/.Number
-              /.random])
+         left (/.random 3)
+         right (/.random 3)])
       (all _.and
-           (_.coverage [/.Natural]
-             (same? /.Number /.Natural))
            (_.coverage [/.=]
              (let [reflection!
                    (/.= it it)
@@ -154,6 +223,39 @@
                     commutativity!
                     
                     relationship!)))
+           )))
+
+(the arithmetic
+  Test
+  (<| (do [! random.monad]
+        [bit_0 random.bit
+         bit_1 random.bit
+         bit_2 random.bit
+         .let [[random_0 random_1 random_2] (if bit_0
+                                                (if bit_1
+                                                    (if bit_2
+                                                        [(/.random 1) (/.random 2) (/.random 3)]
+                                                        [(/.random 1) (/.random 3) (/.random 2)])
+                                                    (if bit_2
+                                                        [(/.random 2) (/.random 1) (/.random 3)]
+                                                        [(/.random 2) (/.random 3) (/.random 1)]))
+                                                (if bit_1
+                                                    [(/.random 3) (/.random 1) (/.random 2)]
+                                                    [(/.random 3) (/.random 2) (/.random 1)]))]
+         origin random_0
+         other random_1
+         it random_2
+
+         exponent_0 (by ! each (natural.% 200) random.natural)
+         exponent_1 (by ! each (natural.% 200) random.natural)
+
+         left (/.random 3)
+         right (/.random 3)
+
+         sample (/.random 3)
+         power (by ! each (natural.% 10)
+                   random.natural)])
+      (all _.and
            (_.coverage [/.+]
              (and (/.= (/.+ origin it)
                        (/.+ it origin))
@@ -212,41 +314,6 @@
                           negative!))]
                (and balance!
                     reconstitution!)))
-           (_.coverage [/.exponential_2]
-             (let [double (is (Change /.Number)
-                              (function (_ it)
-                                (/.+ it it)))]
-               (and (/.= (|> it)
-                         (/.* it (/.exponential_2 0)))
-                    (/.= (|> it double)
-                         (/.* it (/.exponential_2 1)))
-                    (/.= (double (/.* it (/.exponential_2 exponent_0)))
-                         (/.* it (/.exponential_2 (++ exponent_0))))
-                    (let [e2^x (/.exponential_2 exponent_0)]
-                      (and (|> e2^x
-                               (/.* it)
-                               (/./ it)
-                               (/.= e2^x))
-                           (|> it
-                               (/.* e2^x)
-                               (/./ e2^x)
-                               (/.= it))))
-                    (/.= (/.exponential_2 (natural.+ exponent_0 exponent_1))
-                         (/.* (/.exponential_2 exponent_0)
-                              (/.exponential_2 exponent_1))))))
-           (_.coverage [/.logarithm_2]
-             (and (|> (/.logarithm_2 /.zero)
-                      (natural.= 0))
-                  (|> (/.logarithm_2 /.one)
-                      (natural.= 0))
-                  (|> (/.logarithm_2 (/.+ /.one /.one))
-                      (natural.= 1))
-                  (natural.= (/.logarithm_2 (/.+ it it))
-                             (++ (/.logarithm_2 it)))
-                  (|> exponent_0
-                      /.exponential_2
-                      /.logarithm_2
-                      (natural.= exponent_0))))
            (_.coverage [/./]
              (let [itself!
                    (/.= /.one (/./ it it))
@@ -321,4 +388,89 @@
                     no_room!
                     factor!
                     reconstitution!)))
+           (_.coverage [/./%]
+             (let [[div rem] (/./% left right)]
+               (and (/.= div (/./ left right))
+                    (/.= rem (/.% left right)))))
+           (<| (_.for [/.Exponent])
+               (all _.and
+                    (_.coverage [/.^]
+                      (and (/.= /.one (/.^ 0 sample))
+                           (/.= sample (/.^ 1 sample))
+                           (/.= (list.mix /.* /.one (list.repeated power sample))
+                                (/.^ power sample))))
+                    (_.coverage [/.exponential_2]
+                      (let [double (is (Change /.Number)
+                                       (function (_ it)
+                                         (/.+ it it)))]
+                        (and (/.= (|> it)
+                                  (/.* it (/.exponential_2 0)))
+                             (/.= (|> it double)
+                                  (/.* it (/.exponential_2 1)))
+                             (/.= (double (/.* it (/.exponential_2 exponent_0)))
+                                  (/.* it (/.exponential_2 (++ exponent_0))))
+                             (let [e2^x (/.exponential_2 exponent_0)]
+                               (and (|> e2^x
+                                        (/.* it)
+                                        (/./ it)
+                                        (/.= e2^x))
+                                    (|> it
+                                        (/.* e2^x)
+                                        (/./ e2^x)
+                                        (/.= it))))
+                             (/.= (/.exponential_2 (natural.+ exponent_0 exponent_1))
+                                  (/.* (/.exponential_2 exponent_0)
+                                       (/.exponential_2 exponent_1))))))
+                    (_.coverage [/.logarithm_2]
+                      (and (|> (/.logarithm_2 /.zero)
+                               (natural.= 0))
+                           (|> (/.logarithm_2 /.one)
+                               (natural.= 0))
+                           (|> (/.logarithm_2 (/.+ /.one /.one))
+                               (natural.= 1))
+                           (natural.= (/.logarithm_2 (/.+ it it))
+                                      (++ (/.logarithm_2 it)))
+                           (|> exponent_0
+                               /.exponential_2
+                               /.logarithm_2
+                               (natural.= exponent_0))))
+                    ))
+           )))
+
+(the .public test
+  Test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [bit_0 random.bit
+         bit_1 random.bit
+         bit_2 random.bit
+         .let [[random_0 random_1 random_2] (if bit_0
+                                                (if bit_1
+                                                    (if bit_2
+                                                        [(/.random 1) (/.random 2) (/.random 3)]
+                                                        [(/.random 1) (/.random 3) (/.random 2)])
+                                                    (if bit_2
+                                                        [(/.random 2) (/.random 1) (/.random 3)]
+                                                        [(/.random 2) (/.random 3) (/.random 1)]))
+                                                (if bit_1
+                                                    [(/.random 3) (/.random 1) (/.random 2)]
+                                                    [(/.random 3) (/.random 2) (/.random 1)]))]
+         origin random_0
+         other random_1
+         it random_2
+
+         sample (/.random 3)])
+      (_.for [/.Number
+              /.random])
+      (all _.and
+           ..test_for_every_interface
+           
+           (_.coverage [/.Natural]
+             (same? /.Number /.Natural))
+           ..comparison
+           ..arithmetic
+           ..lattice
+           (_.coverage [/.even? /.odd?]
+             (bit.= (/.even? sample)
+                    (not (/.odd? sample))))
            )))
