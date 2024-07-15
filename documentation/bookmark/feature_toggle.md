@@ -1,5 +1,6 @@
 # Reference
 
+0. [OpenFeature: Standardizing Feature Flagging for Everyone](https://openfeature.dev/)
 0. [11 Principles for building and scaling feature flag systems](https://docs.getunleash.io/topics/feature-flags/feature-flag-best-practices)
 0. [Feature Flags — CI/CD](https://www.lambrospetrou.com/articles/cicd-feature-flags/)
 0. [Managing Feature Dependencies](https://featurevisor.com/docs/use-cases/dependencies/)
