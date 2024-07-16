@@ -1,0 +1,430 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except Integer Z macro natural)
+   [abstract
+    [equivalence (.only Equivalence)]
+    [order (.only Order)]
+    [hash (.only Hash)]
+    [enum (.only Enum)]
+    [monoid (.only Monoid)]
+    [format (.only Format)]
+    [monad (.only do)]]
+   [data
+    ["[0]" bit]]
+   [error (.only error)
+    ["[0]" try]]
+   [function
+    [predicate (.only Predicate)]]
+   [math
+    ["[0]" random (.only Random)]]]]
+ [//
+  ["//" natural]
+  [//
+   ["//_64" natural]
+   ["/_64" integer]
+   [//
+    [arithmetic (.only Arithmetic)]]]])
+
+(the with_template (.in_module# .prelude .with_template))
+(the macro (.in_module# .prelude .template#macro))
+
+(every .public Signum
+  Bit)
+
+(the .public positive 0b)
+(the .public negative 1b)
+
+(every .public Number
+  (Record
+   [... https://en.wikipedia.org/wiki/Sign_function
+    #signum Signum
+    ... https://en.wikipedia.org/wiki/Absolute_value
+    #absolute //.Number]))
+
+(alias [Integer Z]
+       ..Number)
+
+(the It ..Number)
+
+(the .public (random digits)
+  (-> Natural
+      (Random It))
+  (random.and random.bit
+              (//.random digits)))
+
+(the .public zero
+  It
+  [#signum ..positive
+   #absolute //.zero])
+
+(the .public positive_one
+  It
+  [#signum ..positive
+   #absolute //.one])
+
+(the .public negative_one
+  It
+  [#signum ..negative
+   #absolute //.one])
+
+(the .public natural
+  (-> //.Number
+      It)
+  (|>> [#signum ..positive
+        #absolute]))
+
+(the most_small
+  (by /_64.interval minimum))
+
+(the .public (small it)
+  (-> /_64.Number
+      It)
+  (when it
+    ..most_small
+    [#signum ..negative
+     #absolute (|> (by /_64.interval maximum)
+                   .natural
+                   //.small
+                   (//.+ //.one))]
+
+    else
+    [#signum (/_64.negative? (/_64.signum it))
+     #absolute (|> it
+                   /_64.absolute
+                   .natural
+                   //.small)]))
+
+(the .public (normal it)
+  (if (|> it
+          (its #absolute)
+          (//.= //.zero))
+      ..zero
+      it))
+
+(the .public absolute
+  (Change It)
+  (|>> (its #absolute)
+       ..natural))
+
+(the .public (signum it)
+  (Change It)
+  (if (//.= //.zero (its #absolute it))
+      ..zero
+      (when (its #signum it)
+        ..positive ..positive_one
+        ..negative ..negative_one)))
+
+(the .public (= reference it)
+  (-> It It
+      Bit)
+  (when [reference it]
+    [[signum_of_reference absolute_of_reference]
+     [signum_of_it absolute_of_it]]
+    (if (bit.= signum_of_reference signum_of_it)
+        (//.= absolute_of_reference absolute_of_it)
+        (and (//.= //.zero absolute_of_reference)
+             (//.= //.zero absolute_of_it)))))
+
+(the .public (< reference it)
+  (-> It It
+      Bit)
+  (when [reference it]
+    [[..positive reference]
+     [..positive it]]
+    (//.< reference it)
+
+    [[..negative reference]
+     [..negative it]]
+    (//.< it reference)
+
+    [[..positive reference]
+     [..negative it]]
+    (not (and (//.= //.zero reference)
+              (//.= //.zero it)))
+
+    [[..negative reference]
+     [..positive it]]
+    false))
+
+(the .public (> reference it)
+  (-> It It
+      Bit)
+  (< it reference))
+
+(with_template [,<>= ,<>]
+  [(the .public (,<>= reference it)
+     (-> It It
+         Bit)
+     (or (,<> reference it)
+         (= reference it)))]
+
+  [<= <]
+  [>= >]
+  )
+
+(with_template [<comparison> <name>]
+  [(the .public <name>
+     (Predicate It)
+     (<comparison> ..zero))]
+
+  [..> positive?]
+  [..< negative?]
+  [..= zero?]
+  )
+
+(with_template [<name> <test>]
+  [(the .public (<name> left right)
+     (-> It It
+         It)
+     (if (<test> right left)
+         left
+         right))]
+
+  [minor ..<]
+  [major ..>]
+  )
+
+(the .public opposite
+  (Change It)
+  (revised #signum not))
+
+(the .public (+ origin it)
+  (-> It It
+      It)
+  (when [origin it]
+    [[signum_of_origin origin']
+     [signum_of_it it']]
+    (if (bit.= signum_of_origin signum_of_it)
+        [#signum signum_of_it
+         #absolute (//.+ origin' it')]
+        (..normal [#signum (its #signum (major origin it))
+                   #absolute (let [it (//.- origin' it')]
+                               (//.major (its //_64.#negative it)
+                                         (its //_64.#positive it)))]))))
+
+(the .public (- origin it)
+  (-> It It
+      It)
+  (+ (opposite origin) it))
+
+(with_template [,/ ,//]
+  [(the .public (,/ origin it)
+     (-> It It
+         It)
+     (when [origin it]
+       [[signum_of_origin origin]
+        [signum_of_it it]]
+       [#signum (bit.= signum_of_origin signum_of_it)
+        #absolute (,// origin it)]))]
+
+  [x //.x]
+  [/ //./]
+  )
+
+(the both
+  (macro (_ ,left ,right)
+    [[,left ,right]]))
+
+(the right
+  (macro (_ ,left ,right)
+    [,right]))
+
+(with_template [,name ,type ,choice]
+  [(the .public (,name scale it)
+     (-> It It
+         ,type)
+     (let [quotient (/ scale it)
+           flat (x scale quotient)]
+       (,choice quotient (- flat it))))]
+
+  [/% [It It] both]
+  [% It right]
+  )
+
+(the .public arithmetic
+  (Arithmetic It)
+  (implementation
+   (the + ..+)
+   (the - ..-)
+   (the x ..x)
+   (the / ../)))
+
+... https://en.wikipedia.org/wiki/Exponentiation
+... https://en.wikipedia.org/wiki/Exponentiation_by_squaring
+(the .public (^ power base)
+  (-> //.Exponent
+      (Change It))
+  (loop (^ [power power
+            base base
+            it ..positive_one])
+    (if (.i64_=# 0 power)
+        it
+        (^ (.i64_right# 1 power)
+           (x base base)
+           (if (.i64_=# 1 (.i64_and# 1 power))
+               (x base it)
+               it)))))
+
+... https://rob.conery.io/2018/08/21/mod-and-remainder-are-not-the-same/
+(the .public (mod divisor dividend)
+  (-> It It
+      It)
+  (let [remainder (..% divisor dividend)]
+    (if (or (and (..< ..zero divisor)
+                 (..> ..zero remainder))
+            (and (..> ..zero divisor)
+                 (..< ..zero remainder)))
+        (..+ divisor remainder)
+        remainder)))
+
+(the .public even?
+  (Predicate It)
+  (let [two (+ ..positive_one ..positive_one)]
+    (|>> (..% two)
+         (= ..zero))))
+
+(the .public odd?
+  (Predicate It)
+  (|>> ..even?
+       not))
+
+... https://en.wikipedia.org/wiki/Greatest_common_divisor
+(the .public (greatest_common_divisor a b)
+  (-> It It
+      It)
+  (natural (//.greatest_common_divisor (its #absolute a)
+                                       (its #absolute b))))
+
+(alias [gcd]
+       ..greatest_common_divisor)
+
+... https://en.wikipedia.org/wiki/Coprime_integers
+(the .public (co_prime? a b)
+  (-> It
+      (Predicate It))
+  (..= ..positive_one
+       (..greatest_common_divisor a b)))
+
+... https://en.wikipedia.org/wiki/Extended_Euclidean_algorithm
+(the .public (extended_greatest_common_divisor a b)
+  (-> It It
+      [[It It] It])
+  (loop (extended_greatest_common_divisor [x ..positive_one x1 ..zero
+                                           y ..zero y1 ..positive_one
+                                           a1 (..absolute a) b1 (..absolute b)])
+    (if (= ..zero b1)
+        [[x y] a1]
+        (let [q (/ b1 a1)]
+          (extended_greatest_common_divisor x1 (- (..x q x1) x)
+                                            y1 (- (..x q y1) y)
+                                            b1 (- (..x q b1) a1))))))
+
+(alias [extended_gcd]
+       ..extended_greatest_common_divisor)
+
+... https://en.wikipedia.org/wiki/Least_common_multiple
+(`` (the .public (least_common_multiple a b)
+      (-> It It
+          It)
+      (if (or (= ..zero a)
+              (= ..zero b))
+          ..zero
+          (/ (greatest_common_divisor a b)
+             (x a b)))))
+
+(alias [lcm]
+       ..least_common_multiple)
+
+(the .public (multiple? reference it)
+  (-> It
+      (Predicate It))
+  (|> it
+      (% reference)
+      (= ..zero)))
+
+(the .public (divisor? reference it)
+  (-> It
+      (Predicate It))
+  (multiple? it reference))
+
+(the .public equivalence
+  (Equivalence It)
+  (implementation
+   (the = ..=)))
+
+(the .public order
+  (Order It)
+  (implementation
+   (the equivalence ..equivalence)
+   (the < ..<)))
+
+(the .public hash
+  (Hash It)
+  (implementation
+   (the equivalence ..equivalence)
+   (the hash
+     (|>> (its #absolute)
+          (by //.hash hash)))))
+
+(the .public enum
+  (Enum It)
+  (implementation
+   (the order ..order)
+   (the succ (+ ..positive_one))
+   (the pred (- ..positive_one))))
+
+(with_template [<name> <composite> <identity>]
+  [(the .public <name>
+     (Monoid It)
+     (implementation
+      (the identity <identity>)
+      (the composite <composite>)))]
+
+  [addition       ..+   ..zero]
+  [multiplication ..x   ..positive_one]
+  )
+
+(the positive_signum "+")
+(the negative_signum "-")
+
+(the not_valid
+  (error "Not an integer."))
+
+(with_template [,/ ,//]
+  [(the .public ,/
+     (Format Text It)
+     (implementation
+      (the (as it)
+        (text (when (its #signum it)
+                ..positive ..positive_signum
+                ..negative ..negative_signum)
+              (by ,// as (its #absolute it))))
+
+      (the (of it)
+        (let [size (.text_size# it)]
+          (if (//_64.> 1 size)
+              (do try.monad
+                [signum (when (.text_clip# 0 1 it)
+                          ..positive_signum
+                          (pure ..positive)
+                          
+                          ..negative_signum
+                          (pure ..negative)
+                          
+                          else
+                          {try.#Failure ..not_valid})
+                 absolute (|> it
+                              (.text_clip# 1 (-- size))
+                              (by ,// of))]
+                (pure [#signum signum
+                       #absolute absolute]))
+              {try.#Failure ..not_valid})))))]
+
+  [base_02 //.base_02]
+  [base_08 //.base_08]
+  [base_10 //.base_10]
+  [base_16 //.base_16]
+  )
