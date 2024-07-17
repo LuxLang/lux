@@ -17,14 +17,16 @@
    [control
     ["[0]" maybe (.use "[1]#[0]" functor)]]
    [error
-    ["[0]" try (.use "[1]#[0]" functor)]]
+    ["[0]" try]]
    [data
     ["[0]" bit]
     ["[0]" text]
     [collection
      ["[0]" list (.use "[1]#[0]" mix)]]]
    [math
-    ["[0]" random (.only Random) (.use "[1]#[0]" functor)]]
+    ["[0]" random (.only Random) (.use "[1]#[0]" functor)]
+    ["[0]" arithmetic
+     ["[1]T" \\test]]]
    [macro
     ["[0]" template]]
    [meta
@@ -37,28 +39,26 @@
     ["n" natural]
     ["i" integer]
     ["d" decimal]
-    [//
+    [///
      ["[0]" unit]]]]])
 
 (the .public random
-  (Random /.Fraction)
-  (let [part (is (Random Natural)
-                 (random#each (n.% 1,000,000) random.natural))]
-    (|> (random.and part
-                    part)
-        (random#each /.normal)
-        (random.only /.finite?))))
+  (Random /.Rational)
+  (|> (random.and (random#each (i.% +1,000,000) random.integer)
+                  (random#each (n.% 01,000,000) random.natural))
+      (random#each /.normal)
+      (random.only /.finite?)))
 
 (the (identical? reference exemplar)
-  (-> /.Fraction /.Fraction
+  (-> /.Rational /.Rational
       Bit)
-  (and (n.= (its /.#numerator reference)
+  (and (i.= (its /.#numerator reference)
             (its /.#numerator exemplar))
        (n.= (its /.#denominator reference)
             (its /.#denominator exemplar))))
 
 (the (normal? it)
-  (-> /.Fraction
+  (-> /.Rational
       Bit)
   (identical? it (/.normal it)))
 
@@ -67,6 +67,7 @@
   (`` (all _.and
            (,, (template.with [,format <as> <of> ,unit]
                  [(let [threshold (|> (its unit.#factor ,unit)
+                                      .integer
                                       /.new
                                       /.reciprocal)]
                     (all _.and
@@ -102,7 +103,7 @@
 (the .public test
   Test
   (<| (_.covering /._)
-      (_.for [/.Fraction
+      (_.for [/.Rational
               /.#numerator /.#denominator])
       (do random.monad
         [expected ..random
@@ -127,14 +128,14 @@
                      [/.minor /.minimum]
                      [/.major /.maximum]
                      ))
-               (_.for [/.text /.as_text]
-                      (static.when (same? /.as_text
-                                          (by /.text as))
-                        (formatT.spec /.equivalence /.text ..random)))
+               (_.for [/.text]
+                      (formatT.spec /.equivalence /.text ..random))
+               (_.for [/.arithmetic]
+                      (arithmeticT.spec /.equivalence /.arithmetic ..random))
 
-               (_.coverage [/.Number /.Q+]
-                 (and (alias? /.Fraction /.Number)
-                      (alias? /.Fraction /.Q+)))
+               (_.coverage [/.Number /.Q]
+                 (and (alias? /.Rational /.Number)
+                      (alias? /.Rational /.Q)))
                (_.coverage [/.approximately]
                  (and (bit.= (by (/.approximately /.zero) = it_0 it_1)
                              (/.= it_0 it_1))
@@ -143,22 +144,29 @@
                           (/.= it_0 it_1))))
                (_.coverage [/.delimiter]
                  (text.contains? /.delimiter
-                                 (/.as_text expected)))
+                                 (by /.text as expected)))
                (_.coverage [/.zero]
                  (and (/.= expected (/.+ /.zero expected))
-                      (/.= expected (its n.#positive (/.- /.zero expected)))
+                      (/.= expected (/.- /.zero expected))
                       
                       (/.= /.zero (/.x /.zero expected))
                       (/.= /.infinity (/./ /.zero expected))))
-               (_.coverage [/.one]
-                 (and (not (/.= expected (/.+ /.one expected)))
-                      (/.= expected (/.x /.one expected))
-                      (/.= expected (/./ /.one expected))))
+               (_.coverage [/.positive_one]
+                 (and (/.= expected (/.x /.positive_one expected))
+                      (/.= expected (/./ /.positive_one expected))))
+               (_.coverage [/.smallest]
+                 (or (not (/.< /.smallest (/.absolute expected)))
+                     (/.= /.zero expected)))
+               (_.coverage [/.most_positive]
+                 (or (not (/.> /.most_positive expected))
+                     (/.= /.infinity expected)))
+               (_.coverage [/.most_negative]
+                 (not (/.< /.most_negative expected)))
                (_.coverage [/.infinity]
-                 (and (/.= /.infinity (/./ /.zero /.one))
+                 (and (/.= /.infinity (/./ /.zero /.positive_one))
 
                       (/.= /.infinity (/.+ /.infinity expected))
-                      (/.= /.infinity (its n.#negative (/.- /.infinity expected)))
+                      (/.= /.infinity (/.- /.infinity expected))
                       
                       (/.= /.infinity (/.x /.infinity expected))
                       (/.= /.zero (/./ /.infinity expected))))
@@ -166,7 +174,7 @@
                  (and (/.= /.indeterminate expected)
 
                       (/.= (/.+ /.indeterminate expected)
-                           (its n.#positive (/.- /.indeterminate expected)))
+                           (/.- /.indeterminate expected))
                       
                       (/.= (/.x /.indeterminate expected)
                            (/./ /.indeterminate expected))))
@@ -176,22 +184,28 @@
                (_.coverage [/.determinate?]
                  (and (/.determinate? expected)
                       (not (/.determinate? /.indeterminate))))
+               (_.coverage [/.absolute]
+                 (/.>= expected (/.absolute expected)))
+               (_.coverage [/.signum]
+                 (and (/.= (/.absolute expected)
+                           (/.x (/.signum expected)
+                                expected))
+                      (/.= expected
+                           (/.x (/.signum expected)
+                                (/.absolute expected)))))
                (_.coverage [/.whole /.partial]
                  (/.= expected
                       (/.+ (/.whole expected)
                            (/.partial expected))))
-               (_.coverage [/.natural]
-                 (|> (/.natural (/.whole expected))
-                     (try#each (|>> /.new
-                                    (/.+ (/.partial expected))
-                                    (/.= expected)))
-                     (try.else false)))
-               (_.coverage [/.not_a_natural]
-                 (or (|> (/.partial expected)
-                         /.natural
-                         (try.is? /.not_a_natural))
-                     (and (/.= /.zero (/.partial expected))
-                          (/.= expected (/.whole expected)))))
+               (_.coverage [/.positive? /.negative?]
+                 (bit.= (/.positive? expected)
+                        (not (/.negative? expected))))
+               (_.coverage [/.negative_one]
+                 (and (not (/.= /.positive_one /.negative_one))
+                      (/.= /.positive_one (/.x /.negative_one /.negative_one))))
+               (_.coverage [/.opposite]
+                 (and (not (/.= /.positive_one (/.opposite expected)))
+                      (/.= expected (/.opposite (/.opposite expected)))))
                (_.coverage [/.decimal]
                  (let [margin_of_error +0.000,000,000,001]
                    (and (by (d.approximately margin_of_error) =
@@ -200,14 +214,15 @@
                         (by (d.approximately margin_of_error) =
                             (/.decimal (/.partial expected))
                             (d.partial (/.decimal expected))))))
+               
                (do random.monad
                  [denom/0 random.natural
                   denom/1 random.natural]
                  (_.coverage [/.new]
-                   (/.= (/.new 0 denom/0)
-                        (/.new 0 denom/1))))
+                   (/.= (/.new +0 denom/0)
+                        (/.new +0 denom/1))))
                (do [! random.monad]
-                 [before_normal (random.and random.natural
+                 [before_normal (random.and random.integer
                                             random.natural)]
                  (_.coverage [/.normal]
                    (or (normal? before_normal)
@@ -215,75 +230,76 @@
                          (and (normal? it)
                               (/.= before_normal it))))))
                (do random.monad
-                 [numerator random.natural
+                 [numerator random.integer
                   denominator (random.only (|>> (n.= 1) not)
                                            random.natural)]
-                 (_.coverage [/.natural]
+                 (_.coverage [/.integer]
                    (let [only_numerator!
                          (|> (/.new numerator)
-                             /.natural
-                             (maybe#each (n.= numerator))
+                             /.integer
+                             (maybe#each (i.= numerator))
                              (maybe.else false))
 
                          denominator_1!
                          (|> (/.new numerator 1)
-                             /.natural
-                             (maybe#each (n.= numerator))
+                             /.integer
+                             (maybe#each (i.= numerator))
                              (maybe.else false))
 
                          with_denominator!
-                         (when (/.natural (/.new numerator denominator))
+                         (when (/.integer (/.new numerator (.natural denominator)))
                            {try.#Success factor}
-                           (and (n.= 0 (n.% denominator numerator))
-                                (n.= numerator (n.x factor denominator)))
+                           (and (i.= +0 (i.% (.integer denominator) numerator))
+                                (i.= numerator (i.x factor (.integer denominator))))
                            
                            {try.#Failure _}
-                           (not (n.= 0 (n.% denominator numerator))))]
+                           (not (i.= +0 (i.% (.integer denominator) numerator))))]
                      (and only_numerator!
                           denominator_1!
                           with_denominator!))))
+               (_.coverage [/.not_an_integer]
+                 (or (|> (/.partial expected)
+                         /.integer
+                         (try.is? /.not_an_integer))
+                     (and (/.= /.zero (/.partial expected))
+                          (/.= expected (/.whole expected)))))
                (do [! random.monad]
                  [sample ..random
                   power (by ! each (i.% +10)
                             random.integer)]
                  (all _.and
                       (_.coverage [/.-]
-                        (and (/.= /.zero
-                                  (its n.#positive (/.- sample sample)))
-                             (/.= sample
-                                  (its n.#positive (/.- /.zero sample)))))
+                        (and (/.= (/.new +0) (/.- sample sample))
+                             (/.= sample (/.- (/.new +0) sample))))
                       (_.coverage [/./]
-                        (and (/.= /.one (/./ sample sample))
-                             (/.= sample (/./ /.one sample))))
+                        (and (/.= (/.new +1) (/./ sample sample))
+                             (/.= sample (/./ (/.new +1) sample))))
                       (_.coverage [/.reciprocal]
-                        (/.= /.one
+                        (/.= (/.new +1)
                              (/.x sample (/.reciprocal sample))))
                       (_.coverage [/.^]
-                        (and (/.= /.one (/.^ +0 sample))
+                        (and (/.= /.positive_one (/.^ +0 sample))
                              (/.= sample (/.^ +1 sample))
                              (/.= (/.reciprocal sample)
                                   (/.^ -1 sample))
                              (/.= (/.reciprocal (/.^ power sample))
                                   (/.^ (i.opposite power) sample))
                              (if (i.< +0 power)
-                                 (/.= (list#mix /.x /.one (list.repeated (.natural (i.opposite power)) sample))
+                                 (/.= (list#mix /.x /.positive_one (list.repeated (.natural (i.opposite power)) sample))
                                       (/.reciprocal (/.^ power sample)))
-                                 (/.= (list#mix /.x /.one (list.repeated (.natural power) sample))
+                                 (/.= (list#mix /.x /.positive_one (list.repeated (.natural power) sample))
                                       (/.^ power sample)))))
                       ))
                (do random.monad
-                 [left (random.only (|>> (/.= /.zero) not)
+                 [left (random.only (|>> (/.= (/.new +0)) not)
                                     ..random)
                   right ..random]
                  (_.coverage [/.%]
                    (let [rem (/.% left right)
-                         div (|> right
-                                 (/.- rem)
-                                 (its n.#positive)
-                                 (/./ left))]
+                         div (|> right (/.- rem) (/./ left))]
                      (and (/.= right
                                (|> div (/.x left) (/.+ rem)))
-                          (when (/.natural div)
+                          (when (/.integer div)
                             {try.#Success _} true
                             {try.#Failure _} false)))))
                (do random.monad
