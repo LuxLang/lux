@@ -1,0 +1,237 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+... [Profunctor Optics: Modular Data Accessors](https://arxiv.org/abs/1703.10857)
+(.using
+ [library
+  [lux (.except all with macro)
+   [abstract
+    [functor (.only Functor)
+     ["[0]" pro]]]
+   [type
+    ["[0]" nominal]]
+   ["[0]" function]
+   [data
+    ["[0]" sum]
+    ["[0]" product]]]]
+ ["[0]" //])
+
+(the macro (.in_module# .prelude .template#macro))
+
+(the Head
+  (macro (_ ,Membership ,one ,one' ,all)
+    [,one]))
+
+(the Tail
+  (macro (_ ,Membership ,one ,one' ,all)
+    [(,Membership ,one ,one' (-> ,one' ,all))]))
+
+(the Cons
+  (macro (_ ,Membership ,one ,one' ,all)
+    [(And (Head ,Membership ,one ,one' ,all)
+          (Tail ,Membership ,one ,one' ,all))]))
+
+(the Null
+  (macro (_ ,Membership ,one ,one' ,all)
+    [,all]))
+
+(the Reification
+  (macro (_ ,Membership ,one ,one' ,all)
+    [(Or (Null ,Membership ,one ,one' ,all)
+         (Cons ,Membership ,one ,one' ,all))]))
+
+... TODO: Make this nominal type unnecessary.
+(nominal.every .public (Membership one one' all)
+  (Variant
+   {#All (Null Membership one one' all)}
+   {#One (Cons Membership one one' all)})
+
+  (the outer
+    (for_any (_ one one' all)
+      (-> (Membership one one' all)
+          (Reification Membership one one' all)))
+    (|>> nominal.as))
+
+  (the inner
+    (for_any (_ one one' all)
+      (-> (Reification Membership one one' all)
+          (Membership one one' all)))
+    (|>> nominal.of))
+
+  (the functor_of_membership
+    (for_any (_ one one')
+      (Functor (Membership one one')))
+    (implementation
+     (the (each value it)
+       (nominal.of
+        (.when (nominal.as it)
+          {#All all}
+          {#All (value all)}
+
+          {#One one next}
+          {#One one (each (function (_ before)
+                            (|>> before
+                                 value))
+                          next)})))))
+
+  (every .public (Application context)
+    (Interface
+     (is (Functor context)
+         functor)
+     (is (for_any (_ it)
+           (-> it
+               (context it)))
+         pure)
+     (is (for_any (_ it it')
+           (-> (context (-> it it'))
+               (-> (context it)
+                   (context it'))))
+         with)))
+
+  (the (pair application on_left on_right [left right])
+    (for_any (_ !
+                cause cause'
+                effect effect')
+      (-> (Application !)
+          (-> cause (! effect))
+          (-> cause' (! effect'))
+          (-> [cause cause'] (! [effect effect']))))
+    (.with application
+      (per with
+           (pure (function (_ left right)
+                   [left right]))
+           (on_left left)
+           (on_right right))))
+
+  (the .public application
+    (for_any (_ one one')
+      (Application (Membership one one')))
+    (implementation
+     (the functor ..functor_of_membership)
+     (the pure (|>> {#All} nominal.of))
+     (the (with internal_effect internal_cause)
+       (.when (nominal.as internal_effect)
+         {#All internal_effect}
+         (by ..functor_of_membership each internal_effect internal_cause)
+
+         {#One one internal_effect}
+         (nominal.of
+          {#One one (with (by ..functor_of_membership each function.flipped internal_effect)
+                      internal_cause)})))))
+
+  (the .public (one it)
+    (for_any (_ it it')
+      (-> it
+          (Membership it it' it')))
+    (nominal.of {#One it (nominal.of {#All (|>>)})}))
+
+  (the .public (all it)
+    (for_any (_ one all)
+      (-> (Membership one one all)
+          all))
+    (.when (nominal.as it)
+      {#All it}
+      it
+
+      {#One one next}
+      ((all next) one)))
+
+  (every .public (Member' all all'
+                          one one')
+    (-> all
+        (Membership one one' all')))
+
+  (every .public (Member all one)
+    (Member' all all
+             one one))
+
+  (the pro_functor
+    (for_any (_ one one')
+      (pro.Functor (for_any (_ all all')
+                     (Member' all all'
+                              one one'))))
+    (implementation
+     (the (each before after it)
+       (|>> before
+            it
+            (by functor_of_membership each after)))))
+
+  (the cartesian
+    (for_any (_ one one')
+      (pro.Cartesian (for_any (_ all all')
+                       (Member' all all'
+                                one one'))))
+    (implementation
+     (the (in_left it)
+       (function (_ [all extra])
+         (by functor_of_membership each
+             (function (_ all)
+               [all extra])
+             (it all))))
+     (the (in_right it)
+       (function (_ [extra all])
+         (by functor_of_membership each
+             (function (_ all)
+               [extra all])
+             (it all))))))
+
+  (the co_cartesian
+    (for_any (_ one one')
+      (pro.Co_Cartesian (for_any (_ all all')
+                          (Member' all all'
+                                   one one'))))
+    (implementation
+     (the (when_left it)
+       (sum.either (|>> it (by functor_of_membership each (|>> {.#Left})))
+                   (|>> {.#Right} {#All} nominal.of)))
+     (the (when_right it)
+       (sum.either (|>> {.#Left} {#All} nominal.of)
+                   (|>> it (by functor_of_membership each (|>> {.#Right})))))))
+
+  (the monoidal
+    (for_any (_ one one')
+      (pro.Monoidal (for_any (_ all all')
+                      (Member' all all'
+                               one one'))))
+    (implementation
+     (the in_parallel
+       (pair ..application))
+     (the empty
+       (by application pure))))
+
+  (every .public (Aspect all all' one one')
+    (for_any (_ =>)
+      (-> [(pro.Functor =>) (pro.Co_Cartesian =>) (pro.Cartesian =>) (pro.Monoidal =>)]
+          (//.Aspect => all all' one one'))))
+
+  (the .public (of_aspect =>)
+    (for_any (_ all all' one one')
+      (-> (Aspect all all' one one'
+                  (for_any (_ all all')
+                    (Member' all all' one one')))
+          (Member' all all' one one')))
+    (=> [..pro_functor ..co_cartesian ..cartesian ..monoidal] ..one))
+
+  (the (traversal pro_functor co_cartesian monoidal)
+    (for_any (_ =>)
+      (-> (pro.Functor =>) (pro.Co_Cartesian =>) (pro.Monoidal =>)
+          (for_any (_ cause effect one all)
+            (-> (=> cause
+                    effect)
+                (=> (Membership cause one all)
+                    (Membership effect one all))))))
+    (function (traversal =>)
+      (<| (by pro_functor each ..outer ..inner)
+          (by co_cartesian when_right)
+          ... TODO: Handle this stack overflow.
+          (by monoidal in_parallel => (traversal =>)))))
+
+  (the .public (as_aspect it
+                          [pro_functor co_cartesian cartesian monoidal]
+                          =>)
+    (for_any (_ all all' one one')
+      (-> (Member' all all' one one')
+          (Aspect all all' one one')))
+    (<| (by pro_functor each it ..all)
+        (traversal pro_functor co_cartesian monoidal =>)))
+  )
