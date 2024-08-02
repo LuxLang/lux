@@ -10,9 +10,20 @@
     ["[0]" random (.only Random)]
     [number
      [/64
-      ["[0]" integer]]]]
+      ["[0]" natural]
+      ["[0]" integer]
+      ["[0]" revolution]
+      ["[0]" decimal]]]]
    [test
-    ["_" property (.only Test)]]]]
+    ["_" property (.only Test)]]
+   [macro
+    ["[0]" template]]
+   [data
+    ["[0]" bit]
+    ["[0]" text (.only)
+     ["%" \\injection]]]
+   [function
+    ["?" predicate]]]]
  [\\library
   ["[0]" /]])
 
@@ -20,55 +31,131 @@
   Test
   (<| (_.covering /._)
       (do [! random.monad]
-        [expected_integer random.integer
-         other_integer (random.only (|>> (integer.= expected_integer) not)
-                                    random.integer)])
+        [expected_bit random.bit
+         expected_natural random.natural
+         expected_integer random.integer
+         expected_revolution random.revolution
+         expected_decimal random.decimal
+         expected_text (random.lower_cased 2)
+         
+         .let [other_natural (++ expected_natural)
+               other_integer (++ expected_integer)]])
+      (_.for [/.when
+              /.Case /.Clause /.clause])
       (all _.and
-           (_.coverage [/.item]
-             (let [clause (all /.else
-                               (/.clause (/.item (/.is (same? expected_integer)))
-                                         true)
-                               (/.clause /.any
-                                         false))]
-               (and (/.when (list expected_integer other_integer) clause)
-                    (/.when (list other_integer expected_integer) clause)
-                    (not (/.when (list other_integer other_integer) clause)))))
-           (_.for [/.Static]
-                  (all _.and
-                       (_.coverage [/.any]
-                         (<| (/.when expected_integer)
-                             (/.clause /.any true)))
-                       (_.coverage [/.none]
-                         (not (<| (/.when expected_integer)
-                                  (all /.else
-                                       (/.clause /.none true)
-                                       (/.clause /.any false)))))
-                       (_.coverage [/.is]
-                         (<| (/.when expected_integer)
-                             (all /.else
-                                  (/.clause (/.is (same? expected_integer)) true)
-                                  (/.clause /.any false))))
-                       ))
-           (_.for [/.Dynamic]
-                  (all _.and
-                       (_.coverage [/.variable]
-                         (<| (/.when expected_integer)
-                             (/.clause /.variable
-                                       (same? expected_integer))))
-                       (_.coverage [/.first]
-                         (let [clause (all /.else
-                                           (/.clause (/.first (same? expected_integer))
-                                                     (same? expected_integer))
-                                           (/.clause /.any
-                                                     false))]
-                           (and (/.when (list expected_integer other_integer) clause)
-                                (/.when (list other_integer expected_integer) clause)
-                                (not (/.when (list other_integer other_integer) clause)))))
-                       ))
-           (_.coverage [/.when]
-             (<| (/.when [other_integer expected_integer])
-                 (/.clause (all /.or
-                                (/.pair (/.integer other_integer) /.variable)
-                                (/.pair /.variable (/.integer other_integer)))
-                           (same? expected_integer))))
+           (<| (_.for [/.Static])
+               (all _.and
+                    (_.coverage [/.any]
+                      (<| (/.when expected_integer)
+                          (/.clause /.any true)))
+                    (_.coverage [/.none /.else]
+                      (not (<| (/.when expected_integer)
+                               (all /.else
+                                    (/.clause /.none true)
+                                    (/.clause /.any false)))))
+                    (_.coverage [/.is]
+                      (<| (/.when expected_integer)
+                          (all /.else
+                               (/.clause (/.is (same? expected_integer)) true)
+                               (/.clause /.any false))))
+                    (<| (_.for [/.constant])
+                        (`` (all _.and
+                                 (,, (template.with [,pattern ,expectation ,=]
+                                       [(_.coverage [,pattern]
+                                          (and (<| (/.when ,expectation)
+                                                   (all /.else
+                                                        (/.clause (,pattern ,expectation)
+                                                                  true)
+                                                        (/.clause /.any
+                                                                  false)))
+                                               (<| (/.when ,expectation)
+                                                   (all /.else
+                                                        (/.clause (/.constant ,= ,expectation)
+                                                                  true)
+                                                        (/.clause /.any
+                                                                  false)))))]
+
+                                       [[/.bit expected_bit bit.equivalence]
+                                        [/.natural expected_natural natural.equivalence]
+                                        [/.integer expected_integer integer.equivalence]
+                                        [/.revolution expected_revolution revolution.equivalence]
+                                        [/.decimal expected_decimal decimal.equivalence]
+                                        [/.text expected_text text.equivalence]]
+                                       )))))
+                    ))
+           (<| (_.for [/.Dynamic])
+               (all _.and
+                    (_.coverage [/.variable]
+                      (<| (/.when expected_integer)
+                          (/.clause /.variable
+                                    (same? expected_integer))))
+                    (_.coverage [/.first]
+                      (let [clause (all /.else
+                                        (/.clause (/.first (same? expected_integer))
+                                                  (same? expected_integer))
+                                        (/.clause /.any
+                                                  false))]
+                        (and (/.when (list expected_integer other_integer) clause)
+                             (/.when (list other_integer expected_integer) clause)
+                             (not (/.when (list other_integer other_integer) clause)))))
+                    ))
+           (<| (_.for [/.Pattern])
+               (`` (all _.and
+                        (_.coverage [/.or /.pair]
+                          (let [match? (is (-> [Integer Integer]
+                                               Bit)
+                                           (function (_ pair)
+                                             (<| (/.when pair)
+                                                 (/.clause (all /.or
+                                                                (/.pair (/.integer other_integer) /.variable)
+                                                                (/.pair /.variable (/.integer other_integer)))
+                                                           (same? expected_integer)))))]
+                            (and (match? [other_integer expected_integer])
+                                 (match? [expected_integer other_integer]))))
+                        (_.coverage [/.and]
+                          (let [surprise? (is (?.Predicate Integer)
+                                              (function (_ it)
+                                                (/.when it
+                                                  (all /.else
+                                                       (/.clause (/.and (/.is (?.not (integer.= expected_integer)))
+                                                                        (/.is (?.not (integer.= other_integer))))
+                                                                 true)
+                                                       (/.clause /.any
+                                                                 false)))))]
+                            (and (surprise? (++ other_integer))
+                                 (not (surprise? expected_integer))
+                                 (not (surprise? other_integer)))))
+                        (,, (template.with [,pattern ,tag]
+                              [(_.coverage [,pattern]
+                                 (<| (/.when {,tag expected_integer})
+                                     (all /.else
+                                          (/.clause (,pattern /.variable)
+                                                    (same? expected_integer))
+                                          (/.clause /.any
+                                                    false))))]
+
+                              [[/.left .#Left]
+                               [/.right .#Right]]
+                              ))
+                        (_.coverage [/.item]
+                          (let [clause (/.clause (/.item (/.is (same? expected_integer)))
+                                                 true)]
+                            (and (/.when (list expected_integer other_integer) clause)
+                                 (/.when (list other_integer expected_integer) clause))))
+                        (_.coverage [/.has]
+                          (/.when (list [(%.integer other_integer) other_natural]
+                                        [(%.integer expected_integer) expected_natural])
+                            (/.clause (/.has (%.integer expected_integer))
+                                      (same? expected_natural))))
+                        )))
+           (_.coverage [/.match?]
+             (/.match? (/.integer expected_integer)
+                       expected_integer))
+           (_.coverage [/.abstraction]
+             (and (|> {.#Left expected_integer}
+                      (/.abstraction (/.left /.variable)
+                                     (same? expected_integer)))
+                  (|> {.#Right expected_integer}
+                      (/.abstraction (/.right /.variable)
+                                     (same? expected_integer)))))
            )))
