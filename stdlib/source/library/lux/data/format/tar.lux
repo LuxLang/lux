@@ -10,7 +10,8 @@
    [abstract
     [monad (.only do)]
     [format (.only Format)]
-    ["<>" projection]]
+    ["<>" projection]
+    ["[0]" equivalence (.only Equivalence)]]
    [control
     ["[0]" pipe]]
    [error
@@ -73,7 +74,7 @@
 
 (template.with [<exception> <limit> <size>
                 <type> <in> <out> <injection> <suffix>
-                <coercion>]
+                <coercion> ,equivalence]
   [(the .public <limit>
      Natural
      (|> ..octal_size
@@ -102,6 +103,12 @@
            Natural)
        (|>> nominal.as))
 
+     (the ,equivalence
+       (Equivalence <type>)
+       (by equivalence.functor each
+           <out>
+           n.equivalence))
+
      (the <injection>
        (Injection <type>)
        (let [suffix <suffix>
@@ -123,11 +130,11 @@
   [[not_a_small_number small_limit ..small_size
     Small small from_small
     small_binary (text ..blank ..null)
-    as_small]
+    as_small equivalence_of_small]
    [not_a_big_number big_limit ..big_size
     Big big from_big
     big_binary ..blank
-    as_big]])
+    as_big equivalence_of_big]])
 
 (exception.the .public (wrong_character [expected actual])
   (Exception [Character Character])
@@ -261,25 +268,20 @@
 (the .public path_size Size 99)
 
 (the (un_padded string)
-  (-> Binary
-      Binary)
-  (when (binary!.size string)
-    0
-    string
-    
-    size
-    (loop (again [end (-- size)])
-      (when end
-        0 (by utf8.binary as "")
-        _ (let [last_character (binary!.bits_08 end string)]
-            (`` (when (.natural last_character)
-                  (.character (,, (static ..null)))
-                  (again (-- end))
+  (Change Binary)
+  (loop (again [size (binary!.size string)])
+    (when size
+      0 (by utf8.binary as "")
+      _ (let [end (-- size)
+              last_character (binary!.bits_08 end string)]
+          (`` (when (.natural last_character)
+                (.character (,, (static ..null)))
+                (again end)
 
-                  _
-                  (binary!.slice 0 (++ end) string))))))))
+                _
+                (binary!.slice 0 size string)))))))
 
-(template.with [<type> <representation> <size> <exception> <in> <out> <injection> <projection> <none>]
+(template.with [<type> <representation> <size> <exception> <in> <out> <injection> <projection> <none> ,equivalence]
   [(nominal.every .public <type>
      <representation>
 
@@ -332,10 +334,16 @@
      (the .public <none>
        <type>
        (try.trusted (<in> "")))
+
+     (the ,equivalence
+       (Equivalence <type>)
+       (by equivalence.functor each
+           <out>
+           text.equivalence))
      )]
 
-  [[Name Text      ..name_size name_is_too_long name from_name name_binary name_of anonymous]
-   [Path file.Path ..path_size path_is_too_long path from_path path_binary path_of no_path]])
+  [[Name Text      ..name_size name_is_too_long name from_name name_binary name_of anonymous equivalence_of_name]
+   [Path file.Path ..path_size path_is_too_long path from_path path_binary path_of no_path equivalence_of_path]])
 
 (the magic_size Size 7)
 
@@ -487,6 +495,12 @@
         Natural)
     (|>> nominal.as))
 
+  (the equivalence_of_mode
+    (Equivalence Mode)
+    (by equivalence.functor each
+        ..mode
+        n.equivalence))
+
   (the .public (and left right)
     (-> Mode Mode
         Mode)
@@ -588,6 +602,15 @@
         Binary)
     (|>> nominal.as
          product.right))
+
+  (the equivalence_of_content
+    (Equivalence Content)
+    (by equivalence.functor each
+        ..from_content
+        (all equivalence.product
+             equivalence_of_big
+             binary.equivalence
+             )))
   )
 
 (every .public ID
@@ -617,6 +640,18 @@
   [#user ..no_owner
    #group ..no_owner])
 
+(the equivalence_of_ownership
+  (Equivalence Ownership)
+  (let [equivalence_of_owner (is (Equivalence Owner)
+                                 (all equivalence.product
+                                      equivalence_of_name
+                                      equivalence_of_small
+                                      ))]
+    (all equivalence.product
+         equivalence_of_owner
+         equivalence_of_owner
+         )))
+
 (every .public File
   [Path Instant Mode Ownership Content])
 
@@ -631,6 +666,15 @@
    {#Symbolic_Link ..Symbolic_Link}
    {#Directory ..Directory}
    {#Contiguous ..Contiguous}))
+
+(the equivalence_of_file
+  (all equivalence.product
+       equivalence_of_path
+       instant.equivalence
+       equivalence_of_mode
+       equivalence_of_ownership
+       equivalence_of_content
+       ))
 
 (every Device
   Small)
@@ -997,3 +1041,19 @@
   (implementation
    (the as (!binary.value ..as_binary))
    (the of (?binary.value ..of_binary))))
+
+(the equivalence_of_entry
+  (Equivalence Entry)
+  (all equivalence.sum
+       equivalence_of_file
+       equivalence_of_path
+       equivalence_of_path
+       equivalence_of_file
+       ))
+
+(the .public equivalence
+  (Equivalence Tar)
+  (sequence.equivalence equivalence_of_entry))
+
+(alias [=]
+       ..equivalence)
