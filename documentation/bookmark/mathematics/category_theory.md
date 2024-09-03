@@ -1,5 +1,6 @@
 # Reference
 
+0. [Category Theory Illustrated](https://abuseofnotation.github.io/category-theory-illustrated/)
 0. [Applied Category Theory Course](https://math.ucr.edu/home/baez/act_course/)
 0. [Tutorial on Category Theory: Part 1 – Pure and Classical](https://www.youtube.com/watch?v=6eWn9nG5d7o)
 	0. [Tutorial on Category Theory: Part 2 – Applied](https://www.youtube.com/watch?v=eIjPxaFbEeg)

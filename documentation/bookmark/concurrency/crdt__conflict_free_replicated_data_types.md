@@ -1,5 +1,6 @@
 # Reference
 
+0. [5000x faster CRDTs: An Adventure in Optimization](https://josephg.com/blog/crdts-go-brrr/)
 0. [CRDTs Turned Inside Out](https://interjectedfuture.com/crdts-turned-inside-out/)
 0. [Trade-offs between Different CRDTs](https://interjectedfuture.com/trade-offs-between-different-crdts/)
 0. [A Framework for Convergence](https://vlcn.io/articles/crdt-substrate)

@@ -3,7 +3,7 @@
 
 (.using
  [library
-  [lux (.except has revised)
+  [lux (.except has revised macro)
    [abstract
     [hash (.only Hash)]
     [equivalence (.only Equivalence)]
@@ -27,9 +27,12 @@
    [macro
     ["^" pattern]]
    [meta
-    ["[0]" provenance]]]])
+    ["[0]" provenance]]
+   [function
+    [predicate (.only Predicate)]]]])
 
 (the with_template (.in_module# .prelude .with_template))
+(the macro (.in_module# .prelude template#macro))
 
 ... This implementation of Hash Array Mapped Trie (HAMT) is based on
 ... Clojure's PersistentHashMap implementation.
@@ -143,50 +146,58 @@
 
 ... Expands a copy of the array, to have 1 extra slot, which is used
 ... for storing the value.
-(the (array#has idx value old_array)
-  (for_any (_ it)
-    (-> Index it (Array it)
-        (Array it)))
-  (let [old_size (array.size old_array)]
-    (|> (array.empty (++ old_size))
-        (array.copy! idx 0 old_array 0)
-        (array.has! idx value)
-        (array.copy! (n.- idx old_size) idx old_array (++ idx)))))
+(the array#has
+  ... (for_any (_ it)
+  ...   (-> Index it
+  ...       (Change (Array it))))
+  (macro (_ ,idx value ,old_array)
+    [(<| (let [idx ,idx
+               old_array ,old_array])
+         (let [old_size (array.size old_array)])
+         (|> (array.empty (++ old_size))
+             (array.copy! idx 0 old_array 0)
+             (array.has! idx value)
+             (array.copy! (n.- idx old_size) idx old_array (++ idx))))]))
 
 ... Creates a copy of an array with an index set to a particular value.
-(the (array#revised idx value array)
-  (for_any (_ it)
-    (-> Index it (Array it)
-        (Array it)))
-  (|> array
-      array.clone
-      (array.has! idx value)))
+(the array#revised
+  ... (for_any (_ it)
+  ...   (-> Index it
+  ...       (Change (Array it))))
+  (macro (_ idx value array)
+    [(|> array
+         array.clone
+         (array.has! idx value))]))
 
 ... Creates a clone of the array, with an empty position at index.
-(the (array#clear idx array)
-  (for_any (_ it)
-    (-> Index (Array it)
-        (Array it)))
-  (|> array
-      array.clone
-      (array.lacks! idx)))
+(the array#clear
+  ... (for_any (_ it)
+  ...   (-> Index
+  ...       (Change (Array it))))
+  (macro (_ idx array)
+    [(|> array
+         array.clone
+         (array.lacks! idx))]))
 
 ... Shrinks a copy of the array by removing the space at index.
-(the (array#lacks idx array)
-  (for_any (_ it)
-    (-> Index (Array it)
-        (Array it)))
-  (let [new_size (-- (array.size array))]
-    (|> (array.empty new_size)
-        (array.copy! idx 0 array 0)
-        (array.copy! (n.- idx new_size) (++ idx) array idx))))
+(the array#lacks
+  ... (for_any (_ it)
+  ...   (-> Index
+  ...       (Change (Array it))))
+  (macro (_ ,idx ,array)
+    [(<| (let [idx ,idx
+               array ,array])
+         (let [new_size (-- (array.size array))])
+         (|> (array.empty new_size)
+             (array.copy! idx 0 array 0)
+             (array.copy! (n.- idx new_size) (++ idx) array idx)))]))
 
 ... Increases the level-shift by the branching-exponent, to explore
 ... levels further down the tree.
 (the level_up
-  (-> Level
-      Level)
-  (n.+ branching_exponent))
+  ... (Change Level)
+  (macro (_ ,it)
+    [(n.+ ..branching_exponent ,it)]))
 
 (the hierarchy_mask
   Bit_Map
@@ -194,47 +205,53 @@
 
 ... Gets the branching-factor sized section of the hash corresponding
 ... to a particular level, and uses that as an index into the array.
-(the (level_index level hash)
-  (-> Level Hash_Code
-      Index)
-  (/64.and ..hierarchy_mask
-           (/64.>> level hash)))
+(the level_index
+  ... (-> Level Hash_Code
+  ...     Index)
+  (macro (_ level hash)
+    [(/64.and ..hierarchy_mask
+              (/64.>> level hash))]))
 
 ... A mechanism to go from indices to bit-positions.
-(the (to_bit_position index)
-  (-> Index
-      Bit_Position)
-  (/64.<< index 1))
+(the to_bit_position
+  ... (-> Index
+  ...     Bit_Position)
+  (macro (_ index)
+    [(/64.<< index 1)]))
 
 ... The bit-position within a base that a given hash-code would have.
-(the (level_bit_position level hash)
-  (-> Level Hash_Code
-      Bit_Position)
-  (to_bit_position (level_index level hash)))
+(the level_bit_position
+  ... (-> Level Hash_Code
+  ...     Bit_Position)
+  (macro (_ level hash)
+    [(to_bit_position (level_index level hash))]))
 
-(the (with_bit_position? bit bitmap)
-  (-> Bit_Position Bit_Map
-      Bit)
-  (|> bitmap
-      (/64.and bit)
-      (n.= clean_bitmap)
-      not))
+(the with_bit_position?
+  ... (-> Bit_Position
+  ...     (Predicate Bit_Map))
+  (macro (_ bit bitmap)
+    [(|> bitmap
+         (/64.and bit)
+         (n.= ..clean_bitmap)
+         not)]))
 
 ... Figures out whether a bitmap only contains a single bit-position.
 (the only_bit_position?
-  (-> Bit_Position Bit_Map
-      Bit)
+  (-> Bit_Position
+      (Predicate Bit_Map))
   n.=)
 
-(the (with_bit_position bit bitmap)
-  (-> Bit_Position Bit_Map
-      Bit_Map)
-  (/64.or bit bitmap))
+(the with_bit_position
+  ... (-> Bit_Position
+  ...     (Change Bit_Map))
+  (macro (_ bit bitmap)
+    [(/64.or bit bitmap)]))
 
 (the without_bit_position
-  (-> Bit_Position Bit_Map
-      Bit_Map)
-  /64.xor)
+  ... (-> Bit_Position
+  ...     (Change Bit_Map))
+  (macro (_ bit bitmap)
+    [(/64.xor bit bitmap)]))
 
 ... Figures out the size of a bitmap-indexed array by counting all the
 ... 1s within the bitmap.
@@ -252,11 +269,12 @@
   --)
 
 ... The index on the base array, based on its bit-position.
-(the (base_index bit_position bitmap)
-  (-> Bit_Position Bit_Map
-      Index)
-  (bitmap_size (/64.and (bit_position_mask bit_position)
-                        bitmap)))
+(the base_index
+  ... (-> Bit_Position Bit_Map
+  ...     Index)
+  (macro (_ bit_position bitmap)
+    [(bitmap_size (/64.and (bit_position_mask bit_position)
+                           bitmap))]))
 
 ... Produces the index of a KV-pair within a #Collisions node.
 (the (collision_index hash_of_key key colls)
@@ -320,8 +338,7 @@
 ... So, this test is introduced to detect them.
 (the (node#empty? node)
   (for_any (_ key value)
-    (-> (Node key value)
-        Bit))
+    (Predicate (Node key value)))
   (when node
     {#Base ..clean_bitmap _}
     true
@@ -331,8 +348,8 @@
 
 (the (node#has level hash key val hash_of_key node)
   (for_any (_ key value)
-    (-> Level Hash_Code key value (Hash key) (Node key value)
-        (Node key value)))
+    (-> Level Hash_Code key value (Hash key)
+        (Change (Node key value))))
   (when node
     ... For #Hierarchy nodes, check whether one can add the element to
     ... a sub-node. If impossible, introduce a new singleton sub-node.
@@ -425,8 +442,8 @@
 
 (the (node#lacks level hash key hash_of_key node)
   (for_any (_ key value)
-    (-> Level Hash_Code key (Hash key) (Node key value)
-        (Node key value)))
+    (-> Level Hash_Code key (Hash key)
+        (Change (Node key value))))
   (when node
     ... For #Hierarchy nodes, find out if there's a valid sub-node for
     ... the Hash-Code.
@@ -548,8 +565,7 @@
     (|> _colls
         (array.example (|>> product.left (by hash_of_key = key)))
         (by maybe.monad each product.right)
-        (try.of_maybe ..unknown_value))
-    ))
+        (try.of_maybe ..unknown_value))))
 
 (the (node#size node)
   (for_any (_ key value)
@@ -573,8 +589,7 @@
                            base))
 
     {#Collisions hash colls}
-    (array.size colls)
-    ))
+    (array.size colls)))
 
 (the (node#mix f init node)
   (for_any (_ key value it)
@@ -624,15 +639,15 @@
 
 (the .public (has key val dict)
   (for_any (_ key value)
-    (-> key value (Dictionary key value)
-        (Dictionary key value)))
+    (-> key value
+        (Change (Dictionary key value))))
   (let [[hash_of_key node] dict]
     [hash_of_key (node#has root_level (by hash_of_key hash key) key val hash_of_key node)]))
 
 (the .public (lacks key dict)
   (for_any (_ key value)
-    (-> key (Dictionary key value)
-        (Dictionary key value)))
+    (-> key
+        (Change (Dictionary key value))))
   (let [[hash_of_key node] dict]
     [hash_of_key (node#lacks root_level (by hash_of_key hash key) key hash_of_key node)]))
 
@@ -645,8 +660,8 @@
 
 (the .public (key? dict key)
   (for_any (_ key value)
-    (-> (Dictionary key value) key
-        Bit))
+    (-> (Dictionary key value)
+        (Predicate key)))
   (when (..value key dict)
     {try.#Failure _}
     false
@@ -669,8 +684,8 @@
 
 (the .public (revised key f dict)
   (for_any (_ key value)
-    (-> key (-> value value) (Dictionary key value)
-        (Dictionary key value)))
+    (-> key (Change value)
+        (Change (Dictionary key value))))
   (when (..value key dict)
     {try.#Failure _}
     dict
@@ -680,8 +695,8 @@
 
 (the .public (revised' key default revision dict)
   (for_any (_ key value)
-    (-> key value (-> value value) (Dictionary key value)
-        (Dictionary key value)))
+    (-> key value (Change value)
+        (Change (Dictionary key value))))
   (..has key
          (|> (..value key dict)
              (try.else default)
@@ -697,8 +712,7 @@
 
 (the .public empty?
   (for_any (_ key value)
-    (-> (Dictionary key value)
-        Bit))
+    (Predicate (Dictionary key value)))
   (|>> size
        (n.= 0)))
 
@@ -768,8 +782,8 @@
 
 (the .public (re_bound from_key to_key dict)
   (for_any (_ key value)
-    (-> key key (Dictionary key value)
-        (Dictionary key value)))
+    (-> key key
+        (Change (Dictionary key value))))
   (when (..value from_key dict)
     {try.#Success val}
     (|> dict
@@ -781,8 +795,8 @@
 
 (the .public (sub keys dict)
   (for_any (_ key value)
-    (-> (List key) (Dictionary key value)
-        (Dictionary key value)))
+    (-> (List key)
+        (Change (Dictionary key value))))
   (let [[hash_of_key _] dict]
     (list#mix (function (_ key new_dict)
                 (when (..value key dict)

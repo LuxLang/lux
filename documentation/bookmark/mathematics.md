@@ -1,5 +1,6 @@
 # Reference
 
+0. [Some Fundamental Theorems in Mathematics](https://arxiv.org/abs/1807.08416)
 0. [Lists of Open Problems](https://amathr.org/problems/)
 0. [The L-functions and modular forms database (LMFDB)](https://www.lmfdb.org/)
 
@@ -9,7 +10,6 @@
 
 # Ball arithmetic
 
-0. []()
 0. [Ball arithmetic](http://www.texmacs.org/joris/ball/ball.html)
 
 # Arithmetic

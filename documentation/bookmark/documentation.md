@@ -64,6 +64,9 @@
 
 # Reference
 
+0. [BLUF (communication)](https://en.wikipedia.org/wiki/BLUF_(communication))
+0. [What makes documentation good](https://cookbook.openai.com/articles/what_makes_documentation_good)
+0. [Argdown: A simple syntax for complex argumentation](https://argdown.org/)
 0. [Patterns in confusing explanations](https://jvns.ca/blog/confusing-explanations/)
 0. [An intuitive documentation strategy](https://abstraction.blog/2023/11/22/intuitive-documentation-strategy)
 0. [Histoire: A new way to write stories](https://histoire.dev/)

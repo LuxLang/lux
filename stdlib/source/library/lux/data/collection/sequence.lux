@@ -6,7 +6,7 @@
 ... https://hypirion.com/musings/understanding-persistent-vector-pt-3
 (.using
  [library
-  [lux (.except has revised only all)
+  [lux (.except has revised only all macro)
    [abstract
     [functor (.only Functor)]
     [monad (.only Monad do)]
@@ -44,6 +44,8 @@
     ["[0]" code (.only)
      ["<[1]>" \\projection]]]]])
 
+(the macro (.in_module# .prelude template#macro))
+
 (every Base
   Array)
 
@@ -71,8 +73,7 @@
 
 (template.with [<name> <op>]
   [(the <name>
-     (-> Level
-         Level)
+     (Change Level)
      (<op> branching_exponent))]
 
   [[level_up   n.+]
@@ -82,14 +83,14 @@
   Natural
   (/64.<< branching_exponent 1))
 
-(the branch_idx_mask
+(the mask_of_index_of_branch
   Natural
   (-- full_node_size))
 
-(the branch_idx
-  (-> Index
-      Index)
-  (/64.and branch_idx_mask))
+(the index_of_branch
+  ... (Change Index)
+  (macro (_ ,it)
+    [(/64.and ..mask_of_index_of_branch ,it)]))
 
 (the (empty_hierarchy _)
   (for_any (_ it)
@@ -116,18 +117,19 @@
           (array.has! 0 (path (level_down level) tail))
           {#Hierarchy})))
 
-(the (tail singleton)
-  (for_any (_ it)
-    (-> it
-        (Base it)))
-  (|> (array.empty 1)
-      (array.has! 0 singleton)))
+(the new_tail
+  ... (for_any (_ it)
+  ...   (-> it
+  ...       (Base it)))
+  (macro (_ singleton)
+    [(|> (array.empty 1)
+         (array.has! 0 singleton))]))
 
 (the (with_tail size level tail parent)
   (for_any (_ it)
-    (-> Natural Level (Base it) (Hierarchy it)
-        (Hierarchy it)))
-  (let [sub_idx (branch_idx (/64.>> level (-- size)))
+    (-> Natural Level (Base it)
+        (Change (Hierarchy it))))
+  (let [sub_idx (index_of_branch (/64.>> level (-- size)))
         ... If we're currently on a bottom node
         sub_node (if (n.= branching_exponent level)
                      ... Just add the tail to it
@@ -148,8 +150,8 @@
 
 (the (expanded_tail val tail)
   (for_any (_ it)
-    (-> it (Base it)
-        (Base it)))
+    (-> it
+        (Change (Base it))))
   (let [tail_size (array.size tail)]
     (|> (array.empty (++ tail_size))
         (array.copy! tail_size 0 tail 0)
@@ -157,9 +159,9 @@
 
 (the (hierarchy#has level idx val hierarchy)
   (for_any (_ it)
-    (-> Level Index it (Hierarchy it)
-        (Hierarchy it)))
-  (let [sub_idx (branch_idx (/64.>> level idx))]
+    (-> Level Index it
+        (Change (Hierarchy it))))
+  (let [sub_idx (index_of_branch (/64.>> level idx))]
     (when (array.item sub_idx hierarchy)
       {#Hierarchy sub_node}
       (|> (array.clone hierarchy)
@@ -169,7 +171,7 @@
                (n.= 0 (level_down level)))
       (|> (array.clone hierarchy)
           (array.has! sub_idx (|> (array.clone base)
-                                  (array.has! (branch_idx idx) val)
+                                  (array.has! (index_of_branch idx) val)
                                   {#Base})))
 
       _
@@ -179,7 +181,7 @@
   (for_any (_ it)
     (-> Natural Level (Hierarchy it)
         (Maybe (Hierarchy it))))
-  (let [sub_idx (branch_idx (/64.>> level (n.- 2 size)))]
+  (let [sub_idx (index_of_branch (/64.>> level (n.- 2 size)))]
     (if (n.= 0 sub_idx)
         {.#None}
 
@@ -224,8 +226,8 @@
 
 (the .public (suffix val sequence)
   (for_any (_ it)
-    (-> it (Sequence it)
-        (Sequence it)))
+    (-> it
+        (Change (Sequence it))))
   ... Check if there is room in the tail.
   (let [sequence_size (its #size sequence)]
     (if (|> sequence_size (n.- (tail_off sequence_size)) (n.< full_node_size))
@@ -252,7 +254,7 @@
             ... Finally, update the size of the sequence and grow a new
             ... tail with the new element as it's sole member.
             (.revised #size ++)
-            (.has #tail (..tail val)))
+            (.has #tail (..new_tail val)))
         )))
 
 (exception.the incorrect_sequence_structure)
@@ -280,7 +282,7 @@
       (if (n.< (tail_off (its #size sequence)) idx)
           (loop (again [level (its #level sequence)
                         hierarchy (its #root sequence)])
-            (let [index (branch_idx (/64.>> level idx))]
+            (let [index (index_of_branch (/64.>> level idx))]
               (if (array.lacks? index hierarchy)
                   (exception.except ..base_was_not_found [])
                   (when [(n.> branching_exponent level)
@@ -302,7 +304,7 @@
         (Try it)))
   (do try.monad
     [base (base_for idx sequence)
-     .let [index (branch_idx idx)]]
+     .let [index (index_of_branch idx)]]
     (if (array.lacks? index base)
         (exception.except ..incorrect_sequence_structure [])
         {try.#Success (array.item index base)})))
@@ -318,7 +320,7 @@
                                     sequence)
                           (.revised #tail (`` (is (-> (Base (,, (type_of val)))
                                                       (Base (,, (type_of val))))
-                                                  (|>> array.clone (array.has! (branch_idx idx) val))))
+                                                  (|>> array.clone (array.has! (index_of_branch idx) val))))
                                     sequence))}
         (exception.except ..index_out_of_bounds [sequence idx]))))
 
@@ -332,8 +334,7 @@
 
 (the .public (prefix sequence)
   (for_any (_ it)
-    (-> (Sequence it)
-        (Sequence it)))
+    (Change (Sequence it)))
   (when (its #size sequence)
     0
     empty
@@ -534,8 +535,7 @@
 
 (the .public reversed
   (for_any (_ it)
-    (-> (Sequence it)
-        (Sequence it)))
+    (Change (Sequence it)))
   (|>> ..as_list
        list.reversed
        ..of_list))
@@ -565,8 +565,7 @@
 (the .public (only when)
   (for_any (_ it)
     (-> (Predicate it)
-        (-> (Sequence it)
-            (Sequence it))))
+        (Change (Sequence it))))
   (..mix (function (_ item output)
            (if (when item)
                (..suffix item output)
@@ -604,8 +603,10 @@
 
 (the .public (all ? it)
   (for_any (_ input output)
-    (-> (-> input (Maybe output)) (Sequence input)
-        (Sequence output)))
+    (-> (-> input
+            (Maybe output))
+        (-> (Sequence input)
+            (Sequence output))))
   (..mix (function (_ in out)
            (when (? in)
              {.#Some in}
