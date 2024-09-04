@@ -1,0 +1,124 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]
+    ["[0]" equivalence (.only)
+     ["[1]T" \\test]]]
+   [math
+    ["[0]" random (.only Random)]
+    [number
+     [/64
+      ["n" natural]]]]
+   [test
+    ["_" property (.only Test)]]
+   [aspect
+    ["[0]" view (.only)
+     ["[1]T" \\test]]
+    ["[0]" case (.only)
+     ["[1]T" \\test]]]
+   [data
+    ["[0]" any]]
+   [logic
+    ["[0]" bit]]]]
+ [\\library
+  ["[0]" / (.only)
+   ["[0]" //]]])
+
+(the .public test
+  Test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [expected_size (by ! each (n.% 100) random.natural)
+         .let [random_list (random.list expected_size random.natural)
+               random_slice (|> random_list
+                                (by ! each /.new)
+                                (is (Random (/.Slice Natural))))]
+         expected_slice random_slice
+         expected_list random_list])
+      (_.for [/.Slice])
+      (all _.and
+           (_.for [/.equivalence]
+                  (equivalenceT.spec (/.equivalence n.equivalence) random_slice))
+           (_.for [/.list]
+                  (viewT.specification /.list
+                                       (/.equivalence n.equivalence)
+                                       (//.equivalence n.equivalence)
+                                       
+                                       random_slice
+                                       (random.list expected_size random.natural)))
+           
+           (_.coverage [/.empty /.empty?]
+             (/.empty? /.empty))
+           (_.coverage [/.size]
+             (and (n.= expected_size (/.size expected_slice))
+                  (bit.= (/.empty? expected_slice)
+                         (n.= 0 (/.size expected_slice)))))
+           (_.coverage [/.new]
+             (let [it (/.new expected_list)]
+               (and (n.= (//.size expected_list)
+                         (/.size it))
+                    (with (//.equivalence n.equivalence)
+                      (= expected_list
+                         (view.as /.list it))))))
+           (all _.and
+                (<| (_.for [/.#Nil])
+                    (caseT.specification /.#Nil
+                                         (/.equivalence n.equivalence) any.equivalence
+                                         random_slice (pure [])))
+                (_.coverage [/.#Nil]
+                  (and (case.when (is (/.Slice Natural)
+                                      /.empty)
+                         {/.#Nil _}
+                         true
+                         
+                         else
+                         false)
+                       (by (/.equivalence n.equivalence) =
+                           /.empty
+                           (case.some /.#Nil [])))))
+           (let [/#equivalence (/.equivalence n.equivalence)]
+             (all _.and
+                  (<| (_.for [/.#Cons])
+                      (caseT.specification /.#Cons
+                                           /#equivalence (equivalence.product n.equivalence /#equivalence)
+                                           random_slice (random.and random.natural random_slice)))
+                  (_.coverage [/.#Cons]
+                    (and (case.when expected_slice
+                           {/.#Cons head tail}
+                           (by /#equivalence = expected_slice (case.some /.#Cons [head tail]))
+                           
+                           else
+                           (by /#equivalence = /.empty else))
+                         (case.when (is (/.Slice Natural)
+                                        /.empty)
+                           {/.#Cons head tail}
+                           false
+                           
+                           else
+                           true)))))
+           (let [/#equivalence (/.equivalence n.equivalence)]
+             (all _.and
+                  (<| (_.for [/.#Pair])
+                      (caseT.specification /.#Pair
+                                           /#equivalence (all equivalence.product n.equivalence n.equivalence /#equivalence)
+                                           random_slice (all random.and random.natural random.natural random_slice)))
+                  (_.coverage [/.#Pair]
+                    (let [reversed (is (for_any (_ it)
+                                         (Change (/.Slice Natural)))
+                                       (function (reversed it)
+                                         (case.when it
+                                           {/.#Pair start end it'}
+                                           (case.some /.#Pair [end start (reversed it')])
+                                           
+                                           else
+                                           it)))]
+                      (/#equivalence (|> expected_slice
+                                         (view.as /.list)
+                                         //.reversed
+                                         (view.of /.list))
+                                     (reversed expected_slice))))))
+           )))
