@@ -7,15 +7,13 @@
    [abstract
     [monad (.only Monad
                   do)]
-    ["//" projection]]
+    ["?" projection]]
    [control
     ["[0]" maybe]]
    [error
     ["[0]" try (.only Try)]
     ["[0]" exception (.only Exception)]]
    [data
-    ["/" text (.use "[1]#[0]" monoid)
-     [character (.only Character)]]
     ["[0]" product]
     [collection
      ["[0]" list (.use "[1]#[0]" mix)]]]
@@ -26,8 +24,10 @@
    [macro
     ["^" pattern]
     ["[0]" template]]
-   [meta
-    ["[0]" code]]]])
+   [function
+    [predicate (.only Predicate)]]]]
+ ["/" \\library (.use "[1]#[0]" monoid)
+  [character (.only Character)]])
 
 (every .public Offset
   Natural)
@@ -37,33 +37,16 @@
   0)
 
 (exception.the .public cannot_parse)
-(exception.the .public cannot_slice)
 
 (every .public Projection
-  (//.Projection [Offset Text]))
-
-(every .public Slice
-  (Record
-   [#basis Offset
-    #distance Offset]))
-
-(the .public (slice projection)
-  (-> (Projection Slice)
-      (Projection Text))
-  (do //.monad
-    [[basis distance] projection]
-    (function (_ (^.let input [offset tape]))
-      (when (/.clip basis distance tape)
-        {.#Some output}
-        {try.#Success [input output]}
-
-        {.#None}
-        (exception.except ..cannot_slice [])))))
+  (?.Projection [Offset Text]))
 
 (the (left_over offset tape)
   (-> Offset Text
       Text)
-  (|> tape (/.clip_since offset) maybe.trusted))
+  (|> tape
+      (/.clip_since offset)
+      maybe.trusted))
 
 (exception.the .public (unconsumed_input [offset tape])
   (Exception [Offset Text])
@@ -96,19 +79,6 @@
   (function (_ (^.let input [offset tape]))
     {try.#Success [input offset]}))
 
-(the (with_slices projection)
-  (-> (Projection (List Slice))
-      (Projection Slice))
-  (do //.monad
-    [offset ..offset
-     slices projection]
-    (pure (list#mix (function (_ [slice::basis slice::distance]
-                                 [total::basis total::distance])
-                      [total::basis (.i64_+# slice::distance total::distance)])
-                    [#basis offset
-                     #distance 0]
-                    slices))))
-
 (the .public any
   (Projection Text)
   (function (_ [offset tape])
@@ -119,34 +89,17 @@
       _
       (exception.except ..cannot_parse []))))
 
-(the .public any!
-  (Projection Slice)
-  (function (_ [offset tape])
-    (when (/.character offset tape)
-      {.#Some _}
-      {try.#Success [[(.i64_+# 1 offset) tape]
-                     [#basis offset
-                      #distance 1]]}
-
+(the .public (not projection)
+  (for_any (_ it)
+    (-> (Projection it)
+        (Projection Text)))
+  (function (_ input)
+    (when (projection input)
+      {try.#Failure msg}
+      (..any input)
+      
       _
-      (exception.except ..cannot_slice []))))
-
-(template.with [<name> <type> <any>]
-  [(`` (the .public (<name> projection)
-         (for_any (_ it)
-           (-> (Projection it)
-               (Projection <type>)))
-         (function (_ input)
-           (when (projection input)
-             {try.#Failure msg}
-             (<any> input)
-             
-             _
-             (exception.except ..expected_to_fail input)))))]
-
-  [[not  Text  ..any]
-   [not! Slice ..any!]]
-  )
+      (exception.except ..expected_to_fail [input]))))
 
 (exception.the .public (cannot_match reference)
   (Exception Text)
@@ -192,60 +145,33 @@
 (the .public (range minimum maximum)
   (-> Natural Natural
       (Projection Text))
-  (do //.monad
-    [character any
-     .let [character' (maybe.trusted (/.character 0 character))]
-     _ (//.assertion (all /#composite "Character is not within range: " (/.of_character minimum) "-" (/.of_character maximum))
-                     (.and (n.>= minimum character')
-                           (n.<= maximum character')))]
-    (pure character)))
-
-(the .public (range! minimum maximum)
-  (-> Natural Natural
-      (Projection Slice))
-  (do //.monad
-    [it ..any!
-     character (..slice (pure it))
-     .let [character' (maybe.trusted (/.character 0 character))]
-     _ (//.assertion (all /#composite "Character is not within range: " (/.of_character minimum) "-" (/.of_character maximum))
-                     (.and (n.>= minimum character')
-                           (n.<= maximum character')))]
+  (do ?.monad
+    [it ..any
+     .let [character (maybe.trusted (/.character 0 it))]
+     _ (?.assertion (all /#composite "Character is not within range: " (/.of_character minimum) "-" (/.of_character maximum))
+                    (.and (n.>= minimum character)
+                          (n.<= maximum character)))]
     (pure it)))
 
-(template.with [<minimum> <maximum> <text> <slice>]
+(template.with [<minimum> <maximum> <text>]
   [(the .public <text>
      (Projection Text)
-     (..range (character <minimum>) (character <maximum>)))
-   
-   (the .public <slice>
-     (Projection Slice)
-     (..range! (character <minimum>) (character <maximum>)))]
+     (..range (character <minimum>) (character <maximum>)))]
 
-  [["A" "Z" upper upper!]
-   ["a" "z" lower lower!]
-   ["0" "9" decimal decimal!]
-   ["0" "7" octal octal!]]
-  )
+  [["A" "Z" upper]
+   ["a" "z" lower]
+   ["0" "9" decimal]
+   ["0" "7" octal]])
 
-(the .public alpha (Projection Text) (//.either ..lower ..upper))
-(the .public alpha! (Projection Slice) (//.either ..lower! ..upper!))
-
-(the .public alpha_num (Projection Text) (//.either ..alpha ..decimal))
-(the .public alpha_num! (Projection Slice) (//.either ..alpha! ..decimal!))
+(the .public alpha (Projection Text) (?.either ..lower ..upper))
+(the .public alpha_num (Projection Text) (?.either ..alpha ..decimal))
 
 (the .public hexadecimal
   (Projection Text)
-  (all //.either
+  (all ?.either
        ..decimal
        (..range (character "a") (character "f"))
        (..range (character "A") (character "F"))))
-
-(the .public hexadecimal!
-  (Projection Slice)
-  (all //.either
-       ..decimal!
-       (..range! (character "a") (character "f"))
-       (..range! (character "A") (character "F"))))
 
 (template.with [<name>]
   [(exception.the .public (<name> [options character])
@@ -255,8 +181,7 @@
             ["Character" (/.as_text (/.of_character character))])))]
 
   [[character_should_be]
-   [character_should_not_be]]
-  )
+   [character_should_not_be]])
 
 (template.with [<name> <modifier> <exception>]
   [(the .public (<name> options)
@@ -274,29 +199,7 @@
          (exception.except ..cannot_parse []))))]
 
   [[one_of  |>   ..character_should_be]
-   [none_of .not ..character_should_not_be]]
-  )
-
-(template.with [<name> <modifier> <exception>]
-  [(the .public (<name> options)
-     (-> Text
-         (Projection Slice))
-     (function (_ [offset tape])
-       (when (/.character offset tape)
-         {.#Some output}
-         (let [output' (/.of_character output)]
-           (if (<modifier> (/.contains? output' options))
-               {try.#Success [[(.i64_+# 1 offset) tape]
-                              [#basis offset
-                               #distance 1]]}
-               (exception.except <exception> [options output])))
-
-         _
-         (exception.except ..cannot_slice []))))]
-
-  [[one_of!  |>   ..character_should_be]
-   [none_of! .not ..character_should_not_be]]
-  )
+   [none_of .not ..character_should_not_be]])
 
 (exception.the .public (character_does_not_satisfy_predicate character)
   (Exception Character)
@@ -304,7 +207,7 @@
    (list ["Character" (/.as_text (/.of_character character))])))
 
 (the .public (satisfies projection)
-  (-> (-> Character Bit)
+  (-> (Predicate Character)
       (Projection Text))
   (function (_ [offset tape])
     (when (/.character offset tape)
@@ -316,43 +219,17 @@
       _
       (exception.except ..cannot_parse []))))
 
-(the .public (satisfies! projection)
-  (-> (-> Character Bit)
-      (Projection Slice))
-  (function (_ [offset tape])
-    (when (/.character offset tape)
-      {.#Some output}
-      (if (projection output)
-          {try.#Success [[(.i64_+# 1 offset) tape]
-                         [#basis offset #distance 1]]}
-          (exception.except ..character_does_not_satisfy_predicate [output]))
-
-      _
-      (exception.except ..cannot_parse []))))
-
 (the .public space
   (Projection Text)
   (..satisfies /.space?))
 
-(the .public space!
-  (Projection Slice)
-  (..satisfies! /.space?))
-
 (the .public (and left right)
   (-> (Projection Text) (Projection Text)
       (Projection Text))
-  (do //.monad
+  (do ?.monad
     [=left left
      =right right]
     (pure (all /#composite =left =right))))
-
-(the .public (and! left right)
-  (-> (Projection Slice) (Projection Slice)
-      (Projection Slice))
-  (do //.monad
-    [(open "left[0]") left
-     (open "right[0]") right]
-    (pure [left#basis (.i64_+# left#distance right#distance)])))
 
 (template.with [<name> <base> <doc_modifier>]
   [(the .public (<name> projection)
@@ -360,21 +237,10 @@
          (Projection Text))
      (|> projection
          <base>
-         (by //.monad each /.together)))]
+         (by ?.monad each /.together)))]
 
-  [[some //.some "some"]
-   [many //.many "many"]]
-  )
-
-(template.with [<name> <base> <doc_modifier>]
-  [(the .public (<name> projection)
-     (-> (Projection Slice)
-         (Projection Slice))
-     (with_slices (<base> projection)))]
-
-  [[some! //.some "some"]
-   [many! //.many "many"]]
-  )
+  [[some ?.some "some"]
+   [many ?.many "many"]])
 
 (template.with [<name> <base> <doc_modifier>]
   [(the .public (<name> amount projection)
@@ -382,45 +248,26 @@
          (Projection Text))
      (|> projection
          (<base> amount)
-         (by //.monad each /.together)))]
+         (by ?.monad each /.together)))]
 
-  [[exactly  //.exactly  "exactly"]
-   [at_most  //.at_most  "at most"]
-   [at_least //.at_least "at least"]]
-  )
-
-(template.with [<name> <base> <doc_modifier>]
-  [(the .public (<name> amount projection)
-     (-> Natural (Projection Slice)
-         (Projection Slice))
-     (with_slices
-       (<base> amount projection)))]
-
-  [[exactly!  //.exactly  "exactly"]
-   [at_most!  //.at_most  "at most"]
-   [at_least! //.at_least "at least"]]
-  )
+  [[exactly  ?.exactly  "exactly"]
+   [at_most  ?.at_most  "at most"]
+   [at_least ?.at_least "at least"]])
 
 (the .public (between minimum additional projection)
   (-> Natural Natural (Projection Text)
       (Projection Text))
   (|> projection
-      (//.between minimum additional)
-      (by //.monad each /.together)))
-
-(the .public (between! minimum additional projection)
-  (-> Natural Natural (Projection Slice)
-      (Projection Slice))
-  (with_slices
-    (//.between minimum additional projection)))
+      (?.between minimum additional)
+      (by ?.monad each /.together)))
 
 (the .public (enclosed [start end] projection)
   (for_any (_ it)
     (-> [Text Text] (Projection it)
         (Projection it)))
   (|> projection
-      (//.before (this end))
-      (//.after (this start))))
+      (?.before (this end))
+      (?.after (this start))))
 
 (the .public (local local_input projection)
   (for_any (_ it)
@@ -437,8 +284,8 @@
 (the .public (then structured text)
   (for_any (_ state it)
     (-> (Projection it)
-        (//.Projection state Text)
-        (//.Projection state it)))
-  (do //.monad
+        (?.Projection state Text)
+        (?.Projection state it)))
+  (do ?.monad
     [raw text]
-    (//.of_try (..value structured raw))))
+    (?.of_try (..value structured raw))))

@@ -1,0 +1,300 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except)
+   [abstract
+    [monad (.only do)]
+    ["[0]" equivalence (.only)
+     ["[1]T" \\test]]]
+   [math
+    ["[0]" random]
+    [number
+     [/64
+      ["[0]" natural]]]]
+   [test
+    ["_" property (.only Test)]]
+   [aspect
+    ["[0]" view (.only)
+     ["[1]T" \\test]]]
+   [data
+    ["[0]" text (.use "[1]#[0]" monoid)
+     ["[0]" unicode
+      ["[1]" set]
+      ["[1]/[0]" block]]]
+    [collection
+     ["[0]" list (.use "[1]#[0]" functor)]
+     ["[0]" set]]]
+   [meta
+    ["[0]" static]]
+   [error
+    ["[0]" try]
+    ["[0]" exception (.only Exception)]]
+   [control
+    ["[0]" maybe]]
+   ["[0]" function]
+   [macro
+    ["^" pattern]
+    ["[0]" template]]]]
+ [\\library
+  ["[0]" /]]
+ ["[0]" \\projection (.only)
+  ["[0]" //]])
+
+(the !expect
+  (template.macro (_ <pattern> <value>)
+    [(when <value>
+       <pattern>
+       true
+       
+       _
+       false)]))
+
+(the (should_fail' sample projection exception)
+  (for_any (_ a e)
+    (-> Text (//.Projection a) (Exception e)
+        Bit))
+  (when (//.value projection sample)
+    {try.#Failure error}
+    (exception.is? exception error)
+    
+    _
+    false))
+
+(the (should_fail sample projection)
+  (for_any (_ a)
+    (-> Text (//.Projection a)
+        Bit))
+  (when (//.value projection sample)
+    {try.#Failure _}
+    true
+    
+    _
+    false))
+
+(the (should_pass expected projection)
+  (-> Text (//.Projection /.Slice) Bit)
+  (|> expected
+      (//.value (\\projection.slice projection))
+      (by try.functor each (text.= expected))
+      (try.else false)))
+
+(the \\projection#character_classes
+  Test
+  (all _.and
+       (do [! random.monad]
+         [.let [num_options 3]
+          options (|> (random.character unicode.character)
+                      (random.set natural.hash num_options)
+                      (by ! each (|>> set.as_list
+                                      (list#each text.of_character)
+                                      text.together)))
+          expected (by ! each (function (_ value)
+                                (|> options
+                                    (text.character (natural.% num_options value))
+                                    maybe.trusted))
+                       random.natural)
+          invalid (random.only (function (_ character)
+                                 (not (text.contains? (text.of_character character) options)))
+                               (random.character unicode.character))]
+         (_.coverage [\\projection.one_of]
+           (and (..should_pass (text.of_character expected) (\\projection.one_of options))
+                (..should_fail (text.of_character invalid) (\\projection.one_of options))
+                (..should_fail' (text.of_character invalid) (\\projection.one_of options)
+                                //.character_should_be))))
+       (do [! random.monad]
+         [.let [num_options 3]
+          options (|> (random.character unicode.character)
+                      (random.set natural.hash num_options)
+                      (by ! each (|>> set.as_list
+                                      (list#each text.of_character)
+                                      text.together)))
+          invalid (by ! each (function (_ value)
+                               (|> options
+                                   (text.character (natural.% num_options value))
+                                   maybe.trusted))
+                      random.natural)
+          expected (random.only (function (_ character)
+                                  (not (text.contains? (text.of_character character) options)))
+                                (random.character unicode.character))]
+         (_.coverage [\\projection.none_of]
+           (and (..should_pass (text.of_character expected) (\\projection.none_of options))
+                (..should_fail (text.of_character invalid) (\\projection.none_of options))
+                (..should_fail' (text.of_character invalid) (\\projection.none_of options)
+                                //.character_should_not_be))))
+       ))
+
+(the \\projection#runs
+  Test
+  (all _.and
+       (do [! random.monad]
+         [left (by ! each (|>> (natural.% 8) (by natural.octal as)) random.natural)
+          right (by ! each (|>> (natural.% 8) (by natural.octal as)) random.natural)
+          .let [expected (.text left right)]
+          invalid (|> random.natural
+                      (by ! each (natural.% 16))
+                      (random.only (natural.>= 8))
+                      (by ! each (by natural.hex as)))]
+         (_.coverage [\\projection.many]
+           (and (..should_pass expected (\\projection.many \\projection.octal))
+                (..should_fail invalid (\\projection.many \\projection.octal)))))
+       (do [! random.monad]
+         [left (by ! each (|>> (natural.% 8) (by natural.octal as)) random.natural)
+          right (by ! each (|>> (natural.% 8) (by natural.octal as)) random.natural)
+          .let [expected (.text left right)]
+          invalid (|> random.natural
+                      (by ! each (natural.% 16))
+                      (random.only (natural.>= 8))
+                      (by ! each (by natural.hex as)))]
+         (_.coverage [\\projection.some]
+           (and (..should_pass expected (\\projection.some \\projection.octal))
+                (..should_pass "" (\\projection.some \\projection.octal))
+                (..should_fail invalid (\\projection.some \\projection.octal)))))
+       (do [! random.monad]
+         [.let [octal (by ! each (|>> (natural.% 8) (by natural.octal as)) random.natural)]
+          first octal
+          second octal
+          third octal]
+         (_.coverage [\\projection.exactly]
+           (and (..should_pass (.text first second) (\\projection.exactly 2 \\projection.octal))
+                (..should_fail (.text first second third) (\\projection.exactly 2 \\projection.octal))
+                (..should_fail (.text first) (\\projection.exactly 2 \\projection.octal)))))
+       (do [! random.monad]
+         [.let [octal (by ! each (|>> (natural.% 8) (by natural.octal as)) random.natural)]
+          first octal
+          second octal
+          third octal]
+         (_.coverage [\\projection.at_most]
+           (and (..should_pass (.text first second) (\\projection.at_most 2 \\projection.octal))
+                (..should_pass (.text first) (\\projection.at_most 2 \\projection.octal))
+                (..should_fail (.text first second third) (\\projection.at_most 2 \\projection.octal)))))
+       (do [! random.monad]
+         [.let [octal (by ! each (|>> (natural.% 8) (by natural.octal as)) random.natural)]
+          first octal
+          second octal
+          third octal]
+         (_.coverage [\\projection.at_least]
+           (and (..should_pass (.text first second) (\\projection.at_least 2 \\projection.octal))
+                (..should_pass (.text first second third) (\\projection.at_least 2 \\projection.octal))
+                (..should_fail (.text first) (\\projection.at_least 2 \\projection.octal)))))
+       (do [! random.monad]
+         [.let [octal (by ! each (|>> (natural.% 8) (by natural.octal as)) random.natural)]
+          first octal
+          second octal
+          third octal]
+         (_.coverage [\\projection.between]
+           (and (..should_pass (.text first second) (\\projection.between 2 1 \\projection.octal))
+                (..should_pass (.text first second third) (\\projection.between 2 1 \\projection.octal))
+                (..should_fail (.text first) (\\projection.between 2 1 \\projection.octal)))))
+       ))
+
+(the \\projection
+  Test
+  (<| (_.covering \\projection._)
+      (all _.and
+           (_.coverage [\\projection.slice]
+             (|> ""
+                 (//.value (\\projection.slice \\projection.any))
+                 (!expect (^.multi {try.#Failure error}
+                                   (exception.is? /.cannot_slice error)))))
+           (do [! random.monad]
+             [expected (random.unicode 1)]
+             (_.coverage [\\projection.any]
+               (and (..should_pass expected \\projection.any)
+                    (..should_fail "" \\projection.any))))
+           (do [! random.monad]
+             [invalid (random.upper_cased 1)
+              expected (random.only (|>> (unicode/block.within? unicode/block.upper_case)
+                                         not)
+                                    (random.character unicode.character))]
+             (_.coverage [\\projection.not]
+               (and (..should_pass (text.of_character expected) (\\projection.not \\projection.upper))
+                    (|> invalid
+                        (//.value (\\projection.not \\projection.upper))
+                        (!expect (^.multi {try.#Failure error}
+                                          (exception.is? //.expected_to_fail error)))))))
+           (do [! random.monad]
+             [upper (random.upper_cased 1)
+              lower (random.lower_cased 1)
+              invalid (random.only (function (_ character)
+                                     (not (or (unicode/block.within? unicode/block.upper_case character)
+                                              (unicode/block.within? unicode/block.lower_case character))))
+                                   (random.character unicode.character))]
+             (_.coverage [\\projection.and]
+               (and (..should_pass (.text upper lower) (\\projection.and \\projection.upper \\projection.lower))
+                    (..should_fail (.text (text.of_character invalid) lower) (\\projection.and \\projection.upper \\projection.lower))
+                    (..should_fail (.text upper (text.of_character invalid)) (\\projection.and \\projection.upper \\projection.lower)))))
+           (do [! random.monad]
+             [expected (random.unicode 1)
+              invalid (random.unicode 1)]
+             (_.coverage [\\projection.satisfies]
+               (and (..should_pass expected (\\projection.satisfies (function.constant true)))
+                    (..should_fail' invalid (\\projection.satisfies (function.constant false))
+                                    //.character_does_not_satisfy_predicate))))
+
+           \\projection#character_classes
+           \\projection#runs
+           )))
+
+(the .public test
+  Test
+  (<| (_.covering /._)
+      (do [! random.monad]
+        [expected (random.upper_cased 2)])
+      (_.for [/.Slice
+              /.random])
+      (all _.and
+           (_.for [/.equivalence /.=]
+                  (static.when (same? /.equivalence /.=)
+                    (equivalenceT.spec /.equivalence (/.random 2))))
+           (_.for [/.text]
+                  (viewT.specification /.text
+                                       /.equivalence
+                                       text.equivalence
+                                       
+                                       (/.random 2)
+                                       (random.lower_cased 2)))
+           
+           (_.coverage [/.whole]
+             (text.= expected
+                     (view.as /.text (/.whole expected))))
+           (_.coverage [/.partial]
+             (and (by (try.equivalence /.equivalence) =
+                      {try.#Success (/.whole expected)}
+                      (/.partial 0 (text.size expected) expected))
+                  (by (try.equivalence /.equivalence) =
+                      {try.#Success (/.whole expected)}
+                      (do try.monad
+                        [left (/.partial 0 1 expected)
+                         right (/.partial 1 1 expected)]
+                        (pure (/.+ left right))))))
+           (_.coverage [/.cannot_slice]
+             (and (when (/.partial (++ 0) (text.size expected) expected)
+                    {try.#Failure error}
+                    (exception.is? /.cannot_slice error)
+                    
+                    _
+                    false)
+                  (when (/.partial 0 (++ (text.size expected)) expected)
+                    {try.#Failure error}
+                    (exception.is? /.cannot_slice error)
+                    
+                    _
+                    false)))
+           (_.coverage [/.size]
+             (natural.= (text.size expected)
+                        (/.size (/.whole expected))))
+           (_.coverage [/.empty?]
+             (/.empty? /.empty))
+           (_.coverage [/.empty]
+             (let [expected (/.whole expected)]
+               (and (same? expected (/.+ /.empty expected))
+                    (same? expected (/.+ expected /.empty)))))
+           (_.coverage [/.+]
+             (/.= (/.whole (text#composite expected expected))
+                  (let [expected (/.whole expected)]
+                    (/.+ expected expected))))
+
+           ..\\projection
+           )))

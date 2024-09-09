@@ -1,0 +1,165 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except and not)
+   [abstract
+    [monad (.only do)]
+    ["?" projection (.use "[1]#[0]" functor)]]
+   [control
+    ["[0]" maybe]]
+   [error
+    ["[0]" try (.use "[1]#[0]" functor)]
+    ["[0]" exception]]
+   [data
+    [collection
+     ["[0]" list (.use "[1]#[0]" mix)]]]
+   [math
+    [number
+     [/64
+      ["n" natural]]]]
+   [macro
+    ["[0]" template]]
+   [aspect
+    ["[0]" view]]
+   ["[0]" function (.only)
+    [predicate (.only Predicate)]]]]
+ ["[0]" // (.only Projection)]
+ ["/" \\library (.only)
+  ["[1][0]" // (.only)
+   [character (.only Character)]]])
+
+(the .public slice
+  (-> (Projection /.Slice)
+      (Projection Text))
+  (?#each (view.as /.text)))
+
+(the with_slices
+  (-> (Projection (List /.Slice))
+      (Projection /.Slice))
+  (?#each (list#mix (function.flipped /.+)
+                    /.empty)))
+
+(the .public any
+  (Projection /.Slice)
+  (function (_ [offset tape])
+    (try#each (|>> [[(.i64_+# 1 offset) tape]])
+              (/.partial offset 1 tape))))
+
+(the .public (not projection)
+  (for_any (_ it)
+    (-> (Projection it)
+        (Projection /.Slice)))
+  (function (_ input)
+    (when (projection input)
+      {try.#Failure msg}
+      (..any input)
+      
+      _
+      (exception.except //.expected_to_fail [input]))))
+
+(the .public (range minimum maximum)
+  (-> Natural Natural
+      (Projection /.Slice))
+  (do ?.monad
+    [it ..any
+     .let [character (maybe.trusted (///.character 0 (view.as /.text it)))]
+     _ (?.assertion (text "Character is not within range: " (///.of_character minimum) "-" (///.of_character maximum))
+                    (.and (n.>= minimum character)
+                          (n.<= maximum character)))]
+    (pure it)))
+
+(template.with [<minimum> <maximum> <slice>]
+  [(the .public <slice>
+     (Projection /.Slice)
+     (..range (character <minimum>)
+              (character <maximum>)))]
+
+  [["A" "Z" upper]
+   ["a" "z" lower]
+   ["0" "9" decimal]
+   ["0" "7" octal]])
+
+(the .public alpha
+  (Projection /.Slice)
+  (?.either ..lower ..upper))
+
+(the .public alpha_num
+  (Projection /.Slice)
+  (?.either ..alpha ..decimal))
+
+(the .public hexadecimal
+  (Projection /.Slice)
+  (all ?.either
+       ..decimal
+       (..range (character "a") (character "f"))
+       (..range (character "A") (character "F"))))
+
+(template.with [<name> <modifier> <exception>]
+  [(the .public (<name> options)
+     (-> Text
+         (Projection /.Slice))
+     (function (_ [offset tape])
+       (when (///.character offset tape)
+         {.#Some output}
+         (let [output' (///.of_character output)]
+           (if (<modifier> (///.contains? output' options))
+               (try#each (|>> [[(.i64_+# 1 offset) tape]])
+                         (/.partial offset 1 tape))
+               (exception.except <exception> [options output])))
+
+         _
+         (exception.except /.cannot_slice [tape offset 1]))))]
+
+  [[one_of  |>   //.character_should_be]
+   [none_of .not //.character_should_not_be]])
+
+(the .public (satisfies projection)
+  (-> (Predicate Character)
+      (Projection /.Slice))
+  (function (_ [offset tape])
+    (when (///.character offset tape)
+      {.#Some output}
+      (if (projection output)
+          (try#each (|>> [[(.i64_+# 1 offset) tape]])
+                    (/.partial offset 1 tape))
+          (exception.except //.character_does_not_satisfy_predicate [output]))
+
+      _
+      (exception.except //.cannot_parse []))))
+
+(the .public space
+  (Projection /.Slice)
+  (..satisfies ///.space?))
+
+(the .public (and left right)
+  (-> (Projection /.Slice)
+      (Change (Projection /.Slice)))
+  (do ?.monad
+    [left left
+     right right]
+    (pure (/.+ left right))))
+
+(template.with [<name> <base>]
+  [(the .public (<name> projection)
+     (Change (Projection /.Slice))
+     (with_slices (<base> projection)))]
+
+  [[some ?.some]
+   [many ?.many]])
+
+(template.with [<name> <base>]
+  [(the .public (<name> amount projection)
+     (-> Natural
+         (Change (Projection /.Slice)))
+     (with_slices (<base> amount projection)))]
+
+  [[exactly  ?.exactly]
+   [at_most  ?.at_most]
+   [at_least ?.at_least]])
+
+(the .public (between minimum additional projection)
+  (-> Natural Natural
+      (Change (Projection /.Slice)))
+  (with_slices (?.between minimum additional projection)))
