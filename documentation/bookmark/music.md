@@ -8,6 +8,7 @@
 
 # Reference
 
+0. [Chromatone: Visual Music Language to learn, explore and communicate with](https://chromatone.center/)
 0. [Wait, it's all just in 4/4?](https://www.youtube.com/watch?v=W4hWmZSOQjM)
 0. [What's the difference between 3/4 and 6/8 time?](https://www.youtube.com/watch?v=N4q2kBe82-o)
 0. [F2P, a new business model for music.](https://danfowler.substack.com/p/f2p-a-new-business-model-for-music)
