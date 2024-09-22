@@ -16,7 +16,6 @@
 
 # Exemplar
 
-0. []()
 0. [Announcing GraalWasm — a WebAssembly engine in GraalVM](https://medium.com/graalvm/announcing-graalwasm-a-webassembly-engine-in-graalvm-25cd0400a7f2)
 0. [Towards a WebAssembly standalone runtime on GraalVM](https://dl.acm.org/citation.cfm?id=3362780)
 0. https://github.com/vvanders/wasm_lua
@@ -25,6 +24,7 @@
 
 # Reference
 
+0. [GraalWasm: A high-performance embeddable WebAssembly runtime for Java](https://www.graalvm.org/webassembly/)
 0. [Awesome WebAssembly runtimes](https://github.com/jcbhmr/awesome-webassembly-runtimes)
 0. [Chicory Runtime](https://github.com/dylibso/chicory)
    0. [A zero dependency Wasm runtime for the JVM](https://www.javaadvent.com/2023/12/chicory-wasm-jvm.html)
