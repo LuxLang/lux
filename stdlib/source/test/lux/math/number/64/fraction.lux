@@ -3,7 +3,7 @@
 
 (.using
  [library
-  [lux (.except identical?)
+  [lux (.except)
    [abstract
     [monad (.only do)]
     ["[0]" format
@@ -19,6 +19,7 @@
    [error
     ["[0]" try (.use "[1]#[0]" functor)]]
    [data
+    ["[0]" sum]
     ["[0]" text]
     [collection
      ["[0]" list (.use "[1]#[0]" mix)]]]
@@ -31,7 +32,10 @@
    [meta
     ["[0]" static]]
    [test
-    ["_" property (.only Test)]]]]
+    ["_" property (.only Test)]]
+   ["[0]" function]
+   [aspect
+    ["[0]" case]]]]
  [\\library
   ["[0]" / (.only)
    [//
@@ -45,30 +49,18 @@
   (Random /.Fraction)
   (let [part (is (Random Natural)
                  (random#each (n.% 1,000,000) random.natural))]
-    (|> (random.and part
-                    part)
-        (random#each /.normal)
-        (random.only /.finite?))))
-
-(the (identical? reference exemplar)
-  (-> /.Fraction /.Fraction
-      Bit)
-  (and (n.= (its /.#numerator reference)
-            (its /.#numerator exemplar))
-       (n.= (its /.#denominator reference)
-            (its /.#denominator exemplar))))
-
-(the (normal? it)
-  (-> /.Fraction
-      Bit)
-  (identical? it (/.normal it)))
+    (<| (random.only /.finite?)
+        (do random.monad
+          [numerator part
+           denominator part]
+          (pure (/.new denominator numerator))))))
 
 (the unit
   Test
   (`` (all _.and
            (,, (template.with [,format <as> <of> ,unit]
                  [(let [threshold (|> (its unit.#factor ,unit)
-                                      /.new
+                                      (case.some /.natural)
                                       /.reciprocal)]
                     (all _.and
                          (_.for [,format]
@@ -102,8 +94,7 @@
 (the .public test
   Test
   (<| (_.covering /._)
-      (_.for [/.Fraction
-              /.#numerator /.#denominator])
+      (_.for [/.Fraction])
       (do random.monad
         [expected ..random
 
@@ -181,19 +172,14 @@
                       (/.+ (/.whole expected)
                            (/.partial expected))))
                (_.coverage [/.natural]
-                 (|> (/.natural (/.whole expected))
-                     (try#each (|>> /.new
-                                    (/.+ (/.partial expected))
-                                    (/.= expected)))
-                     (try.else false)))
-               (_.coverage [/.not_a_natural]
-                 (or (|> (/.partial expected)
-                         /.natural
-                         (try.is? /.not_a_natural))
-                     (and (/.= /.zero (/.partial expected))
-                          (/.= expected (/.whole expected)))))
+                 (|> (/.whole expected)
+                     (case.if /.natural)
+                     (sum.either (function.constant false)
+                                 (|>> (case.some /.natural)
+                                      (/.+ (/.partial expected))
+                                      (/.= expected)))))
                (_.coverage [/.decimal]
-                 (let [margin_of_error +0.000,000,000,001]
+                 (let [margin_of_error +0.000,000,000,000,1]
                    (and (d.approximately? margin_of_error
                                           (/.decimal (/.whole expected))
                                           (d.whole (/.decimal expected)))
@@ -201,47 +187,13 @@
                                           (/.decimal (/.partial expected))
                                           (d.partial (/.decimal expected))))))
                (do random.monad
-                 [denom/0 random.natural
-                  denom/1 random.natural]
+                 [_0 random.natural
+                  _1 random.natural]
                  (_.coverage [/.new]
-                   (/.= (/.new 0 denom/0)
-                        (/.new 0 denom/1))))
-               (do [! random.monad]
-                 [before_normal (random.and random.natural
-                                            random.natural)]
-                 (_.coverage [/.normal]
-                   (or (normal? before_normal)
-                       (let [it (/.normal before_normal)]
-                         (and (normal? it)
-                              (/.= before_normal it))))))
-               (do random.monad
-                 [numerator random.natural
-                  denominator (random.only (|>> (n.= 1) not)
-                                           random.natural)]
-                 (_.coverage [/.natural]
-                   (let [only_numerator!
-                         (|> (/.new numerator)
-                             /.natural
-                             (maybe#each (n.= numerator))
-                             (maybe.else false))
-
-                         denominator_1!
-                         (|> (/.new numerator 1)
-                             /.natural
-                             (maybe#each (n.= numerator))
-                             (maybe.else false))
-
-                         with_denominator!
-                         (when (/.natural (/.new numerator denominator))
-                           {try.#Success factor}
-                           (and (n.= 0 (n.% denominator numerator))
-                                (n.= numerator (n.x factor denominator)))
-                           
-                           {try.#Failure _}
-                           (not (n.= 0 (n.% denominator numerator))))]
-                     (and only_numerator!
-                          denominator_1!
-                          with_denominator!))))
+                   (and (/.= (/.new _0 0)
+                             (/.new _1 0))
+                        (/.= (/.new 0 _0)
+                             (/.new 0 _1)))))
                (do [! random.monad]
                  [sample ..random
                   power (by ! each (i.% +10)
@@ -282,9 +234,12 @@
                                  (/./ left))]
                      (and (/.= right
                                (|> div (/.x left) (/.+ rem)))
-                          (when (/.natural div)
-                            {try.#Success _} true
-                            {try.#Failure _} false)))))
+                          (when (case.if /.natural div)
+                            {.#Right _}
+                            true
+                            
+                            else
+                            false)))))
                (do random.monad
                  [left ..random
                   right ..random]

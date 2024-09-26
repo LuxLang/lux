@@ -3,7 +3,7 @@
 
 (.using
  [library
-  [lux (.except identical?)
+  [lux (.except)
    [abstract
     [monad (.only do)]
     ["[0]" format
@@ -25,15 +25,15 @@
    [logic
     ["[0]" bit]]
    [math
-    ["[0]" random (.only Random) (.use "[1]#[0]" functor)]
-    ["[0]" arithmetic
-     ["[1]T" \\test]]]
+    ["[0]" random (.only Random) (.use "[1]#[0]" functor)]]
    [macro
     ["[0]" template]]
    [meta
     ["[0]" static]]
    [test
-    ["_" property (.only Test)]]]]
+    ["_" property (.only Test)]]
+   [aspect
+    ["[0]" case]]]]
  [\\library
   ["[0]" / (.only)
    [//
@@ -48,25 +48,13 @@
 
 (the .public random
   (Random /.Rational)
-  (|> (random.and (random#each (i.% (.integer (n./ 2 n.infinity)))
-                               random.integer)
-                  (random#each (n.% n.infinity)
-                               random.natural))
-      (random#each /.normal)
-      (random.only /.finite?)))
-
-(the (identical? reference exemplar)
-  (-> /.Rational /.Rational
-      Bit)
-  (and (i.= (its /.#numerator reference)
-            (its /.#numerator exemplar))
-       (n.= (its /.#denominator reference)
-            (its /.#denominator exemplar))))
-
-(the (normal? it)
-  (-> /.Rational
-      Bit)
-  (identical? it (/.normal it)))
+  (<| (random.only /.finite?)
+      (do random.monad
+        [numerator (random#each (i.% (.integer (n./ 2 n.infinity)))
+                                random.integer)
+         denominator (random#each (n.% n.infinity)
+                                  random.natural)]
+        (pure (/.new denominator numerator)))))
 
 (the unit
   Test
@@ -74,7 +62,7 @@
            (,, (template.with [,format <as> <of> ,unit]
                  [(let [threshold (|> (its unit.#factor ,unit)
                                       .integer
-                                      /.new
+                                      (case.some /.integer)
                                       /.reciprocal)]
                     (all _.and
                          (_.for [,format]
@@ -108,8 +96,7 @@
 (the .public test
   Test
   (<| (_.covering /._)
-      (_.for [/.Rational
-              /.#numerator /.#denominator])
+      (_.for [/.Rational])
       (do random.monad
         [expected ..random
 
@@ -134,8 +121,6 @@
                       [/.major /.maximum]]))
                (_.for [/.text]
                       (formatT.spec /.equivalence /.text ..random))
-               (_.for [/.arithmetic]
-                      (arithmeticT.spec /.equivalence /.arithmetic ..random))
 
                (_.coverage [/.Number /.Q]
                  (and (alias? /.Rational /.Number)
@@ -221,66 +206,24 @@
                                           (d.partial (/.decimal expected))))))
                
                (do random.monad
-                 [denom/0 random.natural
-                  denom/1 random.natural]
+                 [_0 random.natural
+                  _1 random.natural]
                  (_.coverage [/.new]
-                   (/.= (/.new +0 denom/0)
-                        (/.new +0 denom/1))))
-               (do [! random.monad]
-                 [before_normal (random.and random.integer
-                                            random.natural)]
-                 (_.coverage [/.normal]
-                   (or (normal? before_normal)
-                       (let [it (/.normal before_normal)]
-                         (and (normal? it)
-                              (/.= before_normal it))))))
-               (do random.monad
-                 [numerator random.integer
-                  denominator (random.only (|>> (n.= 1) not)
-                                           random.natural)]
-                 (_.coverage [/.integer]
-                   (let [only_numerator!
-                         (|> (/.new numerator)
-                             /.integer
-                             (maybe#each (i.= numerator))
-                             (maybe.else false))
-
-                         denominator_1!
-                         (|> (/.new numerator 1)
-                             /.integer
-                             (maybe#each (i.= numerator))
-                             (maybe.else false))
-
-                         with_denominator!
-                         (when (/.integer (/.new numerator (.natural denominator)))
-                           {try.#Success factor}
-                           (and (i.= +0 (i.% (.integer denominator) numerator))
-                                (i.= numerator (i.x factor (.integer denominator))))
-                           
-                           {try.#Failure _}
-                           (not (i.= +0 (i.% (.integer denominator) numerator))))]
-                     (and only_numerator!
-                          denominator_1!
-                          with_denominator!))))
-               (_.coverage [/.not_an_integer]
-                 (or (|> (/.partial expected)
-                         /.integer
-                         (try.is? /.not_an_integer))
-                     (and (/.= /.zero (/.partial expected))
-                          (/.= expected (/.whole expected)))))
+                   (/.= (/.new _0 +0)
+                        (/.new _1 +0))))
                (do [! random.monad]
                  [sample ..random
                   power (by ! each (i.% +10)
                             random.integer)]
                  (all _.and
                       (_.coverage [/.-]
-                        (and (/.= (/.new +0) (/.- sample sample))
-                             (/.= sample (/.- (/.new +0) sample))))
+                        (and (/.= /.zero (/.- sample sample))
+                             (/.= sample (/.- /.zero sample))))
                       (_.coverage [/./]
-                        (and (/.= (/.new +1) (/./ sample sample))
-                             (/.= sample (/./ (/.new +1) sample))))
+                        (and (/.= /.positive_one (/./ sample sample))
+                             (/.= sample (/./ /.positive_one sample))))
                       (_.coverage [/.reciprocal]
-                        (/.= (/.new +1)
+                        (/.= /.positive_one
                              (/.x sample (/.reciprocal sample))))
                       (_.coverage [/.^]
                         (and (/.= /.positive_one (/.^ +0 sample))
@@ -296,7 +239,7 @@
                                       (/.^ power sample)))))
                       ))
                (do random.monad
-                 [left (random.only (|>> (/.= (/.new +0)) not)
+                 [left (random.only (|>> (/.= /.zero) not)
                                     ..random)
                   right ..random]
                  (_.coverage [/.%]
@@ -304,9 +247,12 @@
                          div (|> right (/.- rem) (/./ left))]
                      (and (/.= right
                                (|> div (/.x left) (/.+ rem)))
-                          (when (/.integer div)
-                            {try.#Success _} true
-                            {try.#Failure _} false)))))
+                          (when (case.if /.integer div)
+                            {.#Right _}
+                            true
+                            
+                            else
+                            false)))))
                (do random.monad
                  [left ..random
                   right ..random]
