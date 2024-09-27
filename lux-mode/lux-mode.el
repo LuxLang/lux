@@ -332,13 +332,16 @@ Called by `imenu--generic-function'."
         (goto-char start)))))
 
 ;; https://www.gnu.org/software/findutils/manual/html_node/find_html/emacs-regular-expression-syntax.html
-(defun orRE (&rest alternatives)
+(defun or* (&rest alternatives)
   (concat "\\("
 		  (mapconcat 'identity alternatives "\\|")
 		  "\\)"))
 
-(defun andRE (&rest it)
+(defun and* (&rest it)
   (mapconcat 'identity it ""))
+
+(defun maybe (it)
+  (concat it "?"))
 
 (defun some (it)
   (concat it "*"))
@@ -349,186 +352,211 @@ Called by `imenu--generic-function'."
 (defun literal (content)
   (concat "\\<" content "\\>"))
 
-(defun +class (characters)
+(defun inclusion (characters)
   (concat "[" characters "]"))
 
-(defun -class (characters)
+(defun exclusion (characters)
   (concat "[^" characters "]"))
 
-(defvar separator_of_digits (+class ","))
+(defvar separator_of_digits
+  (inclusion ","))
 
 (defun digits* (characters)
-  (some (orRE separator_of_digits characters)))
+  (some (or* separator_of_digits characters)))
 
 (defun digits+ (characters)
-  (many (orRE separator_of_digits characters)))
+  (many (or* separator_of_digits characters)))
 
 (defun digits (characters)
-  (andRE characters
-		 (digits* characters)))
+  (and* characters
+		(digits* characters)))
 
 (defun digits_2* (characters)
-  (andRE characters
-		 (digits+ characters)))
+  (and* characters
+		(digits+ characters)))
+
+;; https://www.gnu.org/software/emacs/manual/html_node/elisp/Regexp-Special.html
+(defvar delimiter
+  "][)(}{\"[:space:]")
+
+(defvar separator_in_name
+  "\\.")
+
+(defvar not_in_identifier
+  (concat delimiter separator_in_name))
+
+(defvar head_of_identifier
+  (exclusion (concat not_in_identifier "0-9")))
+
+(defvar tail_of_identifier
+  (exclusion not_in_identifier))
+
+(defvar identifier
+  (concat head_of_identifier
+		  (some tail_of_identifier)))
 
 ;; https://www.emacswiki.org/emacs/RegularExpression
 (defconst lux-font-lock-keywords
   (eval-when-compile
 	(let* ((suffix_of_binary_notation "b")
-		   (every_digit_of_binary_notation (+class "0-1"))
-		   (bit (andRE every_digit_of_binary_notation suffix_of_binary_notation))
-		   (binary_notation (andRE (digits_2* every_digit_of_binary_notation) suffix_of_binary_notation))
+		   (every_digit_of_binary_notation (inclusion "0-1"))
+		   (bit (and* every_digit_of_binary_notation suffix_of_binary_notation))
+		   (binary_notation (and* (digits_2* every_digit_of_binary_notation) suffix_of_binary_notation))
 
 		   (suffix_of_octal_notation "o")
-		   (every_digit_of_octal_notation (orRE every_digit_of_binary_notation (+class "2-7")))
-		   (octal_notation (andRE (digits every_digit_of_octal_notation) suffix_of_octal_notation))
+		   (every_digit_of_octal_notation (or* every_digit_of_binary_notation (inclusion "2-7")))
+		   (octal_notation (and* (digits every_digit_of_octal_notation) suffix_of_octal_notation))
 
 		   (suffix_of_decimal_notation "d")
-		   (every_digit_of_decimal_notation (orRE every_digit_of_octal_notation (+class "8-9")))
+		   (every_digit_of_decimal_notation (or* every_digit_of_octal_notation (inclusion "8-9")))
 		   (default_notation (digits every_digit_of_decimal_notation))
-		   (decimal_notation (andRE default_notation suffix_of_decimal_notation))
+		   (decimal_notation (and* default_notation suffix_of_decimal_notation))
 
 		   (suffix_of_hexadecimal_notation "h")
-		   (every_digit_of_hexadecimal_notation (orRE every_digit_of_decimal_notation (+class "A-F")))
-		   (hexadecimal_notation (andRE every_digit_of_decimal_notation
-										(digits* every_digit_of_hexadecimal_notation)
-										suffix_of_hexadecimal_notation))
+		   (every_digit_of_hexadecimal_notation (or* every_digit_of_decimal_notation (inclusion "A-F")))
+		   (hexadecimal_notation (and* every_digit_of_decimal_notation
+									   (digits* every_digit_of_hexadecimal_notation)
+									   suffix_of_hexadecimal_notation))
 
 		   (natural_unit "[°g%‰‱]")
-		   (decimal_unit (orRE natural_unit
-							   "[πτ]"))
+		   (decimal_unit (or* natural_unit
+							  "[πτ]"))
 
-		   (natural (orRE binary_notation
-						  octal_notation
-						  decimal_notation
-						  hexadecimal_notation
-						  default_notation))
+		   (natural (or* binary_notation
+						 octal_notation
+						 decimal_notation
+						 hexadecimal_notation
+						 default_notation))
 
-		   (sign (orRE "-" "\\+"))
+		   (sign (or* "-" "\\+"))
 		   (integer (concat sign natural))
 
 		   (decimal_separator "\\.")
 		   (revolution (concat decimal_separator natural))
 		   (decimal (concat integer revolution
 							"\\(\\(e\\|E\\)" integer "\\)?"
-							decimal_unit "?"))
+							(maybe decimal_unit)))
 
 		   (fraction_separator "/")
-		   (fraction (orRE (concat natural fraction_separator natural)
-						   (concat natural natural_unit)))
-		   (rational (orRE (concat integer fraction_separator natural)
-						   (concat integer natural_unit)))
+		   (fraction (or* (concat natural fraction_separator natural)
+						  (concat natural natural_unit)))
+		   (rational (or* (concat integer fraction_separator natural)
+						  (concat integer natural_unit)))
 		   
-		   (identifier_h|label "#")
-		   (identifier_h|type "[:upper:]")
-		   ;; https://www.gnu.org/software/emacs/manual/html_node/elisp/Regexp-Special.html
-		   (identifier_t "][)(}{.\"[:space:]")
-		   (identifier_h (concat identifier_t "0-9"))
-		   (identifier (concat (-class identifier_h) (-class identifier_t) "*"))
+		   (head_of_label "#")
+		   (head_of_type "[:upper:]")
 
-		   (specialRE (let (;; Control
-							(control//flow (orRE "when" "exec" "let" "loop" "do" "be"
-												 "if" "unless"))
-							(control//pattern-matching (orRE "open"))
-							(control//logic (orRE "and" "or"))
-							(control//contract (orRE "pre" "post"))
-							(control//polymorphism (orRE "method"))
-							;; Type
-							(type//syntax (orRE "Union" "Or" "Variant"
-												"Tuple" "And" "Record"
-												"Rec"
-												"Nominal" "->" "<-"
-												"All" "for_all" "for_any" "for_every"
-												"Ex" "there_exists" "for_some"
-												"Interface"
-												"type"))
-							(type//checking (orRE "is" "as" "let" "as_expected" "type_of" "sharing" "by_example" "hole"))
-							(type//dynamic (orRE "dynamic" "static"))
-							(type//capability (orRE "capability"))
-							;; Data
-							(data//record (orRE "its" "has" "revised"))
-							(data//interface (orRE "use" "implementation" "with" "by"))
-							(data//implicit (orRE "implicitly" "a/an" "a" "an"))
-							(data//collection (orRE "list" "sequence" "tree"))
-							;; Code
-							(code//quotation (orRE "`" "`'" "'" "," ",\\*" ",'"))
-							(code//super-quotation (orRE "``" ",,"))
-							(code//macro (orRE "macro"))
-							;; Miscellaneous
-							(alternative-format (orRE "character" "bin" "oct" "hex"))
-							(documentation (orRE "comment"))
-							(function-application (orRE "|>" "<|" "all"))
-							(function-definition (orRE "function" "|>>" "<<|"
-													   "program"))
-							(remember (orRE "remember" "to_do" "fix_me"))
-							(extension (orRE "analysis" "synthesis" "translation" "declaration"))
-							(definition (orRE "\\.using"
-											  "the" "every"
-											  "alias")))
-						(let ((control (orRE control//flow
-											 control//pattern-matching
-											 control//logic
-											 control//contract
-											 control//polymorphism))
-							  (type (orRE type//syntax
-										  type//checking
-										  type//dynamic
-										  type//capability))
-							  (data (orRE data//record
-										  data//interface
-										  data//implicit
-										  data//collection))
-							  (code (orRE code//quotation
-										  code//super-quotation
-										  code//macro)))
-						  (concat
-						   "("
-						   (orRE control
-								 type
-								 data
-								 code
-								 ;; ;;;;;;;;;;;;;;;;;;;;;;
-								 alternative-format
-								 documentation
-								 function-application
-								 function-definition
-								 remember
-								 extension
-								 definition
-								 ;; ;;;;;;;;;;;;;;;;;;;;;;
-								 "undefined"
-								 "for"
-								 "io"
-								 "infix"
-								 "message"
-								 "regex")
-						   "\\>"))))
-		   (separator "\\.")
-		   (in-prelude separator)
-		   (in-current-module (concat separator separator))
-		   (in-module (concat identifier separator))
-		   ;; (in-local "")
-		   (in-local (orRE "^"
-						   (+class identifier_t)))
-		   (global_prefix (orRE in-prelude
-								in-current-module
-								in-module
-								in-local))
-		   (typeRE (concat global_prefix (+class identifier_h|type) (-class identifier_t) "*"))
-		   (labelRE (concat global_prefix (+class identifier_h|label) (-class identifier_t) "+"))
-		   (literalRE (orRE (literal bit)
-							(literal natural)
-							(literal integer)
-							(literal revolution)
-							(literal decimal)
-							(literal fraction)
-							(literal rational)
-							)))
-	  `(;; Special forms
-		(,specialRE 1 font-lock-builtin-face)
+		   (special_form (let (;; Control
+							   (control//flow (or* "when" "exec" "let" "loop"
+												   "if" "unless"))
+							   (control//pattern-matching (or* "open"))
+							   (control//logic (or* "and" "or"))
+							   (control//contract (or* "pre" "post"))
+							   (control//polymorphism (or* "method"))
+							   ;; Type
+							   (type//syntax (or* "Union" "Or" "Variant"
+												  "Tuple" "And" "Record"
+												  "Rec"
+												  "Nominal" "->" "<-"
+												  "All" "for_all" "for_any" "for_every"
+												  "Ex" "there_exists" "for_some"
+												  "Interface"
+												  "type"))
+							   (type//checking (or* "is" "as" "let" "as_expected" "type_of" "sharing" "by_example" "hole"))
+							   (type//dynamic (or* "dynamic" "static"))
+							   (type//capability (or* "capability"))
+							   ;; Data
+							   (data//record (or* "its" "has" "revised"))
+							   (data//interface (or* "use" "implementation" "with" "by"))
+							   (data//implicit (or* "implicitly" "a/an" "a" "an"))
+							   (data//collection (or* "list" "sequence" "tree"))
+							   ;; Code
+							   (code//quotation (or* "`" "`'" "'" "," ",\\*" ",'"))
+							   (code//super-quotation (or* "``" ",,"))
+							   (code//macro (or* "macro"))
+							   ;; Miscellaneous
+							   (alternative-format (or* "character" "bin" "oct" "hex"))
+							   (documentation (or* "comment"))
+							   (function-application (or* "|>" "<|" "all"))
+							   (function-definition (or* "function" "|>>" "<<|"
+														 "program"))
+							   (remember (or* "remember" "to_do" "fix_me"))
+							   (extension (or* "analysis" "synthesis" "translation" "declaration"))
+							   (definition (or* "\\.using"
+												"the" "every"
+												"alias")))
+						   (let ((control (or* control//flow
+											   control//pattern-matching
+											   control//logic
+											   control//contract
+											   control//polymorphism))
+								 (type (or* type//syntax
+											type//checking
+											type//dynamic
+											type//capability))
+								 (data (or* data//record
+											data//interface
+											data//implicit
+											data//collection))
+								 (code (or* code//quotation
+											code//super-quotation
+											code//macro)))
+							 (concat
+							  "("
+							  (or* control
+								   type
+								   data
+								   code
+								   ;; ;;;;;;;;;;;;;;;;;;;;;;
+								   alternative-format
+								   documentation
+								   function-application
+								   function-definition
+								   remember
+								   extension
+								   definition
+								   ;; ;;;;;;;;;;;;;;;;;;;;;;
+								   "undefined"
+								   "for"
+								   "io"
+								   "infix"
+								   "message"
+								   "regex")
+							  "\\>"))))
+		   (definition_in_prelude separator_in_name)
+		   (in-current-module (concat separator_in_name separator_in_name))
+		   (in-module (concat identifier separator_in_name))
+		   (local_reference (or* "^"
+								 (inclusion delimiter)))
+		   (global_prefix (or* definition_in_prelude
+							   in-current-module
+							   in-module
+							   local_reference))
+		   (extension (let* ((suffix "#"))
+						(concat definition_in_prelude
+								(many tail_of_identifier)
+								(inclusion suffix))))
+		   (typeRE (concat global_prefix (inclusion head_of_type) (some tail_of_identifier)))
+		   (labelRE (concat global_prefix (inclusion head_of_label) (many tail_of_identifier)))
+		   (nested_definition (concat local_reference
+									  identifier
+									  (inclusion head_of_label)
+									  identifier))
+		   (literalRE (or* (literal bit)
+						   (literal natural)
+						   (literal integer)
+						   (literal revolution)
+						   (literal decimal)
+						   (literal fraction)
+						   (literal rational)
+						   )))
+	  `(;; https://www.gnu.org/software/emacs/manual/html_node/elisp/Faces-for-Font-Lock.html
+		(,special_form 1 font-lock-builtin-face)
+		(,extension 0 font-lock-warning-face)
 		(,literalRE 0 font-lock-constant-face)
 		(,typeRE 0 font-lock-type-face)
 		(,labelRE 0 font-lock-keyword-face)
+		(,nested_definition 0 font-lock-function-name-face)
 		)))
   "Default expressions to highlight in Lux mode.")
 
@@ -559,7 +587,7 @@ highlighted region)."
           (font-lock-mark-block-function . mark-defun)
           (font-lock-syntactic-face-function . lux-font-lock-syntactic-face-function))))
 
-(defvar withRE (concat "\\`" "with" (orRE "_" "\\'")))
+(defvar withRE (concat "\\`" "with" (or* "_" "\\'")))
 
 (defun lux-indent-function (indent-point state)
   "When indenting a line within a function call, indent properly.
