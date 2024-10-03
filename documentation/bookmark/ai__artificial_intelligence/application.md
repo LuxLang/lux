@@ -1,5 +1,6 @@
 # Reference
 
+0. [Solo: Launch your website and business](https://soloist.ai/)
 0. [gencraft: The world's most powerful AI photo and art generation engine](https://gencraft.com/)
 0. [SalesGPT - Your Context-Aware AI Sales Assistant](https://github.com/filip-michalsky/SalesGPT)
 0. [Keeper: Taxes, reimagined](https://www.keepertax.com/)
