@@ -1,0 +1,209 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except #Variable)
+   [math
+    [number
+     [/64
+      ["[0]" natural]
+      ["[0]" decimal]]]]
+   [control
+    ["[0]" state]]
+   [data
+    ["[0]" sum]
+    ["[0]" product]
+    ["[0]" text]
+    [collection
+     ["[0]" set (.only Set)]]]
+   [abstract
+    ["[0]" monad]
+    ["[0]" equivalence (.only Equivalence)]]
+   [macro
+    ["^" pattern]
+    ["[0]" template]]
+   [meta
+    ["[0]" code]]]]
+ [//
+  ["[0]" variable (.only Variable)]])
+
+... https://en.wikipedia.org/wiki/Scalar_(physics)
+(every .public Scalar
+  Decimal)
+
+(every .public Formula
+  (Rec @
+    (Variant
+     {#Constant Scalar}
+     {#+ @ @}
+     {#- @ @}
+     {#x @ @}
+     {#/ @ @}
+     {#^ @ @}
+     {#Variable Variable})))
+
+(the .public equivalence
+  (Equivalence Formula)
+  (<| equivalence.recursive
+      (.function (_ equivalence))
+      (let [binary (product.equivalence equivalence equivalence)])
+      (all sum.equivalence
+           decimal.equivalence
+           binary
+           binary
+           binary
+           binary
+           binary
+           variable.equivalence
+           )))
+
+(the .public (as_text it)
+  (text.Injection Formula)
+  (`` (when it
+        {#Constant it}
+        (by decimal.base_10 as it)
+
+        (,, (template.with [,tag ,symbol]
+              [{,tag parameter it}
+               (|> (text (as_text it)
+                         " " ,symbol " "
+                         (as_text parameter))
+                   (text.enclosed ["(" ")"]))]
+              [[#+ "+"]
+               [#- "-"]
+               [#x "x"]
+               [#/ "/"]
+               [#^ "^"]]))
+        
+        {#Variable it}
+        (variable.as_text it))))
+
+(every .public Environment
+  Natural)
+
+(the .public constant
+  (-> Scalar
+      Formula)
+  (|>> {#Constant}))
+
+(the .public (variable name)
+  (-> Text
+      (state.State Environment Formula))
+  (monad.let state.monad
+    [it state.get
+     _ (state.update ++)]
+    (pure {#Variable it name})))
+
+(template.the (one)
+  [{#Constant decimal.positive_one}])
+
+(the (x' parameter it)
+  (-> Formula Formula
+      (Maybe Formula))
+  (when [parameter it]
+    (^.or [(..one) it]
+          [it (..one)])
+    {.#Some it}
+
+    else
+    {.#None}))
+
+(the (/' parameter it)
+  (-> Formula Formula
+      (Maybe Formula))
+  (if (with equivalence
+        (= parameter it))
+      {.#Some (..one)}
+      (when it
+        {#x parameter' it'}
+        (when [(/' parameter parameter')
+               (/' parameter it')]
+          (^.or [{.#Some parameter'} _]
+                [_ {.#Some it'}])
+          {.#Some {#x parameter' it'}}
+          
+          else
+          {.#None})
+
+        else
+        {.#None})))
+
+(the (normal it)
+  (Change Formula)
+  (`` (when it
+        (,, (template.with [,tag ,name]
+              [{,tag parameter' it'}
+               (when (,name parameter' it')
+                 {.#Some it}
+                 (normal it)
+
+                 else
+                 it)]
+
+              [[#x x']
+               [#/ /']]))
+
+        else
+        it)))
+
+(template.with [,name ,tag]
+  [(the .public (,name parameter it)
+     (-> Formula
+         (Change Formula))
+     (normal {,tag parameter it}))]
+
+  [[+ #+]
+   [- #-]
+   [x #x]
+   [/ #/]
+   [^ #^]])
+
+(the .public new
+  (for_any (_ it)
+    (-> (state.State Environment it)
+        it))
+  (|>> (state.value natural.zero)
+       product.right))
+
+(the .public (every_variable it)
+  (-> Formula
+      (Set variable.Identity))
+  (`` (when it
+        {#Constant _}
+        (set.empty natural.hash)
+
+        (,, (template.with [,tag]
+              [{,tag parameter it}
+               (set.union (every_variable parameter)
+                          (every_variable it))]
+
+              [[#+]
+               [#-]
+               [#x]
+               [#/]
+               [#^]]))
+        
+        {#Variable it}
+        (set.of_list natural.hash (list (variable.identity it))))))
+
+(the .public (as_code it)
+  (-> Formula
+      Code)
+  (`` (when it
+        {#Constant it}
+        (code.decimal it)
+
+        (,, (template.with [,tag ,function]
+              [{,tag parameter it}
+               (` (,function (, (as_code parameter))
+                             (, (as_code it))))]
+
+              [[#+ decimal.+]
+               [#- decimal.-]
+               [#x decimal.x]
+               [#/ decimal./]
+               [#^ decimal.^]]))
+        
+        {#Variable it}
+        (variable.as_code it))))

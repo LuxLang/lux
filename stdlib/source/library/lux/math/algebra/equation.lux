@@ -1,0 +1,116 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except function)
+   [math
+    [number
+     [/64
+      ["[0]" natural]]]]
+   [data
+    ["[0]" product]
+    ["[0]" text]
+    [collection
+     ["[0]" list (.use "[1]#[0]" functor)
+      ["?[1]" \\projection]]
+     ["[0]" set (.only Set)]]]
+   [abstract
+    ["[0]" monad]]
+   [macro
+    ["[0]" template]
+    ["[0]" syntax]]
+   ["[0]" error (.only)
+    ["[0]" try (.only Try)]]
+   ["[0]" meta]]]
+ [//
+  ["[0]" variable]
+  ["[0]" formula (.only Formula)]])
+
+(every .public Equation
+  [Formula Formula])
+
+(the .public (= definition concept)
+  (-> Formula Formula
+      Equation)
+  [definition concept])
+
+(the .public in_reverse
+  (Change Equation)
+  product.swapped)
+
+(the .public (as_text [definition concept])
+  (text.Injection Equation)
+  (text (formula.as_text concept)
+        " = "
+        (formula.as_text definition)))
+
+(template.with [,name ,formula]
+  [(the .public (,name parameter)
+     (-> Formula
+         (Change Equation))
+     (let [change (,formula parameter)]
+       (product.then change change)))]
+
+  [[+ formula.+]
+   [- formula.-]
+   [x formula.x]
+   [/ formula./]
+   [^ formula.^]])
+
+(the (function'' parameters value definition)
+  (-> (List Formula) Formula Formula
+      Code)
+  (let [input (list.repeated (list.size parameters) (` formula.Scalar))
+        type (` (-> (,* input)
+                    formula.Scalar))]
+    (` (is (, type)
+           (.function ((, (formula.as_code value))
+                       (,* (list#each formula.as_code parameters)))
+             (, (formula.as_code definition)))))))
+
+(the (function' parameters value [definition concept])
+  (-> (List Formula) Formula Equation
+      (Try Code))
+  (let [input (is (Set variable.Identity)
+                  (|> parameters
+                      (list#each formula.every_variable)
+                      (list.mix set.union (set.empty natural.hash))))
+        output (is (Set variable.Identity)
+                   (formula.every_variable value))]
+    (if (let [there_is_no_circularity
+              (not (set.sub? input output))
+
+              all_inputs_are_present_in_definition
+              (set.= input
+                     (formula.every_variable definition))
+
+              only_the_concept_is_being_calculated
+              (set.= output
+                     (formula.every_variable concept))]
+          (and there_is_no_circularity
+               all_inputs_are_present_in_definition
+               only_the_concept_is_being_calculated))
+        {try.#Success (function'' parameters value definition)}
+        {try.#Failure error.not_valid})))
+
+(every .public (Function of)
+  [Formula of
+   Equation])
+
+(the Function'
+  (type (Function (List Formula))))
+
+(the .public function
+  (syntax.macro (_ [it ?list.any])
+    (monad.let meta.monad
+      [it (meta.eval Function' it)
+       .let [[concept parameters it] (as (-> Any
+                                             Function')
+                                         it)]]
+      (when (function' parameters concept it)
+        {try.#Success it}
+        (pure (list it))
+        
+        {try.#Failure error}
+        (meta.failure error)))))
