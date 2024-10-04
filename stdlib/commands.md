@@ -3,9 +3,7 @@ cd ~/lux && grep -r "" --include *.lux | sort
 cd ~/lux && grep -RiIl 'BEFORE' | xargs sed -i 's/BEFORE/AFTER/g'
 ```
 
-# Standard Library
-
-## Test
+# Test
 
 ```
 cd ~/lux/stdlib/ \
@@ -29,7 +27,7 @@ cd ~/lux/stdlib/ \
 && lux with ruby with bibliotheca auto test
 ```
 
-## Deploy
+# Deploy
 
 ```
 cd ~/lux/stdlib/ \
@@ -56,66 +54,41 @@ rm README.md && \
 for file in *.*; do gpg -ab $file; done
 ```
 
-## Generate documentation
+# Generate documentation
 
 ```
 cd ~/lux/stdlib/ \
 && lux with jvm clean \
 && lux with jvm with scriptum auto test
 
-### JVM
+## JVM
 cd ~/lux/stdlib/ \
 && lux with jvm clean \
 && lux with jvm with scriptum build \
 && java -jar target/program.jar > ~/lux/documentation/library/standard/jvm.md
 
-### JS
+## JS
 cd ~/lux/stdlib/ \
 && lux with js clean \
 && lux with js with scriptum build \
 && node ~/lux/stdlib/target/program.js > ~/lux/documentation/library/standard/js.md
 
-### Lua
+## Lua
 cd ~/lux/stdlib/ \
 && lux with lua clean \
 && lux with lua with scriptum build \
 && ~/lua-5.4.2/install/bin/lua ~/lux/stdlib/target/program.lua > ~/lux/documentation/library/standard/lua.md
 
-### Python
+## Python
 cd ~/lux/stdlib/ \
 && lux with python clean \
 && lux with python with scriptum build \
 && python3 ~/lux/stdlib/target/program.py > ~/lux/documentation/library/standard/python.md
 
-### Ruby
+## Ruby
 cd ~/lux/stdlib/ \
 && lux with ruby clean \
 && lux with ruby with scriptum build \
 && RUBY_THREAD_VM_STACK_SIZE=15700000 ruby ~/lux/stdlib/target/program/main.rb | tee ~/lux/documentation/library/standard/ruby.md
-```
-
----
-
-# Aedifex: Build system
-
-## Build
-
-```
-cd ~/lux/stdlib/ \
-&& lux with aedifex clean \
-&& lux with aedifex auto build
-
-cd ~/lux/stdlib/ \
-&& lux with aedifex clean \
-&& lux with aedifex build \
-&& mv target/jvm/program.jar aedifex.jar
-```
-
-## Test
-
-```
-cd ~/lux/stdlib/ \
-&& lux clean \
-&& lux with aedifex auto test
 ```
 
