@@ -3,28 +3,33 @@
 
 (.using
  [library
-  [lux (.except #Variable)
+  [lux (.except #Variable with)
    [math
     [number
      [/64
       ["[0]" natural]
       ["[0]" decimal]]]]
    [control
-    ["[0]" state]]
+    ["[0]" state (.only State)]]
    [data
     ["[0]" sum]
     ["[0]" product]
     ["[0]" text]
     [collection
-     ["[0]" set (.only Set)]]]
+     ["[0]" set (.only Set)]
+     ["[0]" list (.use "[1]#[0]" monad)
+      ["?[1]" \\projection]]]]
    [abstract
+    ["?" projection]
     ["[0]" monad]
     ["[0]" equivalence (.only Equivalence)]]
    [macro
     ["^" pattern]
-    ["[0]" template]]
+    ["[0]" template]
+    ["[0]" syntax]]
    [meta
-    ["[0]" code]]]]
+    ["[0]" code (.only)
+     ["?[1]" \\projection]]]]]
  [//
   ["[0]" variable (.only Variable)]])
 
@@ -58,6 +63,9 @@
            variable.equivalence
            )))
 
+(alias [=]
+       ..equivalence)
+
 (the .public (as_text it)
   (text.Injection Formula)
   (`` (when it
@@ -66,9 +74,8 @@
 
         (,, (template.with [,tag ,symbol]
               [{,tag parameter it}
-               (|> (text (as_text it)
-                         " " ,symbol " "
-                         (as_text parameter))
+               (|> (list ,symbol (as_text parameter) (as_text it))
+                   (text.interposed " ")
                    (text.enclosed ["(" ")"]))]
               [[#+ "+"]
                [#- "-"]
@@ -89,69 +96,17 @@
 
 (the .public (variable name)
   (-> Text
-      (state.State Environment Formula))
+      (State Environment Formula))
   (monad.let state.monad
     [it state.get
      _ (state.update ++)]
     (pure {#Variable it name})))
 
-(template.the (one)
-  [{#Constant decimal.positive_one}])
-
-(the (x' parameter it)
-  (-> Formula Formula
-      (Maybe Formula))
-  (when [parameter it]
-    (^.or [(..one) it]
-          [it (..one)])
-    {.#Some it}
-
-    else
-    {.#None}))
-
-(the (/' parameter it)
-  (-> Formula Formula
-      (Maybe Formula))
-  (if (with equivalence
-        (= parameter it))
-      {.#Some (..one)}
-      (when it
-        {#x parameter' it'}
-        (when [(/' parameter parameter')
-               (/' parameter it')]
-          (^.or [{.#Some parameter'} _]
-                [_ {.#Some it'}])
-          {.#Some {#x parameter' it'}}
-          
-          else
-          {.#None})
-
-        else
-        {.#None})))
-
-(the (normal it)
-  (Change Formula)
-  (`` (when it
-        (,, (template.with [,tag ,name]
-              [{,tag parameter' it'}
-               (when (,name parameter' it')
-                 {.#Some it}
-                 (normal it)
-
-                 else
-                 it)]
-
-              [[#x x']
-               [#/ /']]))
-
-        else
-        it)))
-
 (template.with [,name ,tag]
   [(the .public (,name parameter it)
      (-> Formula
          (Change Formula))
-     (normal {,tag parameter it}))]
+     {,tag parameter it})]
 
   [[+ #+]
    [- #-]
@@ -161,7 +116,7 @@
 
 (the .public new
   (for_any (_ it)
-    (-> (state.State Environment it)
+    (-> (State Environment it)
         it))
   (|>> (state.value natural.zero)
        product.right))
@@ -207,3 +162,14 @@
         
         {#Variable it}
         (variable.as_code it))))
+
+(the .public with
+  (syntax.macro (_ [variables (?code.tuple (?.some ?code.local))
+                    body ?list.any])
+    (pure (list (` (monad.let state.monad
+                     [(,* (|> variables
+                              (list#each (function (_ it)
+                                           (list (code.local it)
+                                                 (` (..variable (, (code.text it)))))))
+                              list#conjoint))]
+                     (by state.monad (,' pure) (, body))))))))

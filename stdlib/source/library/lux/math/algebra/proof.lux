@@ -1,0 +1,285 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except and)
+   [abstract
+    ["[0]" monad]]
+   [control
+    ["[0]" state (.only State)]]
+   [error
+    ["[0]" try (.only Try)]
+    ["[0]" exception (.only Exception)]]
+   [data
+    ["[0]" product]
+    [collection
+     ["[0]" dictionary (.only Dictionary)]]]
+   [macro
+    ["[0]" template]]
+   [math
+    [number
+     [/64
+      ["[0]" natural]
+      ["[0]" decimal]]]]]]
+ [//
+  ["[0]" variable (.only Variable)]
+  ["/" formula]
+  ["//" equation]])
+
+... https://en.wikipedia.org/wiki/Theorem#Terminology
+(every .public Proposition
+  (State /.Environment //.Equation))
+
+... https://en.wikipedia.org/wiki/Axiom
+(the .public axiom
+  (-> Proposition
+      //.Equation)
+  /.new)
+
+(the .public identity
+  //.Equation
+  (axiom (/.with [it]
+           (//.= it it))))
+
+... https://en.wikipedia.org/wiki/Property_(philosophy)
+(every .public (Property it)
+  (-> it
+      Proposition))
+
+(the Operation
+  (-> /.Formula /.Formula /.Formula))
+
+(the .public (commutativity it)
+  (Property Operation)
+  (/.with [left right]
+    (//.= (it left right)
+          (it right left))))
+
+(the .public (associativity it)
+  (Property Operation)
+  (/.with [left middle right]
+    (//.= (it (it left middle) right)
+          (it left (it middle right)))))
+
+(the .public (cancellation [v ^])
+  (Property [Operation Operation])
+  (/.with [change it]
+    (//.= (v change (^ change it))
+          it)))
+
+(the .public commutativity_of_addition
+  //.Equation
+  (axiom (commutativity /.+)))
+
+(the .public associativity_of_addition
+  //.Equation
+  (axiom (associativity /.+)))
+
+(the .public cancellation_of_addition
+  //.Equation
+  (axiom (cancellation [/.- /.+])))
+
+(the .public distributivity_of_subtraction
+  //.Equation
+  (axiom (/.with [left right it]
+           (//.= (/.- (/.+ left right)
+                      it)
+                 (/.- left
+                      (/.- right
+                           it))))))
+
+(the .public commutativity_of_multiplication
+  //.Equation
+  (axiom (commutativity /.x)))
+
+(the .public associativity_of_multiplication
+  //.Equation
+  (axiom (associativity /.x)))
+
+(the .public distributivity_of_multiplication
+  //.Equation
+  (axiom (/.with [factor left right]
+           (//.= (/.x factor
+                      (/.+ right left))
+                 (/.+ (/.x factor right)
+                      (/.x factor left))))))
+
+(the .public cancellation_of_division
+  //.Equation
+  (axiom (cancellation [/.x /./])))
+
+(the one
+  /.Formula
+  {/.#Constant decimal.positive_one})
+
+(the .public identity_of_multiplication
+  //.Equation
+  (axiom (/.with [it]
+           (//.= (/.x ..one it)
+                 it))))
+
+... https://en.wikipedia.org/wiki/Substitution_(logic)#Algebra
+... https://en.wikipedia.org/wiki/Universal_property
+(every .public (Substitution it)
+  (-> it
+      (Try it)))
+
+... https://en.wikipedia.org/wiki/Rewriting#Term_rewriting_systems
+(every .public Rule
+  (Substitution /.Formula))
+
+... https://en.wikipedia.org/wiki/Mathematical_proof
+(every .public Proof
+  (Substitution //.Equation))
+
+... https://en.wikipedia.org/wiki/Q.E.D.
+(the .public qed
+  Proof
+  (|>> {try.#Success}))
+
+... https://en.wikipedia.org/wiki/Contradiction
+(exception.the .public (contradiction [proposition expected actual])
+  (Exception [//.Equation /.Formula /.Formula])
+  (exception.report
+   (list ["Proposition" (//.as_text proposition)]
+         ["Expected" (/.as_text expected)]
+         ["Actual" (/.as_text actual)])))
+
+... https://en.wikipedia.org/wiki/Theorem
+(the .public (theorem it proof)
+  (-> Proposition Proof
+      (Try //.Equation))
+  (monad.let try.monad
+    [.let [proposition (axiom it)]
+     [left right] (proof proposition)]
+    (if (/.= left right)
+        (pure proposition)
+        (exception.except ..contradiction [proposition left right]))))
+
+(the .public (= left right
+                it)
+  (-> Rule Rule
+      Proof)
+  (monad.let try.monad
+    [left (left (product.left it))
+     right (right (product.right it))]
+    (pure [left right])))
+
+(the .public (and before after
+                  it)
+  (for_any (_ it)
+    (-> (Substitution it)
+        (Change (Substitution it))))
+  (monad.let try.monad
+    [it (before it)]
+    (after it)))
+
+(exception.the .public (mismatch [it])
+  (Exception /.Formula)
+  (exception.report
+   (list ["Formula" (/.as_text it)])))
+
+(template.with [,name ,tag]
+  [(the .public (,name of_parameter of_it
+                       formula)
+     (-> Rule Rule
+         Rule)
+     (when formula
+       {,tag parameter it}
+       (monad.let try.monad
+         [parameter (of_parameter parameter)
+          it (of_it it)]
+         (pure {,tag parameter it}))
+       
+       else
+       (exception.except ..mismatch [formula])))]
+
+  [[+ /.#+]
+   [- /.#-]
+   [x /.#x]
+   [/ /.#/]
+   [^ /.#^]])
+
+(every Context
+  (Dictionary variable.Identity /.Formula))
+
+(the empty
+  Context
+  (dictionary.empty natural.hash))
+
+(the (context equation formula it)
+  (-> /.Formula /.Formula Context
+      (Try Context))
+  (`` (when [equation formula]
+        [{/.#Variable [@ _]} actual]
+        (when (dictionary.value @ it)
+          {try.#Success expected}
+          (if (/.= expected actual)
+              {try.#Success it}
+              (exception.except ..contradiction [..identity equation formula]))
+
+          not_known!
+          {try.#Success (dictionary.has @ actual it)})
+        
+        (,, (template.with [,tag]
+              [[{,tag expected_parameter expected_it}
+                {,tag actual_parameter actual_it}]
+               (monad.let try.monad
+                 [it (context expected_parameter actual_parameter it)]
+                 (context expected_it actual_it it))]
+              
+              [[/.#+]
+               [/.#-]
+               [/.#x]
+               [/.#/]]))
+
+        else
+        (exception.except ..contradiction [..identity equation formula]))))
+
+(exception.the .public (not_known [it])
+  (Exception [Variable])
+  (exception.report
+   (list ["Variable" (variable.as_text it)])))
+
+(the (substitution context)
+  (-> Context
+      Rule)
+  (function (substitution it)
+    (`` (when it
+          {/.#Constant _}
+          {try.#Success it}
+
+          {/.#Variable variable}
+          (let [[@ _] variable]
+            (try.or (dictionary.value @ context)
+                    (exception.except ..not_known [variable])))
+          
+          (,, (template.with [,tag]
+                [{,tag parameter it}
+                 (monad.let try.monad
+                   [parameter (substitution parameter)
+                    it (substitution it)]
+                   (pure {,tag parameter it}))]
+                
+                [[/.#+]
+                 [/.#-]
+                 [/.#x]
+                 [/.#/]
+                 [/.#^]]))))))
+
+(the .public (of [before after] it)
+  (-> //.Equation
+      Rule)
+  (monad.let try.monad
+    [context (context before it empty)]
+    (substitution context after)))
+
+(the .public (addition_of_constants it)
+  Rule
+  (when it
+    {/.#+ {/.#Constant parameter} {/.#Constant it}}
+    {try.#Success {/.#Constant (decimal.+ parameter it)}}
+
+    else
+    (exception.except ..mismatch [it])))
