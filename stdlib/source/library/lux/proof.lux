@@ -1,0 +1,604 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except Pattern global let by and pattern with)
+   [data
+    ["[0]" text (.only)
+     ["%" \\injection]]
+    ["[0]" product]
+    [collection
+     ["[0]" list (.use "[1]#[0]" functor)
+      ["?[1]" \\projection]]
+     ["[0]" dictionary (.only Dictionary)]]]
+   ["[0]" meta (.only)
+    ["[0]" extension]
+    ["[0]" name]
+    ["[0]" provenance]
+    ["[0]" code (.only)
+     ["?[1]" \\projection (.only Projection)]]]
+   [abstract
+    ["?" projection]
+    ["[0]" monad]]
+   [compiler
+    ["[0]" reference (.only)
+     [register (.only Register)]
+     ["[0]" variable (.only Variable)]]
+    [language
+     [lux
+      ["[0]" phase]
+      ["[0]" analysis (.only)
+       ["[0]" type]
+       ["[0]" scope]
+       ["[0]" simple (.only Simple)]
+       ["[0]" complex (.only Complex)]
+       ["[0]" pattern (.only Pattern)]]]]]
+   [error
+    ["[0]" try (.only Try)]
+    ["[0]" exception (.only Exception)]]
+   [macro
+    ["[0]" template]]
+   [math
+    [number
+     [/64
+      ["[0]" natural]]]]]])
+
+(the global
+  (Projection [Name Code])
+  (?.and ?code.global
+         ?list.any))
+
+(every .public Global_Environment
+  (List [Name analysis.Term]))
+
+(every .public Local_Environment
+  (Dictionary Variable analysis.Term))
+
+... https://en.wikipedia.org/wiki/Identity_(mathematics)
+(every .public Identity
+  [analysis.Term analysis.Term])
+
+(the .public (in_reverse [left right])
+  (Change Identity)
+  [right left])
+
+(the Global_Environment'
+  (type (Dictionary Name analysis.Term)))
+
+... https://en.wikipedia.org/wiki/Substitution_(logic)#Algebra
+... https://en.wikipedia.org/wiki/Universal_property
+(every .public (Substitution it)
+  (-> [Global_Environment' Local_Environment] it
+      (Try it)))
+
+... https://en.wikipedia.org/wiki/Rule_of_inference
+... https://en.wikipedia.org/wiki/Rewriting#Term_rewriting_systems
+(every .public Rule
+  (Substitution analysis.Term))
+
+... https://en.wikipedia.org/wiki/Mathematical_proof
+... https://en.wikipedia.org/wiki/Formal_proof
+(every .public Proof
+  (Substitution Identity))
+
+... https://en.wikipedia.org/wiki/Q.E.D.
+(the .public (qed environment identity)
+  Proof
+  {try.#Success identity})
+
+(the (code_of_name it)
+  (code.Injection Name)
+  (code.tuple (list (code.text (name.module it))
+                    (code.text (name.proper it)))))
+
+(the (code_of_provenance it)
+  (code.Injection Provenance)
+  (` [(, (code.text (its .#module it)))
+      (, (code.natural (its .#line it)))
+      (, (code.natural (its .#column it)))]))
+
+(the (code_of_simple it)
+  (code.Injection Simple)
+  (`` (when it
+        {simple.#Unit}
+        (` {simple.#Unit})
+
+        (,, (template.with [,tag ,code]
+              [{,tag it}
+               (` {,tag (, (,code it))})]
+
+              [[simple.#Bit code.bit]
+               [simple.#Natural code.natural]
+               [simple.#Integer code.integer]
+               [simple.#Revolution code.revolution]
+               [simple.#Decimal code.decimal]
+               [simple.#Text code.text]])))))
+
+(the (code_of_complex code it)
+  (for_any (_ it)
+    (-> (code.Injection it)
+        (code.Injection (Complex it))))
+  (when it
+    {complex.#Variant it}
+    (` {complex.#Variant [complex.#lefts (, (code.natural (its complex.#lefts it)))
+                          complex.#right? (, (code.bit (its complex.#right? it)))
+                          complex.#value (, (code (its complex.#value it)))]})
+    
+    {complex.#Tuple it}
+    (` {complex.#Tuple (list (,* (list#each code it)))})))
+
+(the (code_of_pattern it)
+  (code.Injection Pattern)
+  (when it
+    {pattern.#Simple it}
+    (` {pattern.#Simple (, (code_of_simple it))})
+    
+    {pattern.#Complex it}
+    (` {pattern.#Complex (, (code_of_complex code_of_pattern it))})
+    
+    {pattern.#List it}
+    (` {pattern.#List (list (,* (list#each code_of_pattern it)))})
+    
+    {pattern.#Bind it}
+    (` {pattern.#Bind (, (code.natural it))})))
+
+(the (code_of_branch code_of_analysis it)
+  (-> (code.Injection analysis.Term)
+      (code.Injection analysis.Branch))
+  (` [analysis.#when (, (code_of_pattern (its analysis.#when it)))
+      analysis.#then (, (code_of_analysis (its analysis.#then it)))]))
+
+(the (code_of_match code_of_analysis [head tail])
+  (-> (code.Injection analysis.Term)
+      (code.Injection analysis.Match))
+  (` [(, (code_of_branch code_of_analysis head))
+      (list (,* (list#each (code_of_branch code_of_analysis) tail)))]))
+
+(the (code_of_analysis [@ it])
+  (code.Injection analysis.Term)
+  (` [(, (code_of_provenance @))
+      (, (when it
+           {analysis.#Simple it}
+           (` {analysis.#Simple (, (code_of_simple it))})
+           
+           {analysis.#Structure it}
+           (` {analysis.#Structure (, (code_of_complex code_of_analysis it))})
+           
+           {analysis.#Reference it}
+           (` {analysis.#Reference (, (when it
+                                        {reference.#Variable it}
+                                        (` {reference.#Variable (, (when it
+                                                                     {variable.#Local it}
+                                                                     (` {variable.#Local (, (code.natural it))})
+                                                                     
+                                                                     {variable.#Foreign it}
+                                                                     (` {variable.#Foreign (, (code.natural it))})))})
+                                        
+                                        {reference.#Constant it}
+                                        (` {reference.#Constant (, (code_of_name it))})))})
+           
+           {analysis.#When input output}
+           (` {analysis.#When (, (code_of_analysis input))
+                              (, (code_of_match code_of_analysis output))})
+           
+           {analysis.#Abstraction environment body}
+           (` {analysis.#Abstraction (list (,* (list#each code_of_analysis environment)))
+                                     (, (code_of_analysis body))})
+           
+           {analysis.#Reification parameter abstraction}
+           (` {analysis.#Reification (, (code_of_analysis parameter))
+                                     (, (code_of_analysis abstraction))})
+           
+           {analysis.#Extension name parameters}
+           (` {analysis.#Extension (, (code_of_name name))
+                                   (list (,* (list#each code_of_analysis parameters)))})))]))
+
+(the .public environment
+  (extension.analysis (_ analysis archive
+                         [each_global (?.some ..global)])
+    (monad.let [! phase.monad]
+      [each_global (list.each' ! (function (_ [name definition])
+                                   (monad.let !
+                                     [definition (type.with Any
+                                                   (analysis archive definition))]
+                                     (pure [(code_of_name name)
+                                            (code_of_analysis definition)])))
+                               each_global)]
+      (analysis archive (` (is ..Global_Environment
+                               (list (,* (list#each (function (_ [name definition])
+                                                      (` [(, name) (, definition)]))
+                                                    each_global)))))))))
+
+(the .public let
+  (extension.analysis (_ analysis archive
+                         [each_variable (?code.tuple (?.some ?code.local))
+                          body ?list.any])
+    (list.mix (function (_ variable it)
+                (<| type.with_var
+                    (function (_ [identity_of_variable type_of_variable]))
+                    (scope.with_local [variable type_of_variable])
+                    it))
+              (analysis archive body)
+              (list.reversed each_variable))))
+
+(the current_module
+  (name.module (name .._)))
+
+(template.the (variable ,@ ,identity)
+  [[,@ {analysis.#Extension [..current_module "variable"]
+                            (list (analysis.natural ,@ ,identity))}]])
+
+(the (term [@ it])
+  (Change analysis.Term)
+  (when it
+    {analysis.#Simple _}
+    [@ it]
+    
+    {analysis.#Structure it}
+    [@ {analysis.#Structure (when it
+                              {complex.#Variant it}
+                              {complex.#Variant (revised complex.#value term it)}
+                              
+                              {complex.#Tuple it}
+                              {complex.#Tuple (list#each term it)})}]
+    
+    {analysis.#Reference it'}
+    (when it'
+      {reference.#Variable it'}
+      (when it'
+        {variable.#Local it}
+        (variable provenance.dummy it)
+        
+        {variable.#Foreign _}
+        [@ it])
+      
+      {reference.#Constant _}
+      [@ it])
+    
+    {analysis.#When input output}
+    (undefined)
+    
+    {analysis.#Abstraction environment body}
+    [@ {analysis.#Abstraction (list#each term environment)
+                              (term body)}]
+    
+    {analysis.#Reification parameter abstraction}
+    [@ {analysis.#Reification (term parameter)
+                              (term abstraction)}]
+    
+    {analysis.#Extension name parameters}
+    [@ {analysis.#Extension name (list#each term parameters)}]))
+
+(the .public =
+  (extension.analysis (_ analysis archive
+                         [left ?list.any
+                          right ?list.any])
+    (monad.let [! phase.monad]
+      [left (type.with Any
+              (analysis archive left))
+       right (type.with Any
+               (analysis archive right))]
+      (analysis archive (` (is ..Identity
+                               [(, (code_of_analysis (term left)))
+                                (, (code_of_analysis (term right)))]))))))
+
+(the .public identity
+  Identity
+  (..let [it]
+    (..= it
+         it)))
+
+(the .public (as_text [left right])
+  (text.Injection Identity)
+  (code.as_text (` (..= (, (code_of_analysis left))
+                        (, (code_of_analysis right))))))
+
+(exception.the .public (contradiction [identity expected actual])
+  (Exception [Identity analysis.Term analysis.Term])
+  (exception.report
+   (list ["Identity" (as_text identity)]
+         ["Expected" (analysis.as_text expected)]
+         ["Actual" (analysis.as_text actual)])))
+
+(every Context
+  (Dictionary Register analysis.Term))
+
+(the empty
+  Context
+  (dictionary.empty natural.hash))
+
+(exception.the .public (cannot_extract_context [expected actual])
+  (Exception [analysis.Term analysis.Term])
+  (exception.report
+   (list ["Expected" (analysis.as_text expected)]
+         ["Actual" (analysis.as_text actual)])))
+
+(the (context expected actual it)
+  (-> analysis.Term analysis.Term Context
+      (Try Context))
+  (when [expected actual]
+    [(..variable _ @) _]
+    (when (dictionary.value @ it)
+      {try.#Success expected}
+      (if (.with analysis.equivalence
+            (= expected actual))
+          {try.#Success it}
+          (exception.except ..contradiction [..identity expected actual]))
+
+      not_known!
+      {try.#Success (dictionary.has @ actual it)})
+    
+    [[_ {analysis.#Simple expected'}] [_ {analysis.#Simple actual'}]]
+    (if (.with simple.equivalence
+          (= expected' actual'))
+        {try.#Success it}
+        (exception.except ..cannot_extract_context [expected actual]))
+    
+    ... {analysis.#Structure it}
+    ... (` {analysis.#Structure (, (code_of_complex code_of_analysis it))})
+    
+    [[_ {analysis.#Reference expected'}] [_ {analysis.#Reference actual'}]]
+    (if (.with reference.equivalence
+          (= expected' actual'))
+        {try.#Success it}
+        (exception.except ..cannot_extract_context [expected actual]))
+    
+    ... {analysis.#When input output}
+    ... (` {analysis.#When (, (code_of_analysis input))
+    ...                    (, (code_of_match code_of_analysis output))})
+    
+    ... {analysis.#Abstraction environment body}
+    ... (` {analysis.#Abstraction (list (,* (list#each code_of_analysis environment)))
+    ...                           (, (code_of_analysis body))})
+    
+    ... {analysis.#Reification parameter abstraction}
+    ... (` {analysis.#Reification (, (code_of_analysis parameter))
+    ...                           (, (code_of_analysis abstraction))})
+    
+    ... {analysis.#Extension name parameters}
+    ... (` {analysis.#Extension (, (code_of_name name))
+    ...                         (list (,* (list#each code_of_analysis parameters)))})
+
+    else
+    (exception.except ..cannot_extract_context [expected actual])))
+
+(exception.the .public (not_known [it])
+  (Exception [Register])
+  (exception.report
+   (list ["Variable" (%.natural it)])))
+
+(the (substitution context)
+  (-> Context analysis.Term
+      (Try analysis.Term))
+  (function (substitution it)
+    (when it
+      (..variable _ @)
+      (try.or (dictionary.value @ context)
+              {try.#Success it}
+              ... (exception.except ..not_known [@])
+              )
+
+      else
+      {try.#Success it})))
+
+(the .public (by identity
+                 environment it)
+  (-> Identity
+      Rule)
+  (monad.let try.monad
+    [context (context (product.left identity) it empty)]
+    (substitution context (product.right identity))))
+
+(the .public (=' left right
+                 environment it)
+  (-> Rule Rule
+      Proof)
+  (monad.let try.monad
+    [left (left environment (product.left it))
+     right (right environment (product.right it))]
+    (pure [left right])))
+
+(exception.the .public (not_valid [term])
+  (Exception [analysis.Term])
+  (exception.report
+   (list ["Term" (analysis.as_text term)])))
+
+(the (beta_reduction global local)
+  (-> Global_Environment' Local_Environment
+      (Change analysis.Term))
+  (function (beta_reduction it)
+    (when it
+      [@ {analysis.#Simple _}]
+      it
+      
+      [@ {analysis.#Structure it}]
+      [@ {analysis.#Structure (when it
+                                {complex.#Variant it}
+                                {complex.#Variant (revised complex.#value beta_reduction it)}
+                                
+                                {complex.#Tuple it}
+                                {complex.#Tuple (list#each beta_reduction it)})}]
+      
+      [@ {analysis.#Reference it'}]
+      (when it'
+        {reference.#Variable it'}
+        (|> local
+            (dictionary.value it')
+            (try.else it))
+        
+        {reference.#Constant _}
+        it)
+      
+      [@ {analysis.#When input [head tail]}]
+      [@ {analysis.#When (beta_reduction input)
+                         [(revised analysis.#then beta_reduction head)
+                          (list#each (revised analysis.#then beta_reduction) tail)]}]
+      
+      [@ {analysis.#Abstraction environment body}]
+      [@ {analysis.#Abstraction (list#each beta_reduction environment)
+                                body}]
+      
+      [@ {analysis.#Reification parameter abstraction}]
+      [@ {analysis.#Reification (beta_reduction parameter)
+                                (beta_reduction abstraction)}]
+      
+      [@ {analysis.#Extension name parameters}]
+      [@ {analysis.#Extension name (list#each beta_reduction parameters)}])))
+
+(the .public (by_reification [global local] it)
+  Rule
+  (when it
+    [@ {analysis.#Reification parameter [@ {analysis.#Abstraction environment body}]}]
+    (.let [local (|> environment
+                     list.enumeration
+                     (list#each (function (_ [foreign term])
+                                  [{variable.#Foreign foreign}
+                                   term]))
+                     (dictionary.of_list variable.hash)
+                     (dictionary.has {variable.#Local 0} [@ {analysis.#Abstraction environment body}])
+                     (dictionary.has {variable.#Local 1} parameter))]
+      {try.#Success (beta_reduction global local body)})
+
+    else
+    (exception.except ..not_valid [it])))
+
+(the .public (of parameter reification abstraction
+                 environment it)
+  (-> Rule Rule Rule
+      Rule)
+  (when it
+    [@ {analysis.#Reification parameter' abstraction'}]
+    (monad.let try.monad
+      [parameter' (parameter environment parameter')
+       abstraction' (abstraction environment abstraction')]
+      (reification environment [@ {analysis.#Reification parameter' abstraction'}]))
+
+    else
+    (exception.except ..not_valid [it])))
+
+(the .public (by_definition [global local] it)
+  Rule
+  (when it
+    [_ {analysis.#Reference {reference.#Constant @}}]
+    (try.or (dictionary.value @ global)
+            (exception.except ..not_valid [it]))
+
+    else
+    (exception.except ..not_valid [it])))
+
+(the (pattern it)
+  (-> Pattern
+      analysis.Term)
+  (when it
+    {pattern.#Simple it}
+    (`` (when it
+          {simple.#Unit}
+          (analysis.unit provenance.dummy)
+
+          (,, (template.with [,tag ,analysis]
+                [{,tag it}
+                 (,analysis provenance.dummy it)]
+
+                [[simple.#Bit analysis.bit]
+                 [simple.#Natural analysis.natural]
+                 [simple.#Integer analysis.integer]
+                 [simple.#Revolution analysis.revolution]
+                 [simple.#Decimal analysis.decimal]
+                 [simple.#Text analysis.text]]))))
+    
+    {pattern.#Complex it}
+    (when it
+      {complex.#Variant it}
+      (analysis.variant provenance.dummy
+                        (revised complex.#value pattern it))
+      
+      {complex.#Tuple it}
+      (analysis.tuple provenance.dummy
+                      (list#each pattern it)))
+    
+    {pattern.#List it}
+    (undefined)
+    
+    {pattern.#Bind it}
+    (analysis.local provenance.dummy it)))
+
+... https://en.wikipedia.org/wiki/Lemma_(mathematics)
+(the (lemma match input)
+  (-> Pattern analysis.Term
+      Identity)
+  [(pattern match)
+   input])
+
+(the .public (by_pattern_matching then
+                                  environment it)
+  (-> (-> Identity Rule)
+      Rule)
+  (when it
+    [@ {analysis.#When input [head (list)]}]
+    ((then (lemma (its analysis.#when head)
+                  input))
+     environment
+     (its analysis.#then head))
+
+    else
+    (exception.except ..not_valid [it])))
+
+(exception.the .public (not_valid' [[left right]])
+  (Exception [Identity])
+  (exception.report
+   (list ["Left" (analysis.as_text left)]
+         ["Right" (analysis.as_text right)])))
+
+(every .public Condition
+  (-> Identity
+      (Try Identity)))
+
+(the .public (left_of_pair it)
+  Condition
+  (when it
+    [(analysis.tuple _ (list left right))
+     (analysis.tuple _ (list left' right'))]
+    {try.#Success [left left']}
+
+    else
+    (exception.except ..not_valid' [it])))
+
+(the .public (right_of_pair it)
+  Condition
+  (when it
+    [(analysis.tuple _ (list right right))
+     (analysis.tuple _ (list right' right'))]
+    {try.#Success [right right']}
+
+    else
+    (exception.except ..not_valid' [it])))
+
+(the .public (with condition then lemma
+               environment it)
+  (-> Condition
+      (Change (-> Identity Rule)))
+  (monad.let try.monad
+    [lemma (condition lemma)]
+    ((then lemma) environment it)))
+
+(the .public (and before after
+                  environment it)
+  (for_any (_ it)
+    (-> (Substitution it)
+        (Change (Substitution it))))
+  (monad.let try.monad
+    [it (before environment it)]
+    (after environment it)))
+
+(the .public (theorem environment identity proof)
+  (-> Global_Environment Identity Proof
+      (Try Identity))
+  (monad.let try.monad
+    [[left right] (proof [(dictionary.of_list name.hash environment)
+                          (dictionary.empty variable.hash)]
+                         identity)]
+    (if (.with analysis.equivalence
+          (= left right))
+        {try.#Success [left right]}
+        (exception.except ..contradiction [identity left right]))))
