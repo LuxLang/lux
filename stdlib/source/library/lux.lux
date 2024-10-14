@@ -536,12 +536,6 @@
                      (.type# "definition")})
        .public)
 
-(.def# Default
-       (.is# Type
-             {#Named [..prelude "Default"]
-                     (.type# "default")})
-       .public)
-
 (.def# Alias
        (.is# Type
              {#Named [..prelude "Alias"]
@@ -556,13 +550,11 @@
 
 (.def# every_tag_of_global
        (.is# {#Reification Name List}
-             (.list# [..prelude "#Definition"]
-                     [..prelude "#Alias"]
-                     [..prelude "#Default"]))
+             (.list# [..prelude "#Alias"]
+                     [..prelude "#Definition"]))
        ..private)
-(.def# #Definition (tag [{#Some [0 0b ..every_tag_of_global]} Global]) .public)
-(.def# #Alias (tag [{#Some [1 0b ..every_tag_of_global]} Global]) .public)
-(.def# #Default (tag [{#Some [1 1b ..every_tag_of_global]} Global]) .public)
+(.def# #Alias (tag [{#Some [0 0b ..every_tag_of_global]} Global]) .public)
+(.def# #Definition (tag [{#Some [0 1b ..every_tag_of_global]} Global]) .public)
 
 (.def# Bindings
        (.is# Type
@@ -1926,6 +1918,16 @@
                       "" name
                       _  (text module ..name_delimiter name))))
 
+(the' ..private (default? it)
+      (-> Type
+          Bit)
+      (.when# it
+              {#Nominal name_of_type (.list# [1b type_of_default])}
+              (.text_=# name_of_type (.type_name# "default"))
+
+              else
+              false))
+
 (the' .private (global_name full_name state)
       (-> Name
           ($ Meta Name))
@@ -1938,14 +1940,13 @@
                     (.when# (property#value name definitions)
                             {#Some [_ constant]}
                             (.when# constant
-                                    {#Definition _}
-                                    {#Right [state full_name]}
-
                                     {#Alias real_name}
                                     {#Right [state real_name]}
 
-                                    {#Default _}
-                                    {#Left (text "Unknown definition: " (name#as full_name))})
+                                    {#Definition [type value]}
+                                    (if (default? type)
+                                        {#Left (text "Unknown definition: " (name#as full_name))}
+                                        {#Right [state full_name]}))
 
                             {#None}
                             {#Left (text "Unknown definition: " (name#as full_name))})
@@ -2077,6 +2078,13 @@
                   {#Some current_module}
                   (.text_=# expected_module current_module))))
 
+(the' .private (and' left right)
+      (-> Bit Bit
+          Bit)
+      (if left
+          right
+          0b))
+
 (the' .private (definition_value name state)
       (-> Name
           ($ Meta (Tuple Type Any)))
@@ -2110,12 +2118,11 @@
                                     (definition_value real_name state)
                                     
                                     {#Definition [def_type def_value]}
-                                    (if (available? expected_module current_module exported?)
-                                        {#Right [state [def_type def_value]]}
-                                        {#Left (text "Unavailable definition: " (name#as name))})
-
-                                    {#Default _}
-                                    {#Left (text "Unknown definition: " (name#as name))})))))
+                                    (if (default? def_type)
+                                        {#Left (text "No value for default: " (name#as name))}
+                                        (if (available? expected_module current_module exported?)
+                                            {#Right [state [def_type def_value]]}
+                                            {#Left (text "Unavailable definition: " (name#as name))})))))))
 
 (the' .private (global_value global lux)
       (-> Name
@@ -2136,13 +2143,6 @@
                     
                     {#Left error}
                     {#Right [lux {#None}]})))
-
-(the' .private (and' left right)
-      (-> Bit Bit
-          Bit)
-      (if left
-          right
-          0b))
 
 (the' .private (bit#= reference it)
       (-> Bit
@@ -3177,10 +3177,7 @@
                         (if (.text_=# module current_module)
                             {#Some (.as# (-> Any Macro) def_value)}
                             {#None}))
-                    {#None})
-
-                {#Default _}
-                {#None})))
+                    {#None}))))
 
 (the' .private (named_macro full_name)
       (-> Name
@@ -3734,7 +3731,7 @@
                                                                  (pure (code#name name))
 
                                                                  ... else
-                                                                 (failure ..not_a_static_value))
+                                                                 (failure (text ..not_a_static_value " "  name_of_type)))
 
                                                              {#Nominal name_of_type (.list# [1b {#Nominal name_of_specialization (.list#)}])}
                                                              (if (.text_=# name_of_type (.type_name# "i64"))
@@ -3748,13 +3745,13 @@
                                                                      (pure (code#revolution (as (-> Any Revolution) value)))
 
                                                                      ... else
-                                                                     (failure ..not_a_static_value))
+                                                                     (failure (text ..not_a_static_value " "  name_of_type)))
 
                                                                  ... else
-                                                                 (failure ..not_a_static_value))
+                                                                 (failure (text ..not_a_static_value " "  name_of_type)))
 
-                                                             _
-                                                             (failure ..not_a_static_value))))))]
+                                                             else
+                                                             (failure (text ..not_a_static_value " " (type#as_text else))))))))]
             (function' (literal only_global? token)
                        (.when# token
                                {#Name _ [def_module def_name]}
@@ -3975,7 +3972,7 @@
                                         (` (.function# (, 'name) (, arg) (, body')))
                                         (` (.function# (, 'name) (, 'blank)
                                                        (.when (, 'blank) (, arg) (, body')))))))]
-            (meta#pure (list (nest (..code#local 'name) head
+            (meta#pure (list (nest (code#local 'name) head
                                    (list#mix (nest 'blank) body (list#reversed tail))))))
 
           else
@@ -4032,7 +4029,7 @@
                        body
 
                        _
-                       (` (function ((, (..code#local name)) (,* parameters))
+                       (` (function ((, (code#local name)) (,* parameters))
                             (, body))))
                 body (when ?type
                        {#Some type}
@@ -4041,7 +4038,7 @@
                        
                        {#None}
                        body)]
-            (meta#pure (list (` (.def# (, (..code#local name))
+            (meta#pure (list (` (.def# (, (code#local name))
                                        (, body)
                                        (, export_policy))))))
           
@@ -4821,12 +4818,10 @@
                                             (list))
 
                                         {#Definition [def_type def_value]}
-                                        (if exported?
+                                        (if (and exported?
+                                                 (not (default? def_type)))
                                             (list name)
-                                            (list))
-
-                                        {#Default _}
-                                        (list))))
+                                            (list)))))
                                 (let [[..#module_hash _ ..#module_aliases _ ..#definitions definitions ..#imports _ ..#module_state _] =module]
                                   definitions))]
         {#Right state (list#conjoint to_alias)})
@@ -4978,10 +4973,7 @@
           (definition_type real_name state)
           
           {#Definition [def_type def_value]}
-          {#Some def_type}
-
-          {#Default _}
-          {#None})))))
+          {#Some def_type})))))
 
 (the (type_variable expected context)
   (-> Natural (List [Natural (Maybe Type)])

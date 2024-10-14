@@ -21,7 +21,9 @@
      [/64
       ["n" natural]]]]
    [compiler
-    ["@[0]" type]]]]
+    ["@[0]" type]]
+   [function
+    [predicate (.only Predicate)]]]]
  [/
   ["[0]" local]]
  ["[0]" // (.only)
@@ -127,6 +129,18 @@
           \n "    Current module: " name_of_current
           \n "Unknown definition: " (name#as name))))
 
+(the name_of_default
+  (.type_name# "default"))
+
+(the (default? it)
+  (Predicate Type)
+  (when it
+    {.#Nominal ..name_of_default (list [.co_variant type_of_default])}
+    true
+
+    else
+    false))
+
 (with_template [<name>]
   [(the .public (<name> name)
      (-> Name
@@ -165,43 +179,41 @@
       {.#Definition it}
       (if (.or exported?
                (text.= expected actual))
-          (pure it)
+          (if (default? (product.left it))
+              (//.failure (text "Defaults are not considered exports: "
+                                (name#as name)))
+              (pure it))
           (//.failure (text "Definition is not an export: " (name#as name))))
 
       {.#Alias it}
       (if (.or exported?
                (text.= expected actual))
           (export it)
-          (//.failure (text "Alias is not an export: " (name#as name))))
-
-      {.#Default _}
-      (//.failure (text "Defaults are not considered exports: "
-                        (name#as name))))))
+          (//.failure (text "Alias is not an export: " (name#as name)))))))
 
 (the .public (default name)
   (-> Name
-      (Meta Default))
+      (Meta Definition))
   (monad.let [! //.monad]
     [name (..normal name)
      [exported? definition] (..default' name)]
     (when definition
-      {.#Definition _}
-      (//.failure (text "Definitions are not considered defaults: "
-                        (name#as name)))
+      {.#Definition it}
+      (if (default? (product.left it))
+          (if exported?
+              (pure it)
+              (monad.let !
+                [.let [[expected _] name]
+                 actual module.current_name]
+                (if (text.= expected actual)
+                    (pure it)
+                    (//.failure (text "Default is not an export: " (name#as name))))))
+          (//.failure (text "Definitions are not considered defaults: "
+                            (name#as name))))
 
       {.#Alias de_aliased}
       (//.failure (text "Aliases are not considered defaults: "
-                        (name#as name)))
-
-      {.#Default it}
-      (if exported?
-          (pure it)
-          (monad.let !
-            [.let [[expected _] name]
-             actual module.current_name]
-            (if (text.= expected actual)
-                (pure it)
-                (//.failure (text "Default is not an export: " (name#as name)))))))))
+                        (name#as name))))))
 
 (the .public (alias name)
   (-> Name
@@ -226,11 +238,10 @@
       (definition_type de_aliased)
       
       {.#Definition [def_type def_value]}
-      (clean_type def_type)
-
-      {.#Default _}
-      (//.failure (text "Defaults are not considered definitions: "
-                        (name#as name))))))
+      (if (default? def_type)
+          (//.failure (text "Defaults are not considered definitions: "
+                            (name#as name)))
+          (clean_type def_type)))))
 
 (the .public (type name)
   (-> Name
@@ -253,16 +264,15 @@
       (type_definition de_aliased)
       
       {.#Definition [def_type def_value]}
-      (let [type_code (.in_module# .prelude type_code)]
-        (if (.or (same? .Type def_type)
-                 (by code.equivalence =
-                     (type_code .Type)
-                     (type_code def_type)))
-            (pure (as (-> Any Type) def_value))
-            (//.failure (text "Definition is not a type: " (name#as name)))))
-
-      {.#Default _}
-      (//.failure (text "Default is not a type: " (name#as name))))))
+      (if (default? def_type)
+          (//.failure (text "Default is not a type: " (name#as name)))
+          (let [type_code (.in_module# .prelude type_code)]
+            (if (.or (same? .Type def_type)
+                     (by code.equivalence =
+                         (type_code .Type)
+                         (type_code def_type)))
+                (pure (as (-> Any Type) def_value))
+                (//.failure (text "Definition is not a type: " (name#as name)))))))))
 
 (the .public (globals module)
   (-> module.Name
@@ -300,10 +310,9 @@
       (real_definition lux it)
       
       {.#Definition it}
-      {try.#Success it}
-
-      {.#Default _}
-      {try.#Failure ..cannot_de-alias_a_default})
+      (if (default? (product.left it))
+          {try.#Failure ..cannot_de-alias_a_default}
+          {try.#Success it}))
     
     {try.#Failure error}
     {try.#Failure error}))
@@ -329,10 +338,9 @@
                                     {.#None})
                                   
                                   {.#Definition it}
-                                  {.#Some [name exported? it]}
-
-                                  {.#Default _}
-                                  {.#None}))
+                                  (if (default? (product.left it))
+                                      {.#None}
+                                      {.#Some [name exported? it]})))
                               it))
           [lux]
           {try.#Success}))))
@@ -386,12 +394,11 @@
                     (macro de_aliased)
                     
                     {.#Definition [def_type def_value]}
-                    (if (type#= @type.Macro def_type)
-                        {try.#Success [lux (as (-> Any @type.Macro) def_value)]}
-                        {try.#Failure ..not_a_macro})
-
-                    {.#Default _}
-                    {try.#Failure ..not_a_macro}))))
+                    (if (default? def_type)
+                        {try.#Failure ..not_a_macro}
+                        (if (type#= @type.Macro def_type)
+                            {try.#Success [lux (as (-> Any @type.Macro) def_value)]}
+                            {try.#Failure ..not_a_macro}))))))
 
             {try.#Failure error}
             {try.#Failure error})))))
