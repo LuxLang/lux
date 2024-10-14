@@ -3,23 +3,37 @@
 
 (.using
  [library
-  [lux (.except except with try or)
+  [lux (.except except with try or macro)
    [abstract
     [functor (.only Functor)]
     ["[0]" monad (.only Monad)]]
    [control
     ["[0]" state]
-    ["[0]" io]]
+    ["[0]" io]
+    ["[0]" maybe]]
    [error
     ["[0]" try (.only Try) (.use "[1]#[0]" functor)]
     ["[0]" exception (.only Exception)]]
    [data
-    ["[0]" product]]
+    ["[0]" text (.only \n)]
+    ["[0]" product]
+    [collection
+     ["[0]" list (.use "[1]#[0]" monad)
+      ["[0]" property]]
+     ["[0]" stack (.use "[1]#[0]" functor)]]]
    [macro
-    ["[0]" template]]]]
+    ["[0]" template]
+    ["[0]" expansion]]
+   [meta
+    ["[0]" name (.use "[1]#[0]" absolute)]
+    ["[0]" module]
+    ["[0]" label]
+    ["[0]" binding]]
+   ["[0]" type]]]
  [////
   [meta
-   [archive (.only Archive)]]])
+   [archive (.only Archive)]]
+  ["@[0]" type]])
 
 (every .public (Operation state it)
   (state.With state Try it))
@@ -225,3 +239,237 @@
 
       {try.#Failure error}
       right)))
+
+(these (the .public name_of_current_module
+         (Operation @type.Lux @type.Name_Of_Module)
+         (function (_ lux)
+           (.when (its @type.#current_module lux)
+             {.#Some current_module}
+             {try.#Success [lux current_module]}
+
+             else
+             {try.#Failure module.not_available})))
+
+       (the .public (normal name)
+         (-> Name
+             (Operation @type.Lux Name))
+         (when name
+           ["" name]
+           (by ..functor each
+               (function (_ module)
+                 [module name])
+               ..name_of_current_module)
+
+           _
+           (by ..monad pure name)))
+
+       (the .public (by_name name)
+         (-> module.Name
+             (Operation @type.Lux @type.Module))
+         (function (_ lux)
+           (when (property.value name (its @type.#modules lux))
+             {try.#Success module}
+             {try.#Success [lux module]}
+
+             else
+             {try.#Failure module.not_known})))
+
+       (the .public current_module
+         (Operation @type.Lux [module.Name @type.Module])
+         (monad.let ..monad
+           [name ..name_of_current_module
+            module (..by_name name)]
+           (pure [name module])))
+
+       (the (visible? exported? referenced_module this_module)
+         (-> Bit module.Name module.Name
+             Bit)
+         (.or exported?
+              (text.= referenced_module this_module)))
+
+       (template.with [,singular ,type]
+         [(expansion.let [,unknown (template.name [label._] ["unknown_" ,singular])
+                          ,cannot_access (template.name [label._] ["cannot_access_" ,singular])
+                          ,not_a (template.name [label._] ["not_a_" ,singular])]
+            (the .public (,singular it)
+              (-> Name
+                  (Operation @type.Lux @type.Label))
+              (monad.let ..monad
+                [it (..normal it)
+                 module (..by_name (name.module it))
+                 this_module_name ..name_of_current_module]
+                (when (property.value (name.proper it) (its @type.#definitions module))
+                  {try.#Success [exported? {@type.#Definition [def_type def_value]}]}
+                  (if (visible? exported? (name.module it) this_module_name)
+                      (if (type.= ,type (@type.old_type def_type))
+                          (pure (as (-> Any @type.Label) def_value))
+                          (..of_try (exception.except ,not_a [it])))
+                      (..of_try (exception.except ,cannot_access [it this_module_name])))
+
+                  failure
+                  (..of_try (exception.except ,unknown [it]))))))]
+
+         [[tag @type.Tag]
+          [slot @type.Slot]])
+
+       (the without_lux_runtime
+         (Change (List module.Name))
+         ... The Lux runtime shows up as ""
+         ... so I'm excluding it.
+         (list.only (|>> (text.= module.runtime)
+                         not)))
+
+       ... https://en.wikipedia.org/wiki/Delimiter
+       (the listing_delimiter
+         Text
+         (text \n "                    "))
+
+       (the module_listing
+         (-> (List module.Name)
+             Text)
+         (|>> ..without_lux_runtime
+              (list.sorted text.<)
+              (text.interposed ..listing_delimiter)))
+
+       (the (not_known lux name)
+         (-> @type.Lux Name
+             Error)
+         (let [name_of_current (|> lux
+                                   (its @type.#current_module)
+                                   (maybe.else "???"))
+               every_known (|> lux
+                               (its @type.#modules)
+                               (list#each product.left)
+                               ..module_listing)
+               this_module (|> lux
+                               (its @type.#modules)
+                               (property.value name_of_current)
+                               try.trusted)
+               candidates (|> lux
+                              (its @type.#modules)
+                              (list#each (function (_ [module_name module])
+                                           (|> module
+                                               (its @type.#definitions)
+                                               (list.all (function (_ [def_name [exported? global]])
+                                                           (if (.and exported?
+                                                                     (text.= (name.proper name) def_name))
+                                                               {.#Some (name#as [module_name def_name])}
+                                                               {.#None}))))))
+                              list#conjoint
+                              (list.sorted text.<)
+                              (text.interposed ..listing_delimiter))
+               imports (|> this_module
+                           (its @type.#imports)
+                           ..module_listing)
+               aliases (|> this_module
+                           (its @type.#module_aliases)
+                           (list#each (function (_ [alias real]) (text alias " => " real)))
+                           (list.sorted text.<)
+                           (text.interposed ..listing_delimiter))]
+           (text "" " All known modules: " every_known
+                 \n "           Aliases: " aliases
+                 \n "           Imports: " imports
+                 \n "        Candidates: " candidates
+                 \n "    Current module: " name_of_current
+                 \n "Unknown definition: " (name#as name))))
+
+       (the .public (definition name)
+         (-> Name
+             (Operation @type.Lux [Bit @type.Global]))
+         (monad.let ..monad
+           [name (..normal name)
+            .let [[normal_module normal_proper] name]]
+           (function (_ lux)
+             (when (is (Maybe [Bit @type.Global])
+                       (monad.let maybe.monad
+                         [it (|> lux
+                                 (its @type.#modules)
+                                 (property.value normal_module))]
+                         (|> it
+                             (its @type.#definitions)
+                             (property.value normal_proper))))
+               {.#Some exported?,definition}
+               {try.#Success [lux exported?,definition]}
+
+               _
+               {try.#Failure (..not_known lux name)}))))
+
+       (the .public (macro full_name)
+         (-> Name
+             (Operation @type.Lux @type.Macro))
+         (monad.let ..monad
+           [full_name (..normal full_name)
+            this_module ..name_of_current_module]
+           (is (Operation @type.Lux @type.Macro)
+               (function (_ lux)
+                 (let [modules (its @type.#modules lux)]
+                   (loop (macro [[module name] full_name])
+                     (monad.let try.monad
+                       [$module (property.value module modules)
+                        [exported? definition] (|> $module
+                                                   (is @type.Module)
+                                                   (its @type.#definitions)
+                                                   (property.value name))]
+                       (when definition
+                         {@type.#Alias de_aliased}
+                         (macro de_aliased)
+                         
+                         {@type.#Definition [def_type def_value]}
+                         (if (type.= @type.Macro (@type.old_type def_type))
+                             {try.#Success [lux (as (-> Any @type.Macro) def_value)]}
+                             {try.#Failure binding.not_a_macro})
+
+                         {@type.#Default _}
+                         {try.#Failure binding.not_a_macro}))))))))
+
+       (the .public (export name)
+         (-> Name
+             (Operation @type.Lux @type.Definition))
+         (monad.let [! ..monad]
+           [name (..normal name)
+            .let [[expected _] name]
+            [exported? definition] (..definition name)
+            actual ..name_of_current_module]
+           (when definition
+             {@type.#Definition it}
+             (if (.or exported?
+                      (text.= expected actual))
+                 (pure it)
+                 (..failure (text "Definition is not an export: " (name#as name))))
+
+             {@type.#Alias it}
+             (if (.or exported?
+                      (text.= expected actual))
+                 (export it)
+                 (..failure (text "Alias is not an export: " (name#as name))))
+
+             {@type.#Default _}
+             (..failure (text "Defaults are not considered exports: "
+                              (name#as name))))))
+
+       (the .public every_module
+         (Operation @type.Lux (property.List @type.Module))
+         (function (_ lux)
+           (|> lux
+               (its @type.#modules)
+               [lux]
+               {try.#Success})))
+
+       (the .public every_local
+         (Operation @type.Lux (Stack (property.List @type.Type)))
+         (function (_ lux)
+           {try.#Success [lux
+                          (|> lux
+                              (its @type.#scopes)
+                              (stack#each (|>> (its [@type.#locals @type.#mappings])
+                                               (list#each (function (_ [name [type _]])
+                                                            [name type])))))]}))
+
+       (the .public (imported_by? import module)
+         (-> module.Name module.Name
+             (Operation @type.Lux Bit))
+         (by ..monad each
+             (|>> (its @type.#imports)
+                  (list.any? (text.= import)))
+             (..by_name module)))
+       )

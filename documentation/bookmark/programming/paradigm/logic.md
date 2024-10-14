@@ -14,6 +14,7 @@
 
 # Reference
 
+0. [Can Logic Programming Be Liberated from Predicates and Backtracking?](https://www-ps.informatik.uni-kiel.de/~mh/papers/WLP24.pdf)
 0. [Dis-unification](https://en.wikipedia.org/wiki/Dis-unification_(computer_science))
 0. [Rethinking Prolog](https://okmij.org/ftp/kakuritu/rethinking.pdf)
 0. [Symbolic artificial intelligence at Pipedrive](https://medium.com/pipedrive-engineering/symbolic-artificial-intelligence-at-pipedrive-a9bd36d06b9e)

@@ -12,7 +12,7 @@
     ["[0]" try (.only Try)]]
    [data
     ["[0]" product]
-    ["[0]" text (.only \n) (.use "[1]#[0]" order)]
+    ["[0]" text (.only \n)]
     [collection
      ["[0]" list (.use "[1]#[0]" monad)
       ["[0]" property]]]]
@@ -38,7 +38,7 @@
   (when name
     ["" name]
     (monad.let //.monad
-      [[module_name _] module.current]
+      [module_name module.current_name]
       (pure [module_name name]))
 
     _
@@ -48,7 +48,7 @@
       (-> Type
           (Meta Type))
       (when type
-        {.#Variable var}
+        {.#Variable .general var}
         (function (_ lux)
           (when (|> lux
                     (its [.#type_context .#var_bindings])
@@ -58,9 +58,7 @@
                    {try.#Success [lux type]}]
 
                   [[{.#None}]
-                   [{.#Some {.#Variable _}}]]
-                  ))
-            
+                   [{.#Some {.#Variable .general _}}]]))
 
             {.#Some type'}
             {try.#Success [lux type']}))
@@ -84,10 +82,52 @@
   (-> (List module.Name)
       Text)
   (|>> ..without_lux_runtime
-       (list.sorted text#<)
+       (list.sorted text.<)
        (text.interposed ..listing_delimiter)))
 
-(with_template [<name> <yes>]
+(the (not_known lux name)
+  (-> Lux Name
+      Error)
+  (let [name_of_current (|> lux
+                            (its .#current_module)
+                            (maybe.else "???"))
+        every_known (|> lux
+                        (its .#modules)
+                        (list#each product.left)
+                        ..module_listing)
+        this_module (|> lux
+                        (its .#modules)
+                        (property.value name_of_current)
+                        try.trusted)
+        candidates (|> lux
+                       (its .#modules)
+                       (list#each (function (_ [module_name module])
+                                    (|> module
+                                        (its .#definitions)
+                                        (list.all (function (_ [def_name [exported? global]])
+                                                    (if (.and exported?
+                                                              (text.= (name.proper name) def_name))
+                                                        {.#Some (name#as [module_name def_name])}
+                                                        {.#None}))))))
+                       list#conjoint
+                       (list.sorted text.<)
+                       (text.interposed ..listing_delimiter))
+        imports (|> this_module
+                    (its .#imports)
+                    ..module_listing)
+        aliases (|> this_module
+                    (its .#module_aliases)
+                    (list#each (function (_ [alias real]) (text alias " => " real)))
+                    (list.sorted text.<)
+                    (text.interposed ..listing_delimiter))]
+    (text "" " All known modules: " every_known
+          \n "           Aliases: " aliases
+          \n "           Imports: " imports
+          \n "        Candidates: " candidates
+          \n "    Current module: " name_of_current
+          \n "Unknown definition: " (name#as name))))
+
+(with_template [<name>]
   [(the .public (<name> name)
      (-> Name
          (Meta [Bit Global]))
@@ -107,54 +147,11 @@
            {try.#Success [lux exported?,definition]}
 
            _
-           (let [current_module (|> lux (its .#current_module) (maybe.else "???"))
-                 all_known_modules (|> lux
-                                       (its .#modules)
-                                       (list#each product.left)
-                                       ..module_listing)]
-             {try.#Failure (text " All known modules: " all_known_modules \n
-                                 (when (property.value current_module (its .#modules lux))
-                                   {try.#Success this_module}
-                                   (let [candidates (|> lux
-                                                        (its .#modules)
-                                                        (list#each (function (_ [module_name module])
-                                                                     (|> module
-                                                                         (its .#definitions)
-                                                                         (list.all (function (_ [def_name [exported? global]])
-                                                                                     (`` (when global
-                                                                                           {<yes> _}
-                                                                                           (if (.and exported?
-                                                                                                     (text.= normal_proper def_name))
-                                                                                               {.#Some (name#as [module_name def_name])}
-                                                                                               {.#None})
+           {try.#Failure (..not_known lux name)}))))]
 
-                                                                                           _
-                                                                                           {.#None})))))))
-                                                        list#conjoint
-                                                        (list.sorted text#<)
-                                                        (text.interposed ..listing_delimiter))
-                                         imports (|> this_module
-                                                     (its .#imports)
-                                                     ..module_listing)
-                                         aliases (|> this_module
-                                                     (its .#module_aliases)
-                                                     (list#each (function (_ [alias real]) (text alias " => " real)))
-                                                     (list.sorted text#<)
-                                                     (text.interposed ..listing_delimiter))]
-                                     (text "           Aliases: " aliases \n
-                                           "           Imports: " imports \n
-                                           "        Candidates: " candidates \n))
-
-                                   failure
-                                   "")
-                                 "    Current module: " current_module \n
-                                 "Unknown definition: " (name#as name) \n
-                                 )})))))]
-
-  [[definition .#Definition]
-   [default' .#Default]
-   [alias' .#Alias]]
-  )
+  [[definition]
+   [default']
+   [alias']])
 
 (the .public (export name)
   (-> Name
@@ -163,7 +160,7 @@
     [name (..normal name)
      .let [[expected _] name]
      [exported? definition] (..definition name)
-     [actual _] module.current]
+     actual module.current_name]
     (when definition
       {.#Definition it}
       (if (.or exported?
@@ -201,7 +198,7 @@
           (pure it)
           (monad.let !
             [.let [[expected _] name]
-             [actual _] module.current]
+             actual module.current_name]
             (if (text.= expected actual)
                 (pure it)
                 (//.failure (text "Default is not an export: " (name#as name)))))))))
@@ -374,8 +371,8 @@
     [full_name (..normal full_name)]
     (is (Meta @type.Macro)
         (function (_ lux)
-          (when (module.current lux)
-            {try.#Success [_ [this_module _]]}
+          (when (module.current_name lux)
+            {try.#Success [_ this_module]}
             (let [modules (its .#modules lux)]
               (loop (macro [[module name] full_name])
                 (monad.let try.monad
