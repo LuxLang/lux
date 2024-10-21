@@ -1,5 +1,6 @@
 # Reference
 
+0. [Diabetes Breakthrough: New Treatment Eliminates Insulin for 86% of Patients](https://scitechdaily.com/diabetes-breakthrough-new-treatment-eliminates-insulin-for-86-of-patients/)
 0. [The Trouble with Turmeric: Liver Injury Lotto](https://vajenda.substack.com/p/the-trouble-with-turmeric)
 0. [plasticlist](https://www.plasticlist.org/)
 0. [Organ & Body Donations: Last Week Tonight with John Oliver (HBO)](https://www.youtube.com/watch?v=Tn7egDQ9lPg)

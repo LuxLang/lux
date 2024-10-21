@@ -1,5 +1,6 @@
 # Reference
 
+0. [Special functions](https://specialfunctionswiki.org/index.php/Main_Page)
 0. [Some Fundamental Theorems in Mathematics](https://arxiv.org/abs/1807.08416)
 0. [Lists of Open Problems](https://amathr.org/problems/)
 0. [The L-functions and modular forms database (LMFDB)](https://www.lmfdb.org/)
@@ -14,7 +15,6 @@
 
 # Arithmetic
 
-0. []()
 0. [The Definitive Higher Math Guide on Integer Long Division (and Its Variants)](https://mathvault.ca/long-division/)
 
 # Tensor calculus
