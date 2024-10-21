@@ -3,7 +3,7 @@
 
 (.using
  [library
-  [lux (.except Tuple Variant Pattern
+  [lux (.except Pattern
                 #Reification
                 text natural integer revolution when local except variant tuple)
    [abstract
@@ -45,7 +45,7 @@
      ["<[1]>" \\projection]]]]]
  ["[0]" /
   ["[1][0]" simple (.only Simple)]
-  ["[1][0]" complex (.only Tuple Variant Complex)]
+  ["[1][0]" complex (.only Complex)]
   ["[1][0]" pattern (.only Pattern)]
   [//
    ["[0]" phase (.only)
@@ -70,20 +70,18 @@
 (every .public (Environment a)
   (List a))
 
-(expansion.let [@ ($ (Term' $))]
-  (every .public (Term' $)
-    (.Variant
-     {#Simple Simple}
-     {#Structure (Complex @)}
-     {#Reference Reference}
-     {#When @ (Match' @)}
-     {#Abstraction (Environment @) @}
-     {#Reification @ @}
-     {#Extension (Extension @)})))
+(template.the (Term' ,it)
+  [(And ..Provenance ,it)])
 
-(every .public Term
-  (Annotated Provenance
-             (Term' (Annotated Provenance))))
+(every .public (Term _)
+  (Variant
+   {#Simple (Term' Simple)}
+   {#Structure (Term' (Complex (Term _)))}
+   {#Reference (Term' Reference)}
+   {#When (Term' [(Term _) (Match' (Term _))])}
+   {#Abstraction (Term' [(Environment (Term _)) (Term _)])}
+   {#Reification (Term' [(Term _) (Term _)])}
+   {#Extension (Term' (Extension (Term _)))}))
 
 (every .public Branch
   (Branch' Term))
@@ -102,34 +100,38 @@
 (the .public equivalence
   (Equivalence Term)
   (implementation
-   (the (= [_ expected] [_ actual])
+   (the (= expected actual)
      (.when [expected actual]
-       [{#Simple expected} {#Simple actual}]
+       [{#Simple _ expected}
+        {#Simple _ actual}]
        (by /simple.equivalence = expected actual)
 
-       [{#Structure expected} {#Structure actual}]
+       [{#Structure _ expected}
+        {#Structure _ actual}]
        (by (/complex.equivalence =) = expected actual)
 
-       [{#Reference expected} {#Reference actual}]
+       [{#Reference _ expected}
+        {#Reference _ actual}]
        (by reference.equivalence = expected actual)
 
-       [{#When [expected_analysis [expected_head expected_tail]]}
-        {#When [actual_analysis [actual_head actual_tail]]}]
+       [{#When _ [expected_analysis [expected_head expected_tail]]}
+        {#When _ [actual_analysis [actual_head actual_tail]]}]
        (and (= expected_analysis actual_analysis)
             (by (branch_equivalence =) = expected_head actual_head)
             (by (list.equivalence (branch_equivalence =)) = expected_tail actual_tail))
 
-       [{#Abstraction [expected_environment expected_analysis]}
-        {#Abstraction [actual_environment actual_analysis]}]
+       [{#Abstraction _ [expected_environment expected_analysis]}
+        {#Abstraction _ [actual_environment actual_analysis]}]
        (and (= expected_analysis actual_analysis)
             (by (list.equivalence =) = expected_environment actual_environment))
 
-       [{#Reification [expected_input expected_abstraction]}
-        {#Reification [actual_input actual_abstraction]}]
+       [{#Reification _ [expected_input expected_abstraction]}
+        {#Reification _ [actual_input actual_abstraction]}]
        (and (= expected_input actual_input)
             (= expected_abstraction actual_abstraction))
 
-       [{#Extension expected} {#Extension actual}]
+       [{#Extension _ expected}
+        {#Extension _ actual}]
        (by (extension.equivalence =) = expected actual)
 
        _
@@ -141,18 +143,18 @@
 (template.with [<name> <tag>]
   [(the .public <name>
      (template.macro (<name> provenance content)
-       [[provenance {<tag> content}]]))]
+       [{<tag> provenance content}]))]
 
   [[when ..#When]])
 
 (the .public unit
   (template.macro (unit provenance)
-    [[provenance {..#Simple {/simple.#Unit}}]]))
+    [{..#Simple provenance {/simple.#Unit}}]))
 
 (template.with [<name> <tag>]
   [(the .public <name>
      (template.macro (<name> provenance value)
-       [[provenance {..#Simple {<tag> value}}]]))]
+       [{..#Simple provenance {<tag> value}}]))]
 
   [[bit /simple.#Bit]
    [natural /simple.#Natural]
@@ -172,37 +174,36 @@
     [(|> 1
          {variable.#Local}
          {reference.#Variable}
-         {..#Reference} [@]
-         {..#Abstraction (list)} [@]
-         {..#Reification value} [@])]))
+         {..#Reference @}
+         {..#Abstraction @ (list)}
+         {..#Reification @ value})]))
 
-(the .public (reified [[@ abstraction] inputs])
+(the .public (reified [abstraction inputs])
   (-> (Reification Term)
       Term)
   (list#mix (function (_ input abstraction')
-              [@ {#Reification input abstraction'}])
-            [@ abstraction]
+              {#Reification provenance.dummy input abstraction'})
+            abstraction
             inputs))
 
 (the .public (reification analysis)
   (-> Term
       (Reification Term))
-  (loop (again [[@ abstraction] analysis
+  (loop (again [abstraction analysis
                 inputs (is (List Term)
                            (list))])
     (.when abstraction
-      {#Reification input next}
+      {#Reification @ input next}
       (again next (list#composite (list input) inputs))
 
       _
-      [[@ abstraction] inputs])))
+      [abstraction inputs])))
 
 (template.with [<name> <tag>]
   [(the .public <name>
      (syntax.macro (_ [provenance ?list.any
                        content ?list.any])
-       (pure (list (` (.<| [(, provenance)]
-                           {..#Reference}
+       (pure (list (` (.<| {..#Reference (, provenance)}
                            <tag>
                            (, content)))))))]
 
@@ -215,27 +216,26 @@
 (template.with [<name> <tag>]
   [(the .public <name>
      (template.macro (<name> provenance content)
-       [(.<| [provenance]
-             {..#Structure}
+       [(.<| {..#Structure provenance}
              {<tag>}
              content)]))]
 
   [[variant /complex.#Variant]
    [tuple   /complex.#Tuple]])
 
-(the .public (as_text [@ analysis])
+(the .public (as_text analysis)
   (text.Injection Term)
   (.when analysis
-    {#Simple it}
+    {#Simple @ it}
     (/simple.as_text it)
     
-    {#Structure it}
+    {#Structure @ it}
     (/complex.as_text as_text it)
     
-    {#Reference it}
+    {#Reference @ it}
     (reference.as_text it)
     
-    {#When analysis [head tail]}
+    {#When @ analysis [head tail]}
     (let [branch (is (-> Branch Text)
                      (function (_ [when then])
                        (.text (/pattern.as_text when) " " (as_text then))))]
@@ -249,7 +249,7 @@
              (as_text analysis)
              ")"))
     
-    {#Abstraction environment body}
+    {#Abstraction @ environment body}
     (|> (as_text body)
         (.text (|> environment
                    (list#each as_text)
@@ -258,8 +258,8 @@
                " ")
         (text.enclosed ["(" ")"]))
     
-    {#Reification _}
-    (let [[abstraction parameters] (..reification [@ analysis])]
+    {#Reification @ _}
+    (let [[abstraction parameters] (..reification analysis)]
       (|> (.text (as_text abstraction)
                  " "
                  (|> parameters
@@ -267,7 +267,7 @@
                      (text.interposed " ")))
           (text.enclosed ["(" ")"])))
     
-    {#Extension name parameters}
+    {#Extension @ name parameters}
     (|> parameters
         (list#each as_text)
         (text.interposed " ")
