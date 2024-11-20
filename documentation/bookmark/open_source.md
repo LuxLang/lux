@@ -1,5 +1,6 @@
 # Reference
 
+0. [a16z Podcast | An Open Source Business Model That Works](https://youtu.be/y93sPJ0XYKQ)
 0. [Collective Code Construction Contract](https://rfc.zeromq.org/spec/42/)
 0. [Source Code Is Not Enough: The fine print in FOSS promises](https://fuzzypixelz.com/blog/source-code-is-not-enough/)
 0. [StarTrack](https://github.com/seladb/StarTrack-js)

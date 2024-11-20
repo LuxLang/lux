@@ -1,5 +1,6 @@
 # Reference
 
+0. [Never Buy a Stock Photo Again: How to Create Stunning Images with Midjourney AI](https://blog.temaki.ai/how-to-create-photography-midjourney/)
 0. [Solo: Launch your website and business](https://soloist.ai/)
 0. [gencraft: The world's most powerful AI photo and art generation engine](https://gencraft.com/)
 0. [SalesGPT - Your Context-Aware AI Sales Assistant](https://github.com/filip-michalsky/SalesGPT)
