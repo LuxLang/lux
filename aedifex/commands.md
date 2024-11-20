@@ -1,3 +1,7 @@
+```
+cd ~/lux/aedifex/ && grep -r "" | sort
+```
+
 # Build
 
 ```

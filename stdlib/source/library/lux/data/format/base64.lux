@@ -1,0 +1,258 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except text)
+   [data
+    ["[0]" text (.only)
+     [character (.only Character)]]
+    ["[0]" binary
+     ["[1]!" \\unsafe]]
+    [collection
+     ["[0]" list]]]
+   [math
+    [number
+     ["[0]" /64 (.only)
+      ["[0]" natural]]]]
+   [macro
+    ["[0]" template]
+    ["[0]" expansion]]
+   [abstract
+    ["[0]" monad]]
+   [control
+    ["[0]" maybe]]
+   [aspect
+    ["[0]" case (.only Case)]]]])
+
+... https://en.wikipedia.org/wiki/Base64
+(the paddding_for_2 "=")
+(the paddding_for_1 (.text ..paddding_for_2 ..paddding_for_2))
+
+(expansion.let [,*mapping (these [00 "A"]
+                                 [01 "B"]
+                                 [02 "C"]
+                                 [03 "D"]
+                                 [04 "E"]
+                                 [05 "F"]
+                                 [06 "G"]
+                                 [07 "H"]
+                                 [08 "I"]
+                                 [09 "J"]
+                                 [10 "K"]
+                                 [11 "L"]
+                                 [12 "M"]
+                                 [13 "N"]
+                                 [14 "O"]
+                                 [15 "P"]
+
+                                 [16 "Q"]
+                                 [17 "R"]
+                                 [18 "S"]
+                                 [19 "T"]
+                                 [20 "U"]
+                                 [21 "V"]
+                                 [22 "W"]
+                                 [23 "X"]
+                                 [24 "Y"]
+                                 [25 "Z"]
+                                 [26 "a"]
+                                 [27 "b"]
+                                 [28 "c"]
+                                 [29 "d"]
+                                 [30 "e"]
+                                 [31 "f"]
+
+                                 [32 "g"]
+                                 [33 "h"]
+                                 [34 "i"]
+                                 [35 "j"]
+                                 [36 "k"]
+                                 [37 "l"]
+                                 [38 "m"]
+                                 [39 "n"]
+                                 [40 "o"]
+                                 [41 "p"]
+                                 [42 "q"]
+                                 [43 "r"]
+                                 [44 "s"]
+                                 [45 "t"]
+                                 [46 "u"]
+                                 [47 "v"]
+
+                                 [48 "w"]
+                                 [49 "x"]
+                                 [50 "y"]
+                                 [51 "z"]
+                                 [52 "0"]
+                                 [53 "1"]
+                                 [54 "2"]
+                                 [55 "3"]
+                                 [56 "4"]
+                                 [57 "5"]
+                                 [58 "6"]
+                                 [59 "7"]
+                                 [60 "8"]
+                                 [61 "9"]
+                                 [62 "+"]
+                                 [63 "/"])]
+  (these (the (digit it)
+           (text.Injection Natural)
+           (`` (when it
+                 (,, (template.with [,value ,character]
+                       [,value ,character]
+
+                       [,*mapping]))
+
+                 else
+                 (undefined))))
+
+         (the (value it)
+           (-> Character
+               (Maybe Natural))
+           (`` (when it
+                 (,, (template.with [,value ,character]
+                       [(character ,character)
+                        {.#Some ,value}]
+
+                       [,*mapping]))
+
+                 (character (,, (static ..paddding_for_2)))
+                 {.#Some 00}
+
+                 else
+                 {.#None})))))
+
+(the mask_6
+  (/64.mask 6))
+
+(the size_of_sequence_of_bytes
+  3)
+
+(the (sequence_of_digits it offset)
+  (-> binary!.Binary
+      (text.Injection Natural))
+  (let [every_byte (binary!.size it)
+        [every_sequence_of_bytes excess] (natural./% ..size_of_sequence_of_bytes every_byte)
+        byte_0 (binary!.bits_08 (natural.+ 0 offset) it)
+        byte_1 (binary!.bits_08 (natural.+ 1 offset) it)
+        byte_2 (binary!.bits_08 (natural.+ 2 offset) it)]
+    (.text (digit (/64.>> 2 byte_0))
+           (digit (/64.and ..mask_6
+                           (/64.or (/64.<< 4 byte_0)
+                                   (/64.>> 4 byte_1))))
+           (digit (/64.and ..mask_6
+                           (/64.or (/64.<< 2 byte_1)
+                                   (/64.>> 6 byte_2))))
+           (digit (/64.and ..mask_6
+                           byte_2)))))
+
+(every Byte
+  Natural)
+
+(the (with_padding_1 byte_0)
+  (text.Injection Byte)
+  (.text (digit (/64.>> 2 byte_0))
+         (digit (/64.and ..mask_6
+                         (/64.<< 4 byte_0)))
+         ..paddding_for_1))
+
+(the (with_padding_2 [byte_0 byte_1])
+  (text.Injection [Byte Byte])
+  (.text (digit (/64.>> 2 byte_0))
+         (digit (/64.and ..mask_6
+                         (/64.or (/64.<< 4 byte_0)
+                                 (/64.>> 4 byte_1))))
+         (digit (/64.and ..mask_6
+                         (/64.<< 2 byte_1)))
+         ..paddding_for_2))
+
+(the (some_text it)
+  (text.Injection binary!.Binary)
+  (let [every_byte (binary!.size it)
+        [every_sequence_of_bytes excess] (natural./% ..size_of_sequence_of_bytes every_byte)]
+    (.text (|> (list.indices every_sequence_of_bytes)
+               (list.mix (function (_ index total)
+                           (.text total (sequence_of_digits it (natural.x ..size_of_sequence_of_bytes index))))
+                         ""))
+           (when excess
+             1 (let [offset (natural.x ..size_of_sequence_of_bytes every_sequence_of_bytes)]
+                 (with_padding_1 (binary!.bits_08 (natural.+ 0 offset) it)))
+             2 (let [offset (natural.x ..size_of_sequence_of_bytes every_sequence_of_bytes)]
+                 (with_padding_2 [(binary!.bits_08 (natural.+ 0 offset) it)
+                                  (binary!.bits_08 (natural.+ 1 offset) it)]))
+             else ... 0
+             ""))))
+
+(the size_of_sequence_of_digits
+  4)
+
+(the mask_8
+  (/64.mask 8))
+
+(the (sequence_of_bytes every_digit offset)
+  (-> Text Natural
+      (Maybe [Byte Byte Byte]))
+  (monad.let maybe.monad
+    [character_0 (value (.text_char# (natural.+ 0 offset) every_digit))
+     character_1 (value (.text_char# (natural.+ 1 offset) every_digit))
+     character_2 (value (.text_char# (natural.+ 2 offset) every_digit))
+     character_3 (value (.text_char# (natural.+ 3 offset) every_digit))]
+    (pure [(/64.or (/64.<< 2 character_0)
+                   (/64.>> 4 character_1))
+           (/64.and ..mask_8
+                    (/64.or (/64.<< 4 character_1)
+                            (/64.>> 2 character_2)))
+           (/64.and ..mask_8
+                    (/64.or (/64.<< 6 character_2)
+                            character_3))])))
+
+(the (if_text it)
+  (-> Text
+      (Either Text binary!.Binary))
+  (let [every_digit (text.size it)
+        [every_sequence_of_digits excess] (natural./% ..size_of_sequence_of_digits every_digit)]
+    (when excess
+      0 (let [last_sequence (-- every_sequence_of_digits)
+              padded? (text.ends_with? ..paddding_for_2 it)
+              fully_padded? (text.ends_with? ..paddding_for_1 it)
+              simple_size (natural.x ..size_of_sequence_of_bytes every_sequence_of_digits)
+              size (if fully_padded?
+                       (natural.- 2 simple_size)
+
+                       padded?
+                       (natural.- 1 simple_size)
+
+                       ... else
+                       (natural.+ 0 simple_size))]
+          (when (|> (list.indices every_sequence_of_digits)
+                    (list.mix' maybe.monad
+                               (function (_ index total)
+                                 (let [offset_0 (natural.x ..size_of_sequence_of_bytes index)]
+                                   (monad.let maybe.monad
+                                     [[byte_0 byte_1 byte_2] (sequence_of_bytes it (natural.x ..size_of_sequence_of_digits index))]
+                                     (pure (if (and (natural.= last_sequence index)
+                                                    padded?)
+                                               (if fully_padded?
+                                                   (|> total
+                                                       (binary!.has_08! (natural.+ 0 offset_0) byte_0))
+                                                   (|> total
+                                                       (binary!.has_08! (natural.+ 0 offset_0) byte_0)
+                                                       (binary!.has_08! (natural.+ 1 offset_0) byte_1)))
+                                               (|> total
+                                                   (binary!.has_08! (natural.+ 0 offset_0) byte_0)
+                                                   (binary!.has_08! (natural.+ 1 offset_0) byte_1)
+                                                   (binary!.has_08! (natural.+ 2 offset_0) byte_2)))))))
+                               (binary!.empty size)))
+            {.#Some it}
+            {.#Right it}
+
+            else
+            {.#Left it}))
+      2 (if_text (.text it ..paddding_for_1))
+      3 (if_text (.text it ..paddding_for_2))
+      _ {.#Left it})))
+
+(the .public text
+  (Case Text binary!.Binary)
+  (case.new ..if_text ..some_text))
