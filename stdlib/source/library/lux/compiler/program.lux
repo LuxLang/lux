@@ -149,13 +149,16 @@
          (by host delimiter))
        (,, (template.with [<name>]
              [(the (<name> path)
-                (monad.let future.monad
-                  [?/0 (by cache <name> path)
-                   ?/1 (by host <name> path)]
-                  (pure (or ?/0 ?/1))))]
+                (if (cache.path? cache path)
+                    (by cache <name> path)
+                    (by host <name> path)))]
 
              [[file?]
               [directory?]]))
+       (the (read path)
+         (if (cache.path? cache path)
+             (by cache read path)
+             (by host read path)))
        (,, (template.with [<name>]
              [(the <name>
                 (by cache <name>))]
@@ -167,21 +170,9 @@
               [file_size]
               [last_modified]
               [can_execute?]
-              [delete]]))
-       (the (read path)
-         (monad.let future.monad
-           [it (by cache read path)]
-           (when it
-             {try.#Failure _}
-             (by host read path)
-             
-             _
-             (pure it))))
-       (,, (template.with [<name>]
-             [(the <name>
-                (by cache <name>))]
-             
-             [[modify]
+              [delete]
+
+              [modify]
               [write]
               [append]
               [move]]))
@@ -276,14 +267,14 @@
                                   tar)]
                  (pure [])))))
 
-         (the (cache! original_fs context platform)
+         (the (cache! host_fs context platform)
            (for_any (_ <parameters>)
              (-> (file.System Future) Context (Platform <parameters>)
                  (Future (Try Any))))
            (monad.let (try.with future.monad)
              [cache (cache_tar context (its platform.#file_system platform))]
-             (by original_fs write
-                 (cache_path original_fs context)
+             (by host_fs write
+                 (cache_path host_fs context)
                  (by tar.binary as cache))))
 
          (the (with_cache it)
@@ -294,15 +285,15 @@
              [cache_fs
               (revised platform.#file_system (hybrid_fs cache_fs) it)]))
 
-         (the (enable_output! original_fs context)
+         (the (enable_output! host_fs context)
            (-> (file.System Future) Context
                (Future (Try Any)))
            (let [target_root (its context.#target context)]
              (monad.let [! future.monad]
-               [? (by original_fs directory? target_root)]
+               [? (by host_fs directory? target_root)]
                (if ?
                    (pure {try.#Success []})
-                   (file.make_directories ! original_fs target_root)))))
+                   (file.make_directories ! host_fs target_root)))))
          
          (the .public (compiler lux_compiler file_context
                                 expander host_analysis platform translation_bundle host_declaration_bundle program global extender
@@ -328,10 +319,10 @@
                (<| (or_crash! "Compilation failed:")
                    ..timed
                    (monad.let [! (try.with !)]
-                     [.let [original_fs (its platform.#file_system platform)
+                     [.let [host_fs (its platform.#file_system platform)
                             [cache_fs platform] (with_cache platform)]
-                      _ (enable_output! original_fs file_context)
-                      _ (load_cache! original_fs cache_fs file_context)
+                      _ (enable_output! host_fs file_context)
+                      _ (load_cache! host_fs cache_fs file_context)
                       import (import.import (its platform.#file_system platform) (its cli.#libraries compilation))
                       .let [all_extensions [(analysisE.bundle host_analysis)
                                             synthesisE.bundle
@@ -375,12 +366,12 @@
                        {try.#Success [archive state]}
                        (monad.let !
                          [_ (cache/archive.cache! (its platform.#file_system platform) (its cli.#configuration compilation) archive)
-                          _ (cache! original_fs file_context platform)
+                          _ (cache! host_fs file_context platform)
                           host_dependencies (..load_host_dependencies (its platform.#file_system platform)
                                                                       (its cli.#host_dependencies compilation))
 
                           _ (..package! file_context
-                                        original_fs
+                                        host_fs
                                         host_dependencies
                                         packager,package
                                         archive
@@ -389,7 +380,7 @@
 
                        {try.#Failure error}
                        (monad.let !
-                         [_ (cache! original_fs file_context platform)]
+                         [_ (cache! host_fs file_context platform)]
                          (future#pure {try.#Failure error})))))
 
                {cli.#Export export}
