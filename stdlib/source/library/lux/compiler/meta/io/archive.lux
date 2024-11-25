@@ -211,27 +211,32 @@
 (the (valid_cache customs fs context import contexts [module_name @module])
   (-> (List Custom) (file.System Future) Context Import (List //.Context)
       [descriptor.Module module.ID]
-      (Future (Try Cache)))
+      (Future (Try (Maybe Cache))))
   (expansion.let [<cache> (these module_name @module module registry)]
-    (monad.let [! (try.with future.monad)]
+    (monad.let [! future.monad]
       [data (is (Future (Try Binary))
-                (cache/module.cache fs @module))
-       [module registry] (future#pure (<binary>.value (..cache_of customs) data))]
-      (if (text.= descriptor.runtime module_name)
-          (pure [true <cache>])
-          (monad.let !
-            [input (//context.read fs ..pseudo_module import contexts (its context.#host_module_extension context) module_name)]
-            (pure [(cache/purge.valid? (its module.#descriptor module) input) <cache>]))))))
+                (cache/module.cache fs @module))]
+      (when data
+        {try.#Failure _}
+        (pure {try.#Success {.#None}})
+        
+        {try.#Success data}
+        (monad.let [! (try.with !)]
+          [[module registry] (future#pure (<binary>.value (..cache_of customs) data))]
+          (if (text.= descriptor.runtime module_name)
+              (pure {.#Some [true <cache>]})
+              (monad.let !
+                [input (//context.read fs ..pseudo_module import contexts (its context.#host_module_extension context) module_name)]
+                (pure {.#Some [(cache/purge.valid? (its module.#descriptor module) input) <cache>]}))))))))
 
 (the (pre_loaded_caches customs fs context import contexts archive)
   (-> (List Custom) (file.System Future) Context Import (List //.Context) Archive
       (Future (Try (List Cache))))
-  (monad.let [! (try.with future.monad)]
-    [... TODO: Stop needing to wrap this expression in an unnecessary "do" expression.
-     it (|> archive
-            archive.reservations
-            (list.each' ! (..valid_cache customs fs context import contexts)))]
-    (pure it)))
+  (let [! (try.with future.monad)]
+    (|> archive
+        archive.reservations
+        (list.each' ! (..valid_cache customs fs context import contexts))
+        (by ! each (list.all (|>>))))))
 
 (the (load_order archive pre_loaded_caches)
   (-> Archive (List Cache)
