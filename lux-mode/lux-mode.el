@@ -443,7 +443,7 @@ Called by `imenu--generic-function'."
 		   (rational (or* (concat integer fraction_separator natural)
 						  (concat integer natural_unit)))
 		   
-		   (head_of_label "#")
+		   (head_of_label ":")
 		   (head_of_type "[:upper:]")
 
 		   (special_form (let (;; Control

@@ -1,6 +1,6 @@
 ```
 cd ~/lux && grep -r "" --include *.lux | sort
-cd ~/lux && grep -RiIl 'BEFORE' | xargs sed -i 's/BEFORE/AFTER/g'
+cd ~/lux && grep -RiIl 'BEFORE' --include *.lux | xargs sed -i 's/BEFORE/AFTER/g'
 ```
 
 # Test
