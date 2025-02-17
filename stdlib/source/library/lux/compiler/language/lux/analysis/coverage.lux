@@ -67,8 +67,8 @@
             {:Text (Set Text)}
             {:Variant (Variant' (Coverage _))}
             {:List (List (Coverage _))}
-            {:Seq (Coverage _) (Coverage _)}
-            {:Alt (Coverage _) (Coverage _)}))
+            {:Or (Coverage _) (Coverage _)}
+            {:And (Coverage _) (Coverage _)}))
 
          (every .public Variant
            (Variant' Coverage))))
@@ -91,7 +91,7 @@
   (-> Coverage
       (Stack Coverage))
   (when coverage
-    {:Alt left right}
+    {:Or left right}
     (stack.partial left (alternatives right))
 
     _
@@ -125,11 +125,11 @@
            [{:List reference} {:List it}]
            (by (list.equivalence =) = reference it)
            
-           [{:Seq leftR rightR} {:Seq leftS rightS}]
+           [{:And leftR rightR} {:And leftS rightS}]
            (and (= leftR leftS)
                 (= rightR rightS))
 
-           [{:Alt _} {:Alt _}]
+           [{:Or _} {:Or _}]
            (let [flatR (alternatives expected)
                  flatS (alternatives actual)]
              (and (n.= (stack.size flatR) (stack.size flatS))
@@ -178,12 +178,12 @@
             (list:each as_text)
             (text.interposed " ")
             (text.enclosed ["(list " ")"]))
-
-        {:Seq left right}
-        (text "(& " (as_text left) " " (as_text right) ")")
         
-        {:Alt left right}
+        {:Or left right}
         (text "(| " (as_text left) " " (as_text right) ")")
+
+        {:And left right}
+        (text "(& " (as_text left) " " (as_text right) ")")
 
         {:Exhaustive}
         "*")))
@@ -238,7 +238,7 @@
                            (pure leftC)
 
                            _
-                           (pure {:Seq leftC rightC}))))
+                           (pure {:And leftC rightC}))))
                      {:Exhaustive}
                      members))
 
@@ -301,7 +301,7 @@
   (-> Coverage Coverage
       (Try Coverage))
   (expansion.let [<redundancy> (exception.except ..redundancy [so_far addition])
-                  <alternatively> {try.:Success {:Alt addition so_far}}
+                  <alternatively> {try.:Success {:Or addition so_far}}
                   <else> (if (= so_far addition)
                              ... The addition cannot possibly improve the coverage.
                              <redundancy>
@@ -383,7 +383,7 @@
                         {try.:Success})))
               <else>)
 
-          [{:Seq leftA rightA} {:Seq leftSF rightSF}]
+          [{:And leftA rightA} {:And leftSF rightSF}]
           (when [(= leftSF leftA) (= rightSF rightA)]
             ... Same prefix
             [.true .false]
@@ -394,13 +394,13 @@
                         ... (since only the "left" part would influence whether the
                         ... composite coverage is exhaustive or not).
                         leftSF
-                        {:Seq leftSF rightM})))
+                        {:And leftSF rightM})))
 
             ... Same suffix
             [.false .true]
             (monad.let try.monad
               [leftM (composite leftA leftSF)]
-              (pure {:Seq leftM rightA}))
+              (pure {:And leftM rightA}))
 
             ... The 2 sequences cannot possibly be merged.
             [.false .false]
@@ -427,13 +427,13 @@
           ... other ones in the original Alt.
           ... This process must be repeated until no further productive
           ... merges can be done.
-          [_ {:Alt leftS rightS}]
+          [_ {:Or leftS rightS}]
           (monad.let [! try.monad]
             [.let [fuse_once (is (-> Coverage (Stack Coverage)
                                      (Try [(Maybe Coverage)
                                            (Stack Coverage)]))
                                  (function (_ coverageA possibilitiesSF)
-                                   (loop (again [altsSF possibilitiesSF])
+                                   (loop (of [altsSF possibilitiesSF])
                                      (when altsSF
                                        {.:Empty}
                                        (pure [{.:None} (stack coverageA)])
@@ -442,25 +442,25 @@
                                        (monad.let !
                                          [altMSF (composite coverageA altSF)]
                                          (when altMSF
-                                           {:Alt _}
+                                           {:Or _}
                                            (monad.let !
-                                             [[success altsSF+] (again altsSF')]
+                                             [[success altsSF+] (of altsSF')]
                                              (pure [success {.:Top altSF altsSF+}]))
 
                                            _
                                            (pure [{.:Some altMSF} altsSF'])))))))]]
-            (loop (again [addition addition
-                          possibilitiesSF (alternatives so_far)])
+            (loop (of [addition addition
+                       possibilitiesSF (alternatives so_far)])
               (monad.let !
                 [[addition' possibilitiesSF'] (fuse_once addition possibilitiesSF)]
                 (when addition'
                   {.:Some addition'}
-                  (again addition' possibilitiesSF')
+                  (of addition' possibilitiesSF')
                   
                   {.:None}
                   (when (stack.in_reverse possibilitiesSF')
                     {.:Top last prevs}
-                    (pure (stack.mix (function (_ left right) {:Alt left right})
+                    (pure (stack.mix (function (_ left right) {:Or left right})
                                      last
                                      prevs))
 
@@ -468,13 +468,13 @@
                     (undefined))))))
 
           ... The left part will always match, so the addition is redundant.
-          [{:Seq left right} single]
+          [{:And left right} single]
           (if (= left single)
               <redundancy>
               <else>)
 
           ... The right part is not necessary, since it can always match the left.
-          [single {:Seq left right}]
+          [single {:And left right}]
           (if (= left single)
               {try.:Success single}
               <else>)

@@ -88,8 +88,8 @@
    {:F64_Fork (Fork F64 (Path' it))}
    {:Text_Fork (Fork Text (Path' it))}
    {:List Natural}
-   {:Seq (Path' it) (Path' it)}
-   {:Alt (Path' it) (Path' it)}
+   {:Or (Path' it) (Path' it)}
+   {:And (Path' it) (Path' it)}
    {:Then it}))
 
 (every .public (Abstraction' it)
@@ -205,8 +205,8 @@
      (template.macro (<name> left right)
        [{<tag> left right}]))]
 
-  [[path/alt  ..:Alt]
-   [path/seq  ..:Seq]])
+  [[path/alt ..:Or]
+   [path/seq ..:And]])
 
 (every .public Abstraction
   (Abstraction' Term))
@@ -336,10 +336,10 @@
         {:List it}
         (list.as_text %.natural (list it))
         
-        {:Alt left right}
+        {:Or left right}
         (.text "(| " (%path' %then left) " " (%path' %then right) ")")
         
-        {:Seq left right}
+        {:And left right}
         (.text "(& " (%path' %then left) " " (%path' %then right) ")")
         
         {:Then then}
@@ -450,8 +450,8 @@
                   (.and (= leftR leftS)
                         (= rightR rightS))]
 
-                 [[:Alt]
-                  [:Seq]]))
+                 [[:Or]
+                  [:And]]))
 
            _
            false)))))
@@ -501,8 +501,8 @@
                          fork_hash (product.hash again_hash again_hash)]
                     (n.x <factor> (by fork_hash hash fork)))]
 
-                 [[23 :Alt]
-                  [29 :Seq]]))
+                 [[23 :Or]
+                  [29 :And]]))
 
            {:Then body}
            (n.x 31 (by super hash body))
@@ -727,17 +727,17 @@
 (the .public (multi_let [input output])
   (-> (When Term)
       (Maybe Multi_Let))
-  (loop (next [bindings (is (List Projection)
-                            (list))
-               output output])
+  (loop (of [bindings (is (List Projection)
+                          (list))
+             output output])
     (.when output
-      {:Seq {:Access {/access.:Member member}}
-            {:Seq {:Bind register}
+      {:And {:Access {/access.:Member member}}
+            {:And {:Bind register}
                   then}}
       (.let [bindings (list:composite bindings (list [register member]))]
         (.when then
-          {:Seq {:Pop} then}
-          (next bindings then)
+          {:And {:Pop} then}
+          (of bindings then)
 
           {:Then body}
           {.:Some [input bindings body]}
@@ -748,15 +748,15 @@
       _
       {.:None})))
 
-(every .public If
+(every .public (If branch)
   (Record
    [:if_when Term
-    :if_then Term
-    :if_else Term]))
+    :if_then branch
+    :if_else branch]))
 
 (the .public (if [input output])
   (-> (When Term)
-      (Maybe If))
+      (Maybe (If Term)))
   (.when output
     (^.or {:Bit_Fork .true {:Then then} {.:Some {:Then else}}}
           {:Bit_Fork .false {:Then else} {.:Some {:Then then}}})
@@ -767,9 +767,64 @@
     _
     {.:None}))
 
+(template.let [(complete ,right? ,binding ,body)
+               [(all {:And}
+                     {:Access {/access.:Side [/side.:lefts 0
+                                              /side.:right? ,right?]}}
+                     {:Bind ,binding}
+                     {:Then ,body})]
+
+               (partial ,right? ,body)
+               [(all {:And}
+                     {:Access {/access.:Side [/side.:lefts 0
+                                              /side.:right? ,right?]}}
+                     {:Then ,body})]
+
+               (trust ,body)
+               [{:Then ,body}]]
+  (expansion.let [,complete_then (complete .false @then then)
+                  ,complete_else (complete .true @else else)
+
+                  ,partial_then (partial .false then)
+                  ,partial_else (partial .true else)]
+    (the .public (variant_if [input output])
+      (-> (When Term)
+          (Maybe (If [(Maybe Register) Term])))
+      (.when output
+        (^.or {:Or ,complete_then ,complete_else}
+              {:Or ,complete_else ,complete_then})
+        {.:Some [:if_when input
+                 :if_then [{.:Some @then} then]
+                 :if_else [{.:Some @else} else]]}
+
+        (^.or {:Or ,partial_then ,complete_else}
+              {:Or ,complete_else ,partial_then}
+
+              {:Or ,complete_else (trust then)})
+        {.:Some [:if_when input
+                 :if_then [{.:None} then]
+                 :if_else [{.:Some @else} else]]}
+
+        (^.or {:Or ,complete_then ,partial_else}
+              {:Or ,partial_else ,complete_then})
+        {.:Some [:if_when input
+                 :if_then [{.:Some @then} then]
+                 :if_else [{.:None} else]]}
+
+        (^.or {:Or ,partial_then ,partial_else}
+              {:Or ,partial_else ,partial_then}
+
+              {:Or ,partial_else (trust then)})
+        {.:Some [:if_when input
+                 :if_then [{.:None} then]
+                 :if_else [{.:None} else]]}
+
+        _
+        {.:None}))))
+
 (template.with [,name ,static ,value ,dynamic]
   [(the .public (,name it)
-     (-> If
+     (-> (If Term)
          (Maybe [Term Term]))
      (.when (.its ,static it)
        (..bit _ ,value)
@@ -787,8 +842,8 @@
      (-> (When Term)
          (Maybe [Term (List [,type Term]) Term]))
      (.when output
-       {:Alt {,path head tail}
-             {:Then else}}
+       {:Or {,path head tail}
+            {:Then else}}
        (monad.let [! maybe.monad]
          [.let [case (is (-> (Road ,type Path)
                              (Maybe [,type Term]))
@@ -817,7 +872,7 @@
          {..:When}
          [..:input ,value
           ..:output]
-         {..:Seq {..:Bind ,register}
+         {..:And {..:Bind ,register}
                  {..:Then ,body}})]))
 
 (every .public Let
@@ -874,20 +929,20 @@
                        (list))
               pattern_matching pattern_matching])
     (.when pattern_matching
-      (<| {:Seq {:Access {/access.:Member member}}}
-          {:Seq {:Pop}}
+      (<| {:And {:Access {/access.:Member member}}}
+          {:And {:Pop}}
           tail)
       (its path tail)
 
-      (<| {:Seq {:Access {/access.:Member member}}}
-          {:Seq {:Bind expected}}
+      (<| {:And {:Access {/access.:Member member}}}
+          {:And {:Bind expected}}
           {:Then (..local @ actual)})
       (.if (n.= expected actual)
            {.:Some [:its_path (list:composite path (list member))
                     :its_source source]}
            {.:None})
 
-      (<| {:Seq {:Access {/access.:Member member}}}
+      (<| {:And {:Access {/access.:Member member}}}
           tail)
       (its (list:composite path (list member))
            tail)
