@@ -1,6 +1,5 @@
 # Interoperability
 
-0. []()
 0. [How to Extend WebAssembly with Host Functions](https://www.secondstate.io/articles/extend-webassembly/)
 0. [js-wasm: JavaScript and WebAssembly should be a joy to use together.](https://wasm.js.org/)
 
@@ -31,6 +30,7 @@
 0. [The best WebAssembly runtime may be no runtime at all](https://00f.net/2023/12/11/webassembly-compilation-to-c/)
 0. [just-in-time code generation within webassembly](https://wingolog.org/archives/2022/08/18/just-in-time-code-generation-within-webassembly)
 0. [TeaVM: Build Fast, Modern Web Apps in Java](https://teavm.org/)
+   0. [Release 0.11.0: New WebAssembly backend](https://teavm.org/docs/release-notes/0.11.0.html)
 0. [Recommendations when publishing a Wasm library](https://nickb.dev/blog/recommendations-when-publishing-a-wasm-library)
 0. [Building host implementations for WebAssembly interfaces](https://radu-matei.com/blog/wasm-components-host-implementations/)
 0. [WebAssembly Techniques to Speed Up Matrix Multiplication by 120x](https://jott.live/markdown/mm_wasm)

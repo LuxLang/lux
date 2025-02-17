@@ -31,7 +31,9 @@
     ["[0]" provenance]
     ["[0]" name]]
    [test
-    ["_" property (.only Test)]]]]
+    ["_" property (.only Test)]]
+   [error
+    ["[0]" exception]]]]
  [\\library
   ["[0]" /]])
 
@@ -46,6 +48,12 @@
   (random.and name_part^
               name_part^))
 
+(the textual^
+  (Random Text)
+  (monad.let random.monad
+    [size (|> random.natural (random:each (n.% 20)))]
+    (random.upper_cased size)))
+
 (the code^
   (Random Code)
   (let [numeric^ (is (Random Code)
@@ -58,9 +66,7 @@
                           ))
         textual^ (is (Random Code)
                      (all random.either
-                          (monad.let random.monad
-                            [size (|> random.natural (random:each (n.% 20)))]
-                            (|> (random.upper_cased size) (random:each code.text)))
+                          (|> textual^ (random:each code.text))
                           (|> name^ (random:each code.name))
                           ))
         simple^ (is (Random Code)
@@ -88,12 +94,17 @@
   Test
   (monad.let [! random.monad]
     [sample code^
+     expected_text textual^
      expected_fraction fractionT.random
      expected_rational rationalT.random
 
      natural_numerator random.natural
      integer_numerator random.integer
-     decimal_numerator random.safe_decimal]
+     decimal_numerator random.safe_decimal
+
+     .let [random_digit (by ! each (n.% 10) random.natural)]
+     digit_0 random_digit
+     digit_1 random_digit]
     (`` (all _.and
              (_.test "Can parse Lux code."
                (when (let [source_code (code.as_text sample)]
@@ -122,6 +133,66 @@
                        {.:Right [_ =other]}
                        (and (by code.equivalence = sample =sample)
                             (by code.equivalence = other =other)))))))
+             (,, (template.with [,open ,close ,code]
+                   [(_.coverage [,open ,close]
+                      (let [sample (,code (list sample))
+                            source_code (code.as_text sample)]
+                        (when (/.parse source_code "" (dictionary.empty text.hash)
+                                       [provenance.dummy 0 source_code])
+                          {.:Left error}
+                          false
+
+                          {.:Right [_ parsed]}
+                          (and (by code.equivalence = parsed sample)
+                               (text.starts_with? ,open source_code)
+                               (text.ends_with? ,close source_code)))))]
+
+                   [[/.open_variant /.close_variant code.variant]
+                    [/.open_tuple /.close_tuple code.tuple]
+                    [/.open_form /.close_form code.form]]))
+             (_.coverage [/.text_delimiter]
+               (let [source_code (code.as_text (code.text expected_text))]
+                 (when (/.parse source_code "" (dictionary.empty text.hash)
+                                [provenance.dummy 0 source_code])
+                   {.:Left error}
+                   false
+
+                   {.:Right [_ parsed]}
+                   (and (by code.equivalence = (code.text expected_text) parsed)
+                        (text.starts_with? /.text_delimiter source_code)
+                        (text.ends_with? /.text_delimiter source_code)))))
+             (_.coverage [/.digit_delimiter]
+               (let [expected (n.+ (n.x 10 digit_0)
+                                   digit_1)
+                     source_code (text (%.natural digit_0)
+                                       /.digit_delimiter
+                                       (%.natural digit_1))]
+                 (when (/.parse source_code "" (dictionary.empty text.hash)
+                                [provenance.dummy 0 source_code])
+                   {.:Left error}
+                   false
+
+                   {.:Right [_ parsed]}
+                   (by code.equivalence = (code.natural expected) parsed))))
+             (_.coverage [/.text_cannot_contain_new_lines]
+               (let [source_code (code.as_text (code.text (text expected_text
+                                                                \n
+                                                                expected_text)))]
+                 (when (/.parse source_code "" (dictionary.empty text.hash)
+                                [provenance.dummy 0 source_code])
+                   {.:Left [_ error]}
+                   (exception.is? /.text_cannot_contain_new_lines error)
+
+                   else
+                   false)))
+             (_.coverage [/.end_of_file]
+               (when (/.parse "" "" (dictionary.empty text.hash)
+                              [provenance.dummy 0 ""])
+                 {.:Left [_ error]}
+                 (exception.is? /.end_of_file error)
+
+                 else
+                 false))
              (_.coverage [fraction.extension]
                (when (let [source_code (by fraction.text as expected_fraction)]
                        (/.parse source_code "" (dictionary.empty text.hash)
@@ -264,7 +335,11 @@
 (the .public test
   Test
   (<| (_.covering /._)
+      (_.for [/.Source_Code /.parse])
       (all _.and
            ..code
            ..comments
+           (_.for [/.Alias /.Aliases]
+                  (_.coverage [/.no_aliases]
+                    (dictionary.empty? /.no_aliases)))
            )))

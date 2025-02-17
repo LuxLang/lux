@@ -10,7 +10,7 @@
 
 # Reference
 
-0. []()
+0. [Awesome Identifiers: Pick the best database primary key](https://adileo.github.io/awesome-identifiers/)
 0. [The Slotted Counter Pattern](https://planetscale.com/blog/the-slotted-counter-pattern)
 0. ["Temporal Databases for Streaming Architectures" by Jeremy Taylor and Jon Pither](https://www.youtube.com/watch?v=ykbYNBE-V3k)
 0. ["Makings of a Modern ACID Compliant Distributed Database" by Attila Szegedi](https://www.youtube.com/watch?v=pn8mCeX3LDE)

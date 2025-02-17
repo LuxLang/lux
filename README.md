@@ -108,4 +108,4 @@ I'll be putting there tasks that people can contribute to; both in the compiler 
 
 Writing libraries in Lux will also help a lot in making this a more practical language for day to day use.
 
-##### Copyright (c) 2014-2024 Eduardo Emilio Julián Pereyra. All rights reserved.
+##### Copyright (c) 2014-2025 Eduardo Emilio Julián Pereyra. All rights reserved.
