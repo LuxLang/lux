@@ -36,6 +36,7 @@
     ["[0]" expansion]
     ["[0]" template]]]]
  ["[0]" /
+  ["[1][0]" path]
   ["[1][0]" simple (.only Simple)]
   ["[1][0]" access (.only Access)
    ["[2][0]" side (.only Side)]
@@ -69,29 +70,6 @@
   Resolver
   (dictionary.empty variable.hash))
 
-(every .public (Road value next)
-  (Record
-   [:when value
-    :then next]))
-
-(every .public (Fork value next)
-  [(Road value next)
-   (List (Road value next))])
-
-(every .public (Path' it)
-  (Variant
-   {:Pop}
-   {:Bind Register}
-   {:Access Access}
-   {:Bit_Fork Bit (Path' it) (Maybe (Path' it))}
-   {:I64_Fork (Fork I64 (Path' it))}
-   {:F64_Fork (Fork F64 (Path' it))}
-   {:Text_Fork (Fork Text (Path' it))}
-   {:List Natural}
-   {:Or (Path' it) (Path' it)}
-   {:And (Path' it) (Path' it)}
-   {:Then it}))
-
 (every .public (Abstraction' it)
   (Record
    [:environment (Environment it)
@@ -106,7 +84,7 @@
 (every .public (When it)
   (Record
    [:input it
-    :output (Path' it)]))
+    :output (/path.Path it)]))
 
 (every .public (Tail_Recursion it)
   (Record
@@ -158,55 +136,7 @@
    [Extender extension.Extender]])
 
 (every .public Path
-  (Path' Term))
-
-(the .public path/pop
-  Path
-  {:Pop})
-
-(template.with [<name> <access> <lefts> <right?>]
-  [(the .public <name>
-     (template.macro (_ lefts right?)
-       [(.<| {..:Access}
-             {<access>}
-             [<lefts> lefts
-              <right?> right?])]))]
-
-  [[side /access.:Side /side.:lefts /side.:right?]
-   [member /access.:Member /member.:lefts /member.:right?]])
-
-(the .public item
-  (template.macro (_ index)
-    [(.<| {..:Access}
-          {/access.:Item}
-          index)]))
-
-(template.with [<access> <side> <name>]
-  [(the .public <name>
-     (template.macro (_ lefts)
-       [(<access> lefts <side>)]))]
-
-  [[..side 0b left_side]
-   [..side 1b right_side]
-
-   [..member 0b left_member]
-   [..member 1b right_member]])
-
-(template.with [<name> <tag>]
-  [(the .public <name>
-     (template.macro (<name> content)
-       [{<tag> content}]))]
-
-  [[path/bind ..:Bind]
-   [path/then ..:Then]])
-
-(template.with [<name> <tag>]
-  [(the .public <name>
-     (template.macro (<name> left right)
-       [{<tag> left right}]))]
-
-  [[path/alt ..:Or]
-   [path/seq ..:And]])
+  (/path.Path Term))
 
 (every .public Abstraction
   (Abstraction' Term))
@@ -234,8 +164,7 @@
 
 (the .public with_new_local
   (for_any (_ it)
-    (-> (Operation it)
-        (Operation it)))
+    (Change (Operation it)))
   (<<| (monad.let phase.monad
          [locals ..locals])
        (..with_locals (++ locals))))
@@ -296,56 +225,6 @@
    [abstraction ..:Function ..:Abstraction]
    [reification ..:Function ..:Reification]])
 
-(the .public (%path' %then value)
-  (for_any (_ it)
-    (-> (text.Injection it)
-        (text.Injection (Path' it))))
-  (`` (.when value
-        {:Pop}
-        "_"
-
-        {:Bit_Fork test then else}
-        (.text "(?"
-               " " (bit.as_text test) " " (%path' %then then)
-               (.when else
-                 {.:Some else}
-                 (.text " " (bit.as_text (not test)) " " (%path' %then else))
-
-                 {.:None}
-                 "")
-               ")")
-        
-        (,, (template.with [<tag> ,type <as_text>]
-              [{<tag> [head tail]}
-               (|> (list:composite (list head) tail)
-                   (list:each (function (_ [test then])
-                                (.text (<as_text> test) " " (%path' %then then))))
-                   (text.interposed " ")
-                   (text.enclosed ["(? " ")"]))]
-
-              [[:I64_Fork I64 (|>> .integer %.integer)]
-               [:F64_Fork F64 %.decimal]
-               [:Text_Fork Text %.text]]))
-        
-        {:Access it}
-        (/access.as_text it)
-        
-        {:Bind register}
-        (.text "(@ " (%.natural register) ")")
-
-        {:List it}
-        (list.as_text %.natural (list it))
-        
-        {:Or left right}
-        (.text "(| " (%path' %then left) " " (%path' %then right) ")")
-        
-        {:And left right}
-        (.text "(& " (%path' %then left) " " (%path' %then right) ")")
-        
-        {:Then then}
-        (|> (%then then)
-            (text.enclosed ["(! " ")"])))))
-
 (the .public (as_text [_ value])
   (text.Injection Term)
   (.when value
@@ -378,7 +257,7 @@
             (text.enclosed ["(" ")"])))
 
       {:When input path}
-      (|> (.text (as_text input) " " (%path' as_text path))
+      (|> (.text (as_text input) " " (/path.as_text as_text path))
           (text.enclosed ["{:when " "}"]))
       
       {:Loop loop}
@@ -404,110 +283,6 @@
         (.text (%.text name) " ")
         (text.enclosed ["(" ")"]))))
 
-(the .public %path
-  (text.Injection Path)
-  (%path' ..as_text))
-
-(the .public (path'_equivalence equivalence)
-  (for_any (_ it)
-    (-> (Equivalence it)
-        (Equivalence (Path' it))))
-  (implementation
-   (the (= expected actual)
-     (`` (.when [expected actual]
-           [{:Pop} {:Pop}]
-           true
-
-           [{:Bit_Fork expected_when expected_then expected_else}
-            {:Bit_Fork actual_when actual_then actual_else}]
-           (.and (bit.= expected_when actual_when)
-                 (= expected_then actual_then)
-                 (by (maybe.equivalence =) = expected_else actual_else))
-
-           (,, (template.with [<tag> <equivalence>]
-                 [[{<tag> [expected_head expected_tail]}
-                   {<tag> [actual_head actual_tail]}]
-                  (.let [road_equivalence (product.equivalence <equivalence> =)]
-                    (.and (by road_equivalence = expected_head actual_head)
-                          (by (list.equivalence road_equivalence) = expected_tail actual_tail)))]
-
-                 [[:I64_Fork (is (Equivalence I64) /64.equivalence)]
-                  [:F64_Fork d.equivalence]
-                  [:Text_Fork text.equivalence]]))
-           
-           (,, (template.with [<tag> <equivalence>]
-                 [[{<tag> expected'} {<tag> actual'}]
-                  (by <equivalence> = expected' actual')]
-
-                 [[:Access /access.equivalence]
-                  [:Then   equivalence]]))
-           
-           [{:Bind expected'} {:Bind actual'}]
-           (n.= expected' actual')
-
-           (,, (template.with [<tag>]
-                 [[{<tag> leftR rightR} {<tag> leftS rightS}]
-                  (.and (= leftR leftS)
-                        (= rightR rightS))]
-
-                 [[:Or]
-                  [:And]]))
-
-           _
-           false)))))
-
-(the (path'_hash super)
-  (for_any (_ it)
-    (-> (Hash it)
-        (Hash (Path' it))))
-  (implementation
-   (the equivalence
-     (..path'_equivalence (by super equivalence)))
-   
-   (the (hash value)
-     (`` (.when value
-           {:Pop}
-           2
-
-           {:Access access}
-           (n.x 3 (by /access.hash hash access))
-
-           {:Bind register}
-           (n.x 5 (by n.hash hash register))
-
-           {:Bit_Fork when then else}
-           (all n.x 7
-                (by bit.hash hash when)
-                (hash then)
-                (by (maybe.hash (path'_hash super)) hash else))
-
-           (,, (template.with [<factor> <tag> <hash>]
-                 [{<tag> item}
-                  (.let [when_hash (product.hash <hash>
-                                                 (path'_hash super))
-                         item_hash (product.hash when_hash (list.hash when_hash))]
-                    (n.x <factor> (by item_hash hash item)))]
-
-                 [[11 :I64_Fork /64.hash]
-                  [13 :F64_Fork d.hash]
-                  [17 :Text_Fork text.hash]]))
-
-           {:List it}
-           (n.x 19 (by n.hash hash it))
-
-           (,, (template.with [<factor> <tag>]
-                 [{<tag> fork}
-                  (.let [again_hash (path'_hash super)
-                         fork_hash (product.hash again_hash again_hash)]
-                    (n.x <factor> (by fork_hash hash fork)))]
-
-                 [[23 :Or]
-                  [29 :And]]))
-
-           {:Then body}
-           (n.x 31 (by super hash body))
-           )))))
-
 (the (when_equivalence (open "/:[0]"))
   (for_any (_ it)
     (-> (Equivalence it)
@@ -515,7 +290,7 @@
   (implementation
    (the (= [expected_input expected_path] [actual_input actual_path])
      (.and (/:= expected_input actual_input)
-           (by (path'_equivalence /:=) = expected_path actual_path)))))
+           (by (/path.equivalence /:=) = expected_path actual_path)))))
 
 (the (loop_equivalence (open "/:[0]"))
   (for_any (_ it)
@@ -631,7 +406,7 @@
            {:When [input path]}
            (all n.x 2
                 (by super hash input)
-                (by (..path'_hash super) hash path))
+                (by (/path.hash super) hash path))
            
            (,, (template.with [<factor> <tag> <hash>]
                  [{<tag> value}
@@ -664,7 +439,7 @@
 
 (the .public path_equivalence
   (Equivalence Path)
-  (path'_equivalence equivalence))
+  (/path.equivalence equivalence))
 
 (the .public hash
   (Hash Term)
@@ -684,38 +459,6 @@
                     [07 :Control (..control_hash again_hash)]
                     [11 :Extension (extension.hash again_hash)]]))))))))
 
-(the .public !bind_top
-  (template.macro (_ register thenP)
-    [(all ..path/seq
-          {..:Bind register}
-          {..:Pop}
-          thenP)]))
-
-(the .public !multi_pop
-  (template.macro (_ nextP)
-    [(all ..path/seq
-          {..:Pop}
-          {..:Pop}
-          nextP)]))
-
-... TODO: There are sister patterns to the simple side checks for tuples.
-... These correspond to the situation where tuple members are accessed
-... and bound to variables, but those variables are never used, so they
-... become POPs.
-... After re-implementing unused-variable-elimination, must add those
-... pattern-optimizations again, since a lot of BINDs will become POPs
-... and thus will result in useless code being translated.
-(template.with [<name> <side>]
-  [(the .public <name>
-     (template.macro (<name> idx nextP)
-       [(all ..path/seq
-             (<side> idx)
-             {..:Pop}
-             nextP)]))]
-
-  [[simple_left_side ..left_side]
-   [simple_right_side ..right_side]])
-
 (the Projection
   (type [Register Member]))
 
@@ -731,15 +474,16 @@
                           (list))
              output output])
     (.when output
-      {:And {:Access {/access.:Member member}}
-            {:And {:Bind register}
-                  then}}
+      (all {/path.:And}
+           {/path.:Access {/access.:Member member}}
+           {/path.:Bind register}
+           then)
       (.let [bindings (list:composite bindings (list [register member]))]
         (.when then
-          {:And {:Pop} then}
+          {/path.:And {/path.:Pop} then}
           (of bindings then)
 
-          {:Then body}
+          {/path.:Then body}
           {.:Some [input bindings body]}
 
           _
@@ -758,8 +502,8 @@
   (-> (When Term)
       (Maybe (If Term)))
   (.when output
-    (^.or {:Bit_Fork .true {:Then then} {.:Some {:Then else}}}
-          {:Bit_Fork .false {:Then else} {.:Some {:Then then}}})
+    (^.or {/path.:Bit_Fork .true {/path.:Then then} {.:Some {/path.:Then else}}}
+          {/path.:Bit_Fork .false {/path.:Then else} {.:Some {/path.:Then then}}})
     {.:Some [:if_when input
              :if_then then
              :if_else else]}
@@ -768,20 +512,20 @@
     {.:None}))
 
 (template.let [(complete ,right? ,binding ,body)
-               [(all {:And}
-                     {:Access {/access.:Side [/side.:lefts 0
-                                              /side.:right? ,right?]}}
-                     {:Bind ,binding}
-                     {:Then ,body})]
+               [(all {/path.:And}
+                     {/path.:Access {/access.:Side [/side.:lefts 0
+                                                    /side.:right? ,right?]}}
+                     {/path.:Bind ,binding}
+                     {/path.:Then ,body})]
 
                (partial ,right? ,body)
-               [(all {:And}
-                     {:Access {/access.:Side [/side.:lefts 0
-                                              /side.:right? ,right?]}}
-                     {:Then ,body})]
+               [(all {/path.:And}
+                     {/path.:Access {/access.:Side [/side.:lefts 0
+                                                    /side.:right? ,right?]}}
+                     {/path.:Then ,body})]
 
                (trust ,body)
-               [{:Then ,body}]]
+               [{/path.:Then ,body}]]
   (expansion.let [,complete_then (complete .false @then then)
                   ,complete_else (complete .true @else else)
 
@@ -791,30 +535,30 @@
       (-> (When Term)
           (Maybe (If [(Maybe Register) Term])))
       (.when output
-        (^.or {:Or ,complete_then ,complete_else}
-              {:Or ,complete_else ,complete_then})
+        (^.or {/path.:Or ,complete_then ,complete_else}
+              {/path.:Or ,complete_else ,complete_then})
         {.:Some [:if_when input
                  :if_then [{.:Some @then} then]
                  :if_else [{.:Some @else} else]]}
 
-        (^.or {:Or ,partial_then ,complete_else}
-              {:Or ,complete_else ,partial_then}
+        (^.or {/path.:Or ,partial_then ,complete_else}
+              {/path.:Or ,complete_else ,partial_then}
 
-              {:Or ,complete_else (trust then)})
+              {/path.:Or ,complete_else (trust then)})
         {.:Some [:if_when input
                  :if_then [{.:None} then]
                  :if_else [{.:Some @else} else]]}
 
-        (^.or {:Or ,complete_then ,partial_else}
-              {:Or ,partial_else ,complete_then})
+        (^.or {/path.:Or ,complete_then ,partial_else}
+              {/path.:Or ,partial_else ,complete_then})
         {.:Some [:if_when input
                  :if_then [{.:Some @then} then]
                  :if_else [{.:None} else]]}
 
-        (^.or {:Or ,partial_then ,partial_else}
-              {:Or ,partial_else ,partial_then}
+        (^.or {/path.:Or ,partial_then ,partial_else}
+              {/path.:Or ,partial_else ,partial_then}
 
-              {:Or ,partial_else (trust then)})
+              {/path.:Or ,partial_else (trust then)})
         {.:Some [:if_when input
                  :if_then [{.:None} then]
                  :if_else [{.:None} else]]}
@@ -842,15 +586,15 @@
      (-> (When Term)
          (Maybe [Term (List [,type Term]) Term]))
      (.when output
-       {:Or {,path head tail}
-            {:Then else}}
+       {/path.:Or {,path head tail}
+                  {/path.:Then else}}
        (monad.let [! maybe.monad]
-         [.let [case (is (-> (Road ,type Path)
+         [.let [case (is (-> (/path.Road ,type Path)
                              (Maybe [,type Term]))
                          (function (_ road)
-                           (.when (.its :then road)
-                             {:Then then}
-                             {.:Some [(.its :when road) then]}
+                           (.when (.its /path.:then road)
+                             {/path.:Then then}
+                             {.:Some [(.its /path.:when road) then]}
 
                              _
                              {.:None})))]
@@ -861,9 +605,9 @@
        _
        {.:None}))]
 
-  [[when_i64 I64 :I64_Fork]
-   [when_f64 F64 :F64_Fork]
-   [when_text Text :Text_Fork]])
+  [[when_i64 I64 /path.:I64_Fork]
+   [when_f64 F64 /path.:F64_Fork]
+   [when_text Text /path.:Text_Fork]])
 
 (the .public let
   (template.macro (_ ,@ ,register ,value ,body)
@@ -872,8 +616,8 @@
          {..:When}
          [..:input ,value
           ..:output]
-         {..:And {..:Bind ,register}
-                 {..:Then ,body}})]))
+         {/path.:And {/path.:Bind ,register}
+                     {/path.:Then ,body}})]))
 
 (every .public Let
   (Record
@@ -904,7 +648,7 @@
          {..:When}
          [..:input ,before
           ..:output]
-         {..:Then ,after})]))
+         {/path.:Then ,after})]))
 
 (the .public (flat_exec after)
   (-> Term
@@ -929,21 +673,24 @@
                        (list))
               pattern_matching pattern_matching])
     (.when pattern_matching
-      (<| {:And {:Access {/access.:Member member}}}
-          {:And {:Pop}}
-          tail)
+      (all {/path.:And}
+           {/path.:Access {/access.:Member member}}
+           {/path.:Pop}
+           tail)
       (its path tail)
 
-      (<| {:And {:Access {/access.:Member member}}}
-          {:And {:Bind expected}}
-          {:Then (..local @ actual)})
+      (all {/path.:And}
+           {/path.:Access {/access.:Member member}}
+           {/path.:Bind expected}
+           {/path.:Then (..local @ actual)})
       (.if (n.= expected actual)
            {.:Some [:its_path (list:composite path (list member))
                     :its_source source]}
            {.:None})
 
-      (<| {:And {:Access {/access.:Member member}}}
-          tail)
+      (all {/path.:And}
+           {/path.:Access {/access.:Member member}}
+           tail)
       (its (list:composite path (list member))
            tail)
 
