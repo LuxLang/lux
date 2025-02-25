@@ -23,7 +23,9 @@
     [jvm
      ["_" bytecode (.only Label Bytecode) (.use "[1]:[0]" monad)]
      ["[0]" type (.only Type)
-      [category (.only Method)]]]]]]
+      [category (.only Method)]]]]
+   [control
+    ["[0]" maybe (.use "[1]:[0]" functor)]]]]
  ["[0]" //
   ["[1][0]" type]
   ["[1][0]" runtime (.only Operation Phase Expression)]
@@ -102,53 +104,72 @@
                    ..peek
                    (_.astore register))))
 
-(the (bit_pattern_matching of @else [when thenP elseP])
+(the (bit_pattern_matching of @external_else [when thenP elseP])
   (-> (-> Path (Operation (Bytecode Any)))
       Label [Bit Path (Maybe Path)]
       (Operation (Bytecode Any)))
-  (monad.let phase.monad
+  (monad.let [! phase.monad]
     [then! (of thenP)
-     else! (.when elseP
-             {.:Some elseP}
-             (of elseP)
+     else!,@else (.when elseP
+                   {.:Some elseP}
+                   (|> (of elseP)
+                       (by ! each (function (_ else!)
+                                    (monad.let _.monad
+                                      [@internal_else _.new_label]
+                                      (pure [(all _.composite
+                                                  (_.set_label @internal_else)
+                                                  else!)
+                                             @internal_else])))))
 
-             {.:None}
-             (pure (_.goto @else)))
+                   {.:None}
+                   (pure (_:pure [(_:pure [])
+                                  @external_else])))
      .let [if! (.if when _.ifeq _.ifne)]]
     (pure (monad.let _.monad
-            [@else _.new_label]
+            [[else! @else] else!,@else]
             (all _.composite
                  ..peek
                  (//value.primitive type.boolean)
                  (if! @else)
                  then!
-                 (_.set_label @else)
                  else!)))))
 
 (template.with [<name> <type> <unwrap> <dup> <pop> <test> <comparison> <if>]
-  [(the (<name> of @else [head tail])
+  [(the (<name> of @external_else [head tail])
      (-> (-> Path (Operation (Bytecode Any)))
          Label (Fork <type> Path)
          (Operation (Bytecode Any)))
      (monad.let [! phase.monad]
-       [fork! (list.mix' ! (function (_ [test thenP] else!)
-                             (monad.let !
-                               [then! (of thenP)]
-                               (pure (monad.let _.monad
-                                       [@else _.new_label]
-                                       (all _.composite
-                                            <dup>
-                                            (<test> test)
-                                            <comparison>
-                                            (<if> @else)
-                                            <pop>
-                                            then!
-                                            (_.set_label @else)
-                                            else!)))))
-                         (all _.composite
-                              <pop>
-                              (_.goto @else))
-                         (list.in_reverse (list:composite (list head) tail)))]
+       [fork! (.when tail
+                (list)
+                (monad.let !
+                  [.let [[test thenP] head]
+                   then! (of thenP)]
+                  (pure (all _.composite
+                             (<test> test)
+                             <comparison>
+                             (<if> @external_else)
+                             then!)))
+
+                else
+                (list.mix' ! (function (_ [test thenP] else!)
+                               (monad.let !
+                                 [then! (of thenP)]
+                                 (pure (monad.let _.monad
+                                         [@internal_else _.new_label]
+                                         (all _.composite
+                                              <dup>
+                                              (<test> test)
+                                              <comparison>
+                                              (<if> @internal_else)
+                                              <pop>
+                                              then!
+                                              (_.set_label @internal_else)
+                                              else!)))))
+                           (all _.composite
+                                <pop>
+                                (_.goto @external_else))
+                           (list.in_reverse (list:composite (list head) tail))))]
        (pure (all _.composite
                   ..peek
                   <unwrap>
@@ -380,74 +401,70 @@
                  (<| (_.when_acknowledged @end)
                      (_.set_label @end)))))))
 
+(the variant:lefts
+  (all _.composite
+       _.iconst_0
+       _.aaload
+       (//value.primitive type.int)
+       ))
+
 (the variant:right?
   (all _.composite
        _.iconst_1
        _.aaload
        ))
 
-(the variant:value
+(the variant:when_left
   (all _.composite
        _.iconst_2
        _.aaload
        ))
 
-(the variant:else
+(the variant:when_right
   (all _.composite
        (//complex.lefts 0)
        (//complex.right? true)
        //runtime.when
        ))
 
-(the .public (variant_if expression archive [test [the_then then] [the_else else]])
+(the (bind_left! the_left)
+  (all _.composite
+       variant:when_left
+       (_.astore the_left)))
+
+(the (bind_right! the_right)
+  (all _.composite
+       variant:when_right
+       (_.astore the_right)))
+
+(the .public (variant_if expression archive [test [the_left left] [the_right right]])
   (Expression (synthesis.If [(Maybe Register) synthesis.Term]))
   (monad.let phase.monad
     [test (expression archive test)
-     then (expression archive then)
-     else (expression archive else)]
+     left (expression archive left)
+     right (expression archive right)]
     (pure (monad.let _.monad
-            [@else _.new_label
-             @end _.new_label]
+            [@right _.new_label
+             @end _.new_label
+             .let [not_binding! _.pop
+                   with_left (|> the_left
+                                 (maybe:each bind_left!)
+                                 (maybe.else not_binding!))
+                   with_right (|> the_right
+                                  (maybe:each bind_right!)
+                                  (maybe.else not_binding!))]]
             (all _.composite
                  test (_.checkcast //type.variant)
-                 (.when [the_then the_else]
-                   [{.:Some the_then} {.:Some the_else}]
-                   (all _.composite
-                        _.dup
-                        variant:right? (_.ifnonnull @else)
-                        variant:value (_.astore the_then)
-                        then
-                        (_.when_continuous (_.goto @end))
-                        (_.set_label @else)
-                        variant:else (_.astore the_else))
-                   
-                   [{.:None} {.:Some the_else}]
-                   (all _.composite
-                        _.dup
-                        variant:right? (_.ifnonnull @else)
-                        _.pop
-                        then
-                        (_.when_continuous (_.goto @end))
-                        (_.set_label @else)
-                        variant:else (_.astore the_else))
-                   
-                   [{.:Some the_then} {.:None}]
-                   (all _.composite
-                        _.dup
-                        variant:right? (_.ifnonnull @else)
-                        variant:value (_.astore the_then)
-                        then
-                        (_.when_continuous (_.goto @end))
-                        (_.set_label @else)
-                        _.pop)
-                   
-                   [{.:None} {.:None}]
-                   (all _.composite
-                        variant:right? (_.ifnonnull @else)
-                        then
-                        (_.when_continuous (_.goto @end))
-                        (_.set_label @else)))
-                 else
+                 _.dup variant:right? (_.ifnonnull @right)
+                 _.dup variant:lefts (_.ifne @right)
+
+                 with_left
+                 left
+                 (_.when_continuous (_.goto @end))
+                 
+                 (_.set_label @right)
+                 with_right
+                 right
                  (<| (_.when_acknowledged @end)
                      (_.set_label @end)))))))
 

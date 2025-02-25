@@ -5,7 +5,6 @@
 
 # Parsing
 
-0. []()
 0. [fast_float number parsing library: 4x faster than strtod](https://github.com/fastfloat/fast_float)
 0. [Fast float parsing in practice](https://lemire.me/blog/2020/03/10/fast-float-parsing-in-practice/)
 
@@ -44,6 +43,7 @@
 
 # Reference
 
+0. [Elementary Functions and NOT Following the IEEE 754 Floating-Point Standard](http://www.hlsl.co.uk/blog/2020/1/29/ieee754-is-not-followed)
 0. [Subtraction Is Functionally Complete](https://orlp.net/blog/subtraction-is-functionally-complete/)
 0. [Onboarding floating-point](https://www.altdevarts.com/p/onboarding-floating-point)
 0. [Stephan T. Lavavej “Floating-Point ＜charconv＞: Making Your Code 10x Faster With C++17's Final Boss”](https://www.youtube.com/watch?v=4P_kbF0EbZM)
