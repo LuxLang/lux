@@ -1,5 +1,6 @@
 # Reference
 
+0. [Iterating Pointers: Enabling Static Analysis for Loop-based Pointers](https://www.youtube.com/watch?v=PVN5lRr1jaE)
 0. [Shac (Scalable Hermetic Analysis and Checks) is a unified and ergonomic tool and framework for writing and running static analysis checks.](https://github.com/shac-project/shac)
 0. [Code property graph](https://en.wikipedia.org/wiki/Code_property_graph)
 0. [AnalysisTools](https://analysis-tools.dev/)

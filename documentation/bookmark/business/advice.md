@@ -1,5 +1,6 @@
 # Reference
 
+0. [Narrow Leverage: How Small Strengths Create Big Power](https://www.alexkesin.com/2025/02/narrow-leverage.html)
 0. [Avoid blundering: 80% of a winning strategy](https://longform.asmartbear.com/avoid-blundering/)
 0. [Excuse me, is there a problem?](https://longform.asmartbear.com/problem/)
 0. [The three kinds of leverage that anchor effective strategies](https://longform.asmartbear.com/leverage/)
