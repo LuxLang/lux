@@ -38,7 +38,11 @@
    [type (.only sharing)]
    [time
     ["[0]" instant (.only Instant)]
-    ["[0]" duration (.only Duration)]]]])
+    ["[0]" duration (.only Duration)]]
+   [compiler
+    ["@[0]" type]]
+   [meta
+    ["[0]" provenance]]]])
 
 (.every .public Offset
   Natural)
@@ -282,36 +286,34 @@
   (Projection Name)
   (//.and ..text ..text))
 
-(the .public type
+(the .public (type it)
   (Projection Type)
-  (..rec
-   (function (_ type)
-     (let [indexed (//.and bit ..natural)]
-       (!variant [[0 [.:Nominal] (//.and ..text (..list (//.and bit type)))]
-                  [1 [.:Parameter] indexed]
-                  [2 [.:Variable] indexed]
-                  [3 [.:Quantification] (all //.and bit (..stack (//.and type type)) type)]
-                  [4 [.:Reification] (//.and type type)]
-                  [5 [.:Named] (//.and ..name type)]])))))
+  ((let [indexed (//.and bit ..natural)]
+     (!variant [[0 [.:Nominal] (//.and ..text (..list (//.and bit type)))]
+                [1 [.:Parameter] indexed]
+                [2 [.:Variable] indexed]
+                [3 [.:Quantification] (all //.and bit (..stack (//.and type type)) type)]
+                [4 [.:Reification] (//.and type type)]
+                [5 [.:Named] (//.and ..name type)]]))
+   it))
 
 (the .public provenance
   (Projection Provenance)
   (all //.and ..text ..natural ..natural))
 
-(the .public code
+(the .public (code it)
   (Projection Code)
-  (..rec
-   (function (_ code)
-     (!variant [[0 [.:Bit] (//.and ..provenance ..bit)]
-                [1 [.:Natural] (//.and ..provenance ..natural)]
-                [2 [.:Integer] (//.and ..provenance ..integer)]
-                [3 [.:Revolution] (//.and ..provenance ..revolution)]
-                [4 [.:Decimal] (//.and ..provenance ..decimal)]
-                [5 [.:Text] (//.and ..provenance ..text)]
-                [6 [.:Name] (//.and ..provenance ..name)]
-                [7 [.:Form] (//.and ..provenance (..list code))]
-                [8 [.:Variant] (//.and ..provenance (..list code))]
-                [9 [.:Tuple] (//.and ..provenance (..list code))]]))))
+  ((!variant [[0 [.:Bit] (//.and ..provenance ..bit)]
+              [1 [.:Natural] (//.and ..provenance ..natural)]
+              [2 [.:Integer] (//.and ..provenance ..integer)]
+              [3 [.:Revolution] (//.and ..provenance ..revolution)]
+              [4 [.:Decimal] (//.and ..provenance ..decimal)]
+              [5 [.:Text] (//.and ..provenance ..text)]
+              [6 [.:Name] (//.and ..provenance ..name)]
+              [7 [.:Form] (//.and ..provenance (..list code))]
+              [8 [.:Variant] (//.and ..provenance (..list code))]
+              [9 [.:Tuple] (//.and ..provenance (..list code))]])
+   it))
 
 (template.with [,name ,type ,of_millis]
   [(the .public ,name
@@ -320,3 +322,93 @@
 
   [[instant Instant instant.of_millis]
    [duration Duration duration.of_millis]])
+
+(the simple_expression
+  (Projection @type.Simple)
+  (!variant [[0 [@type.:Simple_Unit] ..any]
+             [1 [@type.:Simple_Bit] ..bit]
+             [2 [@type.:Simple_Natural] ..natural]
+             [3 [@type.:Simple_Integer] ..integer]
+             [4 [@type.:Simple_Revolution] ..revolution]
+             [5 [@type.:Simple_Decimal] ..decimal]
+             [6 [@type.:Simple_Text] ..text]]))
+
+(the variant_expression
+  (for_any (_ it)
+    (-> (Projection it)
+        (Projection (@type.Variant it))))
+  (|>> (all //.and
+            ..natural
+            ..bit)))
+
+(the (complex_expression it)
+  (for_any (_ it)
+    (-> (Projection it)
+        (Projection (@type.Complex it))))
+  (..or (variant_expression it)
+        (..list it)))
+
+(the constant_expression
+  (Projection @type.Name)
+  (all //.and
+       ..text
+       ..text))
+
+(the variable_expression
+  (Projection @type.Variable)
+  (all ..or
+       ..natural
+       ..natural))
+
+(the reference_expression
+  (Projection @type.Reference)
+  (all ..or
+       ..variable_expression
+       ..constant_expression))
+
+(the .public (pattern_expression it)
+  (Projection @type.Pattern)
+  ((!variant [[0 [@type.:Simple_Pattern] ..simple_expression]
+              [1 [@type.:Complex_Pattern] (..complex_expression pattern_expression)]
+              [2 [@type.:List_Pattern] (..list pattern_expression)]
+              [3 [@type.:Bind_Pattern] ..natural]])
+   it))
+
+(the branch_expression
+  (for_any (_ it)
+    (-> (Projection it)
+        (Projection (@type.Branch it))))
+  (//.and pattern_expression))
+
+(the (match_expression it)
+  (for_any (_ it)
+    (-> (Projection it)
+        (Projection (@type.Match it))))
+  (all //.and
+       (branch_expression it)
+       (..list (branch_expression it))))
+
+(the extension_expression
+  (for_any (_ it)
+    (-> (Projection it)
+        (Projection (@type.Extension it))))
+  (|>> ..list
+       (//.and name)))
+
+(the provenance'
+  (exec
+    ... ..provenance
+    (//:pure provenance.dummy)))
+
+(the .public (expression it)
+  (Projection @type.Expression)
+  (template.let [(expression' ,it)
+                 [(//.and ..provenance' ,it)]]
+    ((!variant [[0 [@type.:Simple] (expression' ..simple_expression)]
+                [1 [@type.:Complex] (expression' (..complex_expression expression))]
+                [2 [@type.:Reference] (expression' ..reference_expression)]
+                [3 [@type.:When] (expression' (//.and expression (match_expression expression)))]
+                [4 [@type.:Abstraction] (expression' (//.and (..list expression) expression))]
+                [5 [@type.:Application] (expression' (//.and expression expression))]
+                [6 [@type.:Extension] (expression' (..extension_expression expression))]])
+     it)))

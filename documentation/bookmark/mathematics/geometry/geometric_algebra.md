@@ -1,5 +1,6 @@
 # Reference
 
+0. [Geometric Algebra Books](https://terathon.com/blog/ga-books.html)
 0. [Geometric Algebra in Three Dimensions](https://www.cv.nrao.edu/~mmorgan2/resources/geo3.html)
 0. [Look, Ma, No Matrices!](https://enkimute.github.io/LookMaNoMatrices/)
 0. [Matrix Gateway to Geometric Algebra, Spacetime and Spinors](https://www.garretstar.com/gateway31-July-2019.pdf)
