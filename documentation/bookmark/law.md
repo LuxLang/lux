@@ -1,5 +1,6 @@
 # Reference
 
+0. [When Regulation Becomes Code](https://youtu.be/qmCHfOBAnR4)
 0. [PlainSite: The world's complexity in plain sight](https://www.plainsite.org/)
 0. [Even lawyers don’t like legalese](https://news.mit.edu/2023/new-study-lawyers-legalese-0529)
 0. [OpenFisca: The most widely adopted free and open-source engine to write rules as code](https://openfisca.org/en/)

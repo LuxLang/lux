@@ -7,7 +7,7 @@
                 name)
    [abstract
     ["[0]" monad]]
-   [error
+   ["[0]" error (.only)
     ["[0]" try (.only Try)]
     ["[0]" exception (.only Exception)]]
    ["[0]" function]
@@ -46,20 +46,6 @@
 
 (every .public (Buffer declaration)
   (Sequence [artifact.ID (Maybe Text) declaration]))
-
-(exception.the .public (cannot_interpret error)
-  (Exception Text)
-  (exception.report
-   (list ["Error" error])))
-
-(template.with [<name>]
-  [(exception.the .public (<name> it)
-     (Exception artifact.ID)
-     (exception.report
-      (list ["Artifact ID" (%.natural it)])))]
-
-  [[cannot_overwrite_output]
-   [no_buffer_for_saving_code]])
 
 (every .public (Host expression declaration)
   (Interface
@@ -129,8 +115,8 @@
 
 (template.with [<tag>
                 <with_declaration> <with_type> <with_value>
-                <set> <get> <get_type> <exception>]
-  [(exception.the .public <exception>)
+                <get> <get_type> <exception>]
+  [(error.the .public <exception>)
 
    (the .public <with_declaration>
      (for_any (_ anchor expression declaration output)
@@ -154,31 +140,30 @@
          {try.:Success [state output]}
 
          {.:None}
-         (exception.except <exception> []))))
-
-   (the .public (<set> value)
-     (for_any (_ anchor expression declaration)
-       (-> <get_type>
-           (Operation anchor expression declaration Any)))
-     (function (_ state)
-       {try.:Success [(has <tag> {.:Some value} state)
-                      []]}))]
+         {try.:Failure <exception>})))]
 
   [[:anchor
     (with_anchor anchor)
-    (-> anchor (Operation anchor expression declaration output)
-        (Operation anchor expression declaration output))
+    (-> anchor
+        (Change (Operation anchor expression declaration output)))
     anchor
-    set_anchor anchor anchor no_anchor]
+    anchor anchor no_anchor]
 
    [:buffer
     with_buffer
-    (-> (Operation anchor expression declaration output)
-        (Operation anchor expression declaration output))
+    (Change (Operation anchor expression declaration output))
     ..empty_buffer
-    set_buffer buffer (Buffer declaration) no_active_buffer]])
+    buffer (Buffer declaration) no_buffer]])
 
-(the .public get_registry
+(the .public (set_buffer value)
+  (for_any (_ anchor expression declaration)
+    (-> (Buffer declaration)
+        (Operation anchor expression declaration Any)))
+  (function (_ state)
+    {try.:Success [(has :buffer {.:Some value} state)
+                   []]}))
+
+(the .public registry
   (for_any (_ anchor expression declaration)
     (Operation anchor expression declaration Registry))
   (function (_ state)
@@ -217,6 +202,11 @@
     (Operation anchor expression declaration descriptor.Module))
   (phase.read (its :module)))
 
+(exception.the .public (cannot_interpret error)
+  (Exception Text)
+  (exception.report
+   (list ["Error" error])))
+
 (the .public (evaluate! code)
   (for_any (_ anchor expression declaration)
     (-> [(Maybe unit.ID) expression]
@@ -253,6 +243,11 @@
       {try.:Failure error}
       (exception.except ..cannot_interpret error))))
 
+(exception.the .public (cannot_overwrite_output it)
+  (Exception artifact.ID)
+  (exception.report
+   (list ["Artifact ID" (%.natural it)])))
+
 (the .public (save! artifact_id custom code)
   (for_any (_ anchor expression declaration)
     (-> artifact.ID (Maybe Text) declaration
@@ -268,12 +263,12 @@
           (phase.update (has :buffer {.:Some (sequence.suffix [artifact_id custom code] buffer)})))
       
       {.:None}
-      (phase.except ..no_buffer_for_saving_code [artifact_id]))))
+      (phase.failure ..no_buffer))))
 
 (template.with [<type> <mandatory?> <inputs> <input_types> <name> <artifact>]
-  [(`` (the .public (<name> it (,, (template.spliced <inputs>)) dependencies)
+  [(`` (the .public (<name> (,, (template.spliced <inputs>)) dependencies it)
          (for_any (_ anchor expression declaration)
-           (-> <type> (,, (template.spliced <input_types>)) (Set unit.ID)
+           (-> (,, (template.spliced <input_types>)) (Set unit.ID) <type>
                (Operation anchor expression declaration artifact.ID)))
          (function (_ state)
            (let [[id registry'] (<artifact> it <mandatory?> dependencies (its :registry state))]
@@ -286,9 +281,9 @@
 (exception.the .public (unknown_definition [name known_definitions])
   (Exception [Name (List definition.Definition)])
   (exception.report
-   (list ["Definition" (name.proper name)]
+   (list ["Name" (name.proper name)]
          ["Module" (name.module name)]
-         ["Known Definitions" (exception.listing product.left known_definitions)])))
+         ["Known" (exception.listing product.left known_definitions)])))
 
 (the .public (remember archive name)
   (for_any (_ anchor expression declaration)
@@ -330,8 +325,6 @@
           {.:Some [@artifact def]}
           {try.:Success [state [[@module @artifact] def]]})))))
 
-(exception.the .public no_context)
-
 (the .public (module_id module archive)
   (for_any (_ anchor expression declaration)
     (-> descriptor.Module Archive
@@ -341,6 +334,8 @@
       [@module (archive.id module archive)]
       (pure [state @module]))))
 
+(error.the .public no_context)
+
 (the .public (context archive)
   (for_any (_ anchor expression declaration)
     (-> Archive
@@ -348,7 +343,7 @@
   (function (_ state)
     (when (its :context state)
       {.:None}
-      (exception.except ..no_context [])
+      {try.:Failure ..no_context}
       
       {.:Some id}
       (monad.let try.monad
@@ -357,8 +352,8 @@
 
 (the .public (with_context @artifact body)
   (for_any (_ anchor expression declaration it)
-    (-> artifact.ID (Operation anchor expression declaration it)
-        (Operation anchor expression declaration it)))
+    (-> artifact.ID
+        (Change (Operation anchor expression declaration it))))
   (function (_ state)
     (monad.let try.monad
       [[state' output] (body (has :context {.:Some @artifact} state))]
@@ -367,11 +362,11 @@
 
 (the .public (with_registry_shift shift body)
   (for_any (_ anchor expression declaration it)
-    (-> Natural (Operation anchor expression declaration it)
-        (Operation anchor expression declaration it)))
+    (-> Natural
+        (Change (Operation anchor expression declaration it))))
   (function (_ state)
     (monad.let try.monad
-      [[state' output] (body (has :registry_shift shift state))]
+      [[state' output] (body (revised :registry_shift (n.+ shift) state))]
       (pure [(has :registry_shift (its :registry_shift state) state')
              output]))))
 

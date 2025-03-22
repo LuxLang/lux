@@ -1,5 +1,7 @@
 # Reference
 
+0. [llms.txt hub: The largest directory for AI-ready documentation and tools implementing the proposed llms.txt standard](https://llmstxthub.com/)
+0. [Model Context Protocol](https://github.com/modelcontextprotocol)
 0. [GPT Directory](https://gptdirectory.cc/)
 0. [vLLM: A high-throughput and memory-efficient inference and serving engine for LLMs](https://github.com/vllm-project/vllm)
 0. [Getting started with LLMs locally](https://tales.fromprod.com/2023/099/getting-started-with-llms-locally.html)

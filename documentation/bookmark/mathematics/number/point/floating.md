@@ -33,7 +33,6 @@
 
 # Correctness
 
-0. []()
 0. [Floating point expression inspector](https://github.com/graphitemaster/fpinspect)
 0. [Herbie: Find and fix floating-point problems.](https://herbie.uwplse.org/)
 
@@ -43,6 +42,7 @@
 
 # Reference
 
+0. [Neal Davis - Floating-Point Arithmetic on Deterministic Systems](https://youtu.be/bJSg9pmaD3I)
 0. [Elementary Functions and NOT Following the IEEE 754 Floating-Point Standard](http://www.hlsl.co.uk/blog/2020/1/29/ieee754-is-not-followed)
 0. [Subtraction Is Functionally Complete](https://orlp.net/blog/subtraction-is-functionally-complete/)
 0. [Onboarding floating-point](https://www.altdevarts.com/p/onboarding-floating-point)

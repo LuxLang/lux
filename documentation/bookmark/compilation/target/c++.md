@@ -15,12 +15,12 @@
 
 # Optimization
 
-0. []()
 0. [Copy Elision](https://www.youtube.com/watch?v=_zZWUZEwXk8)
 0. [C and C++ coding style for best performance](https://www.ibm.com/docs/en/aix/7.1?topic=implementation-c-c-coding-style-best-performance)
 
 # Reference
 
+0. [Compiling C++ with the Clang API](https://maskray.me/blog/2025-03-09-compiling-c++-with-clang-api)
 0. [InstantC](https://gitlab.com/jlinhoff/instantc)
 0. [Lightning Talk: Writing a Better std::move - Jonathan Müller - CppCon 2023](https://www.youtube.com/watch?v=hvnl6T2MnUk)
 0. [CppCon 2018: Tom Poole “Why and How to Roll Your Own std::function Implementation”](https://www.youtube.com/watch?v=VY83afAJUIg)
