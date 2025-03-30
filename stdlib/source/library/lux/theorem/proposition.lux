@@ -1,0 +1,300 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except Pattern let)
+   [abstract
+    ["?" projection]
+    ["[0]" monad]]
+   [data
+    ["[0]" product]
+    [collection
+     ["[0]" list (.use "[1]:[0]" monad monoid)
+      ["?[1]" \\projection]]]]
+   ["[0]" meta (.only)
+    ["[0]" extension]
+    ["[0]" name]
+    ["[0]" provenance]
+    ["[0]" code (.only)
+     ["?[1]" \\projection (.only Projection)]]]
+   [compiler
+    ["@[0]" type (.only Simple Complex Pattern)]
+    [language
+     [lux
+      ["[0]" phase]
+      ["[0]" analysis (.only)
+       ["[0]" type]
+       ["[0]" scope]]]]]
+   [macro
+    ["[0]" template]]]])
+
+... https://en.wikipedia.org/wiki/Identity_(mathematics)
+(every .public Identity
+  [analysis.Term analysis.Term])
+
+(the (code_of_name it)
+  (code.Injection Name)
+  (code.tuple (list (code.text (name.module it))
+                    (code.text (name.proper it)))))
+
+(the (code_of_provenance it)
+  (code.Injection Provenance)
+  (` [(, (code.text (its .:module it)))
+      (, (code.natural (its .:line it)))
+      (, (code.natural (its .:column it)))]))
+
+(the (code_of_simple it)
+  (code.Injection Simple)
+  (`` (when it
+        {@type.:Simple_Unit}
+        (` {@type.:Simple_Unit})
+
+        (,, (template.with [,tag ,code]
+              [{,tag it}
+               (` {,tag (, (,code it))})]
+
+              [[@type.:Simple_Bit code.bit]
+               [@type.:Simple_Natural code.natural]
+               [@type.:Simple_Integer code.integer]
+               [@type.:Simple_Revolution code.revolution]
+               [@type.:Simple_Decimal code.decimal]
+               [@type.:Simple_Text code.text]])))))
+
+(the (code_of_complex code it)
+  (for_any (_ it)
+    (-> (code.Injection it)
+        (code.Injection (Complex it))))
+  (when it
+    {@type.:Complex_Variant it}
+    (` {@type.:Complex_Variant [@type.:lefts (, (code.natural (its @type.:lefts it)))
+                                @type.:right? (, (code.bit (its @type.:right? it)))
+                                @type.:value (, (code (its @type.:value it)))]})
+    
+    {@type.:Complex_Tuple it}
+    (` {@type.:Complex_Tuple (list (,* (list:each code it)))})))
+
+(the (code_of_pattern it)
+  (code.Injection Pattern)
+  (when it
+    {@type.:Simple_Pattern it}
+    (` {@type.:Simple_Pattern (, (code_of_simple it))})
+    
+    {@type.:Complex_Pattern it}
+    (` {@type.:Complex_Pattern (, (code_of_complex code_of_pattern it))})
+    
+    {@type.:List_Pattern it}
+    (` {@type.:List_Pattern (list (,* (list:each code_of_pattern it)))})
+    
+    {@type.:Bind_Pattern it}
+    (` {@type.:Bind_Pattern (, (code.natural it))})))
+
+(the (code_of_branch code_of_analysis it)
+  (-> (code.Injection analysis.Term)
+      (code.Injection analysis.Branch))
+  (` [@type.:when (, (code_of_pattern (its @type.:when it)))
+      @type.:then (, (code_of_analysis (its @type.:then it)))]))
+
+(the (code_of_match code_of_analysis [head tail])
+  (-> (code.Injection analysis.Term)
+      (code.Injection analysis.Match))
+  (` [(, (code_of_branch code_of_analysis head))
+      (list (,* (list:each (code_of_branch code_of_analysis) tail)))]))
+
+(the (code_of_analysis it)
+  (code.Injection analysis.Term)
+  (when it
+    {@type.:Simple @ it}
+    (` {@type.:Simple (, (code_of_provenance @))
+                      (, (code_of_simple it))})
+    
+    {@type.:Complex @ it}
+    (` {@type.:Complex (, (code_of_provenance @))
+                       (, (code_of_complex code_of_analysis it))})
+    
+    {@type.:Reference @ it}
+    (` {@type.:Reference (, (code_of_provenance @))
+                         (, (when it
+                              {@type.:Variable_Reference it}
+                              (` {@type.:Variable_Reference (, (when it
+                                                                 {@type.:Local it}
+                                                                 (` {@type.:Local (, (code.natural it))})
+                                                                 
+                                                                 {@type.:Foreign it}
+                                                                 (` {@type.:Foreign (, (code.natural it))})))})
+                              
+                              {@type.:Constant_Reference it}
+                              (` {@type.:Constant_Reference (, (code_of_name it))})))})
+    
+    {@type.:When @ input output}
+    (` {@type.:When (, (code_of_provenance @))
+                    (, (code_of_analysis input))
+                    (, (code_of_match code_of_analysis output))})
+    
+    {@type.:Abstraction @ environment body}
+    (` {@type.:Abstraction (, (code_of_provenance @))
+                           (list (,* (list:each code_of_analysis environment)))
+                           (, (code_of_analysis body))})
+    
+    {@type.:Application @ parameter abstraction}
+    (` {@type.:Application (, (code_of_provenance @))
+                           (, (code_of_analysis parameter))
+                           (, (code_of_analysis abstraction))})
+    
+    {@type.:Extension @ name parameters}
+    (` {@type.:Extension (, (code_of_provenance @))
+                         (, (code_of_name name))
+                         (list (,* (list:each code_of_analysis parameters)))})))
+
+(every Variable
+  [Text Code])
+
+(the each_variable
+  (Projection (List Variable))
+  (?code.tuple (?.some (?.and ?code.local ?list.any))))
+
+(every Body
+  Code)
+
+(the body
+  (Projection Body)
+  ?list.any)
+
+(every Simple_Let
+  [(List Variable)
+   Body])
+
+(the simple_let
+  (Projection Simple_Let)
+  (?.and ..each_variable
+         ..body))
+
+(the each_type_variable
+  (Projection (List Text))
+  (?code.tuple (?.some ?code.local)))
+
+(every Type_Variable
+  Text)
+
+(every Complex_Let
+  [(List Type_Variable)
+   Simple_Let])
+
+(the complex_let
+  (Projection Complex_Let)
+  (?.and ..each_type_variable
+         ..simple_let))
+
+(every Any_Let
+  (Variant
+   {:Complex Complex_Let}
+   {:Simple Simple_Let}))
+
+(the any_let
+  (Projection Any_Let)
+  (all ?.or
+       ..complex_let
+       ..simple_let))
+
+(the .public let
+  (extension.analysis (_ analysis archive
+                         [it ..any_let])
+    (when it
+      {:Complex [each_type_variable each_variable body]}
+      (monad.let [! phase.monad]
+        [.let [it (is (-> (List [Text Natural])
+                          (analysis.Operation analysis.Term))
+                      (list.mix (function (_ variable it)
+                                  (function (_ so_far)
+                                    (<| type.with_var
+                                        (function (_ [identity_of_variable type_of_variable]))
+                                        (it (list:composite so_far (list [variable identity_of_variable]))))))
+                                (function (_ 'each_type_variable)
+                                  (.let ['each_type_variable (|> 'each_type_variable
+                                                                 (list:each (function (_ [variable identity_of_variable])
+                                                                              (list (code.local variable)
+                                                                                    (` {.:Variable (, (code.bit ..general))
+                                                                                                   (, (code.natural identity_of_variable))}))))
+                                                                 list:conjoint)]
+                                    (list.mix (function (_ [variable type])
+                                                (<<| (monad.let !
+                                                       [type_of_variable (meta.eval Type (` (.let [(,* 'each_type_variable)]
+                                                                                              (.type (, type)))))])
+                                                     (scope.with_local [variable (as (-> Any Type) type_of_variable)])))
+                                              (analysis archive body)
+                                              (list.in_reverse each_variable))))
+                                (list.in_reverse each_type_variable)))]
+         it (it (list))]
+        (pure it))
+      
+      {:Simple [each_variable body]}
+      (list.mix (function (_ [variable type])
+                  (<<| (monad.let phase.monad
+                         [type_of_variable (meta.eval Type type)])
+                       (scope.with_local [variable (as (-> Any Type) type_of_variable)])))
+                (analysis archive body)
+                (list.in_reverse each_variable)))))
+
+(the current_module
+  (name.module (name .._)))
+
+(`` (template.the .public (variable ,@ ,identity)
+      [{@type.:Extension ,@ [(,, (static ..current_module)) "variable"]
+                         (list (analysis.natural ,@ ,identity))}]))
+
+(`` (template.the .public (term ,@ ,identity)
+      [{@type.:Extension ,@ [(,, (static ..current_module)) "term"]
+                         (list (analysis.natural ,@ ,identity))}]))
+
+(the (analysis it)
+  (Change analysis.Term)
+  (when it
+    {@type.:Simple @ _}
+    it
+    
+    {@type.:Complex @ it}
+    {@type.:Complex @ (when it
+                        {@type.:Complex_Variant it}
+                        {@type.:Complex_Variant (revised @type.:value analysis it)}
+                        
+                        {@type.:Complex_Tuple it}
+                        {@type.:Complex_Tuple (list:each analysis it)})}
+    
+    {@type.:Reference @ it'}
+    (when it'
+      {@type.:Variable_Reference it'}
+      (when it'
+        {@type.:Local it}
+        (..variable provenance.dummy it)
+        
+        {@type.:Foreign _}
+        it)
+      
+      {@type.:Constant_Reference _}
+      it)
+    
+    {@type.:When @ input [head tail]}
+    {@type.:When @ (analysis input) [(revised @type.:then analysis head)
+                                     (list:each (revised @type.:then analysis) tail)]}
+    
+    {@type.:Abstraction @ environment body}
+    {@type.:Abstraction @ (list:each analysis environment) (analysis body)}
+    
+    {@type.:Application @ parameter abstraction}
+    {@type.:Application @ (analysis parameter) (analysis abstraction)}
+    
+    {@type.:Extension @ name parameters}
+    {@type.:Extension @ name (list:each analysis parameters)}))
+
+(the .public =
+  (extension.analysis (_ analysis archive
+                         [left ?list.any
+                          right ?list.any])
+    (monad.let [! phase.monad]
+      [left (type.with Any
+              (analysis archive left))
+       right (type.with Any
+               (analysis archive right))]
+      (analysis archive (` (is ..Identity
+                               [(, (code_of_analysis (..analysis left)))
+                                (, (code_of_analysis (..analysis right)))]))))))

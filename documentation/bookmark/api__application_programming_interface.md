@@ -1,5 +1,6 @@
 # Reference
 
+0. [Civic APIs](https://apisyouwonthate.com/newsletter/civic-apis/)
 0. [Public APIs](https://publicapis.dev/)
 0. [REST vs. gRPC](https://cerbos.dev/blog/rest-vs-grpc)
 0. [How to Use Abstraction to Kill Your API - Jonathan Marler - Software You Can Love Vancouver 2023](https://www.youtube.com/watch?v=aPWFLkHRIAQ)
