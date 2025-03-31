@@ -3,7 +3,7 @@
 
 (.using
  [library
-  [lux (.except Pattern by and pattern with the local)
+  [lux (.except by and pattern with the local function)
    [data
     ["[0]" text]
     ["[0]" product]
@@ -23,7 +23,7 @@
    [abstract
     ["[0]" monad]]
    [compiler
-    ["@[0]" type (.only Register Variable Simple Complex Pattern)]
+    ["@[0]" type (.only Register Variable Simple Complex)]
     ["[0]" reference (.only)
      ["[0]" variable]]
     [language
@@ -35,7 +35,7 @@
        ["[0]" simple]
        ["[0]" pattern]]]]]
    [error
-    ["[0]" try (.only Try)]
+    ["[0]" try (.only Try) (.use "[1]:[0]" functor)]
     ["[0]" exception (.only Exception)]]
    [macro
     ["^" pattern]
@@ -50,10 +50,6 @@
     ["[0]" bit]]]]
  [/
   ["?" proposition (.only Identity)]])
-
-(.the .public (in_reverse [left right])
-  (Change Identity)
-  [right left])
 
 ... https://en.wikipedia.org/wiki/Substitution_(logic)#Algebra
 ... https://en.wikipedia.org/wiki/Universal_property
@@ -102,6 +98,72 @@
    (list ["Expected" (analysis.as_text expected)]
          ["Actual" (analysis.as_text actual)])))
 
+(.the (with_closure closure)
+  (-> (List analysis.Term) analysis.Term
+      (Try analysis.Term))
+  (.function (of it)
+    (when it
+      {@type.:Simple @ _}
+      {try.:Success it}
+      
+      {@type.:Complex @ it}
+      (when it
+        {@type.:Complex_Variant it}
+        (try:each (.function (_ value)
+                    (|> it
+                        (has @type.:value value)
+                        {@type.:Complex_Variant}
+                        {@type.:Complex @}))
+                  (of (its @type.:value it)))
+        
+        {@type.:Complex_Tuple it}
+        (try:each (|>> {@type.:Complex_Tuple}
+                       {@type.:Complex @})
+                  (list.each' try.monad of it)))
+      
+      {@type.:Reference @ it'}
+      (when it'
+        {@type.:Variable_Reference it'}
+        (when it'
+          {@type.:Local _}
+          {try.:Success it}
+          
+          {@type.:Foreign foreign}
+          (list.item foreign closure))
+        
+        {@type.:Constant_Reference _}
+        {try.:Success it})
+      
+      {@type.:When @ input [head tail]}
+      (monad.let [! try.monad]
+        [input (of input)
+         .let [of_then (is (-> analysis.Branch
+                               (Try analysis.Branch))
+                           (.function (_ it)
+                             (monad.let !
+                               [then (of (its @type.:then it))]
+                               (pure (has @type.:then then it)))))]
+         head (of_then head)
+         tail (list.each' try.monad of_then tail)]
+        (pure {@type.:When @ input [head tail]}))
+      
+      {@type.:Abstraction @ environment body}
+      (monad.let try.monad
+        [environment (list.each' try.monad of environment)
+         body (of body)]
+        (pure {@type.:Abstraction @ environment body}))
+      
+      {@type.:Application @ parameter abstraction}
+      (monad.let try.monad
+        [parameter (of parameter)
+         abstraction (of abstraction)]
+        (pure {@type.:Application @ parameter abstraction}))
+      
+      {@type.:Extension @ name parameters}
+      (monad.let try.monad
+        [parameters (list.each' try.monad of parameters)]
+        (pure {@type.:Extension @ name parameters})))))
+
 (.the (context expected actual it)
   (-> analysis.Term analysis.Term Context
       (Try Context))
@@ -128,8 +190,18 @@
         {try.:Success it}
         (exception.except ..cannot_extract_context [expected actual]))
     
-    ... {@type.:Complex _ it}
-    ... (` {@type.:Complex _ (, (code_of_complex code_of_analysis it))})
+    [{@type.:Complex _ {@type.:Complex_Variant [expected_lefts expected_right? expected_choice]}}
+     {@type.:Complex _ {@type.:Complex_Variant [actual_lefts actual_right? actual_choice]}}]
+    (if (.and (natural.= expected_lefts actual_lefts)
+              (bit.= expected_right? actual_right?))
+        (context expected_choice actual_choice it)
+        (exception.except ..cannot_extract_context [expected actual]))
+
+    [{@type.:Complex _ {@type.:Complex_Tuple expected'}}
+     {@type.:Complex _ {@type.:Complex_Tuple actual'}}]
+    (if (natural.= (list.size expected') (list.size actual'))
+        (list.mix' try.monad (product.uncurried context) it (list.zipped_2 expected' actual'))
+        (exception.except ..cannot_extract_context [expected actual]))
     
     [{@type.:Reference _ expected'} {@type.:Reference _ actual'}]
     (if (.with reference.equivalence
@@ -151,9 +223,9 @@
           [it (context expected_input actual_input it)
            it (context expected_output_head actual_output_head it)]
           (list.mix' !
-                     (function (_ [[expected_output_tail_pattern expected_output_tail]
-                                   [actual_output_tail_pattern actual_output_tail]]
-                                  it)
+                     (.function (_ [[expected_output_tail_pattern expected_output_tail]
+                                    [actual_output_tail_pattern actual_output_tail]]
+                                   it)
                        (if (pattern.= expected_output_tail_pattern
                                       actual_output_tail_pattern)
                            (context expected_output_tail actual_output_tail it)
@@ -162,9 +234,12 @@
                      (list.zipped_2 expected_output_tail actual_output_tail)))
         (exception.except ..cannot_extract_context [expected actual]))
     
-    ... {@type.:Abstraction _ environment body}
-    ... (` {@type.:Abstraction _ (list (,* (list:each code_of_analysis environment)))
-    ...                           (, (code_of_analysis body))})
+    [{@type.:Abstraction _ expected_environment expected_body}
+     {@type.:Abstraction _ actual_environment actual_body}]
+    (monad.let try.monad
+      [expected_body (with_closure expected_environment expected_body)
+       actual_body (with_closure actual_environment actual_body)]
+      (context expected_body actual_body it))
     
     [{@type.:Application _ expected_parameter expected_abstraction}
      {@type.:Application _ actual_parameter actual_abstraction}]
@@ -187,7 +262,7 @@
 (.the (substitution context)
   (-> Context analysis.Term
       (Try analysis.Term))
-  (function (substitution it)
+  (.function (substitution it)
     (when it
       (?.variable _ @)
       (try.or (dictionary.value @ context)
@@ -216,13 +291,18 @@
          abstraction (substitution abstraction)]
         (pure {@type.:Application @ parameter abstraction}))
 
+      {@type.:Abstraction @ environment body}
+      (monad.let try.monad
+        [body (substitution body)]
+        (pure {@type.:Abstraction @ environment body}))
+
       {@type.:When _ input
                    [[output_head_pattern output_head]
                     output_tail]}
       (monad.let [! try.monad]
         [input (substitution input)
          output_head (substitution output_head)
-         output_tail (list.each' ! (function (_ [pattern body])
+         output_tail (list.each' ! (.function (_ [pattern body])
                                      (monad.let !
                                        [body (substitution body)]
                                        (pure [pattern body])))
@@ -239,7 +319,7 @@
   (-> Identity
       Rule)
   (monad.let try.monad
-    [context (context (product.left identity) it empty)]
+    [context (..context (product.left identity) it ..empty)]
     (substitution context (product.right identity))))
 
 (.the .public (as_is environment it)
@@ -255,10 +335,11 @@
      right (right environment (product.right it))]
     (pure [left right])))
 
-(exception.the .public (not_valid [term])
-  (Exception [analysis.Term])
+(exception.the .public (not_valid [where term])
+  (Exception [Name analysis.Term])
   (exception.report
-   (list ["Term" (analysis.as_text term)])))
+   (list ["Where" (name.as_text where)]
+         ["Term" (analysis.as_text term)])))
 
 (template.with [,right? ,name]
   [(.the .public (,name by_choice environment it)
@@ -270,7 +351,7 @@
          (pure {@type.:Complex @ {@type.:Complex_Variant [0 ,right? it]}}))
 
        else
-       (exception.except ..not_valid [else])))]
+       (exception.except ..not_valid [(name ,name) else])))]
 
   [[0b left_case]
    [1b right_case]])
@@ -281,7 +362,7 @@
 (.the (beta_reduction local)
   (-> Environment
       (Change analysis.Term))
-  (function (beta_reduction it)
+  (.function (beta_reduction it)
     (when it
       {@type.:Simple @ _}
       it
@@ -331,7 +412,7 @@
     {@type.:Application @ parameter {@type.:Abstraction @ environment body}}
     (.let [local (|> environment
                      list.enumeration
-                     (list:each (function (_ [foreign term])
+                     (list:each (.function (_ [foreign term])
                                   [{@type.:Foreign foreign}
                                    term]))
                      (dictionary.of_list variable.hash)
@@ -359,7 +440,7 @@
 (.the .public (of' by_abstraction every_parameter)
   (-> Rule (List Rule)
       Rule)
-  (list.mix (function (_ by_parameter by_abstraction)
+  (list.mix (.function (_ by_parameter by_abstraction)
               (by_application by_abstraction by_parameter))
             by_abstraction
             every_parameter))
@@ -376,7 +457,7 @@
 (.the .public (of by_abstraction every_parameter)
   (-> Rule (List Rule)
       Rule)
-  (list.mix (function (_ by_parameter by_abstraction)
+  (list.mix (.function (_ by_parameter by_abstraction)
               (and (by_application by_abstraction by_parameter)
                    by_reification))
             by_abstraction
@@ -401,13 +482,13 @@
     {@type.:Reference _ {@type.:Constant_Reference @}}
     (all try.or
          (global_definition @ lux)
-         (exception.except ..not_valid [it]))
+         (exception.except ..not_valid [(name ..by_definition) it]))
 
     else
-    (exception.except ..not_valid [it])))
+    (exception.except ..not_valid [(name ..by_definition) it])))
 
 (.the (pattern it)
-  (-> Pattern
+  (-> @type.Pattern
       analysis.Term)
   (when it
     {@type.:Simple_Pattern it}
@@ -444,20 +525,20 @@
 
 ... https://en.wikipedia.org/wiki/Lemma_(mathematics)
 (.the (lemma match input)
-  (-> Pattern analysis.Term
+  (-> @type.Pattern analysis.Term
       Identity)
   [(pattern match)
    input])
 
-(every .public Case
-  (-> Identity
+(every .public (Case it)
+  (-> it
       Rule))
 
 (.the .public (in_when for_reality
                        [for_head for_tail]
                        environment it)
   (-> Rule
-      [Case (List Case)]
+      [(Case Identity) (List (Case Identity))]
       Rule)
   (when it
     {@type.:When @ reality [[pattern_of_head body_of_head] tail]}
@@ -466,21 +547,21 @@
         (monad.let [! try.monad]
           [reality (for_reality environment reality)
            body_of_head (for_head (lemma pattern_of_head reality) environment body_of_head)
-           tail (list.each' ! (function (_ [of [pattern body]])
+           tail (list.each' ! (.function (_ [of [pattern body]])
                                 (monad.let !
                                   [body (of (lemma pattern reality) environment body)]
                                   (pure [pattern body])))
                             (list.zipped_2 for_tail tail))]
           (pure {@type.:When @ reality [[pattern_of_head body_of_head] tail]}))
-        (exception.except ..not_valid [it]))
+        (exception.except ..not_valid [(name ..in_when) it]))
 
     else
-    (exception.except ..not_valid [it])))
+    (exception.except ..not_valid [(name ..in_when) it])))
 
 (.the .public (by_when for_reality
                        for_case
                        environment it)
-  (-> Rule Case
+  (-> Rule (Case Identity)
       Rule)
   (when it
     {@type.:When @ reality each_branch}
@@ -539,45 +620,68 @@
              (its @type.:then head))
 
             else
-            (exception.except ..not_valid [it])))))
+            (exception.except ..not_valid [(name ..by_when) it])))))
 
     else
-    (exception.except ..not_valid [it])))
+    (exception.except ..not_valid [(name ..by_when) it])))
 
-(exception.the .public (not_valid' [[left right]])
-  (Exception [Identity])
+(.the .public (by_pair by_left by_right
+                       environment it)
+  (-> Rule Rule
+      Rule)
+  (when it
+    {@type.:Complex @ {@type.:Complex_Tuple (list left right)}}
+    (monad.let try.monad
+      [left (by_left environment left)
+       right (by_right environment right)]
+      (pure {@type.:Complex @ {@type.:Complex_Tuple (list left right)}}))
+
+    else
+    (exception.except ..not_valid [(name ..by_pair) it])))
+
+(every .public (Condition it)
+  (-> Identity
+      (Try it)))
+
+(exception.the .public (not_valid' [where [left right]])
+  (Exception [Name Identity])
   (exception.report
-   (list ["Left" (analysis.as_text left)]
+   (list ["Where" (name.as_text where)]
+         ["Left" (analysis.as_text left)]
          ["Right" (analysis.as_text right)])))
 
-(every .public Condition
-  (-> Identity
-      (Try Identity)))
-
 (.the .public (left_of_pair it)
-  Condition
+  (Condition Identity)
   (when it
     [(analysis.tuple _ (list left right))
      (analysis.tuple _ (list left' right'))]
     {try.:Success [left left']}
 
     else
-    (exception.except ..not_valid' [it])))
+    (exception.except ..not_valid' [(name ..left_of_pair) it])))
 
 (.the .public (right_of_pair it)
-  Condition
+  (Condition Identity)
   (when it
     [(analysis.tuple _ (list left right))
      (analysis.tuple _ (list left' right'))]
     {try.:Success [right right']}
 
     else
-    (exception.except ..not_valid' [it])))
+    (exception.except ..not_valid' [(name ..right_of_pair) it])))
 
-(.the .public (with condition then lemma
+(.the .public (pair it)
+  (Condition [Identity Identity])
+  (monad.and try.monad
+             (left_of_pair it)
+             (right_of_pair it)))
+
+(.the .public (with condition then
+                lemma
                 environment it)
-  (-> Condition
-      (Change Case))
+  (for_any (_ it)
+    (-> (Condition it) (Case it)
+        (Case Identity)))
   (monad.let try.monad
     [lemma (condition lemma)]
     ((then lemma) environment it)))
@@ -612,3 +716,48 @@
     [it any]
     (?.= it it))
   (= ..as_is ..as_is))
+
+(every .public (Closure it)
+  (-> (List analysis.Term) Natural [Lux Natural]
+      (Try [Natural it])))
+
+(.the .public (it by_it)
+  (-> Rule
+      (Closure Identity))
+  (.function (_ closure foreign environment)
+    (monad.let try.monad
+      [term (list.item foreign closure)
+       term (by_it environment term)]
+      (pure [(++ foreign) [(analysis.foreign provenance.dummy foreign)
+                           term]]))))
+
+(.the .public (and' this that)
+  (for_any (_ this that)
+    (-> (Closure this) (Closure that)
+        (Closure [this that])))
+  (.function (_ closure foreign environment)
+    (monad.let try.monad
+      [[foreign this] (this closure foreign environment)
+       [foreign that] (that closure foreign environment)]
+      (pure [foreign [this that]]))))
+
+(.the .public (function closure by_body
+                environment it)
+  (for_any (_ it)
+    (-> (Closure it) (-> it Rule)
+        Rule))
+  (when it
+    {@type.:Abstraction @ closure' body}
+    (when (closure closure' 0 environment)
+      {try.:Success [every_foreign_read closure]}
+      (if (natural.= (list.size closure') every_foreign_read)
+          (monad.let try.monad
+            [body ((by_body closure) environment body)]
+            (pure {@type.:Abstraction @ (list) body}))
+          (exception.except ..not_valid [(name ..function) it]))
+
+      else
+      (exception.except ..not_valid [(name ..function) it]))
+
+    else
+    (exception.except ..not_valid [(name ..function) it])))
