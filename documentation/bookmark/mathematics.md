@@ -17,11 +17,6 @@
 
 0. [The Definitive Higher Math Guide on Integer Long Division (and Its Variants)](https://mathvault.ca/long-division/)
 
-# Tensor calculus
-
-0. []()
-0. [Introduction to Tensor Calculus](http://www.ita.uni-heidelberg.de/~dullemond/lectures/tensor/tensor.pdf)
-
 # Geometry
 
 0. []()
@@ -217,26 +212,6 @@
 0. []()
 0. http://openlogicproject.org/
 
-# Calculus
-
-0. []()
-0. [What is Jacobian? | The right way of thinking derivatives and integrals](https://www.youtube.com/watch?v=wCZ1VEmVjVo)
-0. [The Fractional Derivative, what is it? | Introduction to Fractional Calculus](https://www.youtube.com/watch?v=A4sTAKN6yFA)
-0. [Calculus on Manifolds](http://strangebeautiful.com/other-texts/spivak-calc-manifolds.pdf)
-0. [Calculus BLUE](https://www.youtube.com/watch?v=Jes5jwLl1q8&list=PL8erL0pXF3JYm7VaTdKDaWc8Q3FuP8Sa7)
-0. [Extending the Algebraic Manipulability of Differentials](https://arxiv.org/abs/1801.09553)
-0. https://en.wikipedia.org/wiki/Fractional_calculus
-0. https://medium.com/@notaredpanda/fractional-calculus-48192f4e9c9f
-0. [Fractional Calculus: Theory and Applications](https://www.mdpi.com/books/pdfview/book/755)
-0. [EXTENDING THE ALGEBRAIC MANIPULABILITYOF DIFFERENTIALS](http://online.watsci.org/abstract_pdf/2019v26/v26n3a-pdf/4.pdf)
-0. [Finite Calculus: A Tutorial for Solving Nasty Sums](https://www.cs.purdue.edu/homes/dgleich/publications/Gleich%202005%20-%20finite%20calculus.pdf)
-0. http://jliszka.github.io/2013/10/24/exact-numeric-nth-derivatives.html
-
-# Continuous Calculus
-
-0. []()
-0. [Continuous Calculus](http://www-users.math.umn.edu/~olver/ln_/cc.pdf)
-
 # Octonion
 
 0. []()
@@ -415,7 +390,6 @@
 0. https://courses.cs.washington.edu/courses/cse590b/13au/
 0. http://magma.maths.usyd.edu.au/magma/
 0. [A VIEW OF MATHEMATICS](http://www.alainconnes.org/docs/maths.pdf)
-0. [Introduction to Tensor Analysis and the Calculus of Moving Surfaces](https://www.amazon.com/gp/product/1461478669)
 0. https://en.wikipedia.org/wiki/Wheel_theory
 0. http://wordsandbuttons.online/interactive_guide_to_homogeneous_coordinates.html
 0. https://a-guide-to-the-purescript-numeric-hierarchy.readthedocs.io/en/latest/index.html

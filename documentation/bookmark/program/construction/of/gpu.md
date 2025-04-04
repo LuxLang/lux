@@ -1,5 +1,7 @@
 # Reference
 
+0. [wgpu](https://wgpu.rs/)
+   0. [wgpu](https://github.com/gfx-rs/wgpu)
 0. [Optimization Techniques for GPU Programming](https://dl.acm.org/doi/pdf/10.1145/3570638)
 0. [GPU.js: GPU accelerated JavaScript](https://gpu.rocks/#/)
 0. [cudaFlow: Modern C++ Programming Model for GPU Task Graph Parallelism - CppCon 2021](https://www.youtube.com/watch?v=-tIQbIhTAv8)

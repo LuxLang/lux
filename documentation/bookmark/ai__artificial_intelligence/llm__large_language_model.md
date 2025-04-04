@@ -1,5 +1,6 @@
 # Reference
 
+0. [The Jailbreak Cookbook](https://generalanalysis.com/blog/jailbreak_cookbook)
 0. [llms.txt hub: The largest directory for AI-ready documentation and tools implementing the proposed llms.txt standard](https://llmstxthub.com/)
 0. [Model Context Protocol](https://github.com/modelcontextprotocol)
 0. [GPT Directory](https://gptdirectory.cc/)
