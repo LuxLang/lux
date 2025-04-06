@@ -3,7 +3,7 @@
 
 (.using
  [library
-  [lux (.except by and pattern local function)
+  [lux (.except by and pattern function when list)
    [abstract
     ["[0]" monad]]
    [error
@@ -21,18 +21,16 @@
     [number
      [/64
       ["[0]" natural]]]]
-   ["[0]" meta (.only)
+   [meta
     ["[0]" name]
-    ["[0]" provenance]
-    ["[0]" binding]]
+    ["[0]" provenance]]
    [macro
     ["^" pattern]
-    ["[0]" template]
-    ["[0]" expansion]]
+    ["[0]" template]]
    [compiler
     ["@[0]" type]
-    ["[0]" reference (.only)
-     ["[0]" variable]]
+    ["[0]" reference]
+    ["[0]" extension]
     [language
      [lux
       ["[0]" analysis (.only)
@@ -64,19 +62,19 @@
 (exception.the .public (cannot_extract_context [expected actual])
   (Exception [analysis.Term analysis.Term])
   (exception.report
-   (list ["Expected" (analysis.as_text expected)]
-         ["Actual" (analysis.as_text actual)])))
+   (.list ["Expected" (analysis.as_text expected)]
+          ["Actual" (analysis.as_text actual)])))
 
 (the (with_closure closure)
   (-> (List analysis.Term) analysis.Term
       (Try analysis.Term))
   (.function (of it)
-    (when it
+    (.when it
       {@type.:Simple @ _}
       {try.:Success it}
       
       {@type.:Complex @ it}
-      (when it
+      (.when it
         {@type.:Complex_Variant it}
         (try:each (.function (_ value)
                     (|> it
@@ -91,9 +89,9 @@
                   (list.each' try.monad of it)))
       
       {@type.:Reference @ it'}
-      (when it'
+      (.when it'
         {@type.:Variable_Reference it'}
-        (when it'
+        (.when it'
           {@type.:Local _}
           {try.:Success it}
           
@@ -138,25 +136,25 @@
 
 (`` (template.the .public (induction_variable ,@ ,identity)
       [{@type.:Extension ,@ [(,, (static ..current_module)) "induction_variable"]
-                         (list (analysis.natural ,@ ,identity))}]))
+                         (.list (analysis.natural ,@ ,identity))}]))
 
 (exception.the .public (contradiction [expected actual])
   (Exception [analysis.Term analysis.Term])
   (exception.report
-   (list ["Expected" (analysis.as_text expected)]
-         ["Actual" (analysis.as_text actual)])))
+   (.list ["Expected" (analysis.as_text expected)]
+          ["Actual" (analysis.as_text actual)])))
 
 (the (context expected actual it)
   (-> analysis.Term analysis.Term Context
       (Try Context))
-  (when [expected actual]
+  (.when [expected actual]
     [(..induction_variable _ expected') (?.variable _ actual')]
     (if (natural.= expected' actual')
         {try.:Success it}
         (exception.except ..contradiction [expected actual]))
     
     [(?.variable _ @) _]
-    (when (dictionary.value @ it)
+    (.when (dictionary.value @ it)
       {try.:Success expected}
       (if (.with analysis.equivalence
             (= expected actual))
@@ -231,7 +229,7 @@
     
     ... {@type.:Extension _ name parameters}
     ... (` {@type.:Extension _ (, (code_of_name name))
-    ...                         (list (,* (list:each code_of_analysis parameters)))})
+    ...                         (.list (,* (list:each code_of_analysis parameters)))})
 
     else
     (exception.except ..cannot_extract_context [expected actual])))
@@ -239,13 +237,13 @@
 (exception.the .public (no_substitution [term])
   (Exception [analysis.Term])
   (exception.report
-   (list ["Term" (analysis.as_text term)])))
+   (.list ["Term" (analysis.as_text term)])))
 
 (the (substitution context)
   (-> Context analysis.Term
       (Try analysis.Term))
   (.function (substitution it)
-    (when it
+    (.when it
       (?.variable _ @)
       (try.or (dictionary.value @ context)
               {try.:Success it})
@@ -256,7 +254,7 @@
       {try.:Success it}
 
       {@type.:Complex @ it}
-      (when it
+      (.when it
         {@type.:Complex_Variant [lefts right? it]}
         (monad.let try.monad
           [it (substitution it)]
@@ -311,13 +309,13 @@
 (exception.the .public (not_valid [where term])
   (Exception [Name analysis.Term])
   (exception.report
-   (list ["Where" (name.as_text where)]
-         ["Term" (analysis.as_text term)])))
+   (.list ["Where" (name.as_text where)]
+          ["Term" (analysis.as_text term)])))
 
 (template.with [,right? ,name]
   [(the .public (,name by_choice environment it)
      (Change Rule)
-     (when it
+     (.when it
        {@type.:Complex @ {@type.:Complex_Variant [0 ,right? it]}}
        (monad.let try.monad
          [it (by_choice environment it)]
@@ -329,143 +327,12 @@
   [[0b left_case]
    [1b right_case]])
 
-(every .public Environment
-  (Dictionary @type.Variable analysis.Term))
-
-(the (beta_reduction local)
-  (-> Environment
-      (Change analysis.Term))
-  (.function (beta_reduction it)
-    (when it
-      {@type.:Simple @ _}
-      it
-      
-      {@type.:Complex @ it}
-      {@type.:Complex @ (when it
-                          {@type.:Complex_Variant it}
-                          {@type.:Complex_Variant (revised @type.:value beta_reduction it)}
-                          
-                          {@type.:Complex_Tuple it}
-                          {@type.:Complex_Tuple (list:each beta_reduction it)})}
-      
-      {@type.:Reference @ it'}
-      (when it'
-        {@type.:Variable_Reference it'}
-        (|> local
-            (dictionary.value it')
-            (try.else it))
-        
-        {@type.:Constant_Reference _}
-        it)
-      
-      {@type.:When @ input [head tail]}
-      {@type.:When @ (beta_reduction input)
-                   [(revised @type.:then beta_reduction head)
-                    (list:each (revised @type.:then beta_reduction) tail)]}
-      
-      {@type.:Abstraction @ environment body}
-      {@type.:Abstraction @ (list:each beta_reduction environment)
-                          body}
-      
-      {@type.:Application @ parameter abstraction}
-      {@type.:Application @ (beta_reduction parameter)
-                          (beta_reduction abstraction)}
-      
-      {@type.:Extension @ name parameters}
-      {@type.:Extension @ name (list:each beta_reduction parameters)})))
-
-(exception.the .public (no_application [term])
-  (Exception [analysis.Term])
-  (exception.report
-   (list ["Term" (analysis.as_text term)])))
-
-(the .public (by_reification [lux next_induction] it)
-  Rule
-  (when it
-    {@type.:Application @ parameter {@type.:Abstraction @ environment body}}
-    (.let [local (|> environment
-                     list.enumeration
-                     (list:each (.function (_ [foreign term])
-                                  [{@type.:Foreign foreign}
-                                   term]))
-                     (dictionary.of_list variable.hash)
-                     (dictionary.has {@type.:Local 0} {@type.:Abstraction @ environment body})
-                     (dictionary.has {@type.:Local 1} parameter))]
-      {try.:Success (beta_reduction local body)})
-
-    else
-    (exception.except ..no_application [it])))
-
-(the .public (by_application abstraction parameter
-                             environment it)
-  (-> Rule Rule
-      Rule)
-  (when it
-    {@type.:Application @ parameter' abstraction'}
-    (monad.let try.monad
-      [parameter' (parameter environment parameter')
-       abstraction' (abstraction environment abstraction')]
-      (pure {@type.:Application @ parameter' abstraction'}))
-
-    else
-    (exception.except ..no_application [it])))
-
-(the .public (of' by_abstraction every_parameter)
-  (-> Rule (List Rule)
-      Rule)
-  (list.mix (.function (_ by_parameter by_abstraction)
-              (by_application by_abstraction by_parameter))
-            by_abstraction
-            every_parameter))
-
-(the .public (and before after
-                  environment it)
-  (for_any (_ it)
-    (-> (Substitution it)
-        (Change (Substitution it))))
-  (monad.let try.monad
-    [it (before environment it)]
-    (after environment it)))
-
-(the .public (of by_abstraction every_parameter)
-  (-> Rule (List Rule)
-      Rule)
-  (list.mix (.function (_ by_parameter by_abstraction)
-              (and (by_application by_abstraction by_parameter)
-                   by_reification))
-            by_abstraction
-            every_parameter))
-
-(the (global_definition name lux)
-  (-> Name Lux
-      (Try analysis.Term))
-  (<| (meta.value lux)
-      (monad.let meta.monad
-        [[type expression value] (binding.export name)]
-        (when expression
-          {.:Some [original after_optimization]}
-          (pure original)
-
-          {.:None}
-          (meta.failure "")))))
-
-(the .public (by_definition [lux next_induction] it)
-  Rule
-  (when it
-    {@type.:Reference _ {@type.:Constant_Reference @}}
-    (all try.or
-         (global_definition @ lux)
-         (exception.except ..not_valid [(name ..by_definition) it]))
-
-    else
-    (exception.except ..not_valid [(name ..by_definition) it])))
-
 (the (pattern it)
   (-> @type.Pattern
       analysis.Term)
-  (when it
+  (.when it
     {@type.:Simple_Pattern it}
-    (`` (when it
+    (`` (.when it
           {@type.:Simple_Unit}
           (analysis.unit provenance.dummy)
 
@@ -481,7 +348,7 @@
                  [@type.:Simple_Text analysis.text]]))))
     
     {@type.:Complex_Pattern it}
-    (when it
+    (.when it
       {@type.:Complex_Variant it}
       (analysis.variant provenance.dummy
                         (revised @type.:value pattern it))
@@ -494,10 +361,10 @@
     (undefined)
     
     {@type.:Bind_Pattern it}
-    (analysis.local provenance.dummy it)))
+    (?.variable provenance.dummy it)))
 
 ... https://en.wikipedia.org/wiki/Lemma_(mathematics)
-(the (lemma match input)
+(the .public (lemma match input)
   (-> @type.Pattern analysis.Term
       ?.Identity)
   [(pattern match)
@@ -507,13 +374,13 @@
   (-> it
       Rule))
 
-(the .public (in_when by_reality
-                      [by_head by_tail]
-                      environment it)
+(the .public (when by_reality
+               [by_head by_tail]
+               environment it)
   (-> Rule
       [(Case ?.Identity) (List (Case ?.Identity))]
       Rule)
-  (when it
+  (.when it
     {@type.:When @ reality [[pattern_of_head body_of_head] tail]}
     (if (natural.= (list.size by_tail)
                    (list.size tail))
@@ -526,91 +393,24 @@
                                   (pure [pattern body])))
                             (list.zipped_2 by_tail tail))]
           (pure {@type.:When @ reality [[pattern_of_head body_of_head] tail]}))
-        (exception.except ..not_valid [(name ..in_when) it]))
+        (exception.except ..not_valid [(name ..when) it]))
 
     else
-    (exception.except ..not_valid [(name ..in_when) it])))
+    (exception.except ..not_valid [(name ..when) it])))
 
-(the .public (by_when by_reality
-                      by_case
-                      environment it)
-  (-> Rule (Case ?.Identity)
-      Rule)
-  (when it
-    {@type.:When @ reality each_branch}
-    (monad.let try.monad
-      [reality (by_reality environment reality)]
-      (template.let [(variant_if ,right? ,choice)
-                     [{@type.:Complex @ {@type.:Complex_Variant [0 ,right? ,choice]}}]
-
-                     (local ,it)
-                     [{@type.:Bind_Pattern ,it}]
-
-                     (variant_if_pattern ,right? ,choice)
-                     [{@type.:Complex_Pattern {@type.:Complex_Variant [0 ,right? (local ,choice)]}}]]
-        (expansion.let [bit_if_reality {@type.:Simple @ {@type.:Simple_Bit reality}}
-                        bit_if_then {@type.:Simple_Pattern {@type.:Simple_Bit expectation_for_then}}
-                        bit_if_else {@type.:Simple_Pattern {@type.:Simple_Bit expectation_for_else}}
-
-                        variant_if_reality (variant_if right? reality)
-                        variant_if_then (variant_if_pattern right?_of_then binding_of_then)
-                        variant_if_else (variant_if_pattern right?_of_else binding_of_else)]
-          (when [reality each_branch]
-            [bit_if_reality
-             [[@type.:when bit_if_then
-               @type.:then body_for_then]
-              (list [@type.:when bit_if_else
-                     @type.:then body_for_else])]]
-            (if (bit.= expectation_for_then reality)
-                ((by_case (lemma bit_if_then
-                                 bit_if_reality))
-                 environment
-                 body_for_then)
-                ((by_case (lemma bit_if_else
-                                 bit_if_reality))
-                 environment
-                 body_for_else))
-
-            [variant_if_reality
-             [[@type.:when variant_if_then
-               @type.:then body_for_then]
-              (list [@type.:when variant_if_else
-                     @type.:then body_for_else])]]
-            (if (bit.= right?_of_then right?)
-                ((by_case (lemma (local binding_of_then)
-                                 reality))
-                 environment
-                 body_for_then)
-                ((by_case (lemma (local binding_of_else)
-                                 reality))
-                 environment
-                 body_for_else))
-            
-            [input [head (list)]]
-            ((by_case (lemma (its @type.:when head)
-                             input))
-             environment
-             (its @type.:then head))
-
-            else
-            (exception.except ..not_valid [(name ..by_when) it])))))
-
-    else
-    (exception.except ..not_valid [(name ..by_when) it])))
-
-(the .public (by_pair by_left by_right
-                      environment it)
+(the .public (pair by_left by_right
+                   environment it)
   (-> Rule Rule
       Rule)
-  (when it
-    {@type.:Complex @ {@type.:Complex_Tuple (list left right)}}
+  (.when it
+    {@type.:Complex @ {@type.:Complex_Tuple (.list left right)}}
     (monad.let try.monad
       [left (by_left environment left)
        right (by_right environment right)]
-      (pure {@type.:Complex @ {@type.:Complex_Tuple (list left right)}}))
+      (pure {@type.:Complex @ {@type.:Complex_Tuple (.list left right)}}))
 
     else
-    (exception.except ..not_valid [(name ..by_pair) it])))
+    (exception.except ..not_valid [(name ..pair) it])))
 
 (every .public (Closure it)
   (-> (List analysis.Term) Natural [Lux Natural]
@@ -626,7 +426,7 @@
       (pure [(++ foreign) [(analysis.foreign provenance.dummy foreign)
                            term]]))))
 
-(the .public (and' this that)
+(the .public (and this that)
   (for_any (_ this that)
     (-> (Closure this) (Closure that)
         (Closure [this that])))
@@ -641,14 +441,14 @@
   (for_any (_ it)
     (-> (Closure it) (-> it Rule)
         Rule))
-  (when it
+  (.when it
     {@type.:Abstraction @ closure' body}
-    (when (closure closure' 0 environment)
+    (.when (closure closure' 0 environment)
       {try.:Success [every_foreign_read closure]}
       (if (natural.= (list.size closure') every_foreign_read)
           (monad.let try.monad
             [body ((by_body closure) environment body)]
-            (pure {@type.:Abstraction @ (list) body}))
+            (pure {@type.:Abstraction @ (.list) body}))
           (exception.except ..not_valid [(name ..function) it]))
 
       else
@@ -656,3 +456,33 @@
 
     else
     (exception.except ..not_valid [(name ..function) it])))
+
+(the (extension expectation by_parameter/*
+                environment it)
+  (for_any (_ it)
+    (-> Name (List Rule)
+        Rule))
+  (.when it
+    {@type.:Extension @ reality parameter/*}
+    (if (.and (name.= expectation reality)
+              (natural.= (list.size by_parameter/*)
+                         (list.size parameter/*)))
+        (monad.let [! try.monad]
+          [parameter/* (list.each' ! (.function (_ [by_parameter parameter])
+                                       (by_parameter environment parameter))
+                                   (list.zipped_2 by_parameter/* parameter/*))]
+          (pure {@type.:Extension @ reality parameter/*}))
+        (exception.except ..not_valid [(name ..extension) it]))
+
+    else
+    (exception.except ..not_valid [(name ..extension) it])))
+
+(the (synthesis [module name])
+  (Change Name)
+  [module (extension.synthesis name)])
+
+(the .public list
+  (for_any (_ it)
+    (-> (List Rule)
+        Rule))
+  (..extension (..synthesis (name .list#))))

@@ -24,10 +24,14 @@
      [lux
       ["[0]" phase]
       ["[0]" analysis (.only)
-       ["[0]" type]
-       ["[0]" scope]]]]]
+       ["[1]/[0]" type]
+       ["[0]" scope]]]]
+    [meta
+     [archive (.only Archive)]]]
+   ["[0]" type]
    [macro
-    ["[0]" template]]
+    ["[0]" template]
+    ["[0]" syntax]]
    [math
     [number
      [/64
@@ -43,8 +47,8 @@
 
 (the (code_of_name it)
   (code.Injection Name)
-  (code.tuple (list (code.text (name.module it))
-                    (code.text (name.proper it)))))
+  (code.tuple (.list (code.text (name.module it))
+                     (code.text (name.proper it)))))
 
 (the (code_of_provenance it)
   (code.Injection Provenance)
@@ -77,10 +81,10 @@
     {@type.:Complex_Variant it}
     (` {@type.:Complex_Variant [@type.:lefts (, (code.natural (its @type.:lefts it)))
                                 @type.:right? (, (code.bit (its @type.:right? it)))
-                                @type.:value (, (code (its @type.:value it)))]})
+                                @type.:choice (, (code (its @type.:choice it)))]})
     
     {@type.:Complex_Tuple it}
-    (` {@type.:Complex_Tuple (list (,* (list:each code it)))})))
+    (` {@type.:Complex_Tuple (.list (,* (list:each code it)))})))
 
 (the (code_of_pattern it)
   (code.Injection Pattern)
@@ -92,7 +96,7 @@
     (` {@type.:Complex_Pattern (, (code_of_complex code_of_pattern it))})
     
     {@type.:List_Pattern it}
-    (` {@type.:List_Pattern (list (,* (list:each code_of_pattern it)))})
+    (` {@type.:List_Pattern (.list (,* (list:each code_of_pattern it)))})
     
     {@type.:Bind_Pattern it}
     (` {@type.:Bind_Pattern (, (code.natural it))})))
@@ -107,9 +111,9 @@
   (-> (code.Injection analysis.Term)
       (code.Injection analysis.Match))
   (` [(, (code_of_branch code_of_analysis head))
-      (list (,* (list:each (code_of_branch code_of_analysis) tail)))]))
+      (.list (,* (list:each (code_of_branch code_of_analysis) tail)))]))
 
-(the (code_of_analysis it)
+(the .public (code_of_analysis it)
   (code.Injection analysis.Term)
   (when it
     {@type.:Simple @ it}
@@ -141,7 +145,7 @@
     
     {@type.:Abstraction @ environment body}
     (` {@type.:Abstraction (, (code_of_provenance @))
-                           (list (,* (list:each code_of_analysis environment)))
+                           (.list (,* (list:each code_of_analysis environment)))
                            (, (code_of_analysis body))})
     
     {@type.:Application @ parameter abstraction}
@@ -152,7 +156,7 @@
     {@type.:Extension @ name parameters}
     (` {@type.:Extension (, (code_of_provenance @))
                          (, (code_of_name name))
-                         (list (,* (list:each code_of_analysis parameters)))})))
+                         (.list (,* (list:each code_of_analysis parameters)))})))
 
 (every Variable
   [Text Code])
@@ -204,55 +208,70 @@
        ..complex_let
        ..simple_let))
 
-(the .public let
-  (extension.analysis (_ analysis archive
-                         [it ..any_let])
-    (when it
-      {:Complex [each_type_variable each_variable body]}
-      (monad.let [! phase.monad]
-        [.let [it (is (-> (List [Text Natural])
-                          (analysis.Operation analysis.Term))
-                      (list.mix (function (_ variable it)
-                                  (function (_ so_far)
-                                    (<| type.with_var
-                                        (function (_ [identity_of_variable type_of_variable]))
-                                        (it (list:composite so_far (list [variable identity_of_variable]))))))
-                                (function (_ 'each_type_variable)
-                                  (.let ['each_type_variable (|> 'each_type_variable
-                                                                 (list:each (function (_ [variable identity_of_variable])
-                                                                              (list (code.local variable)
-                                                                                    (` {.:Variable (, (code.bit ..general))
-                                                                                                   (, (code.natural identity_of_variable))}))))
-                                                                 list:conjoint)]
-                                    (list.mix (function (_ [variable type])
-                                                (<<| (monad.let !
-                                                       [type_of_variable (meta.eval Type (` (.let [(,* 'each_type_variable)]
-                                                                                              (.type (, type)))))])
-                                                     (scope.with_local [variable (as (-> Any Type) type_of_variable)])))
-                                              (analysis archive body)
-                                              (list.in_reverse each_variable))))
-                                (list.in_reverse each_type_variable)))]
-         it (it (list))]
-        (pure it))
-      
-      {:Simple [each_variable body]}
-      (list.mix (function (_ [variable type])
-                  (<<| (monad.let phase.monad
-                         [type_of_variable (meta.eval Type type)])
-                       (scope.with_local [variable (as (-> Any Type) type_of_variable)])))
-                (analysis archive body)
-                (list.in_reverse each_variable)))))
+(every .public Context
+  (Record [:each_type (List [Text Code])
+           :each_local (List [Text Code])]))
+
+(every .public Equality
+  (-> Context
+      (-> analysis.Phase Archive
+          (analysis.Operation ..Identity))))
+
+(the (let' to_add it
+           context)
+  (-> Context
+      (Change Equality))
+  (it [:each_type (list:composite (its :each_type context) (its :each_type to_add))
+       :each_local (list:composite (its :each_local context) (its :each_local to_add))]))
+
+(the (every_parameter it)
+  (-> (List [Text Code])
+      Code)
+  (` (.list (,* (list:each (function (_ [name type])
+                             (` [(, (code.text name))
+                                 ((,' .') (, type))]))
+                           it)))))
+
+(syntax.the .public (let [it ..any_let])
+  (when it
+    {:Complex [each_type each_local body]}
+    (monad.let [! meta.monad]
+      [each_type (list.each' ! (function (_ name)
+                                 (monad.let !
+                                   [type analysis/type.existential]
+                                   (pure [name (type.code type)])))
+                             each_type)
+       .let ['each_type (|> each_type
+                            (list:each (function (_ [name type])
+                                         (list (code.local name) type)))
+                            list:conjoint)
+             each_local (list:each (function (_ [name type])
+                                     [name (` (.let [(,* 'each_type)]
+                                                (.type (, type))))])
+                                   each_local)]]
+      (pure (list (` (..let' [..:each_type (, (every_parameter each_type))
+                              ..:each_local (, (every_parameter each_local))]
+                             (, body))))))
+    
+    {:Simple [each_local body]}
+    (monad.let [! meta.monad]
+      [.let [each_local (list:each (function (_ [name type])
+                                     [name (` (.type (, type)))])
+                                   each_local)]]
+      (pure (list (` (..let' [..:each_type (.list)
+                              ..:each_local (, (every_parameter each_local))]
+                             (, body))))))))
 
 (the current_module
   (name.module (name .._)))
 
 (`` (template.the .public (variable ,@ ,identity)
       [{@type.:Extension ,@ [(,, (static ..current_module)) "variable"]
-                         (list (analysis.natural ,@ ,identity))}]))
+                         (.list (analysis.natural ,@ ,identity))}]))
 
 (`` (template.the .public (term ,@ ,identity)
       [{@type.:Extension ,@ [(,, (static ..current_module)) "term"]
-                         (list (analysis.natural ,@ ,identity))}]))
+                         (.list (analysis.natural ,@ ,identity))}]))
 
 (the (analysis it)
   (Change analysis.Term)
@@ -263,7 +282,7 @@
     {@type.:Complex @ it}
     {@type.:Complex @ (when it
                         {@type.:Complex_Variant it}
-                        {@type.:Complex_Variant (revised @type.:value analysis it)}
+                        {@type.:Complex_Variant (revised @type.:choice analysis it)}
                         
                         {@type.:Complex_Tuple it}
                         {@type.:Complex_Tuple (list:each analysis it)})}
@@ -294,15 +313,85 @@
     {@type.:Extension @ name parameters}
     {@type.:Extension @ name (list:each analysis parameters)}))
 
-(the .public =
-  (extension.analysis (_ analysis archive
-                         [left ?list.any
-                          right ?list.any])
+(the simple_=
+  (Projection [Code Code])
+  (?.and ?list.any
+         ?list.any))
+
+(the complex_=
+  (Projection [Code Code Code])
+  (?.and ?list.any
+         ..simple_=))
+
+(the any_=
+  (Projection (Or [Code Code Code]
+                  [Code Code]))
+  (?.or ..complex_=
+        ..simple_=))
+
+(the (clean_term nesting it)
+  (-> Natural
+      (Change analysis.Term))
+  (if (n.= 0 nesting)
+      it
+      (when it
+        {@type.:When @ input [[_ it] (list)]}
+        (clean_term (-- nesting) it)
+
+        else
+        (undefined))))
+
+(the (='' type left right
+          [each_type each_local]
+          analysis archive)
+  (-> Type Code Code
+      Equality)
+  (.let [nesting (list.size each_local)
+         each_local (|> each_local
+                        (list:each (function (_ [name type])
+                                     (list (code.local name)
+                                           (` (.as (.-> .Any (, type)) [])))))
+                        list:conjoint)]
     (monad.let [! phase.monad]
-      [left (type.with Any
-              (analysis archive left))
-       right (type.with Any
-               (analysis archive right))]
-      (analysis archive (` (is ..Identity
-                               [(, (code_of_analysis (..analysis left)))
-                                (, (code_of_analysis (..analysis right)))]))))))
+      [left (analysis/type.with type
+              (analysis archive (` (.let [(,* each_local)]
+                                     (, left)))))
+       right (analysis/type.with type
+               (analysis archive (` (.let [(,* each_local)]
+                                      (, right)))))]
+      (pure [(..analysis (clean_term nesting left))
+             (..analysis (clean_term nesting right))]))))
+
+(the (=' it
+         [each_type each_local]
+         analysis archive)
+  (-> (Or [Code Code Code]
+          [Code Code])
+      Equality)
+  (when it
+    {.:Left [type left right]}
+    (monad.let [! phase.monad]
+      [type (meta.eval Type (` (.let [(,* (|> each_type
+                                              (list:each (function (_ [name type])
+                                                           (list (code.local name) type)))
+                                              list:conjoint))]
+                                 (.type (, type)))))]
+      (='' (as (-> Any Type) type) left right
+           [each_type each_local]
+           analysis archive))
+    
+    {.:Right [left right]}
+    (='' Any left right
+         [each_type each_local]
+         analysis archive)))
+
+(syntax.the .public (= [it ..any_=])
+  (pure (list (when it
+                {.:Left [type left right]}
+                (` (..=' {.:Left [((,' .') (, type))
+                                  ((,' .') (, left))
+                                  ((,' .') (, right))]}))
+                
+                {.:Right [left right]}
+                (` (..=' {.:Right [((,' .') (, left))
+                                   ((,' .') (, right))]}))))))

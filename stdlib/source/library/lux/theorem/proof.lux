@@ -1,0 +1,277 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except and when local)
+   [abstract
+    ["[0]" monad]]
+   [error
+    ["[0]" try (.only Try)]
+    ["[0]" exception (.only Exception)]]
+   [data
+    ["[0]" product]
+    [collection
+     ["[0]" list (.use "[1]:[0]" functor)]
+     ["[0]" dictionary (.only Dictionary)]]]
+   [logic
+    ["[0]" bit]]
+   ["[0]" meta (.only)
+    ["[0]" binding]]
+   [macro
+    ["^" pattern]
+    ["[0]" template]
+    ["[0]" expansion]]
+   [compiler
+    ["@[0]" type]
+    [reference
+     ["[0]" variable]]
+    [language
+     [lux
+      ["[0]" analysis]]]]]]
+ [//
+  [proposition (.only Identity)]
+  ["[0]" rule (.only Substitution Rule Case)]])
+
+... https://en.wikipedia.org/wiki/Mathematical_proof
+... https://en.wikipedia.org/wiki/Formal_proof
+(every .public Proof
+  (Substitution Identity))
+
+... https://en.wikipedia.org/wiki/Q.E.D.
+(the .public (qed environment identity)
+  Proof
+  {try.:Success identity})
+
+(the .public (= left right
+                environment it)
+  (-> Rule Rule
+      Proof)
+  (monad.let try.monad
+    [left (left environment (product.left it))
+     right (right environment (product.right it))]
+    (pure [left right])))
+
+(every .public Environment
+  (Dictionary @type.Variable analysis.Term))
+
+(the (beta_reduction local)
+  (-> Environment
+      (Change analysis.Term))
+  (function (beta_reduction it)
+    (.when it
+      {@type.:Simple @ _}
+      it
+      
+      {@type.:Complex @ it}
+      {@type.:Complex @ (.when it
+                          {@type.:Complex_Variant it}
+                          {@type.:Complex_Variant (revised @type.:value beta_reduction it)}
+                          
+                          {@type.:Complex_Tuple it}
+                          {@type.:Complex_Tuple (list:each beta_reduction it)})}
+      
+      {@type.:Reference @ it'}
+      (.when it'
+        {@type.:Variable_Reference it'}
+        (|> local
+            (dictionary.value it')
+            (try.else it))
+        
+        {@type.:Constant_Reference _}
+        it)
+      
+      {@type.:When @ input [head tail]}
+      {@type.:When @ (beta_reduction input)
+                   [(revised @type.:then beta_reduction head)
+                    (list:each (revised @type.:then beta_reduction) tail)]}
+      
+      {@type.:Abstraction @ environment body}
+      {@type.:Abstraction @ (list:each beta_reduction environment)
+                          body}
+      
+      {@type.:Application @ parameter abstraction}
+      {@type.:Application @ (beta_reduction parameter)
+                          (beta_reduction abstraction)}
+      
+      {@type.:Extension @ name parameters}
+      {@type.:Extension @ name (list:each beta_reduction parameters)})))
+
+(exception.the .public (no_application [term])
+  (Exception [analysis.Term])
+  (exception.report
+   (list ["Term" (analysis.as_text term)])))
+
+(the .public (reification [lux next_induction] it)
+  Rule
+  (.when it
+    {@type.:Application @ parameter {@type.:Abstraction @ environment body}}
+    (.let [local (|> environment
+                     list.enumeration
+                     (list:each (function (_ [foreign term])
+                                  [{@type.:Foreign foreign}
+                                   term]))
+                     (dictionary.of_list variable.hash)
+                     (dictionary.has {@type.:Local 0} {@type.:Abstraction @ environment body})
+                     (dictionary.has {@type.:Local 1} parameter))]
+      {try.:Success (beta_reduction local body)})
+
+    else
+    (exception.except ..no_application [it])))
+
+(the .public (application abstraction parameter
+                          environment it)
+  (-> Rule Rule
+      Rule)
+  (.when it
+    {@type.:Application @ parameter' abstraction'}
+    (monad.let try.monad
+      [parameter' (parameter environment parameter')
+       abstraction' (abstraction environment abstraction')]
+      (pure {@type.:Application @ parameter' abstraction'}))
+
+    else
+    (exception.except ..no_application [it])))
+
+(the .public (of' by_abstraction every_parameter)
+  (-> Rule (List Rule)
+      Rule)
+  (list.mix (function (_ by_parameter by_abstraction)
+              (..application by_abstraction by_parameter))
+            by_abstraction
+            every_parameter))
+
+(the .public (and before after
+                  environment it)
+  (for_any (_ it)
+    (-> (Substitution it)
+        (Change (Substitution it))))
+  (monad.let try.monad
+    [it (before environment it)]
+    (after environment it)))
+
+(the .public (of by_abstraction every_parameter)
+  (-> Rule (List Rule)
+      Rule)
+  (list.mix (function (_ by_parameter by_abstraction)
+              (..and (..application by_abstraction by_parameter)
+                     ..reification))
+            by_abstraction
+            every_parameter))
+
+(the (global_definition name lux)
+  (-> Name Lux
+      (Try analysis.Term))
+  (<| (meta.value lux)
+      (monad.let meta.monad
+        [[type expression value] (binding.export name)]
+        (.when expression
+          {.:Some [original after_optimization]}
+          (pure original)
+
+          {.:None}
+          (meta.failure "")))))
+
+(the .public (definition [lux next_induction] it)
+  Rule
+  (.when it
+    {@type.:Reference _ {@type.:Constant_Reference @}}
+    (all try.or
+         (global_definition @ lux)
+         (exception.except rule.not_valid [(name ..definition) it]))
+
+    else
+    (exception.except rule.not_valid [(name ..definition) it])))
+
+(the .public (when by_reality
+               by_case
+               environment it)
+  (-> Rule (Case Identity)
+      Rule)
+  (.when it
+    {@type.:When @ reality each_branch}
+    (monad.let try.monad
+      [reality (by_reality environment reality)]
+      (template.let [(variant_if ,right? ,choice)
+                     [{@type.:Complex @ {@type.:Complex_Variant [0 ,right? ,choice]}}]
+
+                     (local ,it)
+                     [{@type.:Bind_Pattern ,it}]
+
+                     (variant_pattern ,right? ,choice)
+                     [{@type.:Complex_Pattern {@type.:Complex_Variant [0 ,right? ,choice]}}]
+
+                     (variant_if_pattern ,right? ,choice)
+                     [(variant_pattern ,right? (local ,choice))]]
+        (expansion.let [bit_if_reality {@type.:Simple @ {@type.:Simple_Bit reality}}
+                        bit_if_then {@type.:Simple_Pattern {@type.:Simple_Bit expectation_for_then}}
+                        bit_if_else {@type.:Simple_Pattern {@type.:Simple_Bit expectation_for_else}}
+
+                        variant_if_reality (variant_if right? reality)
+                        variant_if_then (variant_if_pattern right?_of_then binding_of_then)
+                        variant_if_else (variant_if_pattern right?_of_else binding_of_else)
+
+                        pattern_of_unit {@type.:Simple_Pattern {@type.:Simple_Unit}}
+                        variant_maybe_some (variant_if_pattern 1b binding_of_some)
+                        variant_maybe_none (variant_pattern 0b pattern_of_unit)]
+          (.when [reality each_branch]
+            [bit_if_reality
+             [[@type.:when bit_if_then
+               @type.:then body_for_then]
+              (list [@type.:when bit_if_else
+                     @type.:then body_for_else])]]
+            (if (bit.= expectation_for_then reality)
+                ((by_case (rule.lemma bit_if_then
+                                      bit_if_reality))
+                 environment
+                 body_for_then)
+                ((by_case (rule.lemma bit_if_else
+                                      bit_if_reality))
+                 environment
+                 body_for_else))
+
+            [variant_if_reality
+             [[@type.:when variant_if_then
+               @type.:then body_for_then]
+              (list [@type.:when variant_if_else
+                     @type.:then body_for_else])]]
+            (if (bit.= right?_of_then right?)
+                ((by_case (rule.lemma (local binding_of_then)
+                                      reality))
+                 environment
+                 body_for_then)
+                ((by_case (rule.lemma (local binding_of_else)
+                                      reality))
+                 environment
+                 body_for_else))
+
+            (^.or [variant_if_reality
+                   [[@type.:when variant_maybe_some
+                     @type.:then body_for_some]
+                    (list [@type.:when variant_maybe_none
+                           @type.:then body_for_none])]]
+                  [variant_if_reality
+                   [[@type.:when variant_maybe_none
+                     @type.:then body_for_none]
+                    (list [@type.:when variant_maybe_some
+                           @type.:then body_for_some])]])
+            (if (bit.= 1b right?)
+                ((by_case (rule.lemma (local binding_of_some)
+                                      reality))
+                 environment
+                 body_for_some)
+                ((by_case (rule.lemma pattern_of_unit reality))
+                 environment
+                 body_for_none))
+            
+            [input [head (list)]]
+            ((by_case (rule.lemma (its @type.:when head)
+                                  input))
+             environment
+             (its @type.:then head))
+
+            else
+            (exception.except rule.not_valid [(name ..when) it])))))
+
+    else
+    (exception.except rule.not_valid [(name ..when) it])))
