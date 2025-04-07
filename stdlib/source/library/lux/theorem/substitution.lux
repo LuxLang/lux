@@ -1,0 +1,240 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except and pattern function when list)
+   [abstract
+    ["[0]" monad]]
+   [error
+    ["[0]" try (.only Try)]
+    ["[0]" exception (.only Exception)]]
+   [data
+    ["[0]" product]
+    [collection
+     ["[0]" list (.use "[1]:[0]" functor)]
+     ["[0]" dictionary (.only Dictionary)]]]
+   [logic
+    ["[0]" bit]]
+   [math
+    [number
+     [/64
+      ["[0]" natural]]]]
+   [meta
+    ["[0]" name]
+    ["[0]" provenance]]
+   [macro
+    ["^" pattern]
+    ["[0]" template]]
+   [compiler
+    ["@[0]" type]
+    ["[0]" extension]
+    [language
+     [lux
+      ["[0]" analysis]]]]]]
+ [//
+  ["?" proposition]])
+
+(every .public Context
+  (Record [:every_global Lux
+           :next_variable Natural
+           :next_term Natural]))
+
+... https://en.wikipedia.org/wiki/Substitution_(logic)#Algebra
+... https://en.wikipedia.org/wiki/Universal_property
+(every .public (Substitution it)
+  (-> Context
+      (-> it
+          (Try it))))
+
+... https://en.wikipedia.org/wiki/Rule_of_inference
+... https://en.wikipedia.org/wiki/Rule_of_replacement
+... https://en.wikipedia.org/wiki/Rewriting#Term_rewriting_systems
+(every .public Rule
+  (Substitution analysis.Term))
+
+(the .public any
+  Rule
+  (.function (_ context it)
+    {try.:Success it}))
+
+(exception.the .public (not_valid [where term])
+  (Exception [Name analysis.Term])
+  (exception.report
+   (.list ["Where" (name.as_text where)]
+          ["Term" (analysis.as_text term)])))
+
+(template.with [,right? ,name]
+  [(the .public (,name by_choice context it)
+     (Change Rule)
+     (.when it
+       {@type.:Complex @ {@type.:Complex_Variant [0 ,right? it]}}
+       (monad.let try.monad
+         [it (by_choice context it)]
+         (pure {@type.:Complex @ {@type.:Complex_Variant [0 ,right? it]}}))
+
+       else
+       (exception.except ..not_valid [(name ,name) else])))]
+
+  [[0b left_case]
+   [1b right_case]])
+
+(the (pattern it)
+  (-> @type.Pattern
+      analysis.Term)
+  (.when it
+    {@type.:Simple_Pattern it}
+    (`` (.when it
+          {@type.:Simple_Unit}
+          (analysis.unit provenance.dummy)
+
+          (,, (template.with [,tag ,analysis]
+                [{,tag it}
+                 (,analysis provenance.dummy it)]
+
+                [[@type.:Simple_Bit analysis.bit]
+                 [@type.:Simple_Natural analysis.natural]
+                 [@type.:Simple_Integer analysis.integer]
+                 [@type.:Simple_Revolution analysis.revolution]
+                 [@type.:Simple_Decimal analysis.decimal]
+                 [@type.:Simple_Text analysis.text]]))))
+    
+    {@type.:Complex_Pattern it}
+    (.when it
+      {@type.:Complex_Variant it}
+      (analysis.variant provenance.dummy
+                        (revised @type.:value pattern it))
+      
+      {@type.:Complex_Tuple it}
+      (analysis.tuple provenance.dummy
+                      (list:each pattern it)))
+    
+    {@type.:List_Pattern it}
+    (undefined)
+    
+    {@type.:Bind_Pattern it}
+    (?.variable provenance.dummy it)))
+
+... https://en.wikipedia.org/wiki/Lemma_(mathematics)
+(the .public (lemma match input)
+  (-> @type.Pattern analysis.Term
+      ?.Identity)
+  [(pattern match)
+   input])
+
+(every .public (Case it)
+  (-> it
+      Rule))
+
+(the .public (when by_reality
+               [by_head by_tail]
+               context it)
+  (-> Rule
+      [(Case ?.Identity) (List (Case ?.Identity))]
+      Rule)
+  (.when it
+    {@type.:When @ reality [[pattern_of_head body_of_head] tail]}
+    (if (natural.= (list.size by_tail)
+                   (list.size tail))
+        (monad.let [! try.monad]
+          [reality (by_reality context reality)
+           body_of_head (by_head (lemma pattern_of_head reality) context body_of_head)
+           tail (list.each' ! (.function (_ [of [pattern body]])
+                                (monad.let !
+                                  [body (of (lemma pattern reality) context body)]
+                                  (pure [pattern body])))
+                            (list.zipped_2 by_tail tail))]
+          (pure {@type.:When @ reality [[pattern_of_head body_of_head] tail]}))
+        (exception.except ..not_valid [(name ..when) it]))
+
+    else
+    (exception.except ..not_valid [(name ..when) it])))
+
+(the .public (pair by_left by_right
+                   context it)
+  (-> Rule Rule
+      Rule)
+  (.when it
+    {@type.:Complex @ {@type.:Complex_Tuple (.list left right)}}
+    (monad.let try.monad
+      [left (by_left context left)
+       right (by_right context right)]
+      (pure {@type.:Complex @ {@type.:Complex_Tuple (.list left right)}}))
+
+    else
+    (exception.except ..not_valid [(name ..pair) it])))
+
+(every .public (Closure it)
+  (-> (List analysis.Term) Natural Context
+      (Try [Natural it])))
+
+(the .public (it by_it)
+  (-> Rule
+      (Closure ?.Identity))
+  (.function (_ closure foreign context)
+    (monad.let try.monad
+      [term (list.item foreign closure)
+       term (by_it context term)]
+      (pure [(++ foreign) [(analysis.foreign provenance.dummy foreign)
+                           term]]))))
+
+(the .public (and this that)
+  (for_any (_ this that)
+    (-> (Closure this) (Closure that)
+        (Closure [this that])))
+  (.function (_ closure foreign context)
+    (monad.let try.monad
+      [[foreign this] (this closure foreign context)
+       [foreign that] (that closure foreign context)]
+      (pure [foreign [this that]]))))
+
+(the .public (function closure by_body
+               context it)
+  (for_any (_ it)
+    (-> (Closure it) (-> it Rule)
+        Rule))
+  (.when it
+    {@type.:Abstraction @ closure' body}
+    (.when (closure closure' 0 context)
+      {try.:Success [every_foreign_read closure]}
+      (if (natural.= (list.size closure') every_foreign_read)
+          (monad.let try.monad
+            [body ((by_body closure) context body)]
+            (pure {@type.:Abstraction @ (.list) body}))
+          (exception.except ..not_valid [(name ..function) it]))
+
+      else
+      (exception.except ..not_valid [(name ..function) it]))
+
+    else
+    (exception.except ..not_valid [(name ..function) it])))
+
+(the (extension expectation by_parameter/*
+                context it)
+  (for_any (_ it)
+    (-> Name (List Rule)
+        Rule))
+  (.when it
+    {@type.:Extension @ reality parameter/*}
+    (if (.and (name.= expectation reality)
+              (natural.= (list.size by_parameter/*)
+                         (list.size parameter/*)))
+        (monad.let [! try.monad]
+          [parameter/* (list.each' ! (.function (_ [by_parameter parameter])
+                                       (by_parameter context parameter))
+                                   (list.zipped_2 by_parameter/* parameter/*))]
+          (pure {@type.:Extension @ reality parameter/*}))
+        (exception.except ..not_valid [(name ..extension) it]))
+
+    else
+    (exception.except ..not_valid [(name ..extension) it])))
+
+(the (synthesis [module name])
+  (Change Name)
+  [module (extension.synthesis name)])
+
+(the .public list
+  (for_any (_ it)
+    (-> (List Rule)
+        Rule))
+  (..extension (..synthesis (name .list#))))

@@ -3,7 +3,7 @@
 
 (.using
  [library
-  [lux (.except Pattern let)
+  [lux (.except Pattern let if)
    [abstract
     ["?" projection]
     ["[0]" monad]]
@@ -178,8 +178,8 @@
 
 (the simple_let
   (Projection Simple_Let)
-  (?.and ..each_variable
-         ..body))
+  (?.and each_variable
+         body))
 
 (the each_type_variable
   (Projection (List Text))
@@ -194,8 +194,8 @@
 
 (the complex_let
   (Projection Complex_Let)
-  (?.and ..each_type_variable
-         ..simple_let))
+  (?.and each_type_variable
+         simple_let))
 
 (every Any_Let
   (Variant
@@ -205,22 +205,23 @@
 (the any_let
   (Projection Any_Let)
   (all ?.or
-       ..complex_let
-       ..simple_let))
+       complex_let
+       simple_let))
 
 (every .public Context
   (Record [:each_type (List [Text Code])
            :each_local (List [Text Code])]))
 
-(every .public Equality
+(every .public (Proposition it)
   (-> Context
       (-> analysis.Phase Archive
-          (analysis.Operation ..Identity))))
+          (analysis.Operation it))))
 
 (the (let' to_add it
            context)
-  (-> Context
-      (Change Equality))
+  (for_any (_ it)
+    (-> Context
+        (Change (Proposition it))))
   (it [:each_type (list:composite (its :each_type context) (its :each_type to_add))
        :each_local (list:composite (its :each_local context) (its :each_local to_add))]))
 
@@ -232,7 +233,7 @@
                                  ((,' .') (, type))]))
                            it)))))
 
-(syntax.the .public (let [it ..any_let])
+(syntax.the .public (let [it any_let])
   (when it
     {:Complex [each_type each_local body]}
     (monad.let [! meta.monad]
@@ -292,7 +293,7 @@
       {@type.:Variable_Reference it'}
       (when it'
         {@type.:Local local}
-        (..variable provenance.dummy local)
+        (variable provenance.dummy local)
         
         {@type.:Foreign _}
         it)
@@ -321,31 +322,31 @@
 (the complex_=
   (Projection [Code Code Code])
   (?.and ?list.any
-         ..simple_=))
+         simple_=))
 
 (the any_=
   (Projection (Or [Code Code Code]
                   [Code Code]))
-  (?.or ..complex_=
-        ..simple_=))
+  (?.or complex_=
+        simple_=))
 
 (the (clean_term nesting it)
   (-> Natural
       (Change analysis.Term))
-  (if (n.= 0 nesting)
-      it
-      (when it
-        {@type.:When @ input [[_ it] (list)]}
-        (clean_term (-- nesting) it)
+  (.if (n.= 0 nesting)
+       it
+       (when it
+         {@type.:When @ input [[_ it] (list)]}
+         (clean_term (-- nesting) it)
 
-        else
-        (undefined))))
+         else
+         (undefined))))
 
 (the (='' type left right
           [each_type each_local]
           analysis archive)
   (-> Type Code Code
-      Equality)
+      (Proposition Identity))
   (.let [nesting (list.size each_local)
          each_local (|> each_local
                         (list:each (function (_ [name type])
@@ -367,7 +368,7 @@
          analysis archive)
   (-> (Or [Code Code Code]
           [Code Code])
-      Equality)
+      (Proposition Identity))
   (when it
     {.:Left [type left right]}
     (monad.let [! phase.monad]
@@ -385,7 +386,7 @@
          [each_type each_local]
          analysis archive)))
 
-(syntax.the .public (= [it ..any_=])
+(syntax.the .public (= [it any_=])
   (pure (list (when it
                 {.:Left [type left right]}
                 (` (..=' {.:Left [((,' .') (, type))
@@ -395,3 +396,20 @@
                 {.:Right [left right]}
                 (` (..=' {.:Right [((,' .') (, left))
                                    ((,' .') (, right))]}))))))
+
+... https://en.wikipedia.org/wiki/Logical_consequence
+(every .public Entailment
+  (Record [:every_premise (List Identity)
+           :conclusion Identity]))
+
+(the .public (if every_premise conclusion
+                 context analysis archive)
+  (-> (List (Proposition Identity)) (Proposition Identity)
+      (Proposition Entailment))
+  (monad.let [! phase.monad]
+    [every_premise (list.each' ! (function (_ premise)
+                                   (premise context analysis archive))
+                               every_premise)
+     conclusion (conclusion context analysis archive)]
+    (pure [:every_premise every_premise
+           :conclusion conclusion])))
