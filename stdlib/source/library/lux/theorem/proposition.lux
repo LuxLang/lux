@@ -43,7 +43,8 @@
 
 ... https://en.wikipedia.org/wiki/Identity_(mathematics)
 (every .public Identity
-  [analysis.Term analysis.Term])
+  (Record [:slow analysis.Term
+           :fast analysis.Term]))
 
 (the equivalence
   (Equivalence Identity)
@@ -219,20 +220,20 @@
 (every .public Context
   (Record [:each_type (List [Text Code])
            :each_term (List [Text Code])
-           :each_replacement (List [Text Code])]))
+           :each_substitution (List [Text Code])]))
 
 (the .public empty
   Context
   [:each_type (list)
    :each_term (list)
-   :each_replacement (list)])
+   :each_substitution (list)])
 
 (the (composite addition so_far)
   (-> Context Context
       Context)
   [:each_type (list:composite (its :each_type so_far) (its :each_type addition))
    :each_term (list:composite (its :each_term so_far) (its :each_term addition))
-   :each_replacement (list:composite (its :each_replacement so_far) (its :each_replacement addition))])
+   :each_substitution (list:composite (its :each_substitution so_far) (its :each_substitution addition))])
 
 (every .public (Proposition it)
   (-> Context
@@ -277,7 +278,7 @@
                                   each_term)]]
       (pure (list (` (..let' [..:each_type (, (every_parameter each_type))
                               ..:each_term (, (every_parameter each_term))
-                              ..:each_replacement (.list)]
+                              ..:each_substitution (.list)]
                              (, body))))))
     
     {:Simple [each_term body]}
@@ -287,7 +288,7 @@
                                   each_term)]]
       (pure (list (` (..let' [..:each_type (.list)
                               ..:each_term (, (every_parameter each_term))
-                              ..:each_replacement (.list)]
+                              ..:each_substitution (.list)]
                              (, body))))))))
 
 (the current_module
@@ -295,6 +296,10 @@
 
 (`` (template.the .public (variable ,@ ,identity)
       [{@type.:Extension ,@ [(,, (static ..current_module)) "variable"]
+                         (.list (analysis.natural ,@ ,identity))}]))
+
+(`` (template.the .public (expression ,@ ,identity)
+      [{@type.:Extension ,@ [(,, (static ..current_module)) "expression"]
                          (.list (analysis.natural ,@ ,identity))}]))
 
 (`` (template.the .public (term ,@ ,identity)
@@ -369,36 +374,52 @@
          else
          (undefined))))
 
+(the (type_in_context [each_type each_term each_substitution] it)
+  (-> Context
+      (Change Code))
+  (` (.let [(,* (|> each_type
+                    (list:each (function (_ [name type])
+                                 (list (code.local name) type)))
+                    list:conjoint))]
+       (, it))))
+
 (the (='' type left right
-          [each_type each_term each_replacement]
-          analysis archive)
+          context analysis archive)
   (-> Type Code Code
       (Proposition Identity))
-  (.let [nesting (list.size each_term)
+  (.let [[each_type each_term each_substitution] context
+         nesting (list.size each_term)
+         type_context (|> each_type
+                          (list:each (function (_ [name value])
+                                       (list (code.local name)
+                                             (type_in_context context value))))
+                          list:conjoint)
          each_term (|> each_term
                        (list:each (function (_ [name type])
                                     (list (code.local name)
-                                          (` (.as (.-> .Any (, type)) [])))))
+                                          (` (.as (.let [(,* type_context)]
+                                                    (.-> .Any (, type)))
+                                                  [])))))
                        list:conjoint)
-         each_replacement (|> each_replacement
-                              (list:each (function (_ [name term])
-                                           (list (` (, (code.local name)))
-                                                 (` (.these (, term))))))
-                              list:conjoint)]
+         each_substitution (|> each_substitution
+                               (list:each (function (_ [name term])
+                                            (list (` (, (code.local name)))
+                                                  (` (.these (, term))))))
+                               list:conjoint)]
     (monad.let [! phase.monad]
       [left (analysis/type.with type
-              (analysis archive (` (expansion.let [(,* each_replacement)]
+              (analysis archive (` (expansion.let [(,* each_substitution)]
                                      (.let [(,* each_term)]
                                        (, left))))))
        right (analysis/type.with type
-               (analysis archive (` (expansion.let [(,* each_replacement)]
+               (analysis archive (` (expansion.let [(,* each_substitution)]
                                       (.let [(,* each_term)]
                                         (, right))))))]
       (pure [(..analysis (clean_term nesting left))
              (..analysis (clean_term nesting right))]))))
 
 (the (=' it
-         [each_type each_term each_replacement]
+         [each_type each_term each_substitution]
          analysis archive)
   (-> (Or [Code Code Code]
           [Code Code])
@@ -412,12 +433,12 @@
                                               list:conjoint))]
                                  (.type (, type)))))]
       (='' (as (-> Any Type) type) left right
-           [each_type each_term each_replacement]
+           [each_type each_term each_substitution]
            analysis archive))
     
     {.:Right [left right]}
     (='' Any left right
-         [each_type each_term each_replacement]
+         [each_type each_term each_substitution]
          analysis archive)))
 
 (syntax.the .public (= [it any_=])
@@ -450,7 +471,7 @@
 
 ... https://en.wikipedia.org/wiki/Axiom
 (every (Template it)
-  (-> (List Type) (List Code)
+  (-> (List Code) (List Code)
       (Proposition it)))
 
 (every .public Axiom
@@ -467,43 +488,62 @@
             (n.= (list.size expectation_of_each_term)
                  (list.size reality_of_each_term)))
        (monad.let [! phase.monad]
-         [.let [each_type (list.zipped_2 name_of_each_type value_of_each_type)
-                type_context (|> (list.zipped_2 name_of_each_type value_of_each_type)
+         [.let [each_type (list.zipped_2 name_of_each_type
+                                         value_of_each_type)
+                [_ each_term each_substitution] context
+                type_context (|> each_type
                                  (list:each (function (_ [name value])
-                                              (list (code.local name) (` (.these (, (type.code value)))))))
-                                 list:conjoint)]
+                                              (list (code.local name)
+                                                    (type_in_context context value))))
+                                 list:conjoint)
+                each_term (|> each_term
+                              (list:each (function (_ [name type])
+                                           (list (code.local name)
+                                                 (` (.as (.let [(,* type_context)]
+                                                           (.-> .Any (, type)))
+                                                         [])))))
+                              list:conjoint)]
           each_term (list.each' ! (function (_ [[name type] value])
                                     (monad.let !
-                                      [type (meta.eval Type (` (expansion.let [(,* type_context)]
+                                      [type (meta.eval Type (` (.let [(,* type_context)]
                                                                  (.type (, type)))))
                                        _ (analysis/type.with (as (-> Any Type) type)
-                                           (analysis archive value))]
+                                           (analysis archive (` (.let [(,* each_term)]
+                                                                  (, value)))))]
                                       (pure [name value])))
-                                (list.zipped_2 expectation_of_each_term reality_of_each_term))]
+                                (list.zipped_2 expectation_of_each_term
+                                               reality_of_each_term))]
          ((body value_of_each_type reality_of_each_term)
-          (composite context
-                     [:each_type (list:each (function (_ [name value]) [name (type.code value)]) each_type)
+          (composite [:each_type each_type
                       :each_term (list)
-                      :each_replacement each_term])
+                      :each_substitution each_term]
+                     context)
           analysis
           archive))
        (phase.failure error.not_valid)))
 
 (syntax.the .public (for [[each_type each_term 'body] ..complex_let])
   (macro.with_names ['_ 'each_type 'each_term]
-    (pure (list (` (..for' (list (,* (list:each code.text each_type)))
-                           (list (,* (list:each (function (_ [name type])
-                                                  (` [(, (code.text name))
-                                                      (, (..quote type))]))
-                                                each_term)))
-                           (function ((, '_) (, 'each_type) (, 'each_term))
-                             (when [(, 'each_type) (, 'each_term)]
-                               [(list (,* (list:each code.local each_type)))
-                                (list (,* (list:each (|>> product.left code.local) each_term)))]
-                               (, 'body)
+    (monad.let [! meta.monad]
+      [each_type' (list.each' ! name.new each_type)]
+      (pure (list (` (expansion.let [(,* (|> (list.zipped_2 each_type each_type')
+                                             (list:each (function (_ [local_name global_name])
+                                                          (list (code.local local_name)
+                                                                (` (these (, global_name))))))
+                                             list:conjoint))]
+                       (..for' (list (,* (list:each (|>> code.as_text code.text) each_type')))
+                               (list (,* (list:each (function (_ [name type])
+                                                      (` [(, (code.text name))
+                                                          (, (..quote type))]))
+                                                    each_term)))
+                               (function ((, '_) (, 'each_type) (, 'each_term))
+                                 (when [(, 'each_type) (, 'each_term)]
+                                   [(list (,* (list:each code.local each_type)))
+                                    (list (,* (list:each (|>> product.left code.local) each_term)))]
+                                   (, 'body)
 
-                               (, '_)
-                               (undefined)))))))))
+                                   (, '_)
+                                   (undefined)))))))))))
 
 ... https://en.wikipedia.org/wiki/Theory_(mathematical_logic)
 ... https://en.wikipedia.org/wiki/Axiomatic_system
@@ -540,8 +580,11 @@
                          ['system ?list.any
                           'model ?list.any])
     (monad.let phase.monad
-      [model (meta.eval (type (Proposition Model))
+      [model (meta.eval (.type (Proposition Model))
                         (` (..model' (, 'model) (, 'system))))
        model ((as (-> Any (Proposition Model)) model) ..empty analysis archive)]
       (analysis archive (` (is ..Model
                                (list (,* (list:each code_of_identity model)))))))))
+
+(every .public Relation
+  (Template Entailment))
