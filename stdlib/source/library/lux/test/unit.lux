@@ -15,10 +15,10 @@
    [color
     ["[0]" terminal]]
    [data
-    ["[0]" text (.only \n)
+    ["[0]" text (.only)
      ["%" \\injection]]
     [collection
-     ["[0]" list (.use "[1]:[0]" functor mix)
+     ["[0]" list (.use "[1]:[0]" functor mix monoid)
       ["?[1]" \\projection]]
      ["[0]" set (.only Set)]]]
    [math
@@ -30,7 +30,13 @@
     ["[0]" binding]
     ["[0]" name]
     ["[0]" code (.only)
-     ["<[1]>" \\projection]]]]]
+     ["<[1]>" \\projection]]]
+   [theorem
+    ["[0]" proposition]]
+   [compiler
+    [language
+     [lux
+      ["[0]" analysis]]]]]]
  [//
   ["[0]" coverage (.only Coverage)]
   ["[0]" tally (.only Tally)]])
@@ -40,7 +46,7 @@
 
 ... https://en.wikipedia.org/wiki/Delimiter
 (the delimiter
-  \n)
+  text.\n)
 
 (the .public (and left right)
   (-> Test Test
@@ -73,7 +79,10 @@
   (|>> %.text
        context'))
 
-(template.with [<prefix> <tally> <raw> <quoted> <foreground>]
+(the color_of_proposition
+  terminal.cyan_foreground)
+
+(template.with [<prefix> <tally> <raw> <foreground>]
   [(the <raw>
      (-> Text
          Test)
@@ -82,16 +91,21 @@
                   <prefix>)
                 "] ")
           [<tally>]
-          future:pure))
+          future:pure))]
 
-   (the .public <quoted>
+  [["Failure" tally.failure failure' terminal.red_foreground]
+   ["Success" tally.success success' terminal.green_foreground]
+   ["ByProof" tally.success by_proof' ..color_of_proposition]])
+
+(template.with [<raw> <quoted>]
+  [(the .public <quoted>
      (-> Text
          Test)
      (|>> %.text
           <raw>))]
 
-  [["Failure" tally.failure failure' failure terminal.red_foreground]
-   ["Success" tally.success success' success terminal.green_foreground]])
+  [[failure' failure]
+   [success' success]])
 
 (the (test' message condition)
   (-> Text Bit
@@ -106,22 +120,59 @@
   (test' (terminal.with terminal.yellow_foreground message) condition))
 
 ... https://en.wikipedia.org/wiki/Delimiter
-(the definition_delimiter " & ")
+(the delimiter_of_definition " & ")
+(the delimiter_of_proof (text text.\n text.\t))
 
 (the clean_up_marker (text.of_character (number.base_16 "05")))
 
-(the coverage_text
+(the text_of_coverage
   (text.Injection Name)
   (|>> name.as_text
        (text ..clean_up_marker)
        (terminal.with terminal.blue_foreground)))
 
+(template.with [,name ,slow]
+  [(the ,name
+     (text.Injection proposition.Identity)
+     (let [fast (|> " "
+                    (list.repeated (text.size ,slow))
+                    text.together)]
+       (function (_ it)
+         (text ..delimiter_of_proof text.\t text.\t ,slow "= " (analysis.as_text (its proposition.:slow it))
+               ..delimiter_of_proof text.\t text.\t fast "= " (analysis.as_text (its proposition.:fast it))))))]
+
+  [[text_of_identity ""]
+   [text_of_premise "-> "]
+   [text_of_axiom "[Model] "]])
+
+(the (text_of_proposition as_text [name it])
+  (for_any (_ it)
+    (-> (text.Injection it)
+        (text.Injection [Name it])))
+  (text text.\t (|> name
+                    name.as_text
+                    (text ..clean_up_marker)
+                    (terminal.with ..color_of_proposition))
+        (as_text it)))
+
+(the (text_of_entailment [each_premise conclusion])
+  (text.Injection proposition.Entailment)
+  (text (|> each_premise
+            (list:each ..text_of_premise)
+            text.together)
+        (text_of_identity conclusion)))
+
+(the text_of_model
+  (text.Injection proposition.Model)
+  (|>> (list:each ..text_of_axiom)
+       text.together))
+
 (the (with_coverage coverage condition)
   (-> (List Name) Bit
       Test)
   (let [message (|> coverage
-                    (list:each ..coverage_text)
-                    (text.interposed ..definition_delimiter))
+                    (list:each ..text_of_coverage)
+                    (text.interposed ..delimiter_of_definition))
         coverage (set.of_list name.hash coverage)]
     (|> (..test' message condition)
         (future:each (function (_ [tally documentation])
@@ -138,12 +189,54 @@
                         (.list (,* coverage)))
                     (, condition)))))))
 
+(the (with_proof coverage every_proof condition)
+  (-> (List Name) (List Text) Bit
+      Test)
+  (let [message (text (|> coverage
+                          (list:each ..text_of_coverage)
+                          (text.interposed ..delimiter_of_definition))
+                      (|> every_proof
+                          (list:each (|>> (text text.\n)))
+                          text.together))
+        coverage (set.of_list name.hash coverage)]
+    (|> (if condition
+            (..by_proof' message)
+            (..failure' message))
+        (future:each (function (_ [tally documentation])
+                       [(revised tally.:actual (set.union coverage) tally)
+                        documentation])))))
+
+(template.with [,name ,type ,text]
+  [(template.the .public (,name ,it)
+     [(..text_of_proposition ,text
+                             (is [.Name ,type]
+                                 [(coverage.of ,it)
+                                  ,it]))])]
+
+  [[identity proposition.Identity ..text_of_identity]
+   [entailment proposition.Entailment ..text_of_entailment]
+   [model proposition.Model ..text_of_model]])
+
+(syntax.the .public (by_proof [[reference_coverage additional_coverage] (<code>.tuple (<>.and ?list.any (<>.some ?list.any)))
+                               'every_proof ?list.any])
+  (let [coverage (list:each (function (_ definition)
+                              (` (coverage.of (, definition))))
+                            (list:composite (list reference_coverage)
+                                            additional_coverage))]
+    (pure (list (` ((debug.private ..with_proof)
+                    (is (.List .Name)
+                        (.list (,* coverage)))
+                    (, 'every_proof)
+                    (.and (,* (list:each (function (_ it)
+                                           (` (identical? (, reference_coverage) (, it))))
+                                         additional_coverage)))))))))
+
 (the (for' coverage test)
   (-> (List Name) Test
       Test)
   (let [context (|> coverage
-                    (list:each ..coverage_text)
-                    (text.interposed ..definition_delimiter))
+                    (list:each ..text_of_coverage)
+                    (text.interposed ..delimiter_of_definition))
         coverage (set.of_list name.hash coverage)]
     (future:each (function (_ [tally documentation])
                    [(revised tally.:actual (set.union coverage) tally)
