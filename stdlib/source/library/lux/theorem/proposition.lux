@@ -5,10 +5,11 @@
  [library
   [lux (.except Pattern let if quote)
    [abstract
-    [equivalence (.only Equivalence)]
     ["?" projection]
+    ["[0]" equivalence (.only Equivalence)]
     ["[0]" monad]]
    [data
+    ["[0]" sum]
     ["[0]" product]
     [collection
      ["[0]" list (.use "[1]:[0]" monad monoid)
@@ -39,20 +40,41 @@
      [/64
       ["n" natural]]]]
    ["[0]" error (.only)
-    ["[0]" exception]]]])
+    ["[0]" try (.only Try)]
+    ["[0]" exception (.only Exception)]]]])
 
 ... https://en.wikipedia.org/wiki/Identity_(mathematics)
 (every .public Identity
   (Record [:slow analysis.Term
            :fast analysis.Term]))
 
-(the equivalence
-  (Equivalence Identity)
-  (product.equivalence analysis.= analysis.=))
+(every .public (Proposition _)
+  (Variant {:Identity Identity}
+           {:Entailment [Proposition Proposition]}))
 
-(.the .public in_reverse
-  (Change Identity)
-  product.in_reverse)
+... https://en.wikipedia.org/wiki/Logical_consequence
+(every .public Entailment
+  [Proposition Proposition])
+
+(the equivalence'
+  (Equivalence Identity)
+  (product.equivalence analysis.equivalence analysis.equivalence))
+
+(the equivalence
+  (Equivalence Proposition)
+  (equivalence.recursive
+   (function (_ equivalence)
+     (sum.equivalence ..equivalence'
+                      (product.equivalence equivalence equivalence)))))
+
+(.the .public (in_reverse it)
+  (Change Proposition)
+  (when it
+    {:Identity it}
+    {:Identity (product.in_reverse it)}
+    
+    {:Entailment it}
+    {:Entailment it}))
 
 (the (code_of_name it)
   (code.Injection Name)
@@ -235,7 +257,7 @@
    :each_term (list:composite (its :each_term so_far) (its :each_term addition))
    :each_substitution (list:composite (its :each_substitution so_far) (its :each_substitution addition))])
 
-(every .public (Proposition it)
+(every .public (Proposition' it)
   (-> Context
       (-> analysis.Phase Archive
           (analysis.Operation it))))
@@ -244,7 +266,7 @@
            context)
   (for_any (_ it)
     (-> Context
-        (Change (Proposition it))))
+        (Change (Proposition' it))))
   (it (composite addition context)))
 
 (the (quote it)
@@ -386,7 +408,7 @@
 (the (='' type left right
           context analysis archive)
   (-> Type Code Code
-      (Proposition Identity))
+      (Proposition' Proposition))
   (.let [[each_type each_term each_substitution] context
          nesting (list.size each_term)
          type_context (|> each_type
@@ -415,15 +437,15 @@
                (analysis archive (` (expansion.let [(,* each_substitution)]
                                       (.let [(,* each_term)]
                                         (, right))))))]
-      (pure [(..analysis (clean_term nesting left))
-             (..analysis (clean_term nesting right))]))))
+      (pure {:Identity [(..analysis (clean_term nesting left))
+                        (..analysis (clean_term nesting right))]}))))
 
 (the (=' it
          [each_type each_term each_substitution]
          analysis archive)
   (-> (Or [Code Code Code]
           [Code Code])
-      (Proposition Identity))
+      (Proposition' Proposition))
   (when it
     {.:Left [type left right]}
     (monad.let [! phase.monad]
@@ -452,40 +474,36 @@
                 (` (..=' {.:Right [(, (..quote left))
                                    (, (..quote right))]}))))))
 
-... https://en.wikipedia.org/wiki/Logical_consequence
-(every .public Entailment
-  (Record [:every_premise (List Identity)
-           :conclusion Identity]))
-
 (the .public (if every_premise conclusion
                  context analysis archive)
-  (-> (List (Proposition Identity)) (Proposition Identity)
-      (Proposition Entailment))
+  (-> (List (Proposition' Proposition)) (Proposition' Proposition)
+      (Proposition' Proposition))
   (monad.let [! phase.monad]
-    [every_premise (list.each' ! (function (_ premise)
-                                   (premise context analysis archive))
-                               every_premise)
-     conclusion (conclusion context analysis archive)]
-    (pure [:every_premise every_premise
-           :conclusion conclusion])))
+    [conclusion (conclusion context analysis archive)]
+    (list.mix' ! (function (_ premise conclusion)
+                   (monad.let !
+                     [premise (premise context analysis archive)]
+                     (pure {:Entailment [premise conclusion]})))
+               conclusion
+               (list.in_reverse every_premise))))
 
 ... https://en.wikipedia.org/wiki/Axiom
 ... https://en.wikipedia.org/wiki/Theory_(mathematical_logic)
 ... https://en.wikipedia.org/wiki/Axiomatic_system
 (the .public (system it
                      context analysis archive)
-  (-> (List (Proposition Identity))
-      (Proposition (List Identity)))
+  (-> (List (Proposition' Proposition))
+      (Proposition' (List Proposition)))
   (list.each' phase.monad (function (_ it) (it context analysis archive)) it))
 
 ... https://en.wikipedia.org/wiki/Structure_(mathematical_logic)
 (every .public Model
-  (List Identity))
+  (List Proposition))
 
 (the (model' reality expectation
              context analysis archive)
-  (-> (List Identity)
-      (Change (Proposition Model)))
+  (-> (List Proposition)
+      (Change (Proposition' Model)))
   (monad.let phase.monad
     [expectation (expectation context analysis archive)]
     (.if (by (list.equivalence ..equivalence) = expectation reality)
@@ -497,13 +515,58 @@
   (` [(, (code_of_analysis this))
       (, (code_of_analysis that))]))
 
+(the (code_of_entailment code_of_proposition [premise conclusion])
+  (-> (code.Injection Proposition)
+      (code.Injection Entailment))
+  (` [(, (code_of_proposition premise))
+      (, (code_of_proposition conclusion))]))
+
+(the (code_of_proposition it)
+  (code.Injection Proposition)
+  (when it
+    {:Identity it}
+    (` {:Identity (, (code_of_identity it))})
+    
+    {:Entailment it}
+    (` {:Entailment (, (code_of_entailment code_of_proposition it))})))
+
 (the .public model
   (extension.analysis (_ analysis archive
                          ['system ?list.any
                           'model ?list.any])
     (monad.let phase.monad
-      [model (meta.eval (.type (Proposition Model))
+      [model (meta.eval (.type (Proposition' Model))
                         (` (..model' (, 'model) (, 'system))))
-       model ((as (-> Any (Proposition Model)) model) ..empty analysis archive)
+       model ((as (-> Any (Proposition' Model)) model) ..empty analysis archive)
        _ (analysis/type.inference ..Model)]
-      (analysis archive (` (list (,* (list:each code_of_identity model))))))))
+      (analysis archive (` (list (,* (list:each code_of_proposition model))))))))
+
+(the .public (as_code it)
+  (code.Injection Proposition)
+  (when it
+    {:Identity [slow fast]}
+    (` {:Identity [(, (code_of_analysis slow))
+                   (, (code_of_analysis fast))]})
+
+    {:Entailment [premise conclusion]}
+    (` {:Entailment [(, (as_code premise))
+                     (, (as_code conclusion))]})))
+
+(template.with [,check ,tag ,type ,exception]
+  [(exception.the .public (,exception [it])
+     (Exception [Proposition])
+     (exception.report
+      (list ["Proposition" (code.as_text (as_code it))])))
+
+   (the .public (,check it)
+     (-> Proposition
+         (Try ,type))
+     (when it
+       {,tag it}
+       {try.:Success it}
+
+       else
+       (exception.except ,exception [it])))]
+
+  [[identity :Identity Identity not_identity]
+   [entailment :Entailment Entailment not_entailment]])

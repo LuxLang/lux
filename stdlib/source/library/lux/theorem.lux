@@ -43,31 +43,32 @@
   ["in" substitution]])
 
 (every .public (Condition it)
-  (-> ?.Identity
+  (-> ?.Proposition
       (Try it)))
 
 (.the .public (any it)
-  (Condition ?.Identity)
+  (Condition ?.Proposition)
   {try.:Success it})
 
 (.the .public (pair in_left in_right
-                    [slow fast])
+                    it)
   (for_any (_ left right)
     (-> (Condition left) (Condition right)
         (Condition [left right])))
   (monad.let [! try.monad]
-    [[slow_left slow_right] (in.as_pair slow)
+    [[slow fast] (?.identity it)
+     [slow_left slow_right] (in.as_pair slow)
      [fast_left fast_right] (in.as_pair fast)]
     (monad.and !
-               (in_left [slow_left fast_left])
-               (in_right [slow_right fast_right]))))
+               (in_left {?.:Identity [slow_left fast_left]})
+               (in_right {?.:Identity [slow_right fast_right]}))))
 
 (.the .public (with condition then
                 lemma
                 context it)
   (for_any (_ it)
     (-> (Condition it) (in.Case it)
-        (in.Case ?.Identity)))
+        (in.Case ?.Proposition)))
   (monad.let try.monad
     [lemma (condition lemma)]
     ((then lemma) context it)))
@@ -115,10 +116,16 @@
     {@type.:Extension @ name parameters}
     {@type.:Extension @ name (list:each analysis parameters)}))
 
-(.the identity
-  (Change ?.Identity)
-  (|>> (revised ?.:slow ..analysis)
-       (revised ?.:fast ..analysis)))
+(.the (proposition it)
+  (Change ?.Proposition)
+  (when it
+    {?.:Identity it}
+    {?.:Identity (|> it
+                     (revised ?.:slow ..analysis)
+                     (revised ?.:fast ..analysis))}
+
+    {?.:Entailment [premise conclusion]}
+    {?.:Entailment [(proposition premise) (proposition conclusion)]}))
 
 (exception.the .public (entailment_mismatch [expectation reality])
   (Exception [Natural Natural])
@@ -128,90 +135,30 @@
 
 (.the the'
   (extension.analysis (_ analysis archive
-                         [every_premise (?code.tuple (??.some ?list.any))
-                          'proposition ?list.any
+                         ['proposition ?list.any
                           'proof ?list.any])
-    (let [code_of_identity (is (-> ?.Identity
-                                   Code)
-                               (function (_ [this that])
-                                 (` [(, (?.code_of_analysis this))
-                                     (, (?.code_of_analysis that))])))]
-      (if (list.empty? every_premise)
-          (monad.let [! phase.monad]
-            [identity (meta.eval (type (?.Proposition ?.Identity)) 'proposition)
-             identity ((as (-> Any (?.Proposition ?.Identity)) identity) ?.empty analysis archive)
-             proof (meta.eval Proof 'proof)
-             state_of_compiler phase.state]
-            (when (monad.let try.monad
-                    [[left right] ((as (-> Any Proof) proof)
-                                   [in.:every_global state_of_compiler
-                                    in.:next_variable 0
-                                    in.:next_term 0]
-                                   (..identity identity))]
-                    (if (.with analysis.equivalence
-                          (= left right))
-                        {try.:Success [left right]}
-                        (exception.except by.contradiction [left right])))
-              {try.:Success theorem}
-              (type.with ?.Identity
-                (analysis archive (code_of_identity identity)))
-              
-              {try.:Failure error}
-              (meta.failure error)))
-          (monad.let [! phase.monad]
-            [entailment (meta.eval (type (?.Proposition ?.Entailment)) 'proposition)
-             entailment ((as (-> Any (?.Proposition ?.Entailment)) entailment) ?.empty analysis archive)
-             .let [expectation (list.size (its ?.:every_premise entailment))
-                   reality (list.size every_premise)]]
-            (if (natural.= expectation reality)
-                (monad.let !
-                  ['_ (name.new "'_")
-                   proof (meta.eval (list.mix (function (_ premise proof)
-                                                (-> ?.Identity proof))
-                                              Proof
-                                              every_premise)
-                                    (` (function ((, '_) (,* every_premise))
-                                         (, 'proof))))
-                   state_of_compiler phase.state]
-                  (when (monad.let try.monad
-                          [[left right] ((list.mix (function (_ premise proof)
-                                                     ((as (-> Proof (-> ?.Identity Proof)) proof) (..identity premise)))
-                                                   (as (-> Any Proof) proof)
-                                                   (its ?.:every_premise entailment))
-                                         [in.:every_global state_of_compiler
-                                          in.:next_variable 0
-                                          in.:next_term 0]
-                                         (..identity (its ?.:conclusion entailment)))]
-                          (if (.with analysis.equivalence
-                                (= left right))
-                              {try.:Success [left right]}
-                              (exception.except by.contradiction [left right])))
-                    {try.:Success theorem}
-                    (type.with ?.Entailment
-                      (analysis archive (` [?.:every_premise (list (,* (list:each code_of_identity (its ?.:every_premise entailment))))
-                                            ?.:conclusion (, (code_of_identity (its ?.:conclusion entailment)))])))
-                    
-                    {try.:Failure error}
-                    (meta.failure error)))
-                (phase.except ..entailment_mismatch [expectation reality])))))))
+    (monad.let [! phase.monad]
+      [proposition (meta.eval (type (?.Proposition' ?.Proposition)) 'proposition)
+       proposition ((as (-> Any (?.Proposition' ?.Proposition)) proposition) ?.empty analysis archive)
+       proof (meta.eval Proof 'proof)
+       state_of_compiler phase.state]
+      (when ((as (-> Any Proof) proof)
+             [in.:every_global state_of_compiler
+              in.:next_variable 0
+              in.:next_term 0]
+             (..proposition proposition))
+        {try.:Success theorem}
+        (analysis archive (?.as_code proposition))
+        
+        {try.:Failure error}
+        (meta.failure error)))))
 
 (.the .public the
   (syntax.macro (_ state_of_compiler
-                   [['export_policy 'declaration] (export.with (??.or (?code.form (??.and ?list.any (??.many ?list.any)))
-                                                                      ?list.any))
+                   [['export_policy 'name] (export.with ?list.any)
                     'proposition ?list.any
                     'proof ?list.any])
-    (pure (list (when 'declaration
-                  {.:Right 'name}
-                  (` (.the (, 'export_policy) (, 'name)
-                       ?.Identity
-                       (..the' []
-                               (, 'proposition)
-                               (, 'proof))))
-
-                  {.:Left ['name 'every_premise]}
-                  (` (.the (, 'export_policy) (, 'name)
-                       ?.Entailment
-                       (..the' [(,* 'every_premise)]
-                               (, 'proposition)
-                               (, 'proof)))))))))
+    (pure (list (` (.the (, 'export_policy) (, 'name)
+                     ?.Proposition
+                     (..the' (, 'proposition)
+                             (, 'proof))))))))
