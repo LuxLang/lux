@@ -42,6 +42,7 @@
 
 # Reference
 
+0. [Cross-Platform Floating-Point Determinism Out of the Box - Sherry Ignatchenko - CppCon 2024](https://youtu.be/7MatbTHGG6Q)
 0. [Neal Davis - Floating-Point Arithmetic on Deterministic Systems](https://youtu.be/bJSg9pmaD3I)
 0. [Elementary Functions and NOT Following the IEEE 754 Floating-Point Standard](http://www.hlsl.co.uk/blog/2020/1/29/ieee754-is-not-followed)
 0. [Subtraction Is Functionally Complete](https://orlp.net/blog/subtraction-is-functionally-complete/)

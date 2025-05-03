@@ -1,5 +1,6 @@
 # Reference
 
+0. [Your Strengths Are Your Weaknesses](https://terriblesoftware.org/2025/03/31/your-strengths-are-your-weaknesses/)
 0. [7 smart goals you can set for your organisation](https://trojanczyk.eu/7-smart-goals-you-can-set-for-your-organisation/)
 0. [Archetypes of Broken Ownership](https://blog.alexewerlof.com/p/broken-ownership)
 0. [Manage process before people](https://world.hey.com/dhh/manage-process-before-people-20736695)
