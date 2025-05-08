@@ -31,11 +31,11 @@
 
 # Property-based
 
-0. []()
 0. [Property-based Testing Patterns](https://blog.ssanj.net/posts/2016-06-26-property-based-testing-patterns.html)
 
 # Reference
 
+0. ["Testing Distributed Systems w/ Deterministic Simulation" by Will Wilson](https://youtu.be/4fFDFbi3toc)
 0. [Manuel Rigger: How to test software without writing test](https://www.youtube.com/watch?v=tLKTILnVasg)
 0. [What do you do, Testing or Checking?](https://www.infoq.com/news/2009/12/testing-or-checking/)
 0. [Testing vs. Checking](https://www.developsense.com/blog/2009/08/testing-vs-checking/)
