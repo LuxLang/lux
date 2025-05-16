@@ -90,6 +90,8 @@
       (pure (monad.let [! try.monad]
               [output (by ! each (|>> ffi.as_string (java/lang/String:trim []) ffi.of_string)
                           (by utf8.binary of actual))
+               .let [... Sometimes, the hashes are lower-cased.
+                     output (text.upper_cased output)]
                actual (|> output
                           (text.all_split_by " ")
                           (list.item 0)
@@ -126,6 +128,19 @@
                   [{.:None} {.:None}]
                   {//status.:Unverified})])))
 
+... Sometimes, versions come in brackets.
+(the clean_version
+  (|>> (text.replaced "[" "")
+       (text.replaced "]" "")))
+
+(the clean_artifact
+  (Change Artifact)
+  (revised ///artifact.:version clean_version))
+
+(the clean_dependency
+  (Change Dependency)
+  (revised //.:artifact clean_artifact))
+
 (the .public (one repository dependency)
   (-> (Repository Future) Dependency
       (Future (Try Package)))
@@ -133,7 +148,9 @@
         extension (///artifact/extension.extension type)]
     (monad.let (try.with future.monad)
       [snapshot (///metadata/snapshot.read repository artifact)
-       .let [version_template (its [///metadata/snapshot.:artifact ///artifact.:version] snapshot)
+       .let [version_template (|> snapshot
+                                  (its [///metadata/snapshot.:artifact ///artifact.:version])
+                                  ..clean_version)
              artifact_version (value.as_text [value.:version version_template
                                               value.:snapshot (its [///metadata/snapshot.:versioning ///artifact/versioning.:snapshot] snapshot)])
              artifact (has ///artifact.:version artifact_version artifact)]
@@ -210,51 +227,56 @@
              repositories))
 
 (the .public (all console repositories new_repository)
-  (-> (Console Future) (List (Repository Future)) (-> URL (Repository Future)) (List Dependency) Resolution
+  (-> (Console Future) (List (Repository Future)) (-> URL (Repository Future))
+      (List Dependency) Resolution
       (Future [(List Dependency)
                (List Dependency)
                Resolution]))
   (function (all dependencies resolution)
     (list.mix' future.monad
                (function (_ head [successes failures resolution])
-                 (when (its [//.:artifact ///artifact.:version] head)
-                   ... Skip if there is no version
-                   "" (future:pure [successes failures resolution])
-                   _ (monad.let [! future.monad]
-                       [?package (is (Future (Try Package))
-                                     (when (dictionary.value head resolution)
-                                       {try.:Success package}
-                                       (pure {try.:Success package})
+                 (let [head (clean_dependency head)]
+                   (when (its [//.:artifact ///artifact.:version] head)
+                     ... Skip if there is no version
+                     "" (future:pure [successes failures resolution])
+                     _ (monad.let [! future.monad]
+                         [?package (is (Future (Try Package))
+                                       (when (dictionary.value head resolution)
+                                         {try.:Success package}
+                                         (pure {try.:Success package})
 
-                                       not_found!
-                                       (..any console repositories head)))]
-                       (when ?package
-                         {try.:Success package}
-                         (monad.let !
-                           [.let [redundant? (is (Predicate Dependency)
-                                                 (predicate.or (by //.equality = head)
-                                                               (dictionary.in_domain? resolution)))
-                                  sub_dependencies (|> package
-                                                       ///package.dependencies
-                                                       (try:each (|>> set.as_list
-                                                                      (list.only (|>> redundant? not))))
-                                                       (try.else (list)))
-                                  ... For security reasons, it's not a good idea to allow dependencies to introduce repositories.
-                                  ... package_repositories (|> package
-                                  ...                          ///package.repositories
-                                  ...                          (try:each set.as_list
-                                  ...                          (try.else (list))
-                                  ...                          (list:each new_repository))
-                                  ... sub_repositories (list:composite repositories package_repositories)
-                                  ]
-                            [sub_successes sub_failures resolution] (all sub_dependencies resolution)]
-                           (pure [(.all list:composite (list head) successes sub_successes)
-                                  (.all list:composite failures sub_failures)
-                                  (dictionary.has head package resolution)]))
+                                         not_found!
+                                         (..any console repositories head)))]
+                         (when ?package
+                           {try.:Success package}
+                           (monad.let !
+                             [.let [... Must add the package to the resolution before fetching the sub-dependencies.
+                                    ... Otherwise, it can end up in an infinite loop if there is mutual recursion.
+                                    resolution (dictionary.has head package resolution)
+                                    redundant? (is (Predicate Dependency)
+                                                   (predicate.or (by //.equality = head)
+                                                                 (dictionary.in_domain? resolution)))
+                                    sub_dependencies (|> package
+                                                         ///package.dependencies
+                                                         (try:each (|>> set.as_list
+                                                                        (list.only (|>> redundant? not))))
+                                                         (try.else (list)))
+                                    ... For security reasons, it's not a good idea to allow dependencies to introduce repositories.
+                                    ... package_repositories (|> package
+                                    ...                          ///package.repositories
+                                    ...                          (try:each set.as_list
+                                    ...                          (try.else (list))
+                                    ...                          (list:each new_repository))
+                                    ... sub_repositories (list:composite repositories package_repositories)
+                                    ]
+                              [sub_successes sub_failures resolution] (all sub_dependencies resolution)]
+                             (pure [(.all list:composite (list head) successes sub_successes)
+                                    (.all list:composite failures sub_failures)
+                                    resolution]))
 
-                         {try.:Failure error}
-                         (future:pure [successes
-                                       (list:composite (list head) failures)
-                                       resolution])))))
+                           {try.:Failure error}
+                           (future:pure [successes
+                                         (list:composite (list head) failures)
+                                         resolution]))))))
                [(list) (list) resolution]
                dependencies)))

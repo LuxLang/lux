@@ -15,6 +15,7 @@
 
 # Reference
 
+0. [Probabilistic programming: Doing statistics using the tools of computer science](https://danmackinlay.name/notebook/probabilistic_programming.html)
 0. [Pyro: Deep Universal Probabilistic Programming](https://pyro.ai/)
 0. [Pangolin: probabilistic programming focused on fun](https://github.com/justindomke/pangolin)
 0. [LazyPPL](https://lazyppl.bitbucket.io/)

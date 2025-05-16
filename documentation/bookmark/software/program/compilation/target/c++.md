@@ -20,6 +20,7 @@
 
 # Reference
 
+0. [To Int or to Uint, This is the Question - Alex Dathskovsky - CppCon 2024](https://youtu.be/pnaZ0x9Mmm0)
 0. [Compiling C++ with the Clang API](https://maskray.me/blog/2025-03-09-compiling-c++-with-clang-api)
 0. [InstantC](https://gitlab.com/jlinhoff/instantc)
 0. [Lightning Talk: Writing a Better std::move - Jonathan Müller - CppCon 2023](https://www.youtube.com/watch?v=hvnl6T2MnUk)
@@ -47,7 +48,6 @@
 
 # Undefined behavior
 
-0. []()
 0. [INT32-C. Ensure that operations on signed integers do not result in overflow](https://wiki.sei.cmu.edu/confluence/display/c/INT32-C.+Ensure+that+operations+on+signed+integers+do+not+result+in+overflow)
 0. [Integer overflow](https://en.wikipedia.org/wiki/Integer_overflow#Handling)
 0. [Back To Basics: Undefined Behavior - Ansel Sermersheim & Barbara Geller - CppCon 2021](https://www.youtube.com/watch?v=NpL9YnxnOqM)
