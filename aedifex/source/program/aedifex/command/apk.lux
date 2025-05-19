@@ -1,0 +1,177 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except)
+   [abstract
+    ["[0]" monad]]
+   [control
+    ["[0]" io]]
+   [concurrency
+    ["[0]" future (.only Future) (.use "[1]:[0]" monad)]]
+   [error
+    ["[0]" try]
+    ["[0]" exception]]
+   [math
+    [number
+     [/64
+      ["[0]" integer]]]]
+   [world
+    ["[0]" file]
+    ["[0]" console (.only Console)]
+    ["[0]" shell (.only Shell)]
+    ["[0]" environment (.only Environment)
+     ["?[1]" \\projection]]]]]
+ [//
+  ["[0]" build]
+  [//
+   [command (.only Command)]
+   ["[0]" action]
+   ["[0]" android]
+   ["[0]" profile]
+   ["[0]" path]
+   ["[0]" zip]]])
+
+(exception.the .public no_android_profile)
+
+(the (message conclusion)
+  (-> Text
+      (Change Text))
+  (function (_ it)
+    (text "[" it " " conclusion "]")))
+
+(the start (message "STARTED"))
+(the success (message "ENDED"))
+(the failure (message "FAILED"))
+
+(the d8 "d8")
+(the aapt2 "aapt2")
+(the build_bundle "build-bundle")
+(the build_apks "build-apks")
+
+(the file_of_manifest
+  "AndroidManifest.xml")
+
+(the file_of_resources
+  "resources.pb")
+
+(the (command [console environment shell fs working_directory]
+              step
+              [command every_parameter])
+  (-> [(Console Future) ?environment.Environment (Shell Future) (file.System Future) file.Path]
+      Text
+      [Text (List Text)]
+      (action.Action Any))
+  (monad.let action.monad
+    [_ (console.write_line (..start step) console)
+     process (by shell execute [environment
+                                working_directory
+                                command
+                                every_parameter])
+     _ (build.log_output! console process)
+     _ (build.log_error! console process)
+     exit (by process await [])
+     _ (console.write_line (if (integer.= shell.normal exit)
+                               (..success step)
+                               (..failure step))
+                           console)]
+    (pure [])))
+
+(the file_of_dex
+  "classes.dex")
+
+(the file_of_module
+  "module.zip")
+
+(the file_of_bundle
+  "bundle.aab")
+
+(the file_of_apks
+  "program.apks")
+
+(the .public (do! console environment shell fs profile)
+  (-> (Console Future) (Environment Future) (Shell Future) (file.System Future)
+      (Command Any))
+  (when (its profile.:android profile)
+    {.:Some android}
+    (monad.let future.monad
+      [.let [/ (by fs delimiter)
+             working_directory (by environment directory)
+             target (text working_directory / (its profile.:target profile))
+             jvm_program (text target / build.jvm_artifact)
+             android_jar (path.correct (android.jar android fs))
+             file_of_apks (text target / ..file_of_apks)]
+       environment (environment.environment future.monad environment)
+       apks_already_exist? (file.exists? future.monad fs file_of_apks)]
+      (monad.let [! action.monad]
+        [... Step 0: Get rid of any pre-existing APKs.
+         _ (if apks_already_exist?
+               (by fs delete file_of_apks)
+               (pure []))
+         ... Step 1: Make DEX file.
+         _ (command [console environment shell fs working_directory]
+                    ..d8
+                    [(path.correct (android.d8 android fs))
+                     (list jvm_program
+                           "--release"
+                           "--lib" android_jar
+                           "--output" target)])
+         dex (let [dex (text target / ..file_of_dex)]
+               (monad.let !
+                 [it (by fs read dex)
+                  _ (by fs delete dex)]
+                 (pure it)))
+         ... Step 2: Prepare the manifest.
+         .let [apk_from_aapt2 (text target / "manifest.apk")]
+         _ (command [console environment shell fs working_directory]
+                    ..aapt2
+                    [(path.correct (android.aapt2 android fs))
+                     (list "link"
+                           "--proto-format"
+                           "-o" apk_from_aapt2
+                           "-I" android_jar
+                           "--manifest" (path.correct (its android.:manifest android))
+                           "--auto-add-overlay")])
+         [manifest resources] (future.soon (zip.with apk_from_aapt2
+                                             (function (_ zip_file)
+                                               (monad.let (try.with io.monad)
+                                                 [manifest (zip.in ..file_of_manifest zip_file)
+                                                  resources (zip.in ..file_of_resources zip_file)]
+                                                 (pure [manifest resources])))))
+         _ (by fs delete apk_from_aapt2)
+         ... Step 3: Make module for bundle.
+         module_zip (future:pure (zip.file (list [(text "dex" / ..file_of_dex)
+                                                  dex]
+                                                 [(text "manifest" / ..file_of_manifest)
+                                                  manifest]
+                                                 [..file_of_resources
+                                                  resources])))
+         .let [file_of_module (text target / ..file_of_module)]
+         _ (by fs write file_of_module module_zip)
+         ... Step 4: Make bundle.
+         .let [bundletool (path.correct (its android.:bundletool android))
+               file_of_bundle (text target / ..file_of_bundle)]
+         _ (command [console environment shell fs working_directory]
+                    ..build_bundle
+                    ["java"
+                     (list "-jar" bundletool
+                           ..build_bundle
+                           (text "--modules=" file_of_module)
+                           (text "--output=" file_of_bundle))])
+         _ (by fs delete file_of_module)
+         ... Step 5: Make APKs.
+         _ (command [console environment shell fs working_directory]
+                    ..build_apks
+                    ["java"
+                     (list "-jar" bundletool
+                           ..build_apks
+                           (text "--bundle=" file_of_bundle)
+                           (text "--output=" file_of_apks)
+                           ... "--mode=universal"
+                           )])
+         _ (by fs delete file_of_bundle)]
+        (pure [])))
+
+    else
+    (future:pure (exception.except ..no_android_profile []))))

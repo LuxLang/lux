@@ -27,60 +27,24 @@
     [number
      [/64
       ["[0]" natural]]]]
+   [macro
+    ["[0]" template]]
+   [meta
+    ["[0]" name]
+    ["[0]" static]]
    [world
     ["[0]" file]]]]
  [//
+  ["[0]" zip]
   ["[0]" artifact
    ["[1]/[0]" type]
    ["[1]/[0]" extension]]])
-
-(ffi.the java/util/zip/ZipEntry
-  "[1]:[0]"
-  (getSize [] long))
-
-(ffi.the java/lang/AutoCloseable
-  "[1]:[0]"
-  (close [] "io" "try" void))
-
-(ffi.the java/io/InputStream
-  "[1]:[0]"
-  (read [[byte] int int] "io" "try" int))
-
-... https://stackoverflow.com/a/40249275
-... https://vimalathithen.blogspot.com/2006/06/using-zipentrygetsize.html
-(ffi.the java/util/zip/ZipFile
-  "[1]:[0]"
-  (new [java/lang/String] "io" "try")
-  (getEntry [java/lang/String] "io" "try" java/util/zip/ZipEntry)
-  (getInputStream [java/util/zip/ZipEntry] "io" "try" java/io/InputStream))
 
 (the .public archive?
   (Predicate file.Path)
   (text.ends_with? artifact/extension.android_archive))
 
 (the name_of_jar_of_classes "classes.jar")
-
-(the (jar_of_classes_in_archive path_of_archive)
-  (-> file.Path
-      (IO (Try Binary)))
-  (monad.let [! (try.with io.monad)]
-    [zip_file (java/util/zip/ZipFile:new [(ffi.as_string path_of_archive)])
-     zip_entry (java/util/zip/ZipFile:getEntry [(ffi.as_string name_of_jar_of_classes)] zip_file)
-     .let [size (.natural (ffi.of_long (java/util/zip/ZipEntry:getSize [] zip_entry)))
-           data (binary.empty size)]
-     input_stream (java/util/zip/ZipFile:getInputStream [zip_entry] zip_file)
-     bytes_read (loop (bytes_read [so_far 0])
-                  (if (natural.= size so_far)
-                      (pure so_far)
-                      (monad.let !
-                        [in_addition (java/io/InputStream:read [data
-                                                                (ffi.as_int (.integer so_far))
-                                                                (ffi.as_int (.integer (natural.- so_far size)))]
-                                                               input_stream)]
-                        (bytes_read (natural.+ so_far (.natural (ffi.of_int in_addition)))))))
-     _ (java/lang/AutoCloseable:close [] input_stream)
-     _ (java/lang/AutoCloseable:close [] zip_file)]
-    (pure data)))
 
 (ffi.the java/io/File
   "[1]:[0]"
@@ -98,7 +62,8 @@
                                           list.in_reverse
                                           (list.item 0)
                                           (by io.monad pure))
-                                 data (jar_of_classes_in_archive path_of_archive)
+                                 data (zip.with path_of_archive
+                                        (zip.in ..name_of_jar_of_classes))
                                  it (java/io/File:createTempFile [(ffi.as_string artifact/type.android_archive)
                                                                   (ffi.as_string name)])
                                  _ (java/io/File:deleteOnExit [] it)]
@@ -110,9 +75,12 @@
 (every .public Profile
   (Record
    [:root file.Path
-    :platform file.Path]))
+    :platform file.Path
+    :tools file.Path
+    :manifest file.Path
+    :bundletool file.Path]))
 
-(the .public (jar it)
+(the (sdk it)
   (-> Profile
       (Scope (file.System Future)
              file.Path))
@@ -120,13 +88,53 @@
     [fs scope.context
      .let [/ (by fs delimiter)]]
     (pure (text (its :root it)
-                / "Sdk"
+                / "Sdk"))))
+
+(the .public (jar it)
+  (-> Profile
+      (Scope (file.System Future)
+             file.Path))
+  (monad.let scope.monad
+    [sdk (..sdk it)
+     fs scope.context
+     .let [/ (by fs delimiter)]]
+    (pure (text sdk
                 / "platforms"
                 / "android-" (its :platform it)
                 / "android.jar"))))
 
+(the (tools it)
+  (-> Profile
+      (Scope (file.System Future)
+             file.Path))
+  (monad.let scope.monad
+    [sdk (..sdk it)
+     fs scope.context
+     .let [/ (by fs delimiter)]]
+    (pure (text sdk
+                / "build-tools"
+                / (its :tools it)))))
+
+(template.with [,tool]
+  [(the .public (,tool it)
+     (-> Profile
+         (Scope (file.System Future)
+                file.Path))
+     (monad.let scope.monad
+       [tools (..tools it)
+        fs scope.context
+        .let [/ (by fs delimiter)]]
+       (pure (text tools
+                   / (static.text (name.proper (name ,tool)))))))]
+
+  [[d8]
+   [aapt2]])
+
 (the .public equality
   (Equality Profile)
   (all product.equality
+       text.equality
+       text.equality
+       text.equality
        text.equality
        text.equality))

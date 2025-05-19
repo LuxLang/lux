@@ -1,0 +1,112 @@
+... This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+... If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+(.using
+ [library
+  [lux (.except with)
+   ["[0]" ffi]
+   [abstract
+    ["[0]" monad]]
+   [control
+    ["[0]" io (.only IO) (.use "[1]:[0]" monad)]]
+   [error
+    ["[0]" try (.only Try)]]
+   [data
+    ["[0]" binary (.only Binary)]
+    [collection
+     ["[0]" list]]]
+   [math
+    [number
+     [/64
+      ["[0]" natural]]]]
+   [world
+    ["[0]" file]]]])
+
+(ffi.the java/lang/String
+  "[1]:[0]")
+
+(ffi.the java/util/zip/ZipEntry
+  "[1]:[0]"
+  (new [java/lang/String])
+  (getSize [] long))
+
+(ffi.the java/lang/AutoCloseable
+  "[1]:[0]"
+  (close [] "try" void))
+
+(ffi.the java/io/InputStream
+  "[1]:[0]"
+  (read [[byte] int int] "io" "try" int))
+
+(ffi.the java/io/OutputStream
+  "[1]:[0]"
+  (write [[byte] int int] "try" void))
+
+(ffi.the java/util/zip/ZipOutputStream
+  "[1]:[0]"
+  (new [java/io/OutputStream])
+  (putNextEntry [java/util/zip/ZipEntry] "try" void))
+
+(ffi.the java/io/ByteArrayOutputStream
+  "[1]:[0]"
+  (new [])
+  (toByteArray [] [byte]))
+
+... https://stackoverflow.com/a/40249275
+... https://vimalathithen.blogspot.com/2006/06/using-zipentrygetsize.html
+(ffi.the java/util/zip/ZipFile
+  "[1]:[0]"
+  (new [java/lang/String] "io" "try")
+  (getEntry [java/lang/String] "io" "try" java/util/zip/ZipEntry)
+  (getInputStream [java/util/zip/ZipEntry] "io" "try" java/io/InputStream))
+
+(the .public (in path zip_file)
+  (-> file.Path java/util/zip/ZipFile
+      (IO (Try Binary)))
+  (monad.let [! (try.with io.monad)]
+    [zip_entry (java/util/zip/ZipFile:getEntry [(ffi.as_string path)] zip_file)
+     .let [size (.natural (ffi.of_long (java/util/zip/ZipEntry:getSize [] zip_entry)))
+           data (binary.empty size)]
+     input_stream (java/util/zip/ZipFile:getInputStream [zip_entry] zip_file)
+     bytes_read (loop (bytes_read [so_far 0])
+                  (if (natural.= size so_far)
+                      (pure so_far)
+                      (monad.let !
+                        [in_addition (java/io/InputStream:read [data
+                                                                (ffi.as_int (.integer so_far))
+                                                                (ffi.as_int (.integer (natural.- so_far size)))]
+                                                               input_stream)]
+                        (bytes_read (natural.+ so_far (.natural (ffi.of_int in_addition)))))))
+     _ (io:pure (java/lang/AutoCloseable:close [] input_stream))]
+    (pure data)))
+
+(the .public (with path body)
+  (for_any (_ it)
+    (-> file.Path
+        (-> java/util/zip/ZipFile
+            (IO (Try it)))
+        (IO (Try it))))
+  (monad.let (try.with io.monad)
+    [zip_file (java/util/zip/ZipFile:new [(ffi.as_string path)])
+     it (body zip_file)
+     _ (io:pure (java/lang/AutoCloseable:close [] zip_file))]
+    (pure it)))
+
+(the .public (file contents)
+  (-> (List [file.Path Binary])
+      (Try Binary))
+  (monad.let [! try.monad]
+    [.let [it (java/io/ByteArrayOutputStream:new [])
+           stream (java/util/zip/ZipOutputStream:new [it])]
+     _ (list.each' !
+                   (function (_ [path content])
+                     (monad.let !
+                       [.let [entry (java/util/zip/ZipEntry:new [(ffi.as_string path)])]
+                        _ (java/util/zip/ZipOutputStream:putNextEntry [entry] stream)]
+                       (java/io/OutputStream:write [content
+                                                    (ffi.as_int +0)
+                                                    (ffi.as_int (.integer (binary.size content)))]
+                                                   stream)))
+                   contents)
+     _ (java/lang/AutoCloseable:close [] stream)]
+    (pure (java/io/ByteArrayOutputStream:toByteArray [] it))))
