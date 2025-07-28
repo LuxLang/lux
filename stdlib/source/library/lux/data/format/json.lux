@@ -25,6 +25,7 @@
     ["[0]" text (.only)
      ["<[1]>" \\projection (.only Projection)]
      ["[0]" escape]
+     ["[0]" character]
      ["[0]" slice
       ["?[1]" \\projection]]]
     [collection
@@ -371,7 +372,7 @@
           (of (?:next offset))
           {try.:Success [[offset tape] []]}))))
 
-(the with_space
+(the ?:with_space
   (for_any (_ it)
     (Change (Projection it)))
   (<<| (<>.after ..any_space)
@@ -392,7 +393,7 @@
 
 (the any_delimiter_of_value
   (Projection Any)
-  (with_space (?:this ..delimiter_of_value)))
+  (?:with_space (?:this ..delimiter_of_value)))
 
 (the the_null
   (Projection Null)
@@ -517,86 +518,116 @@
 
                  {try.:Failure message}
                  {try.:Failure message})))
+
+         (the (any_string [offset tape])
+           (Projection String)
+           (let [the_limit (?:size tape)
+                 start (?:next offset)]
+             (if (?:< the_limit start)
+                 (when (?:character tape offset)
+                   character.double_quote
+                   (loop (of [prefix ""
+                              start start
+                              end start])
+                     (when (?:character tape end)
+                       character.double_quote
+                       {try.:Success [[(?:next end) tape] (.text prefix (.text_clip# start (.i64_-# start end) tape))]}
+                       
+                       (character "\")
+                       (let [escape (?:next end)
+                             end (?:next escape)]
+                         (if (?:< the_limit end)
+                             (`` (when (?:character tape escape)
+                                   (,, (template.with [<when> <then>]
+                                         [<when>
+                                          (of (.text prefix (.text_clip# start (.i64_-# start end) tape)
+                                                     <then>)
+                                              end end)]
+
+                                         [[(character "t") text.tab]
+                                          [(character "b") text.back_space]
+                                          [(character "n") text.\n]
+                                          [(character "r") text.carriage_return]
+                                          [(character "f") text.form_feed]
+                                          [character.double_quote text.double_quote]
+                                          [(character "\") "\"]]))
+                                   
+                                   (character "u")
+                                   (let [segment (.text_clip# start (.i64_-# start end) tape)
+                                         u0 end
+                                         end (?:after 4 u0)]
+                                     (if (?:< the_limit end)
+                                         (when (by natural.base_16 of (.text_clip# u0 4 tape))
+                                           {try.:Success it}
+                                           (of (.text prefix segment (text.of_character it))
+                                               end end)
+
+                                           else
+                                           {try.:Failure error.not_valid})
+                                         {try.:Failure error.not_valid}))
+
+                                   else
+                                   {try.:Failure error.not_valid}))
+                             {try.:Failure error.not_valid}))
+
+                       else
+                       (let [end (?:next end)]
+                         (if (?:< the_limit end)
+                             (of prefix start end)
+                             {try.:Failure error.not_valid}))))
+
+                   else
+                   {try.:Failure error.not_valid})
+                 {try.:Failure error.not_valid})))
+
+         (the (any_kv any_json
+                      ,the_offset&tape)
+           (-> (Projection JSON)
+               (Projection [String JSON]))
+           (<| (?:let key ..any_string)
+               (?:let _ (?:with_space (?:this ..delimiter_of_entry)))
+               (?:let value any_json)
+               (?:pure [key value])))
+
+         (template.with [<name> <type> <open> <close> <elem_of> <prep>]
+           [(the (<name> any_json
+                         ,the_offset&tape)
+              (-> (Projection JSON)
+                  (Projection <type>))
+              (<| (?:let _ (?:this <open>))
+                  (?:let elems (?:with_space (<>.delimited_by ..any_delimiter_of_value <elem_of>)))
+                  (?:let _ (?:this <close>))
+                  (?:pure (|> elems <prep>))))]
+
+           [[any_array  Array  ..start_of_array ..end_of_array any_json <|]
+            [any_object Object ..start_of_object ..end_of_object (any_kv any_json) (dictionary.of_list text.hash)]])
+
+         (template.the (?:if ,condition ,then ,else)
+           [(when (,condition ,the_offset&tape)
+              {try.:Success [,the_offset&tape it]}
+              {try.:Success [,the_offset&tape {,then it}]}
+
+              else
+              ,else)])
+
+         (the any_json
+           (Projection JSON)
+           (<| ?:with_space
+               (function (any_json ,the_offset&tape))
+               (?:if the_null :Null)
+               (?:if any_boolean :Boolean)
+               (?:if any_number :Number)
+               (?:if any_string :String)
+               (?:if (any_array any_json) :Array)
+               (?:if (any_object any_json) :Object)
+               {try.:Failure error.not_valid}))
          ))
-
-(the escaped_string_of
-  (Projection Text)
-  (`` (all <>.either
-           (,, (template.with [<when> <then>]
-                 [(<>.after (?:this <when>)
-                            (<>:pure <then>))]
-
-                 [["\t" text.tab]
-                  ["\b" text.back_space]
-                  ["\n" text.\n]
-                  ["\r" text.carriage_return]
-                  ["\f" text.form_feed]
-                  [(.text "\" text.double_quote) text.double_quote]
-                  ["\\" "\"]]))
-           (<>.after (?:this "\u")
-                     (|> ?slice.base_16
-                         (?slice.exactly 4)
-                         ?slice.slice
-                         (<>.of natural.base_16)
-                         (<>:each text.of_character)))
-           )))
-
-(the string_of
-  (Projection String)
-  (<| (<text>.enclosed [text.double_quote text.double_quote])
-      (loop (of [_ []]))
-      (monad.let [! <>.monad]
-        [characters (<text>.some (<text>.none_of (.text "\" text.double_quote)))
-         stop <text>.next])
-      (if (text.= "\" stop)
-          (monad.let !
-            [escaped ..escaped_string_of
-             next_characters (of [])]
-            (pure (.text characters escaped next_characters)))
-          (pure characters))))
-
-(the (kv_of json_of)
-  (-> (Projection JSON)
-      (Projection [String JSON]))
-  (monad.let <>.monad
-    [key ..string_of
-     _ (with_space
-         (?:this ..delimiter_of_entry))
-     value json_of]
-    (pure [key value])))
-
-(template.with [<name> <type> <open> <close> <elem_of> <prep>]
-  [(the (<name> json_of)
-     (-> (Projection JSON)
-         (Projection <type>))
-     (monad.let <>.monad
-       [_ (?:this <open>)
-        elems (with_space
-                (<>.delimited_by ..any_delimiter_of_value <elem_of>))
-        _ (?:this <close>)]
-       (pure (|> elems <prep>))))]
-
-  [[array_of  Array  ..start_of_array ..end_of_array json_of <|]
-   [object_of Object ..start_of_object ..end_of_object (kv_of json_of) (dictionary.of_list text.hash)]])
-
-(the json_of
-  (Projection JSON)
-  (<| with_space
-      <>.rec
-      (function (_ json_of))
-      (all <>.or
-           the_null
-           any_boolean
-           any_number
-           string_of
-           (array_of json_of)
-           (object_of json_of))))
 
 (the .public format
   (Format Text JSON)
   (implementation
    (the as ..as_text)
-   (the of (<text>.value json_of))))
+   (the of (<text>.value any_json))))
 
 (exception.the (cannot_project [it])
   (Exception JSON)
