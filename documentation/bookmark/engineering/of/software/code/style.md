@@ -1,5 +1,7 @@
 # Reference
 
+0. [Catalog of Clojure-related code smells](https://github.com/nufuturo-ufcg/clj-smells-catalog)
+0. [Push Ifs Up And Fors Down](https://matklad.github.io/2023/11/15/push-ifs-up-and-fors-down.html)
 0. [Google Common Lisp Style Guide](https://google.github.io/styleguide/lispguide.xml)
 0. [The Ascetic Programmer: How asceticism benefits programming, science, and the arts](https://asceticprogrammer.info/book)
 0. [A Guide to Naming Variables](https://a-nickels-worth.blogspot.com/2016/04/a-guide-to-naming-variables.html)

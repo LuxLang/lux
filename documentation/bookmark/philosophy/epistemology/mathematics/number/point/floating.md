@@ -16,7 +16,6 @@
 
 # Debugging
 
-0. []()
 0. [Keynote: William Kahan - Debugging Tools for Floating-Point Code](https://www.youtube.com/watch?v=qHddEkfQBrA)
 
 # Comparison
@@ -42,6 +41,7 @@
 
 # Reference
 
+0. [The Secrets of Floating-Point Numbers](https://asawicki.info/articles/secrets_of_floating_point_numbers_en.php)
 0. [Cross-Platform Floating-Point Determinism Out of the Box - Sherry Ignatchenko - CppCon 2024](https://youtu.be/7MatbTHGG6Q)
 0. [Neal Davis - Floating-Point Arithmetic on Deterministic Systems](https://youtu.be/bJSg9pmaD3I)
 0. [Elementary Functions and NOT Following the IEEE 754 Floating-Point Standard](http://www.hlsl.co.uk/blog/2020/1/29/ieee754-is-not-followed)

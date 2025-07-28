@@ -1,10 +1,3 @@
-# Test
-
-```
-cd ~/lux/lux-lua/ && lein lux auto test
-cd ~/lux/lux-lua/ && lein clean && lein lux auto test
-```
-
 # Build
 
 ```
@@ -19,7 +12,7 @@ cd ~/lux/lux-lua/ \
 ```
 ## Compile Lux's Standard Library's tests using a JVM-based compiler.
 cd ~/lux/stdlib/ \
-&& lein clean \
+&& lux clean \
 && java -jar ~/lux/lux-lua/target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux --program _ \
 && ~/lua-5.4.2/install/bin/lua ~/lux/stdlib/target/program.lua
 ```

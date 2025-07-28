@@ -1,6 +1,5 @@
 # Architecture
 
-0. []()
 0. [ARCHITECTURE.md](https://matklad.github.io/2021/02/06/ARCHITECTURE.md.html)
 
 # Programming
@@ -64,6 +63,7 @@
 
 # Reference
 
+0. [How to Make Your Developer Documentation Work with LLMs: Lessons from the Trenches](https://fusionauth.io/blog/llms-for-docs)
 0. [BLUF (communication)](https://en.wikipedia.org/wiki/BLUF_(communication))
 0. [What makes documentation good](https://cookbook.openai.com/articles/what_makes_documentation_good)
 0. [Argdown: A simple syntax for complex argumentation](https://argdown.org/)

@@ -1,5 +1,6 @@
 # Reference
 
+0. [The Epochalypse Project: Raising awareness about the 2038 bug in all its manifestations and trying to fix things while there's still time](https://epochalypse-project.org/)
 0. [Problematic second](https://sarvendev.com/2024/07/problematic-second/)
 0. [2022-12-04 – An update on leap seconds](https://dotat.at/@/2022-12-04-leap-seconds.html)
 0. [Calendarific: Worldwide Holidays and Observances RESTful API](https://calendarific.com/)

@@ -1,5 +1,6 @@
 # Reference
 
+0. [Category Theory for Everyone](https://learnct.lol/)
 0. [Introducing Category Theory: Second edition](https://www.logicmatters.net/resources/pdfs/SmithCat.pdf)
 0. [DisCoPy: The Python toolkit for computing with string diagrams](https://discopy.org/)
    0. [DisCoPy documentation](https://docs.discopy.org/en/main/)
