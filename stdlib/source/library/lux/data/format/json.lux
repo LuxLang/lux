@@ -14,7 +14,7 @@
     ["[0]" monad]]
    [control
     ["[0]" pipe]]
-   [error
+   ["[0]" error (.only)
     ["[0]" try (.only Try) (.use "[1]:[0]" functor)]
     ["[0]" exception (.only Exception)]]
    ["[0]" function (.only)
@@ -41,6 +41,7 @@
       ["[0]" revolution]
       ["[0]" decimal (.use "[1]:[0]" base_10)]]]]
    [macro
+    ["^" pattern]
     ["[0]" syntax]
     ["[0]" template]
     ["[0]" expansion]]
@@ -290,27 +291,27 @@
      <token>)]
 
   [... https://en.wikipedia.org/wiki/Delimiter
-   ["," value_delimiter]
-   [":" entry_delimiter]
+   ["," delimiter_of_value]
+   [":" delimiter_of_entry]
 
-   ["[" array_start]
-   ["]" array_end]
+   ["[" start_of_array]
+   ["]" end_of_array]
 
-   ["{" object_start]
-   ["}" object_end]])
+   ["{" start_of_object]
+   ["}" end_of_object]])
 
 (the (array_as_text as_text)
   (-> (text.Injection JSON)
       (text.Injection Array))
   (|>> (list:each as_text)
-       (text.interposed ..value_delimiter)
-       (text.enclosed [..array_start ..array_end])))
+       (text.interposed ..delimiter_of_value)
+       (text.enclosed [..start_of_array ..end_of_array])))
 
 (the (kv_as_text as_text [key value])
   (-> (text.Injection JSON)
       (text.Injection [String JSON]))
   (.text (..string_as_text key)
-         ..entry_delimiter
+         ..delimiter_of_entry
          (as_text value)))
 
 (the (object_as_text as_text)
@@ -318,8 +319,8 @@
       (text.Injection Object))
   (|>> dictionary.entries
        (list:each (..kv_as_text as_text))
-       (text.interposed ..value_delimiter)
-       (text.enclosed [..object_start ..object_end])))
+       (text.interposed ..delimiter_of_value)
+       (text.enclosed [..start_of_object ..end_of_object])))
 
 (the .public (as_text json)
   (text.Injection JSON)
@@ -358,14 +359,14 @@
 (template.the (?:character ,tape ,offset)
   [(.text_char# ,offset ,tape)])
 
-(template.the (?:index ,tape ,reference ,offset)
+(template.the (?:index ,tape ,offset ,reference)
   [(.text_index# ,offset ,reference ,tape)])
 
 (the (any_space [offset tape])
   (Projection Any)
-  (let [limit (?:size tape)]
+  (let [the_limit (?:size tape)]
     (loop (of [offset offset])
-      (if (.and (?:< limit offset)
+      (if (.and (?:< the_limit offset)
                 (text.space? (?:character tape offset)))
           (of (?:next offset))
           {try.:Success [[offset tape] []]}))))
@@ -378,62 +379,145 @@
 
 (the (?:this reference [offset tape])
   (-> Text
-      (Projection Any))
+      (Projection Text))
   (expansion.let [,failure (these (exception.except <text>.cannot_match [reference]))]
-    (when (?:index tape reference offset)
+    (when (?:index tape offset reference)
       {.:Some where}
       (if (?:= offset where)
-          {try.:Success [[(?:after (?:size reference) offset) tape] []]}
+          {try.:Success [[(?:after (?:size reference) offset) tape] reference]}
           ,failure)
 
       else
       ,failure)))
 
-(the value_delimiter_of
+(the any_delimiter_of_value
   (Projection Any)
-  (with_space (?:this ..value_delimiter)))
+  (with_space (?:this ..delimiter_of_value)))
 
-(the null_of
+(the the_null
   (Projection Null)
   (?:this "null"))
 
-(template.with [<value> <name> <token>]
-  [(the <name>
-     (Projection Boolean)
-     (monad.let <>.monad
-       [_ (?:this <token>)]
-       (pure <value>)))]
+(template.with_locals [,the_offset&tape ,the_error]
+  (these (template.the (?:pure ,it)
+           [{try.:Success [,the_offset&tape ,it]}])
 
-  [[0b false_of "false"]
-   [1b true_of  "true"]])
+         (template.the (?:let ,name ,value ,body)
+           [(when (,value ,the_offset&tape)
+              {try.:Success [,the_offset&tape ,name]}
+              ,body
 
-(the boolean_of
-  (Projection Boolean)
-  (all <>.either
-       ..true_of
-       ..false_of))
+              {try.:Failure ,the_error}
+              {try.:Failure ,the_error})])
 
-(the number_of
-  (Projection Number)
-  (monad.let [! <>.monad]
-    [signed? (<>.parses? (?:this "-"))
-     digits (<text>.many <text>.base_10)
-     decimals (<>.else "0"
-                       (monad.let !
-                         [_ (?:this ".")]
-                         (<text>.many <text>.base_10)))
-     exp (<>.else ""
-                  (monad.let !
-                    [mark (<text>.one_of "eE")
-                     signed?' (<>.parses? (?:this "-"))
-                     offset (<text>.many <text>.base_10)]
-                    (pure (.text mark (if signed?' "-" "") offset))))]
-    (when (decimal:of (.text (if signed? "-" "") digits "." decimals exp))
-      {try.:Success value}
-      (pure value)
+         (template.with [<value> <name> <token>]
+           [(the (<name> ,the_offset&tape)
+              (Projection Boolean)
+              (<| (?:let _ (?:this <token>))
+                  (?:pure <value>)))]
 
-      {try.:Failure message}
-      (<>.failure message))))
+           [[0b the_false "false"]
+            [1b the_true  "true"]])
+
+         (template.the (?:either ,this ,that)
+           [(when (,this ,the_offset&tape)
+              {try.:Failure ,the_error}
+              (,that ,the_offset&tape)
+
+              success
+              success)])
+
+         (the (any_boolean ,the_offset&tape)
+           (Projection Boolean)
+           (?:either ..the_false
+                     ..the_true))
+
+         (the (?:parses? reference [offset tape])
+           (-> Text
+               (Projection Bit))
+           (expansion.let [,failure (these {try.:Success [[offset tape] false]})]
+             (when (?:index tape offset reference)
+               {.:Some where}
+               (if (?:= offset where)
+                   {try.:Success [[(?:after (?:size reference) offset) tape] true]}
+                   ,failure)
+
+               else
+               ,failure)))
+
+         (the ?:signed?
+           (Projection Bit)
+           (?:parses? "-"))
+
+         (the <0 (-- (character "0")))
+         (the >9 (++ (character "9")))
+
+         (template.the (?:digit? ,it)
+           [(.and (?:< ,it ..<0)
+                  (?:< ..>9 ,it))])
+
+         (the (?:natural [offset tape])
+           (Projection Text)
+           (let [the_limit (?:size tape)]
+             (loop (of [run 0])
+               (let [index (?:after offset run)]
+                 (if (.and (?:< the_limit index)
+                           (?:digit? (?:character tape index)))
+                     (of (?:next run))
+                     (if (?:= 0 run)
+                         {try.:Failure error.not_valid}
+                         {try.:Success [[index tape] (.text_clip# offset run tape)]}))))))
+
+         (the (?:integer ,the_offset&tape)
+           (Projection Text)
+           (<| (?:let signed? ?:signed?)
+               (?:let natural ?:natural)
+               (?:pure (.text (if signed? "-" "") natural))))
+
+         (the (?:revolution ,the_offset&tape)
+           (Projection Text)
+           (<| (?:let _ (?:this "."))
+               (?:natural ,the_offset&tape)))
+
+         (the (?:delimiter_of_exponent [offset tape])
+           (Projection Text)
+           (if (.and (?:< (?:size tape) offset)
+                     (when (?:character tape offset)
+                       (^.or (character "e")
+                             (character "E"))
+                       true
+
+                       else
+                       false))
+               {try.:Success [[(?:next offset) tape] "e"]}
+               {try.:Failure error.not_valid}))
+
+         (the (?:else else then
+                      ,the_offset&tape)
+           (-> Text
+               (Change (Projection Text)))
+           (when (then ,the_offset&tape)
+             {try.:Failure _}
+             {try.:Success [,the_offset&tape else]}
+
+             success
+             success))
+
+         (the (any_number ,the_offset&tape)
+           (Projection Number)
+           (<| (?:let digits ?:integer)
+               (?:let decimals (?:else "0" ?:revolution))
+               (?:let exp (?:else "" (function (_ ,the_offset&tape)
+                                       (<| (?:let mark ?:delimiter_of_exponent)
+                                           (?:let offset ?:integer)
+                                           (?:pure (.text mark offset))))))
+               (when (decimal:of (.text digits "." decimals exp))
+                 {try.:Success value}
+                 (?:pure value)
+
+                 {try.:Failure message}
+                 {try.:Failure message})))
+         ))
 
 (the escaped_string_of
   (Projection Text)
@@ -477,7 +561,7 @@
   (monad.let <>.monad
     [key ..string_of
      _ (with_space
-         (?:this ..entry_delimiter))
+         (?:this ..delimiter_of_entry))
      value json_of]
     (pure [key value])))
 
@@ -488,12 +572,12 @@
      (monad.let <>.monad
        [_ (?:this <open>)
         elems (with_space
-                (<>.delimited_by ..value_delimiter_of <elem_of>))
+                (<>.delimited_by ..any_delimiter_of_value <elem_of>))
         _ (?:this <close>)]
        (pure (|> elems <prep>))))]
 
-  [[array_of  Array  ..array_start ..array_end json_of <|]
-   [object_of Object ..object_start ..object_end (kv_of json_of) (dictionary.of_list text.hash)]])
+  [[array_of  Array  ..start_of_array ..end_of_array json_of <|]
+   [object_of Object ..start_of_object ..end_of_object (kv_of json_of) (dictionary.of_list text.hash)]])
 
 (the json_of
   (Projection JSON)
@@ -501,9 +585,9 @@
       <>.rec
       (function (_ json_of))
       (all <>.or
-           null_of
-           boolean_of
-           number_of
+           the_null
+           any_boolean
+           any_number
            string_of
            (array_of json_of)
            (object_of json_of))))
