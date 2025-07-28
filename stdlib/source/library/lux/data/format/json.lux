@@ -22,7 +22,7 @@
    [data
     ["[0]" maybe]
     ["[0]" product]
-    ["[0]" text (.only \n)
+    ["[0]" text (.only)
      ["<[1]>" \\projection (.only Projection)]
      ["[0]" escape]
      ["[0]" slice
@@ -42,7 +42,8 @@
       ["[0]" decimal (.use "[1]:[0]" base_10)]]]]
    [macro
     ["[0]" syntax]
-    ["[0]" template]]
+    ["[0]" template]
+    ["[0]" expansion]]
    [meta
     ["[0]" code (.only)
      ["<[1]>" \\projection]]]
@@ -339,32 +340,72 @@
 ............................................................
 ............................................................
 
-(the space_of
-  (Projection Text)
-  (<text>.some <text>.space))
+(template.the (?:= ,reference ,it)
+  [(.i64_=# ,reference ,it)])
+
+(template.the (?:< ,greater ,lesser)
+  [(.int_<# (.integer ,greater) (.integer ,lesser))])
+
+(template.the (?:size ,it)
+  [(.text_size# ,it)])
+
+(template.the (?:after ,origin ,it)
+  [(is Natural (.i64_+# (is Natural ,origin) (is Natural ,it)))])
+
+(template.the (?:next ,it)
+  [(?:after 1 ,it)])
+
+(template.the (?:character ,tape ,offset)
+  [(.text_char# ,offset ,tape)])
+
+(template.the (?:index ,tape ,reference ,offset)
+  [(.text_index# ,offset ,reference ,tape)])
+
+(the (any_space [offset tape])
+  (Projection Any)
+  (let [limit (?:size tape)]
+    (loop (of [offset offset])
+      (if (.and (?:< limit offset)
+                (text.space? (?:character tape offset)))
+          (of (?:next offset))
+          {try.:Success [[offset tape] []]}))))
+
+(the with_space
+  (for_any (_ it)
+    (Change (Projection it)))
+  (<<| (<>.after ..any_space)
+       (<>.before ..any_space)))
+
+(the (?:this reference [offset tape])
+  (-> Text
+      (Projection Any))
+  (expansion.let [,failure (these (exception.except <text>.cannot_match [reference]))]
+    (when (?:index tape reference offset)
+      {.:Some where}
+      (if (?:= offset where)
+          {try.:Success [[(?:after (?:size reference) offset) tape] []]}
+          ,failure)
+
+      else
+      ,failure)))
 
 (the value_delimiter_of
-  (Projection [Text Any Text])
-  (all <>.and
-       ..space_of
-       (<text>.this ..value_delimiter)
-       ..space_of))
+  (Projection Any)
+  (with_space (?:this ..value_delimiter)))
 
 (the null_of
   (Projection Null)
-  (monad.let <>.monad
-    [_ (<text>.this "null")]
-    (pure [])))
+  (?:this "null"))
 
-(template.with [<name> <token> <value>]
+(template.with [<value> <name> <token>]
   [(the <name>
      (Projection Boolean)
      (monad.let <>.monad
-       [_ (<text>.this <token>)]
+       [_ (?:this <token>)]
        (pure <value>)))]
 
-  [[false_of "false" 0b]
-   [true_of  "true"  1b]])
+  [[0b false_of "false"]
+   [1b true_of  "true"]])
 
 (the boolean_of
   (Projection Boolean)
@@ -375,16 +416,16 @@
 (the number_of
   (Projection Number)
   (monad.let [! <>.monad]
-    [signed? (<>.parses? (<text>.this "-"))
+    [signed? (<>.parses? (?:this "-"))
      digits (<text>.many <text>.base_10)
      decimals (<>.else "0"
                        (monad.let !
-                         [_ (<text>.this ".")]
+                         [_ (?:this ".")]
                          (<text>.many <text>.base_10)))
      exp (<>.else ""
                   (monad.let !
                     [mark (<text>.one_of "eE")
-                     signed?' (<>.parses? (<text>.this "-"))
+                     signed?' (<>.parses? (?:this "-"))
                      offset (<text>.many <text>.base_10)]
                     (pure (.text mark (if signed?' "-" "") offset))))]
     (when (decimal:of (.text (if signed? "-" "") digits "." decimals exp))
@@ -398,17 +439,17 @@
   (Projection Text)
   (`` (all <>.either
            (,, (template.with [<when> <then>]
-                 [(<>.after (<text>.this <when>)
+                 [(<>.after (?:this <when>)
                             (<>:pure <then>))]
 
                  [["\t" text.tab]
                   ["\b" text.back_space]
-                  ["\n" \n]
+                  ["\n" text.\n]
                   ["\r" text.carriage_return]
                   ["\f" text.form_feed]
                   [(.text "\" text.double_quote) text.double_quote]
                   ["\\" "\"]]))
-           (<>.after (<text>.this "\u")
+           (<>.after (?:this "\u")
                      (|> ?slice.base_16
                          (?slice.exactly 4)
                          ?slice.slice
@@ -435,9 +476,8 @@
       (Projection [String JSON]))
   (monad.let <>.monad
     [key ..string_of
-     _ ..space_of
-     _ (<text>.this ..entry_delimiter)
-     _ ..space_of
+     _ (with_space
+         (?:this ..entry_delimiter))
      value json_of]
     (pure [key value])))
 
@@ -446,11 +486,10 @@
      (-> (Projection JSON)
          (Projection <type>))
      (monad.let <>.monad
-       [_ (<text>.this <open>)
-        _ space_of
-        elems (<>.delimited_by ..value_delimiter_of <elem_of>)
-        _ space_of
-        _ (<text>.this <close>)]
+       [_ (?:this <open>)
+        elems (with_space
+                (<>.delimited_by ..value_delimiter_of <elem_of>))
+        _ (?:this <close>)]
        (pure (|> elems <prep>))))]
 
   [[array_of  Array  ..array_start ..array_end json_of <|]
@@ -458,17 +497,16 @@
 
 (the json_of
   (Projection JSON)
-  (<| (<>.after ..space_of)
-      (<>.before ..space_of)
-      (<>.rec
-       (function (_ json_of)
-         (all <>.or
-              null_of
-              boolean_of
-              number_of
-              string_of
-              (array_of json_of)
-              (object_of json_of))))))
+  (<| with_space
+      <>.rec
+      (function (_ json_of))
+      (all <>.or
+           null_of
+           boolean_of
+           number_of
+           string_of
+           (array_of json_of)
+           (object_of json_of))))
 
 (the .public format
   (Format Text JSON)
