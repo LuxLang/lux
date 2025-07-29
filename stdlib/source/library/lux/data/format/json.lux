@@ -10,7 +10,7 @@
    [abstract
     [equality (.only Equality)]
     [format (.only Format)]
-    ["<>" projection (.use "[1]:[0]" monad)]
+    ["?" projection]
     ["[0]" monad]]
    [control
     ["[0]" pipe]]
@@ -23,11 +23,9 @@
     ["[0]" maybe]
     ["[0]" product]
     ["[0]" text (.only)
-     ["<[1]>" \\projection (.only Projection)]
+     ["?[1]" \\projection]
      ["[0]" escape]
-     ["[0]" character]
-     ["[0]" slice
-      ["?[1]" \\projection]]]
+     ["[0]" character]]
     [collection
      ["[0]" list (.use "[1]:[0]" monoid mix functor)
       ["?[1]" \\projection]]
@@ -109,18 +107,19 @@
 
 (the jsonP
   (<code>.Projection JSON')
-  (<>.rec
-   (function (_ jsonP)
-     (all <>.or
-          (<code>.form (<>:pure []))
-          <code>.bit
-          <code>.decimal
-          <code>.text
-          (<code>.tuple (<>.some jsonP))
-          (<>:each (dictionary.of_list text.hash)
-                   (<code>.variant (<>.some (<>.and <code>.text jsonP))))
-          ?list.any
-          ))))
+  (<| (with ?.monad)
+      ?.rec
+      (function (_ jsonP))
+      (all ?.or
+           (<code>.form (pure []))
+           <code>.bit
+           <code>.decimal
+           <code>.text
+           (<code>.tuple (?.some jsonP))
+           (each (dictionary.of_list text.hash)
+                 (<code>.variant (?.some (?.and <code>.text jsonP))))
+           ?list.any
+           )))
 
 (the (jsonF token)
   (-> JSON'
@@ -364,7 +363,7 @@
   [(.text_index# ,offset ,reference ,tape)])
 
 (the (any_space [offset tape])
-  (Projection Any)
+  (?text.Projection Any)
   (let [the_limit (?:size tape)]
     (loop (of [offset offset])
       (if (.and (?:< the_limit offset)
@@ -372,34 +371,7 @@
           (of (?:next offset))
           {try.:Success [[offset tape] []]}))))
 
-(the ?:with_space
-  (for_any (_ it)
-    (Change (Projection it)))
-  (<<| (<>.after ..any_space)
-       (<>.before ..any_space)))
-
-(the (?:this reference [offset tape])
-  (-> Text
-      (Projection Text))
-  (expansion.let [,failure (these (exception.except <text>.cannot_match [reference]))]
-    (when (?:index tape offset reference)
-      {.:Some where}
-      (if (?:= offset where)
-          {try.:Success [[(?:after (?:size reference) offset) tape] reference]}
-          ,failure)
-
-      else
-      ,failure)))
-
-(the any_delimiter_of_value
-  (Projection Any)
-  (?:with_space (?:this ..delimiter_of_value)))
-
-(the the_null
-  (Projection Null)
-  (?:this "null"))
-
-(template.with_locals [,the_offset&tape ,the_error]
+(template.with_locals [,the_offset&tape]
   (these (template.the (?:pure ,it)
            [{try.:Success [,the_offset&tape ,it]}])
 
@@ -408,47 +380,44 @@
               {try.:Success [,the_offset&tape ,name]}
               ,body
 
-              {try.:Failure ,the_error}
-              {try.:Failure ,the_error})])
+              {try.:Failure error}
+              {try.:Failure error})])
 
-         (template.with [<value> <name> <token>]
-           [(the (<name> ,the_offset&tape)
-              (Projection Boolean)
-              (<| (?:let _ (?:this <token>))
-                  (?:pure <value>)))]
+         (template.the (let:with_space ,name ,it ,then)
+           [(<| (?:let _ ..any_space)
+                (?:let ,name ,it)
+                (?:let _ ..any_space)
+                ,then)])
 
-           [[0b the_false "false"]
-            [1b the_true  "true"]])
+         (template.the (if:this reference ,then ,else)
+           [(let [[offset tape] ,the_offset&tape]
+              (when (?:index tape offset reference)
+                {.:Some where}
+                (if (?:= offset where)
+                    (let [,the_offset&tape [(?:after (?:size reference) offset) tape]]
+                      ,then)
+                    ,else)
 
-         (template.the (?:either ,this ,that)
-           [(when (,this ,the_offset&tape)
-              {try.:Failure ,the_error}
-              (,that ,the_offset&tape)
+                else
+                ,else))])
 
-              success
-              success)])
+         (template.the (when:this reference ,then)
+           [(if:this reference ,then (exception.except ?text.cannot_match [reference]))])
 
-         (the (any_boolean ,the_offset&tape)
-           (Projection Boolean)
-           (?:either ..the_false
-                     ..the_true))
+         (template.the (let:parses? reference ,name ,then)
+           [(expansion.let [,failure (these (let [,name false]
+                                              ,then))]
+              (let [[offset tape] ,the_offset&tape]
+                (when (?:index tape offset reference)
+                  {.:Some where}
+                  (if (?:= offset where)
+                      (let [,the_offset&tape [(?:after (?:size reference) offset) tape]
+                            ,name true]
+                        ,then)
+                      ,failure)
 
-         (the (?:parses? reference [offset tape])
-           (-> Text
-               (Projection Bit))
-           (expansion.let [,failure (these {try.:Success [[offset tape] false]})]
-             (when (?:index tape offset reference)
-               {.:Some where}
-               (if (?:= offset where)
-                   {try.:Success [[(?:after (?:size reference) offset) tape] true]}
-                   ,failure)
-
-               else
-               ,failure)))
-
-         (the ?:signed?
-           (Projection Bit)
-           (?:parses? "-"))
+                  else
+                  ,failure)))])
 
          (the <0 (-- (character "0")))
          (the >9 (++ (character "9")))
@@ -457,62 +426,55 @@
            [(.and (?:< ,it ..<0)
                   (?:< ..>9 ,it))])
 
-         (the (?:natural [offset tape])
-           (Projection Text)
-           (let [the_limit (?:size tape)]
-             (loop (of [run 0])
-               (let [index (?:after offset run)]
-                 (if (.and (?:< the_limit index)
-                           (?:digit? (?:character tape index)))
-                     (of (?:next run))
-                     (if (?:= 0 run)
-                         {try.:Failure error.not_valid}
-                         {try.:Success [[index tape] (.text_clip# offset run tape)]}))))))
+         (template.the (let:natural ,name ,then)
+           [(let [[offset tape] ,the_offset&tape
+                  the_limit (?:size tape)]
+              (loop (of [run 0])
+                (let [index (?:after offset run)]
+                  (if (.and (?:< the_limit index)
+                            (?:digit? (?:character tape index)))
+                      (of (?:next run))
+                      (if (?:= 0 run)
+                          {try.:Failure error.not_valid}
+                          (let [,the_offset&tape [index tape]
+                                ,name (.text_clip# offset run tape)]
+                            ,then))))))])
 
-         (the (?:integer ,the_offset&tape)
-           (Projection Text)
-           (<| (?:let signed? ?:signed?)
-               (?:let natural ?:natural)
-               (?:pure (.text (if signed? "-" "") natural))))
+         (template.the (let:integer ,name ,then)
+           [(<| (let:parses? "-" signed?)
+                (let:natural natural)
+                (let [,name (.text (if signed? "-" "") natural)])
+                ,then)])
 
-         (the (?:revolution ,the_offset&tape)
-           (Projection Text)
-           (<| (?:let _ (?:this "."))
-               (?:natural ,the_offset&tape)))
+         (template.the (let:revolution ,name ,else ,then)
+           [(if:this "."
+                     (<| (let:natural ,name)
+                         ,then)
+                     (<| (let [,name ,else])
+                         ,then))])
 
-         (the (?:delimiter_of_exponent [offset tape])
-           (Projection Text)
-           (if (.and (?:< (?:size tape) offset)
-                     (when (?:character tape offset)
-                       (^.or (character "e")
-                             (character "E"))
-                       true
+         (template.the (let:delimiter_of_exponent ,name ,further ,else ,then)
+           [(let [[offset tape] ,the_offset&tape]
+              (if (.and (?:< (?:size tape) offset)
+                        (when (?:character tape offset)
+                          (^.or (character "e")
+                                (character "E"))
+                          true
 
-                       else
-                       false))
-               {try.:Success [[(?:next offset) tape] "e"]}
-               {try.:Failure error.not_valid}))
-
-         (the (?:else else then
-                      ,the_offset&tape)
-           (-> Text
-               (Change (Projection Text)))
-           (when (then ,the_offset&tape)
-             {try.:Failure _}
-             {try.:Success [,the_offset&tape else]}
-
-             success
-             success))
+                          else
+                          false))
+                  (let [,the_offset&tape [(?:next offset) tape]]
+                    (<| (,further ,name)
+                        ,then))
+                  (<| (let [,name ,else])
+                      ,then)))])
 
          (the (any_number ,the_offset&tape)
-           (Projection Number)
-           (<| (?:let digits ?:integer)
-               (?:let decimals (?:else "0" ?:revolution))
-               (?:let exp (?:else "" (function (_ ,the_offset&tape)
-                                       (<| (?:let mark ?:delimiter_of_exponent)
-                                           (?:let offset ?:integer)
-                                           (?:pure (.text mark offset))))))
-               (when (decimal:of (.text digits "." decimals exp))
+           (?text.Projection Number)
+           (<| (let:integer digits)
+               (let:revolution decimals "0")
+               (let:delimiter_of_exponent exp let:integer "0")
+               (when (decimal:of (.text digits "." decimals "e" exp))
                  {try.:Success value}
                  (?:pure value)
 
@@ -520,7 +482,7 @@
                  {try.:Failure message})))
 
          (the (any_string [offset tape])
-           (Projection String)
+           (?text.Projection String)
            (let [the_limit (?:size tape)
                  start (?:next offset)]
              (if (?:< the_limit start)
@@ -582,52 +544,57 @@
 
          (the (any_kv any_json
                       ,the_offset&tape)
-           (-> (Projection JSON)
-               (Projection [String JSON]))
-           (<| (?:let key ..any_string)
-               (?:let _ (?:with_space (?:this ..delimiter_of_entry)))
+           (-> (?text.Projection JSON)
+               (?text.Projection [String JSON]))
+           (<| (let:with_space key ..any_string)
+               (when:this ..delimiter_of_entry)
                (?:let value any_json)
                (?:pure [key value])))
 
-         (template.with [<name> <type> <open> <close> <elem_of> <prep>]
-           [(the (<name> any_json
-                         ,the_offset&tape)
-              (-> (Projection JSON)
-                  (Projection <type>))
-              (<| (?:let _ (?:this <open>))
-                  (?:let elems (?:with_space (<>.delimited_by ..any_delimiter_of_value <elem_of>)))
-                  (?:let _ (?:this <close>))
-                  (?:pure (|> elems <prep>))))]
+         (the (any_delimiter_of_value ,the_offset&tape)
+           (?text.Projection Any)
+           (<| (let:with_space _ (?text.this ..delimiter_of_value))
+               (?:pure [])))
 
-           [[any_array  Array  ..start_of_array ..end_of_array any_json <|]
-            [any_object Object ..start_of_object ..end_of_object (any_kv any_json) (dictionary.of_list text.hash)]])
+         (template.with [<name> <open> <close> <any_item>]
+           [(template.the (<name> any_json <prep> ,else)
+              [(if:this <open>
+                        (<| (?:let it (?.delimited_by ..any_delimiter_of_value <any_item>))
+                            (when:this <close>)
+                            (?:pure (|> it <prep>)))
+                        ,else)])]
+
+           [[if:array  ..start_of_array ..end_of_array any_json]
+            [if:object ..start_of_object ..end_of_object (any_kv any_json)]])
 
          (template.the (?:if ,condition ,then ,else)
            [(when (,condition ,the_offset&tape)
               {try.:Success [,the_offset&tape it]}
-              {try.:Success [,the_offset&tape {,then it}]}
+              (?:pure {,then it})
 
               else
               ,else)])
 
-         (the any_json
-           (Projection JSON)
-           (<| ?:with_space
-               (function (any_json ,the_offset&tape))
-               (?:if the_null :Null)
-               (?:if any_boolean :Boolean)
-               (?:if any_number :Number)
-               (?:if any_string :String)
-               (?:if (any_array any_json) :Array)
-               (?:if (any_object any_json) :Object)
-               {try.:Failure error.not_valid}))
+         (the (any_json ,the_offset&tape)
+           (?text.Projection JSON)
+           (<| (let:with_space it (<| (is (?text.Projection JSON))
+                                      (function (_ ,the_offset&tape))
+                                      (if:this "null" (?:pure {:Null}))
+                                      (if:this "false" (?:pure {:Boolean 0b}))
+                                      (if:this "true" (?:pure {:Boolean 1b}))
+                                      (?:if any_number :Number)
+                                      (?:if any_string :String)
+                                      (if:array any_json {:Array})
+                                      (if:object any_json (<| {:Object} (dictionary.of_list text.hash)))
+                                      {try.:Failure error.not_valid}))
+               (?:pure it)))
          ))
 
 (the .public format
   (Format Text JSON)
   (implementation
    (the as ..as_text)
-   (the of (<text>.value any_json))))
+   (the of (?text.value any_json))))
 
 (exception.the (cannot_project [it])
   (Exception JSON)
