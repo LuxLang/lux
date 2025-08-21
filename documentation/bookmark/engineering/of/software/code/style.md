@@ -1,5 +1,6 @@
 # Reference
 
+0. [If the Goal is Resiliency, Defensive Programming is Your Enemy](https://jola.dev/posts/defensive-programming-resilience)
 0. [Catalog of Clojure-related code smells](https://github.com/nufuturo-ufcg/clj-smells-catalog)
 0. [Push Ifs Up And Fors Down](https://matklad.github.io/2023/11/15/push-ifs-up-and-fors-down.html)
 0. [Google Common Lisp Style Guide](https://google.github.io/styleguide/lispguide.xml)
