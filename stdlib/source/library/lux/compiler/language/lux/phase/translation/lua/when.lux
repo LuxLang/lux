@@ -15,7 +15,9 @@
    [macro
     ["[0]" template]]
    [target
-    ["_" lua (.only Var)]]]]
+    ["_" lua (.only Var)]]
+   [compiler
+    ["@[0]" type (.only Register)]]]]
  ["[0]" //
   ["[1][0]" runtime (.only Operation Phase Phase! Expression Statement)]
   ["[1][0]" reference]
@@ -28,13 +30,11 @@
     ["/[1]" //
      ["[0]" phase (.use "[1]:[0]" monad)]
      ["[1][0]" translation]
-     ["[0]" synthesis (.only Path)
+     ["[0]" synthesis (.only)
+      ["[0]" path]
       [access
        ["[0]" member (.only Member)]]]
      ["//[1]" ///
-      [reference
-       [register (.only Register)]
-       ["[1][0]" variable]]
       [meta
        [archive (.only Archive)]]]]]]])
 
@@ -48,38 +48,38 @@
       Var)
   (|>> (///reference.foreign //reference.system) as_expected))
 
-(the .public (exec next archive it)
+(the .public (exec expression archive it)
   (Expression synthesis.Exec)
   (monad.let [! phase.monad]
     [.let [[tail after] (synthesis.flat_exec (.its synthesis.:exec_after it))]
-     all_before (list.each' ! (next archive)
+     all_before (list.each' ! (expression archive)
                             (list:composite (list (.its synthesis.:exec_before it))
                                             tail))
-     after (next archive after)]
+     after (expression archive after)]
     (pure (_.item (_.int +2)
                   (_.array (list (_.array all_before)
                                  after))))))
 
-(the .public (exec! statement next archive [this that])
+(the .public (exec! statement expression archive [this that])
   (Statement synthesis.Exec)
   (monad.let [! phase.monad]
-    [this (next archive this)
-     that (statement next archive that)
+    [this (expression archive this)
+     that (statement expression archive that)
      $dummy (by ! each _.var (/////translation.name "_exec"))]
     (pure (all _.then
-               (_.set (list $dummy) this)
+               (_.local/1 $dummy this)
                that))))
 
-(the .public (let next archive [head_binding head_value body])
+(the .public (let expression archive [head_binding head_value body])
   (Expression synthesis.Let)
   (monad.let [! phase.monad]
     [.let [[tail body] (synthesis.flat_let body)]
      bindings (list.each' ! (function (_ [binding value])
                               (phase:each (_.local/1 (..register binding))
-                                          (next archive value)))
+                                          (expression archive value)))
                           (list:composite (list [head_binding head_value])
                                           tail))
-     body (next archive body)]
+     body (expression archive body)]
     ... TODO: Find some way to do 'let' without paying the price of the closure.
     (pure (<| (_.of (list))
               (_.closure (list))
@@ -87,11 +87,11 @@
                         (_.return body)
                         (list.in_reverse bindings))))))
 
-(the .public (let! statement next archive [register valueS bodyS])
+(the .public (let! statement expression archive [register valueS bodyS])
   (Statement synthesis.Let)
   (monad.let phase.monad
-    [valueO (next archive valueS)
-     bodyO (statement next archive bodyS)]
+    [valueO (expression archive valueS)
+     bodyO (statement expression archive bodyS)]
     (pure (all _.then
                (_.local/1 (..register register) valueO)
                bodyO))))
@@ -101,35 +101,85 @@
        (//runtime.tuple//right (_.int (.integer (.its member.:lefts it))))
        (//runtime.tuple//left (_.int (.integer (.its member.:lefts it))))))
 
-(the .public (its next archive [pathP valueS])
+(the .public (its expression archive [pathP valueS])
   (Expression synthesis.Its)
   (monad.let phase.monad
-    [valueO (next archive valueS)]
+    [valueO (expression archive valueS)]
     (pure (list:mix ..projection
                     valueO
                     pathP))))
 
-(the .public (if next archive [testS thenS elseS])
-  (Expression synthesis.If)
+(the .public (if! statement expression archive [testS thenS elseS])
+  (Statement (synthesis.If synthesis.Term))
   (monad.let phase.monad
-    [testO (next archive testS)
-     thenO (next archive thenS)
-     elseO (next archive elseS)]
+    [testO (expression archive testS)
+     thenO (statement expression archive thenS)
+     elseO (statement expression archive elseS)]
+    (pure (_.if testO
+                thenO
+                elseO))))
+
+(the .public (if expression archive [testS thenS elseS])
+  (Expression (synthesis.If synthesis.Term))
+  (monad.let phase.monad
+    [testO (expression archive testS)
+     thenO (expression archive thenS)
+     elseO (expression archive elseS)]
     (pure (|> (_.if testO
                     (_.return thenO)
                     (_.return elseO))
               (_.closure (list))
               (_.of (list))))))
 
-(the .public (if! statement next archive [testS thenS elseS])
-  (Statement synthesis.If)
-  (monad.let phase.monad
-    [testO (next archive testS)
-     thenO (statement next archive thenS)
-     elseO (statement next archive elseS)]
-    (pure (_.if testO
-                thenO
-                elseO))))
+(the .public (variant_if! statement expression archive [test [the_then then] [the_else else]])
+  (Statement (synthesis.If [(Maybe Register) synthesis.Term]))
+  (monad.let [! phase.monad]
+    [test (expression archive test)
+     then (statement expression archive then)
+     else (statement expression archive else)
+
+     $test (by ! each _.var (/////translation.name "_test"))]
+    (pure (.when [the_then the_else]
+            [{.:Some the_then} {.:Some the_else}]
+            (all _.then
+                 (_.local/1 $test test)
+                 (_.if (_.its //runtime.variant_flag_field $test)
+                       (all _.then
+                            (_.local/1 (..register the_else) (//runtime.sum//get $test //runtime.unit (_.int +0)))
+                            else)
+                       (all _.then
+                            (_.local/1 (..register the_then) (_.its //runtime.variant_value_field $test))
+                            then)))
+            
+            [{.:None} {.:Some the_else}]
+            (all _.then
+                 (_.local/1 $test test)
+                 (_.if (_.its //runtime.variant_flag_field $test)
+                       (all _.then
+                            (_.local/1 (..register the_else) (//runtime.sum//get $test //runtime.unit (_.int +0)))
+                            else)
+                       then))
+            
+            [{.:Some the_then} {.:None}]
+            (all _.then
+                 (_.local/1 $test test)
+                 (_.if (_.its //runtime.variant_flag_field $test)
+                       else
+                       (all _.then
+                            (_.local/1 (..register the_then) (_.its //runtime.variant_value_field $test))
+                            then)))
+            
+            [{.:None} {.:None}]
+            (_.if (_.its //runtime.variant_flag_field test)
+                  else
+                  then)))))
+
+(the .public (variant_if statement expression archive)
+  (-> Phase!
+      (Expression (synthesis.If [(Maybe Register) synthesis.Term])))
+  (|>> (variant_if! statement expression archive)
+       (phase:each (|>> (_.closure (list))
+                        (_.of (list))))))
 
 (the @savepoint (_.var "lux_pm_savepoint"))
 (the @cursor (_.var "lux_pm_cursor"))
@@ -165,7 +215,7 @@
 
 (the restore!
   _.Statement
-  (_.set (list @cursor) (|> (_.var "table.remove") (_.of (list @savepoint)))))
+  (_.local/1 @cursor (|> (_.var "table.remove") (_.of (list @savepoint)))))
 
 (the fail! _.break)
 
@@ -174,8 +224,8 @@
      (-> Bit Natural
          _.Statement)
      (all _.then
-          (_.set (list @temp) (//runtime.sum//get ..peek <flag>
-                                                  (|> idx .integer _.int)))
+          (_.local/1 @temp (//runtime.sum//get ..peek <flag>
+                                               (|> idx .integer _.int)))
           (.if simple?
                (_.when (_.= _.nil @temp)
                  fail!)
@@ -184,8 +234,7 @@
                      (..push! @temp)))))]
 
   [[left_choice  _.nil]
-   [right_choice //runtime.unit]]
-  )
+   [right_choice //runtime.unit]])
 
 (the (alternation pre! post!)
   (-> _.Statement _.Statement
@@ -199,26 +248,26 @@
             ..restore!
             post!)))
 
-(the (pattern_matching' statement next archive)
-  (-> Phase! Phase Archive Path
+(the (pattern_matching' statement expression archive)
+  (-> Phase! Phase Archive (path.Path synthesis.Term)
       (Operation _.Statement))
-  (function (again pathP)
+  (function (of pathP)
     (`` (.when pathP
-          {synthesis.:Then bodyS}
-          (statement next archive bodyS)
+          {path.:Then bodyS}
+          (statement expression archive bodyS)
 
-          {synthesis.:Pop}
+          {path.:Pop}
           (phase:pure ..pop!)
 
-          {synthesis.:Bind register}
+          {path.:Bind register}
           (phase:pure (_.local/1 (..register register) ..peek))
 
-          {synthesis.:Bit_Fork when thenP elseP}
+          {path.:Bit_Fork when thenP elseP}
           (monad.let [! phase.monad]
-            [then! (again thenP)
+            [then! (of thenP)
              else! (.when elseP
                      {.:Some elseP}
-                     (again elseP)
+                     (of elseP)
 
                      {.:None}
                      (pure ..fail!))]
@@ -236,7 +285,7 @@
                    ['input (phase:each _.var (/////translation.name "input"))
                     clauses (list.each' ! (function (_ [match then])
                                             (monad.let !
-                                              [then! (again then)]
+                                              [then! (of then)]
                                               (pure [(_.= (<injection> match)
                                                           'input)
                                                      then!])))
@@ -248,99 +297,95 @@
                                         ..fail!
                                         (list.in_reverse clauses)))))]
 
-                [[synthesis.:I64_Fork //primitive.i64]
-                 [synthesis.:F64_Fork //primitive.f64]
-                 [synthesis.:Text_Fork //primitive.text]]
-                ))
+                [[path.:I64_Fork //primitive.i64]
+                 [path.:F64_Fork //primitive.f64]
+                 [path.:Text_Fork //primitive.text]]))
 
           (,, (template.with [<complex> <simple> <choice>]
                 [(<complex> idx)
                  (phase:pure (<choice> false idx))
 
                  (<simple> idx nextP)
-                 (phase:each (_.then (<choice> true idx)) (again nextP))]
+                 (phase:each (_.then (<choice> true idx)) (of nextP))]
 
-                [[synthesis.left_side  synthesis.simple_left_side  ..left_choice]
-                 [synthesis.right_side synthesis.simple_right_side ..right_choice]]
-                ))
+                [[path.left_side  path.simple_left_side  ..left_choice]
+                 [path.right_side path.simple_right_side ..right_choice]]))
 
-          (synthesis.left_member 0)
+          (path.left_member 0)
           (phase:pure (|> ..peek (_.item (_.int +1)) ..push!))
           
           (,, (template.with [<pm> <getter>]
                 [(<pm> lefts)
                  (phase:pure (|> ..peek (<getter> (_.int (.integer lefts))) ..push!))]
 
-                [[synthesis.left_member  //runtime.tuple//left]
-                 [synthesis.right_member //runtime.tuple//right]]
-                ))
+                [[path.left_member  //runtime.tuple//left]
+                 [path.right_member //runtime.tuple//right]]))
 
-          {synthesis.:List size}
+          {path.:List size}
           (phase:pure (_.when (_.not (_.= (_.int (.integer size))
                                           (_.length ..peek)))
                         ..fail!))
 
-          (synthesis.item index)
+          (path.item index)
           (phase:pure (..push! (_.item (_.int (.integer (++ index))) ..peek)))
 
-          (synthesis.!bind_top register thenP)
+          (path.bind_top register thenP)
           (monad.let phase.monad
-            [then! (again thenP)]
+            [then! (of thenP)]
             (phase:pure (all _.then
                              (_.local/1 (..register register) ..peek_and_pop)
                              then!)))
 
           (,, (template.with [<tag> <combinator>]
-                [(<tag> preP postP)
+                [{<tag> preP postP}
                  (monad.let phase.monad
-                   [pre! (again preP)
-                    post! (again postP)]
+                   [pre! (of preP)
+                    post! (of postP)]
                    (pure (<combinator> pre! post!)))]
 
-                [[synthesis.path/seq _.then]
-                 [synthesis.path/alt ..alternation]]
-                ))))))
+                [[path.:And _.then]
+                 [path.:Or ..alternation]]))))))
 
-(the (pattern_matching statement next archive pathP)
-  (-> Phase! Phase Archive Path
+(the (pattern_matching statement expression archive pathP)
+  (-> Phase! Phase Archive (path.Path synthesis.Term)
       (Operation _.Statement))
   (monad.let phase.monad
-    [pattern_matching! (pattern_matching' statement next archive pathP)]
+    [pattern_matching! (pattern_matching' statement expression archive pathP)]
     (pure (all _.then
                (_.while (_.boolean true)
                         pattern_matching!)
                (_.; (|> (_.var "error") (_.of (list (_.string ////synthesis/when.pattern_matching_error)))))))))
 
 (the .public dependencies
-  (-> Path
+  (-> (path.Path synthesis.Term)
       (List Var))
   (|>> ////synthesis/when.storage
        (.its ////synthesis/when.:dependencies)
        set.as_list
        (list:each (function (_ variable)
                     (.when variable
-                      {///////variable.:Local register}
+                      {@type.:Local register}
                       (..register register)
                       
-                      {///////variable.:Foreign register}
+                      {@type.:Foreign register}
                       (..capture register))))))
 
-(the .public (when! statement next archive [valueS pathP])
-  (Statement [synthesis.Term Path])
+(the .public (when! statement expression archive [valueS pathP])
+  (Statement [synthesis.Term (path.Path synthesis.Term)])
   (monad.let phase.monad
-    [start (next archive valueS)
-     pattern_matching! (pattern_matching statement next archive pathP)]
+    [start (expression archive valueS)
+     pattern_matching! (pattern_matching statement expression archive pathP)]
     (pure (all _.then
                (_.local (list @temp))
                (_.local/1 @cursor (_.array (list start)))
                (_.local/1 @savepoint (_.array (list)))
                pattern_matching!))))
 
-(the .public (when statement next archive [valueS pathP])
+(the .public (when statement expression archive [valueS pathP])
   (-> Phase!
-      (Expression [synthesis.Term Path]))
+      (Expression [synthesis.Term (path.Path synthesis.Term)]))
   (|> [valueS pathP]
-      (..when! statement next archive)
+      (..when! statement expression archive)
       (phase:each (|>> (_.closure (list))
                        (_.of (list))))))
 
@@ -375,8 +420,7 @@
        (pure (,host parameter subject))))]
 
   [[or _.or]
-   [and _.and]]
-  )
+   [and _.and]])
 
 (template.with [,expression ,statement ,type ,injection]
   [(the .public (,statement statement expression archive [input clauses else])
@@ -407,5 +451,4 @@
 
   [[when_i64 when_i64! I64 //primitive.i64]
    [when_f64 when_f64! F64 //primitive.f64]
-   [when_text when_text! Text //primitive.text]]
-  )
+   [when_text when_text! Text //primitive.text]])
