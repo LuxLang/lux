@@ -58,17 +58,24 @@
       (Bytecode Any))
   (|>> .integer i/32.of _.int))
 
-(the peek
-  (Bytecode Any)
-  (all _.composite
-       _.dup
-       (//runtime.item //runtime.head_of_stack)))
-
 (the pop
   (Bytecode Any)
   (all _.composite
        (//runtime.item //runtime.tail_of_stack)
        (_.checkcast //type.stack)))
+
+(the current
+  (Bytecode Any)
+  (all _.composite
+       _.dup
+       (//runtime.item //runtime.head_of_stack)))
+
+(the previous
+  (Bytecode Any)
+  (all _.composite
+       _.dup
+       ..pop
+       (//runtime.item //runtime.head_of_stack)))
 
 (the (left_of_tuple lefts)
   (-> Natural
@@ -100,7 +107,7 @@
   (-> Register
       (Operation (Bytecode Any)))
   (phase:pure (all _.composite
-                   ..peek
+                   ..current
                    (_.astore register))))
 
 (the (bit_pattern_matching of @external_else [when thenP elseP])
@@ -127,7 +134,7 @@
     (pure (monad.let _.monad
             [[else! @else] else!,@else]
             (all _.composite
-                 ..peek
+                 ..current
                  (//value.primitive type.boolean)
                  (if! @else)
                  then!
@@ -170,7 +177,7 @@
                                 (_.goto @external_else))
                            (list.in_reverse (list:composite (list head) tail))))]
        (pure (all _.composite
-                  ..peek
+                  ..current
                   <unwrap>
                   fork!))))]
 
@@ -178,124 +185,158 @@
    [f64_pattern_matching F64 (//value.primitive type.double) _.dup2 _.pop2 //primitive.f64' _.dcmpl _.ifne]
    [text_pattern_matching Text (by _.monad pure []) _.dup _.pop //primitive.text ..object_equals _.ifeq]])
 
-(the (optimized_pattern_matching pattern_matching it)
-  (-> (-> (Path Term) (Operation (Bytecode Any)))
-      (-> (Path Term) (Operation (Maybe (Bytecode Any)))))
-  (`` (.when it
-        (,, (template.with [<pattern> <projection>]
-              [{path.:And (<pattern> lefts)
-                          (path.bind_top register then)}
-               (monad.let phase.monad
-                 [then (pattern_matching then)]
-                 (pure {.:Some (all _.composite
-                                    ..peek
-                                    (<projection> lefts)
-                                    (_.astore register)
-                                    then)}))]
+(the (any_list_item index)
+  (-> (I64 Any)
+      (Bytecode Any))
+  (all _.composite
+       (_.checkcast //type.list)
+       (..int index)
+       _.aaload))
 
-              [[path.left_member ..left_of_tuple]
-               [path.right_member ..right_of_tuple]]))
-        
-        else
-        (phase:pure {.:None}))))
+(the replace_current!
+  (Bytecode Any)
+  (all _.composite
+       ... CCA
+       //runtime.head_of_stack
+       ... CCA@
+       _.swap
+       ... CC@A
+       _.aastore
+       ... C
+       ))
+
+(the (binding_of of access register then)
+  (-> (-> (Path Term) (Operation (Bytecode Any)))
+      (Bytecode Any) Register (Path Term)
+      (Operation (Bytecode Any)))
+  (monad.let phase.monad
+    [then (of then)]
+    (pure (all _.composite
+               ..current
+               access
+               (_.astore register)
+               then))))
+
+(the (substitution_by of access then)
+  (-> (-> (Path Term) (Operation (Bytecode Any)))
+      (Bytecode Any) (Path Term)
+      (Operation (Bytecode Any)))
+  (monad.let phase.monad
+    [.let [_ (.log!# "!! substitution_by")]
+     then (of then)]
+    (pure (all _.composite
+               ... C
+               _.dup
+               ... CC
+               ..previous
+               ... CCP
+               access
+               ... CCA
+               ..replace_current!
+               ... C
+               then))))
 
 (the (pattern_matching' stack_depth @else @end expression archive)
   (-> Natural Label Label
       (Expression (Path Term)))
   (function (of path)
-    (monad.let phase.monad
-      [outcome (optimized_pattern_matching of path)]
-      (.when outcome
-        {.:Some outcome}
-        (pure outcome)
+    (`` (.when path
+          {path.:Pop}
+          (phase:pure ..pop)
+          
+          {path.:Bind register}
+          (..bind register)
 
-        else
-        (`` (.when path
-              {path.:Pop}
-              (pure ..pop)
-              
-              {path.:Bind register}
-              (..bind register)
+          (,, (template.with [<tag> <path>]
+                [{<tag> it}
+                 (<path> of @else it)]
 
-              (,, (template.with [<tag> <path>]
-                    [{<tag> it}
-                     (<path> of @else it)]
+                [[path.:Bit_Fork ..bit_pattern_matching]
+                 [path.:I64_Fork ..i64_pattern_matching]
+                 [path.:F64_Fork ..f64_pattern_matching]
+                 [path.:Text_Fork ..text_pattern_matching]]))
 
-                    [[path.:Bit_Fork ..bit_pattern_matching]
-                     [path.:I64_Fork ..i64_pattern_matching]
-                     [path.:F64_Fork ..f64_pattern_matching]
-                     [path.:Text_Fork ..text_pattern_matching]]))
+          {path.:Then bodyS}
+          (monad.let phase.monad
+            [body! (expression archive bodyS)]
+            (pure (all _.composite
+                       (..pop_alt stack_depth)
+                       body!
+                       (_.when_continuous (_.goto @end)))))
+          
+          (path.side lefts right?)
+          (phase:pure (monad.let _.monad
+                        [@success _.new_label]
+                        (all _.composite
+                             ..current
+                             (_.checkcast //type.variant)
+                             (//complex.lefts lefts)
+                             (//complex.right? right?)
+                             //runtime.when
+                             _.dup
+                             (_.ifnonnull @success)
+                             _.pop
+                             (_.goto @else)
+                             (_.set_label @success)
+                             //runtime.stack)))
 
-              {path.:Then bodyS}
-              (monad.let phase.monad
-                [body! (expression archive bodyS)]
-                (pure (all _.composite
-                           (..pop_alt stack_depth)
-                           body!
-                           (_.when_continuous (_.goto @end)))))
-              
-              (path.side lefts right?)
-              (pure (monad.let _.monad
-                      [@success _.new_label]
-                      (all _.composite
-                           ..peek
-                           (_.checkcast //type.variant)
-                           (//complex.lefts lefts)
-                           (//complex.right? right?)
-                           //runtime.when
-                           _.dup
-                           (_.ifnonnull @success)
-                           _.pop
-                           (_.goto @else)
-                           (_.set_label @success)
-                           //runtime.stack)))
+          (,, (template.with [<pattern> <projection>]
+                [(<pattern> lefts)
+                 (phase:pure (all _.composite
+                                  ..current
+                                  (<projection> lefts)
+                                  //runtime.stack))
 
-              (,, (template.with [<pattern> <projection>]
-                    [(<pattern> lefts)
-                     (pure (all _.composite
-                                ..peek
-                                (<projection> lefts)
-                                //runtime.stack))]
+                 (path.binding_of_member <pattern> lefts register then)
+                 (..binding_of of (<projection> lefts) register then)
 
-                    [[path.left_member ..left_of_tuple]
-                     [path.right_member ..right_of_tuple]]))
+                 ... (path.substitution_by_member <pattern> lefts then)
+                 ... (..substitution_by of (<projection> lefts) then)
+                 ]
 
-              {path.:List size}
-              (pure (all _.composite
-                         ..peek
-                         (_.checkcast //type.list)
-                         _.arraylength
-                         (..int size)
-                         (_.if_icmpne @else)))
-              
-              (path.item index)
-              (pure (all _.composite
-                         ..peek
-                         (_.checkcast //type.list)
-                         (..int index)
-                         _.aaload
-                         //runtime.stack))
+                [[path.left_member ..left_of_tuple]
+                 [path.right_member ..right_of_tuple]]))
 
-              {path.:Or leftP rightP}
-              (monad.let phase.monad
-                [@alt_else //runtime.forge_label
-                 left! (pattern_matching' (++ stack_depth) @alt_else @end expression archive leftP)
-                 right! (of rightP)]
-                (pure (all _.composite
-                           _.dup
-                           left!
-                           (_.set_label @alt_else)
-                           _.pop
-                           right!)))
-              
-              {path.:And leftP rightP}
-              (monad.let phase.monad
-                [left! (of leftP)
-                 right! (of rightP)]
-                (pure (all _.composite
-                           left!
-                           right!)))
-              ))))))
+          {path.:List size}
+          (phase:pure (all _.composite
+                           ..current
+                           (_.checkcast //type.list)
+                           _.arraylength
+                           (..int size)
+                           (_.if_icmpne @else)))
+          
+          (path.item index)
+          (phase:pure (all _.composite
+                           ..current
+                           (..any_list_item index)
+                           //runtime.stack))
+
+          (path.binding_of_item index register then)
+          (..binding_of of (..any_list_item index) register then)
+
+          ... (path.substitution_by_item index then)
+          ... (..substitution_by of (..any_list_item index) then)
+
+          {path.:Or leftP rightP}
+          (monad.let phase.monad
+            [@alt_else //runtime.forge_label
+             left! (pattern_matching' (++ stack_depth) @alt_else @end expression archive leftP)
+             right! (of rightP)]
+            (pure (all _.composite
+                       _.dup
+                       left!
+                       (_.set_label @alt_else)
+                       _.pop
+                       right!)))
+          
+          {path.:And leftP rightP}
+          (monad.let phase.monad
+            [left! (of leftP)
+             right! (of rightP)]
+            (pure (all _.composite
+                       left!
+                       right!)))
+          ))))
 
 (the (pattern_matching @end expression archive path)
   (-> Label

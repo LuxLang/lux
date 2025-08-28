@@ -138,41 +138,43 @@
      then (statement expression archive then)
      else (statement expression archive else)
 
-     $test (by ! each _.var (/////translation.name "_test"))]
-    (pure (.when [the_then the_else]
-            [{.:Some the_then} {.:Some the_else}]
-            (all _.then
-                 (_.local/1 $test test)
-                 (_.if (_.its //runtime.variant_flag_field $test)
+     $test (by ! each _.var (/////translation.name "_test"))
+     .let [is_right? (_.or (_.its //runtime.variant_right?_field $test)
+                           (_.not (_.= (_.int +0) (_.its //runtime.variant_lefts_field $test))))
+           bind_else! (function (_ the_else)
+                        (_.local/1 (..register the_else) (//runtime.sum//get $test //runtime.unit (_.int +0))))
+           bind_then! (function (_ the_then)
+                        (_.local/1 (..register the_then) (_.its //runtime.variant_value_field $test)))]]
+    (pure (all _.then
+               (_.local/1 $test test)
+               (.when [the_then the_else]
+                 [{.:Some the_then} {.:Some the_else}]
+                 (_.if is_right?
                        (all _.then
-                            (_.local/1 (..register the_else) (//runtime.sum//get $test //runtime.unit (_.int +0)))
+                            (bind_else! the_else)
                             else)
                        (all _.then
-                            (_.local/1 (..register the_then) (_.its //runtime.variant_value_field $test))
-                            then)))
-            
-            [{.:None} {.:Some the_else}]
-            (all _.then
-                 (_.local/1 $test test)
-                 (_.if (_.its //runtime.variant_flag_field $test)
+                            (bind_then! the_then)
+                            then))
+                 
+                 [{.:None} {.:Some the_else}]
+                 (_.if is_right?
                        (all _.then
-                            (_.local/1 (..register the_else) (//runtime.sum//get $test //runtime.unit (_.int +0)))
+                            (bind_else! the_else)
                             else)
-                       then))
-            
-            [{.:Some the_then} {.:None}]
-            (all _.then
-                 (_.local/1 $test test)
-                 (_.if (_.its //runtime.variant_flag_field $test)
+                       then)
+                 
+                 [{.:Some the_then} {.:None}]
+                 (_.if is_right?
                        else
                        (all _.then
-                            (_.local/1 (..register the_then) (_.its //runtime.variant_value_field $test))
-                            then)))
-            
-            [{.:None} {.:None}]
-            (_.if (_.its //runtime.variant_flag_field test)
-                  else
-                  then)))))
+                            (bind_then! the_then)
+                            then))
+                 
+                 [{.:None} {.:None}]
+                 (_.if is_right?
+                       else
+                       then))))))
 
 (the .public (variant_if statement expression archive)
   (-> Phase!
@@ -198,9 +200,36 @@
   _.Statement
   (_.; ..peek_and_pop))
 
-(the peek
-  _.Expression
-  (_.item (_.length @cursor) @cursor))
+(template.with [,index ,name]
+  [(the ,name
+     _.Access
+     (_.at ,index @cursor))]
+
+  [[(_.- (_.int +1) (_.length @cursor)) previous]
+   [(_.length @cursor) current]])
+
+(the replace_current!
+  (-> _.Expression
+      _.Statement)
+  (_.set (list ..current)))
+
+(every Access
+  (-> _.Access
+      _.Expression))
+
+(the the_left_member
+  Access
+  (_.item (_.int +1)))
+
+(the (any_list_item index)
+  (-> Natural
+      Access)
+  (_.item (_.int (.integer (++ index)))))
+
+(the (any_member lefts side)
+  (-> Natural (-> _.Expression _.Expression _.Expression)
+      Access)
+  (side (_.int (.integer lefts))))
 
 (the save!
   _.Statement
@@ -224,7 +253,7 @@
      (-> Bit Natural
          _.Statement)
      (all _.then
-          (_.local/1 @temp (//runtime.sum//get ..peek <flag>
+          (_.local/1 @temp (//runtime.sum//get ..current <flag>
                                                (|> idx .integer _.int)))
           (.if simple?
                (_.when (_.= _.nil @temp)
@@ -236,17 +265,33 @@
   [[left_choice  _.nil]
    [right_choice //runtime.unit]])
 
-(the (alternation pre! post!)
-  (-> _.Statement _.Statement
+(the (alternation pre! [must_restore? post!])
+  (-> _.Statement [Bit _.Statement]
       _.Statement)
   (all _.then
        (_.while (_.boolean true)
                 (all _.then
                      ..save!
                      pre!))
-       (all _.then
-            ..restore!
+       (.if must_restore?
+            (all _.then
+                 ..restore!
+                 post!)
             post!)))
+
+(the (binding_of of source register thenP)
+  (-> (-> (path.Path synthesis.Term) (Operation _.Statement))
+      _.Expression Register (path.Path synthesis.Term)
+      (Operation _.Statement))
+  (phase:each (_.then (_.local/1 (..register register) source))
+              (of thenP)))
+
+(the (substitution_by of access thenP)
+  (-> (-> (path.Path synthesis.Term) (Operation _.Statement))
+      Access (path.Path synthesis.Term)
+      (Operation _.Statement))
+  (phase:each (_.then (replace_current! (access ..previous)))
+              (of thenP)))
 
 (the (pattern_matching' statement expression archive)
   (-> Phase! Phase Archive (path.Path synthesis.Term)
@@ -260,7 +305,7 @@
           (phase:pure ..pop!)
 
           {path.:Bind register}
-          (phase:pure (_.local/1 (..register register) ..peek))
+          (phase:pure (_.local/1 (..register register) ..current))
 
           {path.:Bit_Fork when thenP elseP}
           (monad.let [! phase.monad]
@@ -272,10 +317,10 @@
                      {.:None}
                      (pure ..fail!))]
             (pure (.if when
-                       (_.if ..peek
+                       (_.if ..current
                              then!
                              else!)
-                       (_.if ..peek
+                       (_.if ..current
                              else!
                              then!))))
 
@@ -291,7 +336,7 @@
                                                      then!])))
                                         (list:composite (list head) tail))]
                    (pure (all _.then
-                              (_.local/1 'input ..peek)
+                              (_.local/1 'input ..current)
                               (list:mix (function (_ [when then!] else!)
                                           (_.if when then! else!))
                                         ..fail!
@@ -312,39 +357,55 @@
                  [path.right_side path.simple_right_side ..right_choice]]))
 
           (path.left_member 0)
-          (phase:pure (|> ..peek (_.item (_.int +1)) ..push!))
+          (phase:pure (..push! (the_left_member ..current)))
+
+          (path.binding_of_left register thenP)
+          (binding_of of (..the_left_member ..current) register thenP)
+
+          (path.substitution_by_left thenP)
+          (substitution_by of ..the_left_member thenP)
           
           (,, (template.with [<pm> <getter>]
                 [(<pm> lefts)
-                 (phase:pure (|> ..peek (<getter> (_.int (.integer lefts))) ..push!))]
+                 (phase:pure (..push! (any_member lefts <getter> ..current)))
+
+                 (path.binding_of_member <pm> lefts register thenP)
+                 (binding_of of (any_member lefts <getter> ..current) register thenP)
+
+                 (path.substitution_by_member <pm> lefts thenP)
+                 (substitution_by of (any_member lefts <getter>) thenP)]
 
                 [[path.left_member  //runtime.tuple//left]
                  [path.right_member //runtime.tuple//right]]))
 
           {path.:List size}
           (phase:pure (_.when (_.not (_.= (_.int (.integer size))
-                                          (_.length ..peek)))
+                                          (_.length ..current)))
                         ..fail!))
 
           (path.item index)
-          (phase:pure (..push! (_.item (_.int (.integer (++ index))) ..peek)))
+          (phase:pure (..push! (any_list_item index ..current)))
 
-          (path.bind_top register thenP)
+          (path.binding_of_item index register thenP)
+          (binding_of of (..any_list_item index ..current) register thenP)
+
+          (path.substitution_by_item index thenP)
+          (substitution_by of (..any_list_item index) thenP)
+
+          (path.binding_of_current register thenP)
+          (binding_of of ..peek_and_pop register thenP)
+
+          {path.:And preP postP}
           (monad.let phase.monad
-            [then! (of thenP)]
-            (phase:pure (all _.then
-                             (_.local/1 (..register register) ..peek_and_pop)
-                             then!)))
+            [pre! (of preP)
+             post! (of postP)]
+            (pure (_.then pre! post!)))
 
-          (,, (template.with [<tag> <combinator>]
-                [{<tag> preP postP}
-                 (monad.let phase.monad
-                   [pre! (of preP)
-                    post! (of postP)]
-                   (pure (<combinator> pre! post!)))]
-
-                [[path.:And _.then]
-                 [path.:Or ..alternation]]))))))
+          {path.:Or preP postP}
+          (monad.let phase.monad
+            [pre! (of preP)
+             post! (of postP)]
+            (pure (..alternation pre! [(path.must_restore? postP) post!])))))))
 
 (the (pattern_matching statement expression archive pathP)
   (-> Phase! Phase Archive (path.Path synthesis.Term)

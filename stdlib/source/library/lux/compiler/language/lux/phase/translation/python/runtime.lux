@@ -12,7 +12,7 @@
    ["[0]" function]
    [data
     ["[0]" product]
-    ["[0]" text (.use "[1]:[0]" hash)
+    ["[0]" text (.only)
      ["%" \\injection]
      [encoding
       ["[0]" utf8]]]
@@ -36,16 +36,19 @@
     ["_" python (.only SVar Computation Literal)]]]]
  ["[0]" ///
   ["[1][0]" reference]
-  ["//[1]" ///
-   ["[0]" phase]
-   ["[0]" synthesis]
-   ["[1][0]" translation]
-   [///
-    [meta
-     [archive (.only Output Archive)
-      ["[0]" registry (.only Registry)]
-      ["[0]" unit]]]
-    ["@[0]" type (.only Register)]]]])
+  ["/[1]" //
+   [synthesis
+    ["[0]" when]]
+   ["/[1]" //
+    ["[0]" phase]
+    ["[0]" synthesis]
+    ["[1][0]" translation]
+    [///
+     [meta
+      [archive (.only Output Archive)
+       ["[0]" registry (.only Registry)]
+       ["[0]" unit]]]
+     ["@[0]" type (.only Register)]]]]])
 
 (every .public Anchor
   Register)
@@ -79,7 +82,9 @@
       (Operation _.Expression)))
 
 (.the prefix
-  "LuxRuntime")
+  "r"
+  ... "LuxRuntime"
+  )
 
 (.the .public unit
   (_.unicode synthesis.unit))
@@ -122,12 +127,13 @@
       Literal)
   ..right)
 
-(.the (runtime_name name)
-  (-> Text
+(.the (runtime_name seed)
+  (-> Natural
       SVar)
   (let [name (text ..prefix
-                   "_" (%.natural version.latest)
-                   "_" (%.natural (text:hash name)))]
+                   ... "_" (%.natural version.latest)
+                   ... "_"
+                   (%.natural seed))]
     (_.var name)))
 
 (.the (feature name definition)
@@ -151,38 +157,39 @@
                                      (<code>.form (<>.and <code>.local
                                                           (<>.some <code>.local))))
                   code ?list.any])
-  (when declaration
-    {.:Left name}
-    (macro.with_names ['_]
-      (let [nameC (code.local name)
-            code_nameC (code.local (text "@" name))
-            runtime_nameC (` (runtime_name (, (code.text name))))]
-        (pure (list (` (.the .public (, nameC) SVar (, runtime_nameC)))
-                    (` (.the (, code_nameC)
-                         _.Statement
-                         (..feature (, runtime_nameC)
-                                    (function ((, '_) (, '_))
-                                      (_.set (list (, '_)) (, code))))))))))
-    
-    {.:Right [name inputs]}
-    (macro.with_names ['_]
-      (let [nameC (code.local name)
-            code_nameC (code.local (text "@" name))
-            runtime_nameC (` (runtime_name (, (code.text name))))
-            inputsC (list:each code.local inputs)
-            inputs_typesC (list:each (function.constant (` _.Expression))
-                                     inputs)]
-        (pure (list (` (.the .public ((, nameC) (,* inputsC))
-                         (-> (,* inputs_typesC)
-                             Computation)
-                         (_.of (list (,* inputsC)) (, runtime_nameC))))
-                    (` (.the (, code_nameC)
-                         _.Statement
-                         (..feature (, runtime_nameC)
-                                    (function ((, '_) (, '_))
-                                      (..with_vars [(,* inputsC)]
-                                        (_.def (, '_) (list (,* inputsC))
-                                               (, code)))))))))))))
+  (monad.let meta.monad
+    [seed meta.seed]
+    (when declaration
+      {.:Left name}
+      (macro.with_names ['_]
+        (let [runtime_nameC (` (runtime_name (, (code.natural seed))))]
+          (pure (list (` (.the .public (, (code.local name)) SVar (, runtime_nameC)))
+                      (` (.the (, (code.local (text "@" name)))
+                           _.Statement
+                           (..feature (, runtime_nameC)
+                                      (function ((, '_) (, '_))
+                                        (_.set (list (, '_)) (, code))))))))))
+      
+      {.:Right [name inputs]}
+      (macro.with_names ['_]
+        (let [runtime_nameC (` (runtime_name (, (code.natural seed))))
+              inputsC (list:each code.local inputs)
+              inputs_typesC (list:each (function.constant (` _.Expression))
+                                       inputs)]
+          (pure (list (` (.the .public ((, (code.local name)) (,* inputsC))
+                           (-> (,* inputs_typesC)
+                               Computation)
+                           (_.of (list (,* inputsC)) (, runtime_nameC))))
+                      (` (.the (, (code.local (text "@" name)))
+                           _.Statement
+                           (..feature (, runtime_nameC)
+                                      (function ((, '_) (, '_))
+                                        (..with_vars [(,* inputsC)]
+                                          (_.def (, '_) (list (,* inputsC))
+                                                 (, code))))))))))))))
+
+(the lux:pattern_matching_error
+  (_.string when.pattern_matching_error))
 
 (the (lux:try op)
   (with_vars [exception]
@@ -212,6 +219,7 @@
 (.the runtime//lux
   _.Statement
   (all _.then
+       @lux:pattern_matching_error
        @lux:try
        @lux:program_args
        @lux:exec
@@ -273,11 +281,19 @@
                                (_.return (_.slice_from right_index tuple))))
                       {.:None})))))
 
+(template.with [,index ,name]
+  [(.the .public ,name
+     (_.item (_.int (.integer ,index))))]
+
+  [[0 variant_lefts]
+   [1 variant_right?]
+   [2 variant_value]])
+
 (the (sum:get sum expected:right? expected:lefts)
   (let [mismatch! (_.return _.none)
-        actual:lefts (_.item (_.int +0) sum)
-        actual:right? (_.item (_.int +1) sum)
-        actual:value (_.item (_.int +2) sum)
+        actual:lefts (..variant_lefts sum)
+        actual:right? (..variant_right? sum)
+        actual:value (..variant_value sum)
         recur! (all _.then
                     (_.set (list expected:lefts) (|> expected:lefts
                                                      (_.- actual:lefts)

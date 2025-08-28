@@ -13,19 +13,20 @@
     ["[0]" future (.only Future)]]
    [control
     ["[0]" pipe]
-    ["[0]" maybe]
     ["[0]" io (.only IO io)]]
    [error
     ["[0]" try (.only Try) (.use "[1]:[0]" monad)]
     ["[0]" exception (.only Exception)]]
    ["[0]" function]
    [data
+    ["[0]" maybe (.use "[1]:[0]" functor)]
     ["[0]" text (.use "[1]:[0]" hash)
      ["%" \\injection]
      [encoding
       ["[0]" utf8]]]
     [collection
-     ["[0]" array]
+     ["[0]" array
+      ["[1]" \\unsafe]]
      ["[0]" list (.use "[1]:[0]" functor)]]]
    [math
     [number
@@ -41,8 +42,8 @@
    ["[0]" target (.only)
     ["_" python]]
    ["[0]" compiler
-    [reference
-     [register (.only Register)]]
+    [type (.only Register)]
+    ["[0]" program]
     [language
      [lux
       [program (.only Program)]
@@ -72,11 +73,12 @@
       ["[1]" script]]]]
    ["[0]" world
     ["[0]" file]
-    ["[1]/[0]" environment]]]]
- [program
-  ["/" compositor]])
+    ["[1]/[0]" environment]]]])
 
-(target.if target.jvm (these (ffi.the java/lang/String
+(target.if target.jvm (these (ffi.the java/lang/Integer
+                               "[1]:[0]")
+
+                             (ffi.the java/lang/String
                                "[1]:[0]")
                              
                              (ffi.the (java/lang/Class a)
@@ -94,7 +96,8 @@
                                "[1]:[0]")
                              
                              (ffi.the org/python/core/PyInteger
-                               "[1]:[0]")
+                               "[1]:[0]"
+                               (new [int]))
                              
                              (ffi.the org/python/core/PyTuple
                                "[1]:[0]")
@@ -138,7 +141,6 @@
 
                              (ffi.the org/python/core/PyArray
                                "[1]:[0]"
-                               (new [(java/lang/Class [? < java/lang/Object]) java/lang/Object])
                                (getArray [] java/lang/Object))
 
                              (ffi.the org/python/util/PythonInterpreter
@@ -162,12 +164,17 @@
                                    (if (n.< size idx)
                                        (when (org/python/core/PyObject:__getitem__ [(ffi.as_int (.integer idx))] host_object)
                                          {try.:Success value}
-                                         (when (read value)
-                                           {try.:Success lux_value}
-                                           (of (++ idx) (array.has! idx lux_value output))
+                                         (when (ffi.as org/python/core/PyNone value)
+                                           {.:Some _}
+                                           (of (++ idx) (array.has! idx (ffi.null) output))
 
-                                           failure
-                                           failure)
+                                           else
+                                           (when (read value)
+                                             {try.:Success lux_value}
+                                             (of (++ idx) (array.has! idx lux_value output))
+
+                                             failure
+                                             failure))
 
                                          failure
                                          failure)
@@ -314,8 +321,21 @@
                              (ffi.the library/lux/Function
                                "[1]:[0]")
 
+                             ... https://docs.oracle.com/javase/8/docs/api/java/lang/reflect/Array.html
+                             (ffi.the java/lang/reflect/Array
+                               "[1]:[0]"
+                               ... https://docs.oracle.com/javase/8/docs/api/java/lang/reflect/Array.html#get-java.lang.Object-int-
+                               ("static" get [java/lang/Object int] "?" java/lang/Object))
+
+                             ... https://javadoc.io/static/org.python/jython-standalone/2.7.4/org/python/core/Py.html
+                             (ffi.the org/python/core/Py
+                               "[1]:[0]"
+                               ... https://javadoc.io/static/org.python/jython-standalone/2.7.4/org/python/core/Py.html#None
+                               ("read_only" "static" None org/python/core/PyObject))
+
                              (the (to_host|array to_host it)
-                               (-> (-> Any org/python/core/PyObject) Any org/python/core/PyObject)
+                               (-> (-> Any org/python/core/PyObject)
+                                   (-> Any org/python/core/PyObject))
                                (as (-> Any org/python/core/PyObject)
                                    (ffi.object [] org/python/core/PyArray [LuxValue]
                                      [(java/lang/Class java/lang/Object) ..object_class
@@ -329,24 +349,9 @@
                                      (org/python/core/PyArray
                                       [] (pyget self [index' int])
                                       org/python/core/PyObject
-                                      (when (|> it
-                                                (as (-> Any (Array Any)))
-                                                (array.item (|> index' ffi.int_to_long (as (-> Any Natural)))))
-                                        {try.:Failure _}
-                                        (ffi.super [index'] self)
-
-                                        {try.:Success it}
-                                        (<| (when (ffi.as [java/lang/Object] (as (-> Any java/lang/Object) it))
-                                              {.:Some it}
-                                              (to_host it)
-
-                                              {.:None})
-                                            (when (ffi.as library/lux/Function (as (-> Any java/lang/Object) it))
-                                              {.:Some it}
-                                              (pseudo_function to_host it)
-                                              
-                                              {.:None})
-                                            (ffi.super [index'] self))))
+                                      (|> (java/lang/reflect/Array:get [it index'])
+                                          (maybe:each to_host)
+                                          (maybe.else (org/python/core/Py:None))))
                                      )))
 
                              (the (to_host it)
@@ -360,6 +365,7 @@
                                                 {.:None})]
 
                                              [[java/lang/Boolean org/python/core/PyBoolean:new]
+                                              [java/lang/Integer org/python/core/PyInteger:new]
                                               [java/lang/Long org/python/core/PyLong:new]
                                               [java/lang/Double org/python/core/PyFloat:new]
                                               [java/lang/String org/python/core/PyString:new]
@@ -589,21 +595,21 @@
     (let [extension ".py"]
       (exec
         (monad.let future.monad
-          [_ (/.compiler ..lux_compiler
-                         (context.python (cli.target service))
-                         ..expander
-                         analysis.bundle
-                         ..platform
-                         translation.bundle
-                         extension.empty
-                         ..lux_program
-                         (reference.constant python/reference.system)
-                         ..extender
-                         service
-                         [(packager.package (is _.Statement (_.manual ""))
-                                            _.code
-                                            _.then
-                                            ..scope)
-                          (text "program" extension)])]
+          [_ (program.compiler ..lux_compiler
+                               (context.python (cli.target service))
+                               ..expander
+                               analysis.bundle
+                               ..platform
+                               translation.bundle
+                               extension.empty
+                               ..lux_program
+                               (reference.constant python/reference.system)
+                               ..extender
+                               service
+                               [(packager.package (is _.Statement (_.manual ""))
+                                                  _.code
+                                                  _.then
+                                                  ..scope)
+                                (text "program" extension)])]
           (..declare_success! []))
         (io.io [])))))
