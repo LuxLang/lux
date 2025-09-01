@@ -25,13 +25,13 @@ cd ~/lux/lux-js/ \
 ## Use JVM-based compiler to produce a JS/Node-based compiler.
 cd ~/lux/lux-js/ \
 && lux clean \
-&& time java -Xss2m -jar jvm_based_compiler.jar build --source ~/lux/lux-js/source --target ~/lux/lux-js/target --module program --program _ \
+&& time java -Xss2m -jar jvm_based_compiler.jar build --source ~/lux/lux-js/source --source ~/lux/stdlib/source --target ~/lux/lux-js/target --module program --program _ \
 && mv target/program.js node_based_compiler.js
 
 ## Use JS/Node-based compiler to produce another JS/Node-based compiler.
 cd ~/lux/lux-js/ \
 && lux clean \
-&& node --stack_size=8192 node_based_compiler.js build --source ~/lux/lux-js/source --target ~/lux/lux-js/target --module program --program _
+&& node --stack_size=8192 node_based_compiler.js build --source ~/lux/lux-js/source --source ~/lux/stdlib/source --target ~/lux/lux-js/target --module program --program _
 ```
 
 # Try
