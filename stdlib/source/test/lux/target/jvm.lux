@@ -1151,32 +1151,35 @@
                   (function (_ expected)
                     (|>> (as (-> Any Text))
                          (text.= (as (-> java/lang/String Text) expected))))))
-         (<| (_.context "multi")
-             (monad.let [! random.monad]
-               [.let [size (is (Random Natural)
-                               (by ! each (|>> (n.% 5) (n.+ 1))
-                                   random.natural))]
-                dimensions size
-                sizesH size
-                sizesT (random.list (-- dimensions) size)
-                .let [type (loop (of [dimensions dimensions
-                                      type (is (Type Object)
-                                               ..$Object)])
-                             (when dimensions
-                               0 type
-                               _ (of (-- dimensions) (type.array type))))]]
-               (<| (..coverage [/.multianewarray /.arraylength])
-                   (..bytecode (function.constant false)
-                               (|>> (as (-> Any Natural))
-                                    (n.= sizesH)))
-                   (monad.let [! /.monad]
-                     [_ (list.each' ! (|>> (as (-> Natural java/lang/Long))
-                                           ffi.long_to_int
-                                           ..$Integer:literal)
-                                    (list:composite (list sizesH) sizesT))
-                      _ (/.multianewarray type (n/08.of dimensions))
-                      _ ?length]
-                     $Long:wrap))))
+         (monad.let [! random.monad]
+           [.let [size (is (Random Natural)
+                           (by ! each (|>> (n.% 5) (n.+ 1))
+                               random.natural))]
+            dimensions size
+            sizesH size
+            sizesT (random.list (-- dimensions) size)
+            .let [type (loop (of [dimensions dimensions
+                                  type (is (Type Object)
+                                           ..$Object)])
+                         (when dimensions
+                           0 type
+                           _ (of (-- dimensions) (type.array type))))]]
+           (<| (..coverage [/.multianewarray /.arraylength])
+               (..bytecode (function.constant false)
+                           (|>> (as (-> Any Natural))
+                                (n.= sizesH)))
+               (monad.let [! /.monad]
+                 [_ (list.each' ! (|>> (as (-> Natural java/lang/Long))
+                                       ffi.long_to_int
+                                       ..$Integer:literal)
+                                (list:composite (list sizesH) sizesT))
+                  _ (/.multianewarray type (n/08.of dimensions))
+                  _ ?length]
+                 $Long:wrap)))
+         (<| (..coverage [/.multiarray_cannot_be_zero_dimensional])
+             (..bytecode (exception.is? /.multiarray_cannot_be_zero_dimensional)
+                         (function.constant false))
+             (/.multianewarray ..$Object (n/08.of 0)))
          )))
 
 (the conversion
@@ -1271,6 +1274,12 @@
                   (store_and_load ..$Integer:random ..$Integer:literal ..$Integer:wrap [(function.constant /.istore_3) (function.constant /.iload_3)] test))
                 (..coverage [/.istore /.iload]
                   (store_and_load ..$Integer:random ..$Integer:literal ..$Integer:wrap [/.istore /.iload] test))
+                (..coverage [/.invalid_register]
+                  (monad.let random.monad
+                    [register (random.only (n.>= 256) random.natural)]
+                    (<| (..bytecode (exception.is? /.invalid_register)
+                                    (function.constant false))
+                        (/.iload register))))
                 (..coverage [/.iinc]
                   (monad.let [! random.monad]
                     [base ..$Byte:random
@@ -1720,34 +1729,63 @@
 
 (the exception
   Test
-  (monad.let random.monad
-    [expected ..$Long:random
-     dummy ..$Long:random
-     exception ..$String:random]
-    (<| (..coverage [/.try /.athrow])
-        (..bytecode (function.constant false)
-                    ((!:= java/lang/Long .jvm_long_=#) expected))
-        (monad.let /.monad
-          [.let [$Exception (type.class (.list) "java.lang.Exception")]
-           @skipped /.new_label
-           @try /.new_label
-           @handler /.new_label
-           @return /.new_label
-           _ (/.try @try @handler @handler $Exception)
-           _ (/.set_label @try)
-           _ (/.new $Exception)
-           _ /.dup
-           _ (..$String:literal exception)
-           _ (/.invokespecial $Exception "<init>" (type.method [(.list) (.list ..$String) type.void (.list)]))
-           _ /.athrow
-           _ (/.set_label @skipped)
-           _ (..$Long:literal dummy)
-           _ (/.goto @return)
-           _ (/.set_label @handler)
-           _ /.pop
-           _ (..$Long:literal expected)
-           _ (/.set_label @return)]
-          ..$Long:wrap))))
+  (all _.and
+       (monad.let random.monad
+         [expected ..$Long:random
+          dummy ..$Long:random
+          exception ..$String:random]
+         (<| (..coverage [/.try /.athrow])
+             (..bytecode (function.constant false)
+                         ((!:= java/lang/Long .jvm_long_=#) expected))
+             (monad.let /.monad
+               [.let [$Exception (type.class (.list) "java.lang.Exception")]
+                @skipped /.new_label
+                @try /.new_label
+                @handler /.new_label
+                @return /.new_label
+                _ (/.try @try @handler @handler $Exception)
+                _ (/.set_label @try)
+                _ (/.new $Exception)
+                _ /.dup
+                _ (..$String:literal exception)
+                _ (/.invokespecial $Exception "<init>" (type.method [(.list) (.list ..$String) type.void (.list)]))
+                _ /.athrow
+                _ (/.set_label @skipped)
+                _ (..$Long:literal dummy)
+                _ (/.goto @return)
+                _ (/.set_label @handler)
+                _ /.pop
+                _ (..$Long:literal expected)
+                _ (/.set_label @return)]
+               ..$Long:wrap)))
+       (monad.let random.monad
+         [expected ..$Long:random
+          dummy ..$Long:random
+          exception ..$String:random]
+         (<| (..coverage [/.invalid_range_for_try])
+             (..bytecode (exception.is? /.invalid_range_for_try)
+                         (function.constant false))
+             (monad.let /.monad
+               [.let [$Exception (type.class (.list) "java.lang.Exception")]
+                @skipped /.new_label
+                @try /.new_label
+                @handler /.new_label
+                @return /.new_label
+                _ (/.try @handler @try @handler $Exception)
+                _ (/.set_label @try)
+                _ (/.new $Exception)
+                _ /.dup
+                _ (..$String:literal exception)
+                _ (/.invokespecial $Exception "<init>" (type.method [(.list) (.list ..$String) type.void (.list)]))
+                _ /.athrow
+                _ (/.set_label @skipped)
+                _ (..$Long:literal dummy)
+                _ (/.goto @return)
+                _ (/.set_label @handler)
+                _ /.pop
+                _ (..$Long:literal expected)
+                _ (/.set_label @return)]
+               ..$Long:wrap)))))
 
 (the code
   Test

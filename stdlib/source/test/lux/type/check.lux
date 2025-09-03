@@ -12,7 +12,7 @@
    [control
     ["[0]" pipe]]
    [error
-    ["[0]" try]
+    ["[0]" try (.only Try) (.use "[1]:[0]" functor)]
     ["[0]" exception]]
    ["[0]" function]
    [data
@@ -149,27 +149,30 @@
   (monad.let random.monad
     [left ..clean_type
      right ..clean_type
-     ex random.natural]
+     ex random.natural
+     expected_error (random.upper_cased 10)]
     (all _.and
-         (monad.let random.monad
-           [expected (random.upper_cased 10)]
-           (_.coverage [/.failure]
-             (when (/.value /.fresh_context
-                            (is (/.Check Any)
-                                (/.failure expected)))
-               {try.:Success _} false
-               {try.:Failure actual} (identical? expected actual))))
-         (monad.let random.monad
-           [expected (random.upper_cased 10)]
-           (_.coverage [/.assertion]
-             (and (when (/.value /.fresh_context
-                                 (is (/.Check Any)
-                                     (/.assertion expected true)))
-                    {try.:Success _} true
-                    {try.:Failure actual} false)
-                  (when (/.value /.fresh_context (/.assertion expected false))
-                    {try.:Success _} false
-                    {try.:Failure actual} (identical? expected actual)))))
+         (_.coverage [/.failure]
+           (when (/.value /.fresh_context
+                          (is (/.Check Any)
+                              (/.failure expected_error)))
+             {try.:Success _} false
+             {try.:Failure actual} (identical? expected_error actual)))
+         (_.coverage [/.try]
+           (|> (/.try (/.failure expected_error))
+               (is (/.Check (Try Bit)))
+               (/.value /.fresh_context)
+               (try:each (exception.else (identical? expected_error)))
+               (try.else false)))
+         (_.coverage [/.assertion]
+           (and (when (/.value /.fresh_context
+                               (is (/.Check Any)
+                                   (/.assertion expected_error true)))
+                  {try.:Success _} true
+                  {try.:Failure actual} false)
+                (when (/.value /.fresh_context (/.assertion expected_error false))
+                  {try.:Success _} false
+                  {try.:Failure actual} (identical? expected_error actual))))
          (_.coverage [/.except]
            (when (/.value /.fresh_context
                           (is (/.Check Any)
@@ -212,39 +215,105 @@
 
 (the context
   Test
-  (all _.and
-       (_.coverage [/.fresh_context]
-         (and (list.empty? (its .:for_all /.fresh_context))
-              (n.= 0 (its .:there_exists /.fresh_context))))
-       (_.coverage [/.context]
-         (and (when (/.value /.fresh_context /.context)
-                {try.:Success actual}
-                (identical? /.fresh_context actual)
-                
-                {try.:Failure error}
-                false)
-              (when (/.value /.fresh_context
-                             (monad.let /.monad
-                               [_ /.var]
-                               /.context))
-                {try.:Success actual}
-                (and (n.= 1 (list.size (its .:for_all actual)))
-                     (n.= 0 (its .:there_exists actual)))
-                
-                {try.:Failure error}
-                false)))
-       (_.coverage [/.existential]
-         (when (/.value /.fresh_context
-                        (monad.let /.monad
-                          [_ /.existential]
-                          /.context))
-           {try.:Success actual}
-           (and (n.= 0 (list.size (its .:for_all actual)))
-                (n.= 1 (its .:there_exists actual)))
-           
-           {try.:Failure error}
-           false))
-       ))
+  (monad.let random.monad
+    [name_of_expected_type (random.lower_cased 1)
+     .let [expected_type {.:Nominal name_of_expected_type (list)}]]
+    (all _.and
+         (_.coverage [/.fresh_context]
+           (and (list.empty? (its .:for_all /.fresh_context))
+                (n.= 0 (its .:there_exists /.fresh_context))))
+         (_.coverage [/.context]
+           (and (when (/.value /.fresh_context /.context)
+                  {try.:Success actual}
+                  (identical? /.fresh_context actual)
+                  
+                  {try.:Failure error}
+                  false)
+                (when (/.value /.fresh_context
+                               (monad.let /.monad
+                                 [_ /.var]
+                                 /.context))
+                  {try.:Success actual}
+                  (and (n.= 1 (list.size (its .:for_all actual)))
+                       (n.= 0 (its .:there_exists actual)))
+                  
+                  {try.:Failure error}
+                  false)))
+         (_.coverage [/.with]
+           (let [expected (|> (monad.let /.monad
+                                [_ /.var]
+                                /.context)
+                              (/.value /.fresh_context))
+                 actual (|> (monad.let /.monad
+                              [_ (/.with (try.else /.fresh_context expected))]
+                              /.context)
+                            (/.value /.fresh_context))]
+             (when [expected actual]
+               [{try.:Success expected} {try.:Success actual}]
+               (identical? expected actual)
+
+               else
+               false)))
+         (_.coverage [/.existential]
+           (when (/.value /.fresh_context
+                          (monad.let /.monad
+                            [_ /.existential]
+                            /.context))
+             {try.:Success actual}
+             (and (n.= 0 (list.size (its .:for_all actual)))
+                  (n.= 1 (its .:there_exists actual)))
+             
+             {try.:Failure error}
+             false))
+         (_.coverage [/.bound?]
+           (and (|> (monad.let /.monad
+                      [[variable type_of_variable] /.var]
+                      (/.bound? variable))
+                    (/.value /.fresh_context)
+                    (try:each not)
+                    (try.else false))
+                (|> (monad.let /.monad
+                      [[variable type_of_variable] /.var
+                       _ (/.check type_of_variable expected_type)]
+                      (/.bound? variable))
+                    (/.value /.fresh_context)
+                    (try.else false))))
+         (_.coverage [/.type]
+           (|> (monad.let /.monad
+                 [[variable type_of_variable] /.var
+                  _ (/.check type_of_variable expected_type)]
+                 (/.type variable))
+               (/.value /.fresh_context)
+               (try:each (//.= expected_type))
+               (try.else false)))
+         (_.coverage [/.linked?]
+           (and (|> (monad.let /.monad
+                      [[variable_0 type_of_variable_0] /.var
+                       [variable_1 type_of_variable_1] /.var]
+                      (/.linked? variable_0 variable_1))
+                    (/.value /.fresh_context)
+                    (try:each not)
+                    (try.else false))
+                (|> (monad.let /.monad
+                      [[variable_0 type_of_variable_0] /.var
+                       [variable_1 type_of_variable_1] /.var
+                       _ (/.check type_of_variable_0 type_of_variable_1)]
+                      (/.linked? variable_0 variable_1))
+                    (/.value /.fresh_context)
+                    (try.else false))
+                (|> (monad.let /.monad
+                      [[variable_0 type_of_variable_0] /.var
+                       [variable_1 type_of_variable_1] /.var
+                       _ (/.check type_of_variable_0 type_of_variable_1)
+                       _ (/.check type_of_variable_0 expected_type)
+                       type_at_variable_0 (/.type variable_0)
+                       type_at_variable_1 (/.type variable_1)
+                       still? (/.linked? variable_0 variable_1)]
+                      (pure (and (//.= type_at_variable_0 type_at_variable_1)
+                                 (not still?))))
+                    (/.value /.fresh_context)
+                    (try.else false))))
+         )))
 
 (the succeeds?
   (for_any (_ a) (-> (/.Check a) Bit))
@@ -634,15 +703,19 @@
                (try.else false))
            ))))
 
+(template.the (<> ,super ,sub)
+  [(and (/.< ,super ,sub)
+        (/.> ,sub ,super))])
+
 (the for_subsumption|ultimate
   (Random Bit)
   (monad.let random.monad
     [example ..clean_type]
-    (pure (and (/.< .Any example)
-               (not (/.< example .Any))
+    (pure (and (<> .Any example)
+               (not (<> example .Any))
                
-               (/.< example .Nothing)
-               (not (/.< .Nothing example))
+               (<> example .Nothing)
+               (not (<> .Nothing example))
                ))))
 
 (the for_subsumption|nominal
@@ -650,16 +723,16 @@
   (monad.let random.monad
     [nominal (random.upper_cased 10)
      example ..clean_type]
-    (pure (and (/.< {.:Nominal nominal (list)}
-                    {.:Nominal nominal (list)})
-               (/.< {.:Nominal nominal (list [.co_variant .Any])}
-                    {.:Nominal nominal (list [.co_variant example])})
-               (not (/.< {.:Nominal nominal (list [.co_variant example])}
-                         {.:Nominal nominal (list [.co_variant .Any])}))
-               (/.< {.:Nominal nominal (list [.co_variant example])}
-                    {.:Nominal nominal (list [.co_variant .Nothing])})
-               (not (/.< {.:Nominal nominal (list [.co_variant .Nothing])}
-                         {.:Nominal nominal (list [.co_variant example])}))
+    (pure (and (<> {.:Nominal nominal (list)}
+                   {.:Nominal nominal (list)})
+               (<> {.:Nominal nominal (list [.co_variant .Any])}
+                   {.:Nominal nominal (list [.co_variant example])})
+               (not (<> {.:Nominal nominal (list [.co_variant example])}
+                        {.:Nominal nominal (list [.co_variant .Any])}))
+               (<> {.:Nominal nominal (list [.co_variant example])}
+                   {.:Nominal nominal (list [.co_variant .Nothing])})
+               (not (<> {.:Nominal nominal (list [.co_variant .Nothing])}
+                        {.:Nominal nominal (list [.co_variant example])}))
                ))))
 
 (the for_subsumption|sum
@@ -667,14 +740,14 @@
   (monad.let random.monad
     [left ..clean_type
      right ..clean_type]
-    (pure (and (/.< (//.Sum .Any .Any)
-                    (//.Sum left right))
-               (not (/.< (//.Sum left right)
-                         (//.Sum .Any .Any)))
-               (/.< (//.Sum left right)
-                    (//.Sum .Nothing .Nothing))
-               (not (/.< (//.Sum .Nothing .Nothing)
-                         (//.Sum left right)))
+    (pure (and (<> (//.Sum .Any .Any)
+                   (//.Sum left right))
+               (not (<> (//.Sum left right)
+                        (//.Sum .Any .Any)))
+               (<> (//.Sum left right)
+                   (//.Sum .Nothing .Nothing))
+               (not (<> (//.Sum .Nothing .Nothing)
+                        (//.Sum left right)))
                ))))
 
 (the for_subsumption|product
@@ -682,14 +755,14 @@
   (monad.let random.monad
     [left ..clean_type
      right ..clean_type]
-    (pure (and (/.< (//.Product .Any .Any)
-                    (//.Product left right))
-               (not (/.< (//.Product left right)
-                         (//.Product .Any .Any)))
-               (/.< (//.Product left right)
-                    (//.Product .Nothing .Nothing))
-               (not (/.< (//.Product .Nothing .Nothing)
-                         (//.Product left right)))
+    (pure (and (<> (//.Product .Any .Any)
+                   (//.Product left right))
+               (not (<> (//.Product left right)
+                        (//.Product .Any .Any)))
+               (<> (//.Product left right)
+                   (//.Product .Nothing .Nothing))
+               (not (<> (//.Product .Nothing .Nothing)
+                        (//.Product left right)))
                ))))
 
 (the for_subsumption|function
@@ -697,12 +770,12 @@
   (monad.let random.monad
     [left ..clean_type
      right ..clean_type]
-    (pure (and (/.< (//.Function .Nothing .Any)
-                    (//.Function left right))
-               (not (/.< (//.Function left right)
-                         (//.Function .Nothing .Any)))
-               (not (/.< (//.Function .Any .Nothing)
-                         (//.Function left right)))
+    (pure (and (<> (//.Function .Nothing .Any)
+                   (//.Function left right))
+               (not (<> (//.Function left right)
+                        (//.Function .Nothing .Any)))
+               (not (<> (//.Function .Any .Nothing)
+                        (//.Function left right)))
                ))))
 
 (template.with [<tag> <name>]
@@ -711,8 +784,8 @@
      (monad.let random.monad
        [id random.natural
         example ..clean_type]
-       (pure (not (or (/.< {.:Variable <tag> id} example)
-                      (/.< example {.:Variable <tag> id}))))))]
+       (pure (not (or (<> {.:Variable <tag> id} example)
+                      (<> example {.:Variable <tag> id}))))))]
 
   [[.general for_subsumption|variable]
    [.special for_subsumption|existential]])
@@ -721,10 +794,10 @@
   (Random Bit)
   (monad.let random.monad
     [example ..clean_type]
-    (pure (and (and (/.< (.type (Stack example)) (.type (for_any (_ a) (Stack a))))
-                    (not (/.< (.type (for_any (_ a) (Stack a))) (.type (Stack example)))))
-               (and (/.< (.type (for_some (_ a) (Stack a))) (.type (Stack example)))
-                    (not (/.< (.type (Stack example)) (.type (for_some (_ a) (Stack a))))))))))
+    (pure (and (and (<> (.type (Stack example)) (.type (for_any (_ a) (Stack a))))
+                    (not (<> (.type (for_any (_ a) (Stack a))) (.type (Stack example)))))
+               (and (<> (.type (for_some (_ a) (Stack a))) (.type (Stack example)))
+                    (not (<> (.type (Stack example)) (.type (for_some (_ a) (Stack a))))))))))
 
 (the for_subsumption|named
   (Random Bit)
@@ -732,10 +805,10 @@
     [module (random.upper_cased 10)
      proper (random.upper_cased 10)
      example ..clean_type]
-    (pure (and (/.< {.:Named [module proper] example}
-                    example)
-               (/.< example
-                    {.:Named [module proper] example})
+    (pure (and (<> {.:Named [module proper] example}
+                   example)
+               (<> example
+                   {.:Named [module proper] example})
                ))))
 
 (the for_subsumption
@@ -750,7 +823,7 @@
      for_subsumption|existential ..for_subsumption|existential
      for_subsumption|quantification+reification ..for_subsumption|quantification+reification
      for_subsumption|named ..for_subsumption|named]
-    (_.coverage [/.<]
+    (_.coverage [/.< /.>]
       (and for_subsumption|ultimate
            for_subsumption|nominal
            for_subsumption|sum
