@@ -60,32 +60,47 @@ for file in *.*; do gpg -ab $file; done
 cd ~/lux/stdlib/ \
 && lux with jvm clean \
 && lux with jvm with scriptum auto test
+```
 
 ## JVM
+
+```
 cd ~/lux/stdlib/ \
 && lux with jvm clean \
 && lux with jvm with scriptum build \
 && java -jar target/program.jar > ~/lux/documentation/library/standard/jvm.md
+```
 
 ## JS
+
+```
 cd ~/lux/stdlib/ \
 && lux with js clean \
 && lux with js with scriptum build \
 && node ~/lux/stdlib/target/program.js > ~/lux/documentation/library/standard/js.md
+```
 
 ## Lua
+
+```
 cd ~/lux/stdlib/ \
 && lux with lua clean \
 && lux with lua with scriptum build \
 && ~/lua-5.4.2/install/bin/lua ~/lux/stdlib/target/program.lua > ~/lux/documentation/library/standard/lua.md
+```
 
 ## Python
+
+```
 cd ~/lux/stdlib/ \
 && lux with python clean \
 && lux with python with scriptum build \
 && python3 ~/lux/stdlib/target/program.py > ~/lux/documentation/library/standard/python.md
+```
 
 ## Ruby
+
+```
 cd ~/lux/stdlib/ \
 && lux with ruby clean \
 && lux with ruby with scriptum build \
