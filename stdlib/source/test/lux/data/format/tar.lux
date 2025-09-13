@@ -4,13 +4,14 @@
 (.using
  [library
   [lux (.except name)
+   ["[0]" function]
    [abstract
     ["<>" projection]
     ["[0]" monad]
     ["[0]" equality
      ["[1]T" \\test]]]
    [error
-    ["[0]" try]
+    ["[0]" try (.use "[1]:[0]" functor)]
     ["[0]" exception]]
    [data
     ["[0]" product]
@@ -411,38 +412,43 @@
              ))))
 
 (the random_path
-  (Random /.Path)
-  (random.one /.path (random.lower_cased 1)))
+  (-> Natural
+      (Random /.Path))
+  (|>> random.lower_cased
+       (random.one /.path)))
 
-(the random_file
-  (Random /.File)
+(the (random_file size)
+  (-> Natural
+      (Random /.File))
   (monad.let [! random.monad]
-    [path ..random_path
+    [path (..random_path size)
      seconds (by ! each
                  (function (_ seconds)
                    (instant.absolute (duration.up (n.% 1,000,000 seconds)
                                                   duration.second)))
                  random.natural)
      mode random_mode
-     content (random.one /.content (binaryT.random 2))]
+     content (random.one /.content (binaryT.random size))]
     (pure [path seconds mode /.no_ownership content])))
 
-(the random_entry
-  (Random /.Entry)
+(the (random_entry size)
+  (-> Natural
+      (Random /.Entry))
   (all random.or
-       ..random_file
-       ..random_path
-       ..random_path
-       ..random_file
+       (..random_file size)
+       (..random_path size)
+       (..random_path size)
+       (..random_file size)
        ))
 
-(the .public random
-  (Random /.Tar)
+(the .public (random size)
+  (-> Natural
+      (Random /.Tar))
   (monad.let [! random.monad]
-    [entry_0 ..random_entry
-     entry_1 ..random_entry
-     entry_2 ..random_entry
-     entry_3 ..random_entry]
+    [entry_0 (..random_entry size)
+     entry_1 (..random_entry size)
+     entry_2 (..random_entry size)
+     entry_3 (..random_entry size)]
     (pure (sequence.new entry_0 entry_1 entry_2 entry_3))))
 
 (the .public test
@@ -450,17 +456,18 @@
   (<| (_.covering /._)
       (_.for [/.Tar])
       (monad.let [! random.monad]
-        [expected_tar ..random
+        [expected_tar (..random 1)
 
-         left ..random
-         right ..random
+         left (..random 2)
+         right (..random 3)
 
-         expected_file ..random_file
-         .let [[expected_path expected_time expected_mode expected_ownership expected_content] expected_file]]
+         expected_file (..random_file 4)
+         .let [[expected_path expected_time expected_mode expected_ownership expected_content] expected_file]
+         not_expected_file (..random_file 5)]
         (all _.and
              (_.for [/.equality /.=]
                     (static.when (identical? /.equality /.=)
-                      (equalityT.spec /.equality ..random)))
+                      (equalityT.spec /.equality (..random 1))))
              
              (_.coverage [/.as_binary /.of_binary]
                (|> expected_tar
@@ -479,6 +486,11 @@
                    (/.file expected_path)
                    (by (try.equality binary.equality) =
                        {try.:Success (/.data expected_content)})))
+             (_.coverage [/.unknown_file]
+               (|> (sequence.new {/.:Normal not_expected_file})
+                   (/.file expected_path)
+                   (try:each (function.constant false))
+                   (exception.else (exception.is? /.unknown_file))))
              (_.coverage [/.invalid_end_of_archive]
                (let [dump (\\injection.value /.as_binary sequence.empty)]
                  (when (<b>.value /.of_binary (binary:composite dump dump))
