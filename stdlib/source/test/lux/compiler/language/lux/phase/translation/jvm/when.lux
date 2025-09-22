@@ -17,7 +17,9 @@
     ["[0]" random (.only Random)]
     [number
      ["[0]" /64 (.only)
-      ["n" natural]]]]
+      ["n" natural]
+      ["i" integer]
+      ["d" decimal]]]]
    [compiler
     [meta
      ["[0]" archive]]]
@@ -32,7 +34,7 @@
   ["[0]" / (.only)
    ["[0]" // (.only)
     ["[0]" host]
-    ["[0]" runtime]
+    ["[0]" runtime (.only Expression)]
     ["[0]" primitive]
     [///
      ["[0]" extension]
@@ -43,11 +45,13 @@
        ["[0]" path]
        ["[0]" access (.only)
         ["[0]" member (.only Member)]
-        ["[0]" side (.only Side)]]]]]]]]
+        ["[0]" side (.only Side)]]
+       [////
+        [type (.only Register)]]]]]]]]
  [//
   ["[0]T" complex]])
 
-(the if_test
+(the test_of_if
   Test
   (monad.let [! random.monad]
     [module (random.lower_cased 1)
@@ -87,7 +91,7 @@
                             (try.else false))))))
           (try.else false)))))
 
-(the exec_test
+(the test_of_exec
   Test
   (monad.let [! random.monad]
     [module (random.lower_cased 1)
@@ -123,7 +127,7 @@
                             (try.else false))))))
           (try.else false)))))
 
-(the let_test
+(the test_of_let
   Test
   (monad.let [! random.monad]
     [module (random.lower_cased 1)
@@ -157,7 +161,7 @@
                             (try.else false))))))
           (try.else false)))))
 
-(the the_test
+(the test_of_its
   Test
   (monad.let [! random.monad]
     [module (random.lower_cased 1)
@@ -250,7 +254,7 @@
                        nested!)))
           (try.else false)))))
 
-(the when_test
+(the test_of_when
   Test
   (monad.let [! random.monad]
     [module (random.lower_cased 1)
@@ -491,14 +495,138 @@
                (try.else false))
            ))))
 
+(the (any_test it)
+  (-> (Expression [I64 Register Provenance])
+      (Random Bit))
+  (monad.let [! random.monad]
+    [module (random.lower_cased 1)
+
+     expectation random.i64
+     register (by ! each (n.% 10) random.natural)
+
+     .let [extender (is extension.Extender
+                        (function (_ _)
+                          (undefined)))
+           expression (//.translate extender complexT.lux)
+           @ [module 0 0]]]
+    (pure (|> (monad.let try.monad
+                [[_ archive] (archive.reserve "" archive.empty)
+                 [_ archive] (archive.reserve module archive)
+                 .let [[_ host] (io.value host.host)
+                       state (is runtime.State
+                                 (translation.state host module))]]
+                (<| (phase.value state)
+                    (monad.let phase.monad
+                      [_ (translation.set_buffer translation.empty_buffer)
+                       _ runtime.translation
+                       it (it expression archive [expectation register @])]
+                      (pure (|> it
+                                [{.:None}]
+                                (by host evaluate)
+                                (try:each (|>> (as (-> Any I64))
+                                               (/64.= expectation)))
+                                (try.else false))))))
+              (try.else false)))))
+
+(the test_of_super_specialization
+  Test
+  (all _.and
+       (monad.let [! random.monad]
+         [before (by ! each (n.% 10) random.natural)
+          after (by ! each (n.% 10) random.natural)
+          ? (any_test (function (_ expression archive [expectation register @])
+                        (let [other (is I64 (++ expectation))
+                              other_register (++ register)]
+                          (/.multi_let expression archive
+                                       [(synthesis.tuple @ (all list:composite
+                                                                (list.repeated before (synthesis.i64 @ other))
+                                                                (list (synthesis.i64 @ expectation))
+                                                                (list.repeated after (synthesis.i64 @ other))))
+                                        (all list:composite
+                                             (list:each (function (_ lefts)
+                                                          [other_register [lefts 0b]])
+                                                        (list.domain before))
+                                             (list [register (if (n.= 0 after)
+                                                                 [(-- before) 1b]
+                                                                 [before 0b])])
+                                             (list:each (function (_ lefts)
+                                                          [other_register (if (n.= (-- after) lefts)
+                                                                              [(n.+ before lefts) 1b]
+                                                                              [(n.+ (++ before) lefts) 0b])])
+                                                        (list.domain after)))
+                                        (synthesis.local @ register)]))))]
+         (_.coverage [/.multi_let]
+           ?))
+       (monad.let [! random.monad]
+         [lefts (by ! each (n.% 2) random.natural)
+          right? random.bit
+
+          otherwise? random.bit
+
+          ? (any_test (function (_ expression archive [expectation register @])
+                        (let [other_register (++ register)
+                              otherwise (if otherwise?
+                                            [{.:Some other_register} (synthesis.local @ other_register)]
+                                            [{.:None} (synthesis.i64 @ (/64.not expectation))])]
+                          (/.variant_if expression archive
+                                        [(synthesis.variant @ [lefts right? (synthesis.i64 @ expectation)])
+                                         (when lefts
+                                           0
+                                           (if right?
+                                               [otherwise
+                                                [{.:Some register} (synthesis.local @ register)]]
+                                               [[{.:Some register} (synthesis.local @ register)]
+                                                otherwise])
+
+                                           else
+                                           [otherwise
+                                            [{.:None} (synthesis.i64 @ expectation)]])]))))]
+         (_.coverage [/.variant_if]
+           ?))
+       (monad.let random.monad
+         [? (any_test (function (_ expression archive [expectation register @])
+                        (/.when_i64 expression archive
+                                    [(synthesis.i64 @ expectation)
+                                     (list [(-- expectation) (synthesis.i64 @ (-- expectation))]
+                                           [expectation (synthesis.i64 @ expectation)]
+                                           [(++ expectation) (synthesis.i64 @ (++ expectation))])
+                                     (synthesis.i64 @ (/64.not expectation))])))]
+         (_.coverage [/.when_i64]
+           ?))
+       (monad.let random.monad
+         [? (any_test (function (_ expression archive [expectation register @])
+                        (let [expectation' (i.decimal (.integer (/64.>> 32 expectation)))]
+                          (/.when_f64 expression archive
+                                      [(synthesis.f64 @ expectation')
+                                       (list [(d.+ -1.0 expectation') (synthesis.i64 @ (-- expectation))]
+                                             [(d.+ +0.0 expectation') (synthesis.i64 @ expectation)]
+                                             [(d.+ +1.0 expectation') (synthesis.i64 @ (++ expectation))])
+                                       (synthesis.i64 @ (/64.not expectation))]))))]
+         (_.coverage [/.when_f64]
+           ?))
+       (monad.let random.monad
+         [? (any_test (function (_ expression archive [expectation register @])
+                        (let [as_text (|>> .natural (by n.base_10 as))]
+                          (/.when_text expression archive
+                                       [(synthesis.text @ (as_text expectation))
+                                        (list [(as_text (-- expectation)) (synthesis.i64 @ (-- expectation))]
+                                              [(as_text expectation) (synthesis.i64 @ expectation)]
+                                              [(as_text (++ expectation)) (synthesis.i64 @ (++ expectation))])
+                                        (synthesis.i64 @ (/64.not expectation))]))))]
+         (_.coverage [/.when_text]
+           ?))
+       ))
+
 (the .public test
   Test
   (<| (_.covering /._)
       (all _.and
-           if_test
-           exec_test
-           let_test
-           the_test
-           when_test
+           test_of_if
+           test_of_exec
+           test_of_let
+           test_of_its
+           test_of_when
            test_of_stack
+
+           test_of_super_specialization
            )))
