@@ -52,275 +52,276 @@
   ["[0]" tally (.only Tally)]])
 
 (every .public Test
-  (Random //.Test random.PCG_32))
+       (Random //.Test random.PCG_32))
 
-... The PRNG is not updated by the branches in order to ensure that adding new test cases
-... in one branch does not alter the random generation in another branch.
-(the .public (and left right)
-  (-> Test Test
-      Test)
-  (function (_ prng)
-    (let [[_ left] (left prng)
-          [_ right] (right prng)]
-      [prng (//.and left right)])))
+(comment "The PRNG is not updated by the branches in order to ensure that adding new test cases"
+         "in one branch does not alter the random generation in another branch."
+         (the .public (and left right)
+              (-> Test Test
+                  Test)
+              (function (_ prng)
+                        (let [[_ left] (left prng)
+                              [_ right] (right prng)]
+                             [prng (//.and left right)]))))
 
 (the .public context
-  (-> Text Test
-      Test)
-  (|>> //.context
-       random:each))
+     (-> Text Test
+         Test)
+     (|>> //.context
+          random:each))
 
 (the .public failure
-  (-> Text
-      Test)
-  (|>> //.failure
-       random:pure))
+     (-> Text
+         Test)
+     (|>> //.failure
+          random:pure))
 
 (the .public success
-  (-> Text
-      Test)
-  (|>> //.success
-       random:pure))
+     (-> Text
+         Test)
+     (|>> //.success
+          random:pure))
 
 (the .public (test message condition)
-  (-> Text Bit
-      Test)
-  (random:pure (//.test message condition)))
+     (-> Text Bit
+         Test)
+     (random:pure (//.test message condition)))
 
 (the pcg_32_magic_inc
-  (number.base_16 "FEDCBA9876543210"))
+     (number.base_16 "FEDCBA9876543210"))
 
 (every .public Seed
-  Natural)
+       Natural)
 
 (the .public (seed value test)
-  (-> Seed Test
-      Test)
-  (function (_ prng)
-    (let [[_ value] (random.value random.pcg_32
-                                  [random.:increase ..pcg_32_magic_inc
-                                   random.:seed value]
-                                  test)]
-      [prng value])))
+     (-> Seed Test
+         Test)
+     (function (_ prng)
+               (let [[_ value] (random.value random.pcg_32
+                                             [random.:increase ..pcg_32_magic_inc
+                                              random.:seed value]
+                                             test)]
+                    [prng value])))
 
-... https://en.wikipedia.org/wiki/Delimiter
-(the delimiter
-  \n)
+(comment "https://en.wikipedia.org/wiki/Delimiter"
+         (the delimiter
+              \n))
 
 (the (times_failure seed documentation)
-  (-> Seed Text
-      Text)
-  (text documentation ..delimiter ..delimiter
-        "Failed with this seed: " (%.natural seed)))
+     (-> Seed Text
+         Text)
+     (text documentation ..delimiter ..delimiter
+           "Failed with this seed: " (%.natural seed)))
 
 (exception.the .public must_try_test_at_least_once)
 
 (every .public Success_Policy
-  Bit)
+       Bit)
 
 (template.with [<policy> <name>]
                [(the .public <name>
-                  Success_Policy
-                  <policy>)]
+                     Success_Policy
+                     <policy>)]
 
                [[0b ignore_success]
                 [1b announce_success]])
 
 (the .public (times amount announce_success? test)
-  (-> Natural Success_Policy Test
-      Test)
-  (when amount
-    0 (..failure (exception.error ..must_try_test_at_least_once []))
-    _ (monad.let random.monad
-        [seed random.natural]
-        (function (_ prng)
-          (let [[prng' instance] (random.value random.pcg_32
-                                               [random.:increase ..pcg_32_magic_inc
-                                                random.:seed seed]
-                                               test)]
-            [prng' (monad.let [! future.monad]
-                     [[tally documentation] instance]
-                     (if (tally.failed? tally)
-                         (pure [tally (times_failure seed documentation)])
-                         (exec
-                           (if announce_success?
-                               (debug.log! (text "Succeeded with this seed: " (%.natural seed)))
-                               [])
-                           (when amount
-                             1 instance
-                             _ (|> test
-                                   (times (-- amount) announce_success?)
-                                   (state.value prng')
-                                   pair.right)))))])))))
+     (-> Natural Success_Policy Test
+         Test)
+     (when amount
+           0 (..failure (exception.error ..must_try_test_at_least_once []))
+           _ (monad.let random.monad
+                        [seed random.natural]
+                        (function (_ prng)
+                                  (let [[prng' instance] (random.value random.pcg_32
+                                                                       [random.:increase ..pcg_32_magic_inc
+                                                                        random.:seed seed]
+                                                                       test)]
+                                       [prng' (monad.let [! future.monad]
+                                                         [[tally documentation] instance]
+                                                         (if (tally.failed? tally)
+                                                             (pure [tally (times_failure seed documentation)])
+                                                             (exec
+                                                              (if announce_success?
+                                                                  (debug.log! (text "Succeeded with this seed: " (%.natural seed)))
+                                                                  [])
+                                                              (when amount
+                                                                    1 instance
+                                                                    _ (|> test
+                                                                          (times (-- amount) announce_success?)
+                                                                          (state.value prng')
+                                                                          pair.right)))))])))))
 
 (the (description duration tally)
-  (-> Duration Tally
-      Text)
-  (let [successes (its tally.:successes tally)
-        failures (its tally.:failures tally)
-        missing (set.difference (its tally.:actual tally)
-                                (its tally.:expected tally))
-        unexpected (set.difference (its tally.:expected tally)
-                                   (its tally.:actual tally))
-        report (is (-> Coverage Text)
-                   (|>> set.as_list
-                        (list.in_order (by name.order <))
-                        (exception.listing name.as_text)))
-        expected_coverage (set.size (its tally.:expected tally))
-        unexpected_coverage (set.size unexpected)
-        actual_coverage (n.- unexpected_coverage
-                             (set.size (its tally.:actual tally)))
-        coverage (when expected_coverage
-                   0 "N/A"
-                   expected (let [missing_ratio (r./ (n.real expected)
-                                                     (n.real (set.size missing)))
-                                  max_percent +100.0
-                                  done_percent (|> +1.0
-                                                   (r.- missing_ratio)
-                                                   (r.x max_percent))]
-                              (if (r.= max_percent done_percent)
-                                  "100%"
-                                  (let [raw (|> done_percent
-                                                %.real
-                                                (text.replaced_once "+" ""))]
-                                    (|> raw
-                                        (text.clip 0 (if (r.< +10.0 done_percent)
-                                                         4 ...  X.XX
-                                                         5 ... XX.XX
-                                                         ))
-                                        (maybe.else raw)
-                                        (text.suffix "%"))))))]
-    (exception.report
-     (list ["Duration" (duration.as_text duration)]
+     (-> Duration Tally
+         Text)
+     (let [successes (its tally.:successes tally)
+           failures (its tally.:failures tally)
+           missing (set.difference (its tally.:actual tally)
+                                   (its tally.:expected tally))
+           unexpected (set.difference (its tally.:expected tally)
+                                      (its tally.:actual tally))
+           report (is (-> Coverage Text)
+                      (|>> set.as_list
+                           (list.in_order (by name.order <))
+                           (exception.listing name.as_text)))
+           expected_coverage (set.size (its tally.:expected tally))
+           unexpected_coverage (set.size unexpected)
+           actual_coverage (n.- unexpected_coverage
+                                (set.size (its tally.:actual tally)))
+           coverage (when expected_coverage
+                          0 "N/A"
+                          expected (let [missing_ratio (r./ (n.real expected)
+                                                            (n.real (set.size missing)))
+                                         max_percent +100.0
+                                         done_percent (|> +1.0
+                                                          (r.- missing_ratio)
+                                                          (r.x max_percent))]
+                                        (if (r.= max_percent done_percent)
+                                            "100%"
+                                            (let [raw (|> done_percent
+                                                          %.real
+                                                          (text.replaced_once "+" ""))]
+                                                 (|> raw
+                                                     (text.clip 0 (if (r.< +10.0 done_percent)
+                                                                      (comment "X.XX"
+                                                                               4)
+                                                                      (comment XX.XX
+                                                                               5)))
+                                                     (maybe.else raw)
+                                                     (text.suffix "%"))))))]
+          (exception.report
+           (list ["Duration" (duration.as_text duration)]
 
-           ["Tests" (%.natural (n.+ successes failures))]
-           ["Successes" (%.natural successes)]
-           ["Failures" (%.natural failures)]
-           
-           ["Expected coverage" (%.natural expected_coverage)]
-           ["Actual coverage" (%.natural actual_coverage)]
-           ["Pending coverage" (%.natural (n.- actual_coverage
-                                               expected_coverage))]
-           ["Unexpected coverage" (%.natural unexpected_coverage)]
-           
-           ["Coverage" coverage]
-           ["Pending" (report missing)]
-           ["Unexpected" (report unexpected)]))))
+                 ["Tests" (%.natural (n.+ successes failures))]
+                 ["Successes" (%.natural successes)]
+                 ["Failures" (%.natural failures)]
+                 
+                 ["Expected coverage" (%.natural expected_coverage)]
+                 ["Actual coverage" (%.natural actual_coverage)]
+                 ["Pending coverage" (%.natural (n.- actual_coverage
+                                                     expected_coverage))]
+                 ["Unexpected coverage" (%.natural unexpected_coverage)]
+                 
+                 ["Coverage" coverage]
+                 ["Pending" (report missing)]
+                 ["Unexpected" (report unexpected)]))))
 
 (the failure_exit_code +1)
 (the success_exit_code +0)
 
 (the .public (value test)
-  (-> Test
-      (Future Nothing))
-  (monad.let future.monad
-    [pre (future.soon instant.now)
-     .let [seed (instant.millis pre)]
-     [tally documentation] (|> test
-                               (random.value random.pcg_32
-                                             [random.:increase ..pcg_32_magic_inc
-                                              random.:seed seed])
-                               pair.right)
-     post (future.soon instant.now)
-     .let [duration (instant.span pre post)
-           report (text documentation
-                        \n \n
-                        (..description duration tally)
-                        \n)]
-     _ (expansion.let [<else> (pure {try.:Success (debug.log! report)})]
-         (target.if target.js
-                    (when console.default
-                      {.:None}
-                      <else>
+     (-> Test
+         (Future Nothing))
+     (monad.let future.monad
+                [pre (future.soon instant.now)
+                 .let [seed (instant.millis pre)]
+                 [tally documentation] (|> test
+                                           (random.value random.pcg_32
+                                                         [random.:increase ..pcg_32_magic_inc
+                                                          random.:seed seed])
+                                           pair.right)
+                 post (future.soon instant.now)
+                 .let [duration (instant.span pre post)
+                       report (text documentation
+                                    \n \n
+                                    (..description duration tally)
+                                    \n)]
+                 _ (expansion.let [<else> (pure {try.:Success (debug.log! report)})]
+                                  (target.if target.js
+                                             (when console.default
+                                                   {.:None}
+                                                   <else>
 
-                      {.:Some console}
-                      (console.write_line report console))
+                                                   {.:Some console}
+                                                   (console.write_line report console))
 
-                    ... else
-                    <else>))]
-    (future.soon (by environment.default exit
-                     (when (its tally.:failures tally)
-                       0 ..success_exit_code
-                       _ ..failure_exit_code)))))
+                                             (comment "else"
+                                                      <else>)))]
+                (future.soon (by environment.default exit
+                                 (when (its tally.:failures tally)
+                                       0 ..success_exit_code
+                                       _ ..failure_exit_code)))))
 
 (syntax.the .public (coverage [coverage ?list.any
                                condition ?list.any])
-  (pure (list (` (by random.monad (,' pure)
-                     (//.coverage (, coverage)
-                       (, condition)))))))
+            (pure (list (` (by random.monad (,' pure)
+                               (//.coverage (, coverage)
+                                            (, condition)))))))
 
 (syntax.the .public (by_proof [coverage ?list.any
                                every_proof ?list.any])
-  (pure (list (` (by random.monad (,' pure)
-                     (//.by_proof (, coverage)
-                                  (, every_proof)))))))
+            (pure (list (` (by random.monad (,' pure)
+                               (//.by_proof (, coverage)
+                                            (, every_proof)))))))
 
 (syntax.the .public (for [coverage ?list.any
                           test ?list.any])
-  (pure (list (` (by random.functor
-                     (,' each)
-                     (|>> (//.for (, coverage)))
-                     (, test))))))
+            (pure (list (` (by random.functor
+                               (,' each)
+                               (|>> (//.for (, coverage)))
+                               (, test))))))
 
 (syntax.the .public (covering [module ?list.any
                                test ?list.any])
-  (pure (list (` (by random.functor
-                     (,' each)
-                     (|>> (//.covering (, module)))
-                     (, test))))))
+            (pure (list (` (by random.functor
+                               (,' each)
+                               (|>> (//.covering (, module)))
+                               (, test))))))
 
 (exception.the .public (error_during_execution error)
-  (Exception Text)
-  (exception.report
-   (list ["Error" (%.text error)])))
+               (Exception Text)
+               (exception.report
+                (list ["Error" (%.text error)])))
 
 (the .public (in_parallel tests)
-  (-> (List Test)
-      Test)
-  (when (list.size tests)
-    0
-    (random:pure (future:pure [tally.empty ""]))
-    
-    expected_tests
-    (monad.let random.monad
-      [seed random.natural
-       .let [value (is (-> Test
-                           //.Test)
-                       (|>> (random.value random.pcg_32
-                                          [random.:increase ..pcg_32_magic_inc
-                                           random.:seed seed])
-                            pair.right
-                            try
-                            (pipe.when
-                              {try.:Success output}
-                              output
-                              
-                              {try.:Failure error}
-                              (//.test (exception.error ..error_during_execution [error]) false))))
-             state (is (Atom (Dictionary Natural [Tally Text]))
-                       (atom.atom (dictionary.empty n.order)))
-             [read! write!] (is [//.Test
-                                 (future.Resolver [Tally Text])]
-                                (future.future []))
-             _ (list.mix (function (_ test index)
-                           (exec
-                             (|> (value test)
-                                 (future.upon! (function (_ assertion)
-                                                 (monad.let io.monad
-                                                   [[_ results] (atom.update! (dictionary.has index assertion) state)]
-                                                   (if (n.= expected_tests (dictionary.size results))
-                                                       (let [assertions (|> results
-                                                                            dictionary.entries
-                                                                            (list:each pair.right))]
-                                                         (write! [(list.mix tally.and
-                                                                            (list:each pair.left assertions)
-                                                                            tally.empty)
-                                                                  (|> assertions
-                                                                      (list:each pair.right)
-                                                                      (text.interposed ..delimiter))]))
-                                                       (pure [])))))
-                                 io.value)
-                             (++ index)))
-                         tests
-                         0)]]
-      (pure read!))))
+     (-> (List Test)
+         Test)
+     (when (list.size tests)
+           0
+           (random:pure (future:pure [tally.empty ""]))
+           
+           expected_tests
+           (monad.let random.monad
+                      [seed random.natural
+                       .let [value (is (-> Test
+                                           //.Test)
+                                       (|>> (random.value random.pcg_32
+                                                          [random.:increase ..pcg_32_magic_inc
+                                                           random.:seed seed])
+                                            pair.right
+                                            try
+                                            (pipe.when
+                                             {try.:Success output}
+                                             output
+                                             
+                                             {try.:Failure error}
+                                             (//.test (exception.error ..error_during_execution [error]) false))))
+                             state (is (Atom (Dictionary Natural [Tally Text]))
+                                       (atom.atom (dictionary.empty n.order)))
+                             [read! write!] (is [//.Test
+                                                 (future.Resolver [Tally Text])]
+                                                (future.future []))
+                             _ (list.mix (function (_ test index)
+                                                   (exec
+                                                    (|> (value test)
+                                                        (future.upon! (function (_ assertion)
+                                                                                (monad.let io.monad
+                                                                                           [[_ results] (atom.update! (dictionary.has index assertion) state)]
+                                                                                           (if (n.= expected_tests (dictionary.size results))
+                                                                                               (let [assertions (|> results
+                                                                                                                    dictionary.entries
+                                                                                                                    (list:each pair.right))]
+                                                                                                    (write! [(list.mix tally.and
+                                                                                                                       (list:each pair.left assertions)
+                                                                                                                       tally.empty)
+                                                                                                             (|> assertions
+                                                                                                                 (list:each pair.right)
+                                                                                                                 (text.interposed ..delimiter))]))
+                                                                                               (pure [])))))
+                                                        io.value)
+                                                    (++ index)))
+                                         tests
+                                         0)]]
+                      (pure read!))))
