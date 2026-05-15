@@ -190,9 +190,6 @@ ENDP and DELIM."
 							((paredit-in-string-p)
 							 (paredit-forward-delete-in-string))
 							
-							((paredit-in-comment-p)
-							 (paredit-forward-delete-in-comment))
-							
 							((let ((syn (char-syntax (char-after))))
 							   (or (eq syn ?\( )
 								   (eq syn ?\" )))
@@ -266,8 +263,6 @@ ENDP and DELIM."
   (setq-local imenu-create-index-function
               (lambda ()
                 (imenu--generic-function '((nil lux-match-next-def 0)))))
-  (setq-local comment-start "... ")
-  (setq-local comment-end "")
   (setq-local indent-tabs-mode nil)
   (setq-local multibyte-syntax-as-symbol t)
   (setq-local electric-pair-skip-whitespace 'chomp)
@@ -275,22 +270,11 @@ ENDP and DELIM."
   (setq-local indent-line-function #'indent_lux_line!)
   
   (setq-local lisp-indent-function #'lux-indent-function)
-  (setq-local parse-sexp-ignore-comments t)
   (setq-local open-paren-in-column-0-is-defun-start nil))
 
 ;; https://www.gnu.org/software/emacs/manual/html_node/elisp/Displaying-Messages.html
 (defun lux/log! (text)
   (message "%S" text))
-
-(defun lux-comment-dwim (&optional argument)
-  (interactive "P")
-  (when (use-region-p)
-	;; http://doc.endlessparentheses.com/Fun/comment-only-p.html
-	(if (comment-only-p (region-beginning) (region-end))
-		(condition-case error
-			(uncomment-region (region-beginning) (region-end) 3)
-		  (error (uncomment-region (1- (region-beginning)) (region-end) 3)))
-	  (comment-dwim "... "))))
 
 ;;;###autoload
 (define-derived-mode lux-mode prog-mode "Lux"
@@ -300,9 +284,6 @@ ENDP and DELIM."
   (lux-mode-variables)
   (lux-font-lock-setup)
   (add-hook 'paredit-mode-hook #'lux-paredit-setup)
-  (define-key lux-mode-map [remap comment-dwim] 'lux-comment-dwim)
-  (define-key lux-mode-map [remap paredit-comment-dwim] 'lux-comment-dwim)
-  ;; https://stackoverflow.com/questions/25245469/how-to-define-whole-line-comment-syntax-in-emacs
   (setq-local syntax-propertize-function
 			  ;; https://www.emacswiki.org/emacs/RegularExpression
 			  ;; http://doc.endlessparentheses.com/Fun/syntax-propertize-rules
@@ -564,14 +545,7 @@ This function is passed to `font-lock-syntactic-face-function',
 which is called with a single parameter, STATE (which is, in
 turn, returned by `parse-partial-sexp' at the beginning of the
 highlighted region)."
-  (if (nth 3 state)
-      ;; This might be a string or a |...| symbol.
-      (let ((startpos (nth 8 state)))
-        (if (eq (char-after startpos) ?|)
-            ;; This is not a string, but a |...| symbol.
-            nil
-          font-lock-constant-face))
-    font-lock-comment-face))
+  font-lock-constant-face)
 
 (defun lux-font-lock-setup ()
   "Configures font-lock for editing Lux code."
