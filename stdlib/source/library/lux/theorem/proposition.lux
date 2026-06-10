@@ -1,7 +1,7 @@
 (.using
  [library
   [lux (.except Pattern
-                let if quote and)
+                let if quote and type)
    [abstract
     ["?" projection]
     ["[0]" equality (.only Equality)]
@@ -12,11 +12,13 @@
     ["[0]" text]
     [collection
      ["[0]" list (.open monad monoid)
-      ["?[1]" \\projection]]]]
+      ["?[1]" \\projection]
+      ["[0]" property]]]]
    ["[0]" meta (.only)
     ["[0]" name]
     ["[0]" provenance]
     ["[0]" static]
+    ["[0]" binding]
     ["[0]" code (.only)
      ["?[1]" \\projection (.only Projection)]]]
    [compiler
@@ -254,7 +256,7 @@
           simple_let))
 
 (every .public Context
-       (Record [:each_type (List [Text Code])
+       (Record [:each_type (property.List Code)
                 :each_term (List [Text Code])
                 :each_substitution (List [Text Code])]))
 
@@ -420,6 +422,51 @@
                        list:conjoint))]
               (, it))))
 
+(the each_type
+     (property.List Code)
+     property.empty)
+
+(syntax.the .public (type [name ?code.local])
+            (monad.let meta.monad
+                       [[exported definition] (binding.definition (..name ..each_type))]
+                       (when definition
+                             {.:Definition [type expression value]}
+                             (when (|> value
+                                       (as (-> Any (type_of ..each_type)))
+                                       (property.value name))
+                                   {try.:Success it}
+                                   (pure (list it))
+                                   
+                                   {try.:Failure _}
+                                   (meta.failure ""))
+
+                             {.:Alias real_name}
+                             (meta.failure ""))))
+
+(the (with_each_type new_value body
+                     lux)
+     (for_any (_ it)
+              (-> (type_of ..each_type)
+                  (Change (Meta it))))
+     (monad.let try.monad
+                [.let [[name_of_module proper_name] (..name ..each_type)
+                       global' (is (Change [Bit Global])
+                                   (function (_ [exported? old])
+                                             [exported? (when old
+                                                              {.:Definition [type expression old_value]}
+                                                              {.:Definition [type expression new_value]}
+
+                                                              {.:Alias real_name}
+                                                              old)]))
+                       every_definition' (is (Change (property.List [Bit Global]))
+                                             (property.revised proper_name global'))
+                       module' (is (Change Module)
+                                   (revised .:definitions every_definition'))
+                       every_module' (is (Change (property.List Module))
+                                         (property.revised name_of_module module'))]
+                 [_ it] (body (revised .:modules every_module' lux))]
+                (pure [lux it])))
+
 (the (='' type left right
           context analysis archive)
      (-> Type Code Code
@@ -443,15 +490,16 @@
                                                            (list (` (, (code.local name)))
                                                                  (` (.these (, term))))))
                                       list:conjoint)])
+         (with_each_type each_type)
          (monad.let [! phase.monad]
                     [left (analysis/type.with type
-                                              (analysis archive (` (expansion.let [(,* each_substitution)]
-                                                                                  (.let [(,* each_term)]
-                                                                                        (, left))))))
+                                              (analysis archive (` (<| (expansion.let [(,* each_substitution)])
+                                                                       (.let [(,* each_term)])
+                                                                       (, left)))))
                      right (analysis/type.with type
-                                               (analysis archive (` (expansion.let [(,* each_substitution)]
-                                                                                   (.let [(,* each_term)]
-                                                                                         (, right))))))])
+                                               (analysis archive (` (<| (expansion.let [(,* each_substitution)])
+                                                                        (.let [(,* each_term)])
+                                                                        (, right)))))])
          (pure {:Identity [(..analysis nesting (clean_term nesting left))
                            (..analysis nesting (clean_term nesting right))]})))
 

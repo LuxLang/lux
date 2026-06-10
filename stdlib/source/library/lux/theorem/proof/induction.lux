@@ -39,47 +39,64 @@
            else
            false))
 
-(every .public Case
-       (-> ?.Proposition
-           !.Proof))
+(the (in_identity term)
+     (-> (Change analysis.Term)
+         (Change ?.Identity))
+     (|>> (revised ?.:slow term)
+          (revised ?.:fast term)))
+
+(the (in_proposition term it)
+     (-> (Change analysis.Term)
+         (Change ?.Proposition))
+     (when it
+           {?.:Identity it}
+           {?.:Identity (in_identity term it)}
+           
+           {?.:Disjunction left right}
+           {?.:Disjunction (in_proposition term left)
+                           (in_proposition term right)}
+           
+           {?.:Conjunction left right}
+           {?.:Conjunction (in_proposition term left)
+                           (in_proposition term right)}
+           
+           {?.:Entailment premise conclusion}
+           {?.:Entailment (in_proposition term premise)
+                          (in_proposition term conclusion)}))
 
 (the .public (bit if_false if_true
                   context it)
-     (-> Case Case
+     (-> !.Proof !.Proof
          !.Proof)
-     (monad.let try.monad
-                [.let [variable (?.variable provenance.dummy (its in.:next_variable context))
-                       context (revised in.:next_variable ++ context)]
-                 false! (if_false {?.:Identity [?.:slow variable
-                                                ?.:fast (analysis.bit provenance.dummy false)]}
-                                  context
-                                  it)
-                 true! (if_true {?.:Identity [?.:slow variable
-                                              ?.:fast (analysis.bit provenance.dummy true)]}
-                                context
-                                it)]
-                (pure (if (valid? false!)
-                          true!
-                          false!))))
+     (<| (let [variable (its in.:next_induction context)
+               context (revised in.:next_induction ++ context)])
+         (monad.let try.monad
+                    [false! (|> it
+                                (in_proposition (by.substitution_of_variable variable (analysis.bit provenance.dummy false)))
+                                (if_false context))
+                     true! (|> it
+                               (in_proposition (by.substitution_of_variable variable (analysis.bit provenance.dummy true)))
+                               (if_true context))])
+         (pure (if (valid? false!)
+                   true!
+                   false!))))
 
 (the .public (case if_left if_right
                    context it)
-     (-> Case Case
+     (-> !.Proof !.Proof
          !.Proof)
      (monad.let try.monad
                 [.let [content (?.term provenance.dummy (its in.:next_term context))
-                       variable (?.variable provenance.dummy (its in.:next_variable context))
+                       variable (its in.:next_induction context)
                        context (|> context
                                    (revised in.:next_term ++)
-                                   (revised in.:next_variable ++))]
-                 left! (if_left {?.:Identity [?.:slow variable
-                                              ?.:fast (in.'case provenance.dummy by.left content)]}
-                                context
-                                it)
-                 right! (if_right {?.:Identity [?.:slow variable
-                                                ?.:fast (in.'case provenance.dummy by.right content)]}
-                                  context
-                                  it)]
+                                   (revised in.:next_induction ++))]
+                 left! (|> it
+                           (in_proposition (by.substitution_of_variable variable (in.'case provenance.dummy by.left content)))
+                           (if_left context))
+                 right! (|> it
+                            (in_proposition (by.substitution_of_variable variable (in.'case provenance.dummy by.right content)))
+                            (if_right context))]
                 (pure (if (valid? left!)
                           right!
                           left!))))
@@ -96,18 +113,15 @@
 
 (the .public (pair if_pair
                    context it)
-     (-> Case
-         !.Proof)
-     (monad.let try.monad
-                [.let [left (?.term provenance.dummy (its in.:next_term context))
-                       right (?.term provenance.dummy (++ (its in.:next_term context)))
-                       variable (?.variable provenance.dummy (its in.:next_variable context))]]
-                (if_pair {?.:Identity [?.:slow variable
-                                       ?.:fast (in.'pair provenance.dummy left right)]}
-                         (|> context
-                             (revised in.:next_term (|>> ++ ++))
-                             (revised in.:next_variable ++))
-                         it)))
+     (Change !.Proof)
+     (|> it
+         (in_proposition (by.substitution_of_variable (its in.:next_induction context)
+                                                      (in.'pair provenance.dummy
+                                                                (?.term provenance.dummy (its in.:next_term context))
+                                                                (?.term provenance.dummy (++ (its in.:next_term context))))))
+         (if_pair (|> context
+                      (revised in.:next_term (|>> ++ ++))
+                      (revised in.:next_induction ++)))))
 
 (exception.the .public (not_tuple [arity])
                (Exception [Natural])
@@ -116,24 +130,28 @@
 
 (the .public (tuple arity if_tuple
                     context it)
-     (-> Natural Case
-         !.Proof)
+     (-> Natural
+         (Change !.Proof))
      (if (natural.>= 2 arity)
-         (if_tuple {?.:Identity [?.:slow (?.variable provenance.dummy (its in.:next_variable context))
-                                 ?.:fast (let [offset (its in.:next_term context)]
-                                              (|> (list.domain arity)
-                                                  (list:each (|>> (natural.+ offset)
-                                                                  (?.term provenance.dummy)))
-                                                  (analysis.tuple provenance.dummy)))]}
-                   (|> context
-                       (revised in.:next_term (natural.+ arity))
-                       (revised in.:next_variable ++))
-                   it)
+         (|> it
+             (in_proposition (by.substitution_of_variable (its in.:next_induction context)
+                                                          (let [offset (its in.:next_term context)]
+                                                               (|> (list.domain arity)
+                                                                   (list:each (|>> (natural.+ offset)
+                                                                                   (?.term provenance.dummy)))
+                                                                   (analysis.tuple provenance.dummy)))))
+             (if_tuple (|> context
+                           (revised in.:next_term (natural.+ arity))
+                           (revised in.:next_induction ++))))
          (exception.except ..not_tuple [arity])))
+
+(every .public Scenario
+       (-> ?.Proposition
+           !.Proof))
 
 (the .public (or disjunction left_case right_case
                  context it)
-     (-> (Try ?.Proposition) Case Case
+     (-> (Try ?.Proposition) Scenario Scenario
          !.Proof)
      (monad.let try.monad
                 [disjunction disjunction
