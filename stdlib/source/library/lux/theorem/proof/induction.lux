@@ -11,6 +11,8 @@
               ["[0]" provenance]]
              [compiler
               ["@[0]" type]
+              [reference
+               ["[0]" register]]
               [language
                [lux
                 ["[0]" analysis]]]]
@@ -19,8 +21,10 @@
                [/64
                 ["[0]" natural]]]]
              [data
+              ["[0]" text]
               [collection
-               ["[0]" list (.open functor)]]]
+               ["[0]" list (.open functor)]
+               ["[0]" dictionary (.only Dictionary)]]]
              [function
               [predicate (.only Predicate)]]]]
            ["!" // (.only)
@@ -28,6 +32,98 @@
              ["?" proposition]
              ["in" substitution]
              ["by" rule]]]))
+
+(every .public Variable
+       Text)
+
+(every Context
+       (Dictionary Variable @type.Register))
+
+(.the (context''' term it)
+      (-> analysis.Term
+          (Change Context))
+      (when term
+            (?.variable _ register name)
+            (dictionary.has name register it)
+            
+            {@type.:Simple _}
+            it
+            
+            {@type.:Complex @ term}
+            (when term
+                  {@type.:Complex_Variant term}
+                  (context''' (its @type.:value term) it)
+                  
+                  {@type.:Complex_Tuple term}
+                  (list.mix context''' term it))
+            
+            {@type.:Reference _}
+            it
+
+            {@type.:When @ input [head tail]}
+            (|> it
+                (context''' input)
+                (context''' (its @type.:then head))
+                (list.mix context'''
+                          (list:each (its @type.:then) tail)))
+            
+            {@type.:Abstraction @ environment body}
+            (|> it
+                (context''' body)
+                (list.mix context'''
+                          environment))
+            
+            {@type.:Application @ parameter abstraction}
+            (|> it
+                (context''' parameter)
+                (context''' abstraction))
+            
+            {@type.:Extension @ name parameters}
+            (list.mix context''' parameters it)))
+
+(.the (context'' it)
+      (-> ?.Identity
+          (Change Context))
+      (|>> (context''' (its ?.:slow it))
+           (context''' (its ?.:fast it))))
+
+(.the (context' term it)
+      (-> ?.Proposition
+          (Change Context))
+      (when term
+            {?.:Identity term}
+            (context'' term it)
+            
+            {?.:Disjunction left right}
+            (|> it
+                (context' left)
+                (context' right))
+            
+            {?.:Conjunction left right}
+            (|> it
+                (context' left)
+                (context' right))
+            
+            {?.:Entailment premise conclusion}
+            (|> it
+                (context' premise)
+                (context' conclusion))))
+
+(the ignorance
+     Context
+     (dictionary.empty text.hash))
+
+(the (context it)
+     (-> ?.Proposition
+         Context)
+     (context' it ..ignorance))
+
+(the (next_variable context)
+     (-> Context
+         @type.Register)
+     (list.mix (by natural.maximum composite)
+               (list:each ++ (dictionary.values context))
+               register.first))
 
 (the (valid? it)
      (Predicate ?.Proposition)
@@ -64,85 +160,88 @@
            {?.:Entailment (in_proposition term premise)
                           (in_proposition term conclusion)}))
 
-(the .public (bit if_false if_true
+(the .public (bit name_of_variable if_false if_true
                   context it)
-     (-> !.Proof !.Proof
-         !.Proof)
-     (<| (let [variable (its in.:next_induction context)
-               context (revised in.:next_induction ++ context)])
-         (monad.let try.monad
-                    [false! (|> it
-                                (in_proposition (by.substitution_of_variable variable (analysis.bit provenance.dummy false)))
-                                (if_false context))
-                     true! (|> it
-                               (in_proposition (by.substitution_of_variable variable (analysis.bit provenance.dummy true)))
-                               (if_true context))])
-         (pure (if (valid? false!)
-                   true!
-                   false!))))
-
-(the .public (case if_left if_right
-                   context it)
-     (-> !.Proof !.Proof
+     (-> Variable !.Proof !.Proof
          !.Proof)
      (monad.let try.monad
-                [.let [content (?.term provenance.dummy (its in.:next_term context))
-                       variable (its in.:next_induction context)
+                [register_of_variable (dictionary.value name_of_variable (..context it))
+                 false! (|> it
+                            (in_proposition (by.substitution_of_variable register_of_variable (analysis.bit provenance.dummy false)))
+                            (if_false context))
+                 true! (|> it
+                           (in_proposition (by.substitution_of_variable register_of_variable (analysis.bit provenance.dummy true)))
+                           (if_true context))]
+                (pure (if (valid? false!)
+                          true!
+                          false!))))
+
+(the .public (case name_of_variable if_left if_right
+                   context it)
+     (-> Variable !.Proof !.Proof
+         !.Proof)
+     (monad.let try.monad
+                [register_of_variable (dictionary.value name_of_variable (..context it))
+                 .let [content (?.term provenance.dummy (its in.:next_term context))
                        context (|> context
-                                   (revised in.:next_term ++)
-                                   (revised in.:next_induction ++))]
+                                   (revised in.:next_term ++))]
                  left! (|> it
-                           (in_proposition (by.substitution_of_variable variable (in.'case provenance.dummy by.left content)))
+                           (in_proposition (by.substitution_of_variable register_of_variable (?.'case provenance.dummy by.left content)))
                            (if_left context))
                  right! (|> it
-                            (in_proposition (by.substitution_of_variable variable (in.'case provenance.dummy by.right content)))
+                            (in_proposition (by.substitution_of_variable register_of_variable (?.'case provenance.dummy by.right content)))
                             (if_right context))]
                 (pure (if (valid? left!)
                           right!
                           left!))))
 
-(the .public (function by_application
+(the .public (function name_of_variable by_application
                        context it)
-     (Change !.Proof)
+     (-> Variable
+         (Change !.Proof))
      (monad.let try.monad
                 [[expectation reality] (?.identity it)
-                 .let [argument (?.variable provenance.dummy (its in.:next_variable context))]]
-                (by_application (revised in.:next_variable ++ context)
+                 .let [register_of_variable (..next_variable (..context it))
+                       argument (?.variable provenance.dummy register_of_variable name_of_variable)]]
+                (by_application context
                                 {?.:Identity [?.:slow {@type.:Application provenance.dummy argument expectation}
                                               ?.:fast {@type.:Application provenance.dummy argument reality}]})))
 
-(the .public (pair if_pair
+(the .public (pair name_of_variable if_pair
                    context it)
-     (Change !.Proof)
-     (|> it
-         (in_proposition (by.substitution_of_variable (its in.:next_induction context)
-                                                      (in.'pair provenance.dummy
-                                                                (?.term provenance.dummy (its in.:next_term context))
-                                                                (?.term provenance.dummy (++ (its in.:next_term context))))))
-         (if_pair (|> context
-                      (revised in.:next_term (|>> ++ ++))
-                      (revised in.:next_induction ++)))))
+     (-> Variable
+         (Change !.Proof))
+     (monad.let try.monad
+                [register_of_variable (dictionary.value name_of_variable (..context it))]
+                (|> it
+                    (in_proposition (by.substitution_of_variable register_of_variable
+                                                                 (?.'pair provenance.dummy
+                                                                          (?.term provenance.dummy (its in.:next_term context))
+                                                                          (?.term provenance.dummy (++ (its in.:next_term context))))))
+                    (if_pair (|> context
+                                 (revised in.:next_term (|>> ++ ++)))))))
 
 (exception.the .public (not_tuple [arity])
                (Exception [Natural])
                (exception.report
                 (list ["Arity" (by natural.base_10 as arity)])))
 
-(the .public (tuple arity if_tuple
+(the .public (tuple name_of_variable arity if_tuple
                     context it)
-     (-> Natural
+     (-> Variable Natural
          (Change !.Proof))
      (if (natural.>= 2 arity)
-         (|> it
-             (in_proposition (by.substitution_of_variable (its in.:next_induction context)
-                                                          (let [offset (its in.:next_term context)]
-                                                               (|> (list.domain arity)
-                                                                   (list:each (|>> (natural.+ offset)
-                                                                                   (?.term provenance.dummy)))
-                                                                   (analysis.tuple provenance.dummy)))))
-             (if_tuple (|> context
-                           (revised in.:next_term (natural.+ arity))
-                           (revised in.:next_induction ++))))
+         (monad.let try.monad
+                    [register_of_variable (dictionary.value name_of_variable (..context it))]
+                    (|> it
+                        (in_proposition (by.substitution_of_variable register_of_variable
+                                                                     (let [offset (its in.:next_term context)]
+                                                                          (|> (list.domain arity)
+                                                                              (list:each (|>> (natural.+ offset)
+                                                                                              (?.term provenance.dummy)))
+                                                                              (analysis.tuple provenance.dummy)))))
+                        (if_tuple (|> context
+                                      (revised in.:next_term (natural.+ arity))))))
          (exception.except ..not_tuple [arity])))
 
 (every .public Scenario

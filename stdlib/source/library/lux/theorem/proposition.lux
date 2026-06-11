@@ -11,6 +11,7 @@
     ["[0]" pair]
     ["[0]" text]
     [collection
+     ["[0]" stack]
      ["[0]" list (.open monad monoid)
       ["?[1]" \\projection]
       ["[0]" property]]]]
@@ -23,6 +24,7 @@
      ["?[1]" \\projection (.only Projection)]]]
    [compiler
     ["@[0]" type (.only Simple Complex Pattern)]
+    ["[0]" reference]
     ["[0]" extension (.only)
      ["[1]/[0]" lux]]
     [language
@@ -30,6 +32,9 @@
       ["[0]" phase]
       ["[0]" analysis (.only)
        ["[1]/[0]" type]
+       ["[1]/[0]" simple]
+       ["[1]/[0]" complex]
+       ["[1]/[0]" pattern]
        ["[0]" scope]]]]
     [meta
      [archive (.only Archive)]]]
@@ -44,7 +49,11 @@
       ["n" natural]]]]
    ["[0]" error (.only)
     ["[0]" try (.only Try)]
-    ["[0]" exception (.only Exception)]]]])
+    ["[0]" exception (.only Exception)]]
+   [logic
+    ["[0]" bit]]
+   [aspect
+    ["[0]" view]]]])
 
 (comment "https://en.wikipedia.org/wiki/Identity_(mathematics)"
          (every .public Identity
@@ -332,16 +341,26 @@
 (the current_module
      (name.module (name .._)))
 
-(`` (template.the .public (variable ,@ ,identity)
+(`` (template.the .public (variable ,@ ,identity ,name)
                   [{@type.:Extension ,@ [(,, (static ..current_module)) "variable"]
-                                     (.list (analysis.natural ,@ ,identity))}]))
+                                     (.list (analysis.natural ,@ ,identity)
+                                            (analysis.text ,@ ,name))}]))
 
 (`` (template.the .public (term ,@ ,identity)
                   [{@type.:Extension ,@ [(,, (static ..current_module)) "term"]
                                      (.list (analysis.natural ,@ ,identity))}]))
 
-(the (analysis nesting)
-     (-> Natural
+(`` (<| (template.the .public ('case ,@ ,case ,value))
+        [{@type.:Extension ,@ [.prelude (,, (static.text (extension.analysis extension/lux.case)))]
+                           (.list (analysis.bit ,@ ,case)
+                                  ,value)}]))
+
+(`` (<| (template.the .public ('pair ,@ ,left ,right))
+        [{@type.:Extension ,@ [.prelude (,, (static.text (extension.analysis extension/lux.pair)))]
+                           (.list ,left ,right)}]))
+
+(the (analysis nesting each_variable)
+     (-> Natural (List Text)
          (Change analysis.Term))
      (function (analysis it)
                (when it
@@ -362,7 +381,10 @@
                            (when it'
                                  {@type.:Local local}
                                  (.if (n.< nesting local)
-                                      (..variable provenance.dummy local)
+                                      (|> each_variable
+                                          (list.item local)
+                                          (try.else "")
+                                          (..variable provenance.dummy local))
                                       {@type.:Reference @ {@type.:Variable_Reference {@type.:Local (n.- nesting local)}}})
                                  
                                  {@type.:Foreign _}
@@ -478,6 +500,7 @@
                                                       (list (code.local name)
                                                             (type_in_context context value))))
                                  list:conjoint)
+                each_variable (list:each pair.left each_term)
                 each_term (|> each_term
                               (list:each (function (_ [name type])
                                                    (list (code.local name)
@@ -500,8 +523,8 @@
                                                (analysis archive (` (<| (expansion.let [(,* each_substitution)])
                                                                         (.let [(,* each_term)])
                                                                         (, right)))))])
-         (pure {:Identity [(..analysis nesting (clean_term nesting left))
-                           (..analysis nesting (clean_term nesting right))]})))
+         (pure {:Identity [(..analysis nesting each_variable (clean_term nesting left))
+                           (..analysis nesting each_variable (clean_term nesting right))]})))
 
 (the (=' it
          [each_type each_term each_substitution]
@@ -577,11 +600,106 @@
                                    [:Conjunction as_code]
                                    [:Entailment as_code]])))))
 
+(the (tail_of_tuple it)
+     (-> analysis.Term
+         (Stack analysis.Term))
+     (when it
+           (..'pair @ 'left 'right)
+           (stack.partial 'left (tail_of_tuple 'right))
+
+           else
+           (stack it)))
+
+(the (nested_variant [every_left left_or_right 'term])
+     (Change [Natural Bit analysis.Term])
+     [(++ every_left) left_or_right 'term])
+
+(the (as_variant left_or_right 'term)
+     (-> Bit analysis.Term
+         [Natural Bit analysis.Term])
+     (when left_or_right
+           0b [0 left_or_right 'term]
+           1b (when 'term
+                    (..'case @ left_or_right 'term)
+                    (nested_variant (as_variant left_or_right 'term))
+
+                    else
+                    [0 left_or_right 'term])))
+
+(the .public (analysis:as_text analysis)
+     (text.Injection analysis.Term)
+     (.when analysis
+            {@type.:Simple @ it}
+            (analysis/simple.as_text it)
+            
+            {@type.:Complex @ it}
+            (analysis/complex.as_text analysis:as_text it)
+            
+            {@type.:Reference @ it}
+            (reference.relative "" it)
+            
+            {@type.:When @ analysis [head tail]}
+            (.let [branch (is (-> analysis.Branch Text)
+                              (function (_ [when then])
+                                        (.text (analysis/pattern.as_text when) " " (analysis:as_text then))))]
+                  (.text "(.when# "
+                         (analysis:as_text analysis)
+                         " "
+                         (branch head)
+                         (|> tail
+                             (list:each (|>> branch (.text " ")))
+                             text.together)
+                         ")"))
+            
+            {@type.:Abstraction @ environment body}
+            (|> (analysis:as_text body)
+                (.text (|> environment
+                           (list:each analysis:as_text)
+                           (text.interposed " ")
+                           (text.inside ["[" "]"]))
+                       " ")
+                (text.inside ["(.function# " ")"]))
+            
+            {@type.:Application @ _}
+            (.let [[abstraction parameters] (analysis.reification analysis)]
+                  (|> (.text (analysis:as_text abstraction)
+                             " "
+                             (|> parameters
+                                 (list:each analysis:as_text)
+                                 (text.interposed " ")))
+                      (text.inside ["(" ")"])))
+
+            (..variable @ register name)
+            (text "(" (by n.base_10 as register)
+                  " " (text.as_text name)
+                  ")")
+
+            (..'case @ left_or_right 'term)
+            (.let [[every_left left_or_right 'term] (as_variant left_or_right 'term)]
+                  (text "{" (by n.base_10 as every_left)
+                        " " (bit.as_text left_or_right)
+                        " " (analysis:as_text 'term)
+                        "}"))
+
+            (..'pair @ 'left 'right)
+            (|> (stack.partial 'left (tail_of_tuple 'right))
+                (view.of list.stack)
+                (list:each analysis:as_text)
+                (text.interposed " ")
+                (text.inside ["[" "]"]))
+            
+            {@type.:Extension @ name parameters}
+            (|> parameters
+                (list:each (|>> analysis:as_text (.text " ")))
+                text.together
+                (.text (by (name.relative "") as name))
+                (text.inside ["(" ")"]))))
+
 (the .public (as_text it)
      (text.Injection Proposition)
      (when it
            {:Identity this that}
-           (text "(= " (analysis.as_text this) " " (analysis.as_text that) ")")
+           (text "(= " (analysis:as_text this) " " (analysis:as_text that) ")")
 
            {:Disjunction this that}
            (text "(| " (as_text this) " " (as_text that) ")")
