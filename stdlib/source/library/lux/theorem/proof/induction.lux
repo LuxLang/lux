@@ -36,12 +36,12 @@
 (every .public Variable
        Text)
 
-(every Context
+(every Registry
        (Dictionary Variable @type.Register))
 
-(.the (context''' term it)
+(.the (registry''' term it)
       (-> analysis.Term
-          (Change Context))
+          (Change Registry))
       (when term
             (?.variable _ register name)
             (dictionary.has name register it)
@@ -52,77 +52,77 @@
             {@type.:Complex @ term}
             (when term
                   {@type.:Complex_Variant term}
-                  (context''' (its @type.:value term) it)
+                  (registry''' (its @type.:value term) it)
                   
                   {@type.:Complex_Tuple term}
-                  (list.mix context''' term it))
+                  (list.mix registry''' term it))
             
             {@type.:Reference _}
             it
 
             {@type.:When @ input [head tail]}
             (|> it
-                (context''' input)
-                (context''' (its @type.:then head))
-                (list.mix context'''
+                (registry''' input)
+                (registry''' (its @type.:then head))
+                (list.mix registry'''
                           (list:each (its @type.:then) tail)))
             
             {@type.:Abstraction @ environment body}
             (|> it
-                (context''' body)
-                (list.mix context'''
+                (registry''' body)
+                (list.mix registry'''
                           environment))
             
             {@type.:Application @ parameter abstraction}
             (|> it
-                (context''' parameter)
-                (context''' abstraction))
+                (registry''' parameter)
+                (registry''' abstraction))
             
             {@type.:Extension @ name parameters}
-            (list.mix context''' parameters it)))
+            (list.mix registry''' parameters it)))
 
-(.the (context'' it)
+(.the (registry'' it)
       (-> ?.Identity
-          (Change Context))
-      (|>> (context''' (its ?.:slow it))
-           (context''' (its ?.:fast it))))
+          (Change Registry))
+      (|>> (registry''' (its ?.:slow it))
+           (registry''' (its ?.:fast it))))
 
-(.the (context' term it)
+(.the (registry' term it)
       (-> ?.Proposition
-          (Change Context))
+          (Change Registry))
       (when term
             {?.:Identity term}
-            (context'' term it)
+            (registry'' term it)
             
             {?.:Disjunction left right}
             (|> it
-                (context' left)
-                (context' right))
+                (registry' left)
+                (registry' right))
             
             {?.:Conjunction left right}
             (|> it
-                (context' left)
-                (context' right))
+                (registry' left)
+                (registry' right))
             
             {?.:Entailment premise conclusion}
             (|> it
-                (context' premise)
-                (context' conclusion))))
+                (registry' premise)
+                (registry' conclusion))))
 
 (the ignorance
-     Context
+     Registry
      (dictionary.empty text.hash))
 
-(the (context it)
+(the (registry it)
      (-> ?.Proposition
-         Context)
-     (context' it ..ignorance))
+         Registry)
+     (registry' it ..ignorance))
 
-(the (next_variable context)
-     (-> Context
+(the (next_variable registry)
+     (-> Registry
          @type.Register)
      (list.mix (by natural.maximum composite)
-               (list:each ++ (dictionary.values context))
+               (list:each ++ (dictionary.values registry))
                register.first))
 
 (the (valid? it)
@@ -165,7 +165,7 @@
      (-> Variable !.Proof !.Proof
          !.Proof)
      (monad.let try.monad
-                [register_of_variable (dictionary.value name_of_variable (..context it))
+                [register_of_variable (dictionary.value name_of_variable (..registry it))
                  false! (|> it
                             (in_proposition (by.substitution_of_variable register_of_variable (analysis.bit provenance.dummy false)))
                             (if_false context))
@@ -176,21 +176,38 @@
                           true!
                           false!))))
 
-(the .public (case name_of_variable if_left if_right
+(exception.the (name_is_already_in_use [registry name])
+               (Exception [Registry Variable])
+               (exception.report (list ["Name" (text.as_text name)]
+                                       ["Registry" (exception.report (list:each (.function (_ [name register])
+                                                                                           [(by natural.base_10 as register)
+                                                                                            (text.as_text name)])
+                                                                                (dictionary.entries registry)))])))
+
+(the .public (case name_of_variable [name_of_left if_left] [name_of_right if_right]
                    context it)
-     (-> Variable !.Proof !.Proof
+     (-> Variable [Variable !.Proof] [Variable !.Proof]
          !.Proof)
      (monad.let try.monad
-                [register_of_variable (dictionary.value name_of_variable (..context it))
-                 .let [content (?.term provenance.dummy (its in.:next_term context))
-                       context (|> context
+                [.let [registry (..registry it)
+                       register_of_case (..next_variable registry)]
+                 register_of_variable (dictionary.value name_of_variable registry)
+                 .let [context (|> context
                                    (revised in.:next_term ++))]
-                 left! (|> it
-                           (in_proposition (by.substitution_of_variable register_of_variable (?.'case provenance.dummy by.left content)))
-                           (if_left context))
-                 right! (|> it
-                            (in_proposition (by.substitution_of_variable register_of_variable (?.'case provenance.dummy by.right content)))
-                            (if_right context))]
+                 left! (if (dictionary.in_domain? registry name_of_left)
+                           (exception.except ..name_is_already_in_use [registry name_of_left])
+                           (|> it
+                               (in_proposition (|> (?.variable provenance.dummy register_of_case name_of_left)
+                                                   (?.'case provenance.dummy by.left)
+                                                   (by.substitution_of_variable register_of_variable)))
+                               (if_left context)))
+                 right! (if (dictionary.in_domain? registry name_of_right)
+                            (exception.except ..name_is_already_in_use [registry name_of_right])
+                            (|> it
+                                (in_proposition (|> (?.variable provenance.dummy register_of_case name_of_right)
+                                                    (?.'case provenance.dummy by.right)
+                                                    (by.substitution_of_variable register_of_variable)))
+                                (if_right context)))]
                 (pure (if (valid? left!)
                           right!
                           left!))))
@@ -201,59 +218,49 @@
          (Change !.Proof))
      (monad.let try.monad
                 [[expectation reality] (?.identity it)
-                 .let [register_of_variable (..next_variable (..context it))
+                 .let [registry (..registry it)
+                       register_of_variable (..next_variable registry)
                        argument (?.variable provenance.dummy register_of_variable name_of_variable)]]
-                (by_application context
-                                {?.:Identity [?.:slow {@type.:Application provenance.dummy argument expectation}
-                                              ?.:fast {@type.:Application provenance.dummy argument reality}]})))
+                (if (dictionary.in_domain? registry name_of_variable)
+                    (exception.except ..name_is_already_in_use [registry name_of_variable])
+                    (by_application context
+                                    {?.:Identity [?.:slow {@type.:Application provenance.dummy argument expectation}
+                                                  ?.:fast {@type.:Application provenance.dummy argument reality}]}))))
 
-(the .public (pair name_of_variable if_pair
+(the .public (pair name_of_variable [name_of_left name_of_right]
+                   if_pair
                    context it)
-     (-> Variable
+     (-> Variable [Variable Variable]
          (Change !.Proof))
      (monad.let try.monad
-                [register_of_variable (dictionary.value name_of_variable (..context it))]
-                (|> it
-                    (in_proposition (by.substitution_of_variable register_of_variable
-                                                                 (?.'pair provenance.dummy
-                                                                          (?.term provenance.dummy (its in.:next_term context))
-                                                                          (?.term provenance.dummy (++ (its in.:next_term context))))))
-                    (if_pair (|> context
-                                 (revised in.:next_term (|>> ++ ++)))))))
+                [.let [registry (..registry it)]
+                 register_of_variable (dictionary.value name_of_variable registry)
+                 .let [register_of_left (..next_variable registry)
+                       register_of_right (++ register_of_left)]]
+                (if (dictionary.in_domain? registry name_of_left)
+                    (exception.except ..name_is_already_in_use [registry name_of_left])
 
-(exception.the .public (not_tuple [arity])
-               (Exception [Natural])
-               (exception.report
-                (list ["Arity" (by natural.base_10 as arity)])))
+                    (dictionary.in_domain? registry name_of_right)
+                    (exception.except ..name_is_already_in_use [registry name_of_right])
 
-(the .public (tuple name_of_variable arity if_tuple
-                    context it)
-     (-> Variable Natural
-         (Change !.Proof))
-     (if (natural.>= 2 arity)
-         (monad.let try.monad
-                    [register_of_variable (dictionary.value name_of_variable (..context it))]
-                    (|> it
-                        (in_proposition (by.substitution_of_variable register_of_variable
-                                                                     (let [offset (its in.:next_term context)]
-                                                                          (|> (list.domain arity)
-                                                                              (list:each (|>> (natural.+ offset)
-                                                                                              (?.term provenance.dummy)))
-                                                                              (analysis.tuple provenance.dummy)))))
-                        (if_tuple (|> context
-                                      (revised in.:next_term (natural.+ arity))))))
-         (exception.except ..not_tuple [arity])))
+                    (comment "else"
+                             (|> it
+                                 (in_proposition (by.substitution_of_variable register_of_variable
+                                                                              (?.'pair provenance.dummy
+                                                                                       (?.variable provenance.dummy register_of_left name_of_left)
+                                                                                       (?.variable provenance.dummy register_of_right name_of_right))))
+                                 (if_pair context))))))
 
 (every .public Scenario
        (-> ?.Proposition
            !.Proof))
 
-(the .public (or disjunction left_case right_case
+(the .public (or disjunction if_left if_right
                  context it)
      (-> (Try ?.Proposition) Scenario Scenario
          !.Proof)
      (monad.let try.monad
                 [disjunction disjunction
                  [left right] (?.disjunction disjunction)
-                 left ((left_case left) context it)]
-                ((right_case right) context it)))
+                 left ((if_left left) context it)]
+                ((if_right right) context it)))
