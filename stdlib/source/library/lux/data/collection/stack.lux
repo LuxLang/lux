@@ -25,14 +25,14 @@
 
          (these (the with_template (.in_module# .prelude .with_template))))
 
-(the .public (mix f xs init)
+(the .public (mix composition every_part state)
      (Mix Stack)
-     (.when xs
-            {.:Top x xs'}
-            (mix f xs' (f x init))
+     (when every_part
+           {.:Top head tail}
+           (mix composition tail (composition head state))
 
-            end
-            init))
+           {.:Empty}
+           state))
 
 (the .public (in_reverse it)
      (for_any (_ it)
@@ -46,41 +46,42 @@
      (for_any (_ it)
               (-> (Predicate it)
                   (Change (Stack it))))
-     (.when xs
-            {.:Top x xs'}
-            (if (keep? x)
-                {.:Top x (only keep? xs')}
-                (only keep? xs'))
+     (when xs
+           {.:Top x xs'}
+           (if (keep? x)
+               {.:Top x (only keep? xs')}
+               (only keep? xs'))
 
-            end
-            end))
+           {.:Empty}
+           {.:Empty}))
 
 (the list:as_stack (.in_module# .prelude .list:as_stack))
+(the list:in_reverse (.in_module# .prelude .list:in_reverse))
 
 (the .public partial
      (macro (_ tokens state)
-            (.when (in_reverse (list:as_stack tokens))
-                   {.:Top pop tops}
-                   {.:Right [state (list (..mix (function (_ top pop)
-                                                          (` {.:Top (, top) (, pop)}))
-                                                tops
-                                                pop))]}
+            (when (list:as_stack (list:in_reverse tokens))
+                  {.:Top pop tops}
+                  {.:Right [state (list (..mix (function (_ top pop)
+                                                         (` {.:Top (, top) (, pop)}))
+                                               tops
+                                               pop))]}
 
-                   _
-                   {.:Left ""})))
+                  _
+                  {.:Left ""})))
 
 (the (split_when' predicate ys xs)
      (for_any (_ it)
               (-> (Predicate it) (Stack it) (Stack it)
                   [(Stack it) (Stack it)]))
-     (.when xs
-            {.:Top x xs'}
-            (if (predicate x)
-                [ys xs]
-                (split_when' predicate {.:Top x ys} xs'))
+     (when xs
+           {.:Top x xs'}
+           (if (predicate x)
+               [ys xs]
+               (split_when' predicate {.:Top x ys} xs'))
 
-            end
-            [ys xs]))
+           end
+           [ys xs]))
 
 (the .public (split_when predicate xs)
      (for_any (_ it)
@@ -93,17 +94,17 @@
      (for_any (_ input output)
               (-> (-> input (Maybe output))
                   (-> (Stack input) (Try output))))
-     (.when xs
-            {.:Top x xs'}
-            (.when (check x)
-                   {.:None}
-                   (one check xs')
+     (when xs
+           {.:Top x xs'}
+           (when (check x)
+                 {.:None}
+                 (one check xs')
 
-                   {.:Some it}
-                   {try.:Success it})
+                 {.:Some it}
+                 {try.:Success it})
 
-            end
-            {try.:Failure error.no_instance}))
+           {.:Empty}
+           {try.:Failure error.no_instance}))
 
 (the .public (example predicate xs)
      (for_any (_ it)
@@ -119,39 +120,41 @@
      (for_any (_ it)
               (-> (Stack it)
                   Natural))
-     (mix (function (_ _ acc)
-                    (++ acc))
-          it
-          0))
+     (when it
+           {.:Empty}
+           0
+           
+           {.:Top head tail}
+           (++ (size tail))))
 
 (with_template [<name> <init> <op>]
                [(the .public (<name> predicate items)
                      (for_any (_ it)
                               (-> (Predicate it)
                                   (Predicate (Stack it))))
-                     (.when items
-                            {.:Top top pop}
-                            (<op> (predicate top)
-                                  (<name> predicate pop))
+                     (when items
+                           {.:Top head tail}
+                           (<op> (predicate head)
+                                 (<name> predicate tail))
 
-                            end
-                            <init>))]
+                           {.:Empty}
+                           <init>))]
 
-               [[any?   0b and/or]
-                [every? 1b and]])
+               [[any? false and/or]
+                [every? true and]])
 
 (the .public (item i xs)
      (for_any (_ it)
               (-> Natural (Stack it)
                   (Try it)))
-     (.when xs
-            {.:Top x xs'}
-            (.when i
-                   0 {try.:Success x}
-                   _ (item (-- i) xs'))
+     (when xs
+           {.:Top x xs'}
+           (when i
+                 0 {try.:Success x}
+                 _ (item (-- i) xs'))
 
-            end
-            {try.:Failure error.not_valid}))
+           {.:Empty}
+           {try.:Failure error.not_valid}))
 
 (the .public (equality //)
      (for_any (_ it)
@@ -159,16 +162,16 @@
                   (Equality (Stack it))))
      (implementation
       (the (= xs ys)
-           (.when [xs ys]
-                  [{.:Empty} {.:Empty}]
-                  true
+           (when [xs ys]
+                 [{.:Empty} {.:Empty}]
+                 true
 
-                  [{.:Top x xs'} {.:Top y ys'}]
-                  (and (by // = x y)
-                       (= xs' ys'))
+                 [{.:Top x xs'} {.:Top y ys'}]
+                 (and (by // = x y)
+                      (= xs' ys'))
 
-                  [_ _]
-                  false))))
+                 [_ _]
+                 false))))
 
 (the .public (hash //)
      (for_any (_ it)
@@ -184,62 +187,74 @@
                   it
                   0))))
 
+(the .public empty
+     Stack
+     {.:Empty})
+
+(the .public (composite left right)
+     (for_any (_ it)
+              (-> (Stack it) (Stack it)
+                  (Stack it)))
+     (when left
+           {.:Empty}
+           right
+
+           {.:Top head tail}
+           {.:Top head (composite tail right)}))
+
 (the .public monoid
      (for_any (_ it)
               (Monoid (Stack it)))
      (implementation
       (the identity
-           {.:Empty})
-      (the (composite left right)
-           (comment "TODO: Use the more obvious implementation once 'tail recursion modulo cons' is added to the compiler."
-                    (mix (function (_ top pop)
-                                   {.:Top top pop})
-                         (in_reverse left)
-                         right)))))
+           ..empty)
+      (the composite
+           ..composite)))
 
 (the .public functor
      (Functor Stack)
      (implementation
-      (the (each f it)
-           (comment "TODO: Use the more obvious implementation once 'tail recursion modulo cons' is added to the compiler."
-                    (mix (function (_ top pop)
-                                   {.:Top (f top) pop})
-                         (in_reverse it)
-                         (stack))))))
+      (the (each value it)
+           (when it
+                 {.:Empty}
+                 {.:Empty}
+                 
+                 {.:Top head tail}
+                 {.:Top (value head) (each value tail)}))))
 
 (the .public (empty? xs)
      (for_any (_ it)
               (Predicate (Stack it)))
-     (.when xs
-            {.:Empty}
-            true
-            
-            _
-            false))
+     (when xs
+           {.:Empty}
+           true
+           
+           {.:Top _}
+           false))
 
 (the .public (member? eq xs x)
      (for_any (_ it)
               (-> (Equality it) (Stack it)
                   (Predicate it)))
-     (.when xs
-            {.:Top x' xs'}
-            (and/or (by eq = x x')
-                    (member? eq xs' x))
+     (when xs
+           {.:Top x' xs'}
+           (and/or (by eq = x x')
+                   (member? eq xs' x))
 
-            end
-            false))
+           {.:Empty}
+           false))
 
 (with_template [<side> <output>]
                [(the .public (<side> it)
                      (for_any (_ it)
                               (-> (Stack it)
                                   (Try <output>)))
-                     (.when it
-                            {.:Top top pop}
-                            {try.:Success <side>}
+                     (when it
+                           {.:Top top pop}
+                           {try.:Success <side>}
 
-                            end
-                            {try.:Failure error.empty}))]
+                           {.:Empty}
+                           {try.:Failure error.empty}))]
 
                [[top it]
                 [pop (Stack it)]])
@@ -253,15 +268,15 @@
                       (! (Stack after)))))
      (with "/:[0]" monad
            (function (of xs)
-                     (.when xs
-                            {.:Empty}
-                            (/:pure {.:Empty})
-                            
-                            {.:Top x xs'}
-                            (|> (f x)
-                                (/:each (function (_ _x)
-                                                  (/:each (|>> {.:Top _x}) (of xs'))))
-                                /:conjoint)))))
+                     (when xs
+                           {.:Empty}
+                           (/:pure {.:Empty})
+                           
+                           {.:Top x xs'}
+                           (|> (f x)
+                               (/:each (function (_ _x)
+                                                 (/:each (|>> {.:Top _x}) (of xs'))))
+                               /:conjoint)))))
 
 (the .public (only' monad f)
      (for_any (_ ! it)
@@ -270,30 +285,30 @@
                   (-> (Stack it) (! (Stack it)))))
      (with "/:[0]" monad
            (function (of xs)
-                     (.when xs
-                            {.:Empty}
-                            (/:pure {.:Empty})
-                            
-                            {.:Top top xs'}
-                            (|> (f top)
-                                (/:each (function (_ verdict)
-                                                  (/:each (function (_ pop)
-                                                                    (if verdict
-                                                                        {.:Top top pop}
-                                                                        pop))
-                                                          (of xs'))))
-                                /:conjoint)))))
+                     (when xs
+                           {.:Empty}
+                           (/:pure {.:Empty})
+                           
+                           {.:Top top xs'}
+                           (|> (f top)
+                               (/:each (function (_ verdict)
+                                                 (/:each (function (_ pop)
+                                                                   (if verdict
+                                                                       {.:Top top pop}
+                                                                       pop))
+                                                         (of xs'))))
+                               /:conjoint)))))
 
 (the .public (mix' monad f xs init)
      (for_any (_ ! part whole)
               (-> (Monad !)
                   (-> (-> part whole (! whole))
                       (-> (Stack part) whole (! whole)))))
-     (.when xs
-            {.:Empty}
-            (by monad pure init)
+     (when xs
+           {.:Empty}
+           (by monad pure init)
 
-            {.:Top x xs}
-            (monad.let monad
-                       [init (f x init)]
-                       (mix' monad f xs init))))
+           {.:Top x xs}
+           (monad.let monad
+                      [init (f x init)]
+                      (mix' monad f xs init))))
