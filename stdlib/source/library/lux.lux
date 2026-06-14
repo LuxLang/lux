@@ -1823,15 +1823,14 @@
                                       {:Left (text "Unknown definition: " (name:as_text full_name))}]
                                      [_,constant
                                       (let' [[_ constant] _,constant]
-                                            (.when# constant
-                                                    {:Alias real_name}
-                                                    {:Right [state real_name]}
-
-                                                    {:Definition definition}
-                                                    (let' [[type expression value] definition]
-                                                          (if (default? type)
-                                                              {:Left (text "Unknown definition: " (name:as_text full_name))}
-                                                              {:Right [state full_name]}))))]))])))
+                                            (if_case constant
+                                                     [real_name
+                                                      {:Right [state real_name]}]
+                                                     [definition
+                                                      (let' [[type expression value] definition]
+                                                            (if (default? type)
+                                                                {:Left (text "Unknown definition: " (name:as_text full_name))}
+                                                                {:Right [state full_name]}))]))]))])))
 
 (the' .private (untemplated_text value)
       (-> Text
@@ -1992,17 +1991,16 @@
                                       {:Left (text "Unknown definition: " (name:as_text name))}]
                                      [exported?,definition
                                       (let' [[exported? definition] exported?,definition]
-                                            (.when# definition
-                                                    {:Alias real_name}
-                                                    (definition_value real_name state)
-                                                    
-                                                    {:Definition definition}
-                                                    (let' [[def_type expression def_value] definition]
-                                                          (if (default? def_type)
-                                                              {:Left (text "No value for default: " (name:as_text name))}
-                                                              (if (available? expectation_for_module current_module exported?)
-                                                                  {:Right [state [def_type def_value]]}
-                                                                  {:Left (text "Unavailable definition: " (name:as_text name))})))))]))])))
+                                            (if_case definition
+                                                     [real_name
+                                                      (definition_value real_name state)]
+                                                     [definition
+                                                      (let' [[def_type expression def_value] definition]
+                                                            (if (default? def_type)
+                                                                {:Left (text "No value for default: " (name:as_text name))}
+                                                                (if (available? expectation_for_module current_module exported?)
+                                                                    {:Right [state [def_type def_value]]}
+                                                                    {:Left (text "Unavailable definition: " (name:as_text name))})))]))]))])))
 
 (the' .private (global_value global lux)
       (-> Name
@@ -2741,26 +2739,30 @@
                      (let' [[_ bindings] _,bindings
                             [_ templates] _,templates
                             [_ data] _,data]
-                           (.when# [(monad:each maybe:monad ..proper_name bindings)
-                                    (monad:each maybe:monad ..tuple_list data)]
-                                   [{:Some bindings'} {:Some data'}]
-                                   (let' [reification (.is# (-> Replacement_Environment ($ List Code))
-                                                            (function' (_ env)
-                                                                       (list:each (realized_template env)
-                                                                                  templates)))
-                                          num_bindings (.list_size# bindings')]
-                                         (if (list:every? (function' (_ it) (|> it .list_size# (.i64_=# num_bindings)))
-                                                          data')
-                                             (|> data'
-                                                 (list:each (all function:composite
-                                                                 reification
-                                                                 (replacement_environment bindings')))
-                                                 list:conjoint
-                                                 meta:pure)
-                                             (failure "")))
-
-                                   _
-                                   (failure "")))
+                           (if_case (.is# ($ Maybe ($ List Text))
+                                          (monad:each maybe:monad ..proper_name bindings))
+                                    [else
+                                     (failure "")]
+                                    [bindings'
+                                     (if_case (.is# ($ Maybe ($ List ($ List Code)))
+                                                    (monad:each maybe:monad ..tuple_list data))
+                                              [else
+                                               (failure "")]
+                                              [data'
+                                               (let' [reification (.is# (-> Replacement_Environment ($ List Code))
+                                                                        (function' (_ env)
+                                                                                   (list:each (realized_template env)
+                                                                                              templates)))
+                                                      num_bindings (.list_size# bindings')]
+                                                     (if (list:every? (function' (_ it) (|> it .list_size# (.i64_=# num_bindings)))
+                                                                      data')
+                                                         (|> data'
+                                                             (list:each (all function:composite
+                                                                             reification
+                                                                             (replacement_environment bindings')))
+                                                             list:conjoint
+                                                             meta:pure)
+                                                         (failure "")))])]))
 
                      _
                      (failure ""))))
@@ -2940,16 +2942,20 @@
                              (for_any (_ it)
                                       ($ Change ($ Projection it)))
                              (let' [[address tape] tape]
-                                   (.when# (list:item address tape)
-                                           {:Some {,tag _,complex}}
-                                           (monad:let maybe:monad
-                                                      [.let' [[_ complex] _,complex]
-                                                       it (?:value complex it)]
-                                                      (pure [[(natural:next address) tape]
-                                                             it]))
+                                   (if_case (list:item address tape)
+                                            [else
+                                             {:None}]
+                                            [the_some
+                                             (.when# the_some
+                                                     {,tag _,complex}
+                                                     (monad:let maybe:monad
+                                                                [.let' [[_ complex] _,complex]
+                                                                 it (?:value complex it)]
+                                                                (pure [[(natural:next address) tape]
+                                                                       it]))
 
-                                           else
-                                           {:None})))]
+                                                     else
+                                                     {:None})])))]
 
                       [[?:variant :Variant]
                        [?:tuple :Tuple]
@@ -2959,13 +2965,16 @@
              ($ Projection (And Text Code))
              (let' [[address tape] tape
                     address_of_value (natural:next address)]
-                   (.when# [(list:item address tape)
-                            (list:item address_of_value tape)]
-                           [{:Some {:Name _ ["" name]}} {:Some value}]
-                           {:Some [[(natural:next address_of_value) tape]
-                                   [name value]]}
+                   (.when# (list:item address tape)
+                           {:Some {:Name _ ["" name]}}
+                           (if_case (list:item address_of_value tape)
+                                    [else
+                                     {:None}]
+                                    [value
+                                     {:Some [[(natural:next address_of_value) tape]
+                                             [name value]]}])
 
-                           _
+                           else
                            {:None})))
 
        (the' .private (?:any tape)
@@ -2981,44 +2990,56 @@
        (the' .private (?:local tape)
              ($ Projection Text)
              (let' [[address tape] tape]
-                   (.when# (list:item address tape)
-                           {:Some {:Name _,full_name}}
-                           (let' [[_ [name_of_module it]] _,full_name]
-                                 (if (.text_=# "" name_of_module)
-                                     {:Some [[(natural:next address) tape]
-                                             it]}
-                                     {:None}))
+                   (if_case (list:item address tape)
+                            [else
+                             {:None}]
+                            [the_address
+                             (.when# the_address
+                                     {:Name _,full_name}
+                                     (let' [[_ [name_of_module it]] _,full_name]
+                                           (if (.text_=# "" name_of_module)
+                                               {:Some [[(natural:next address) tape]
+                                                       it]}
+                                               {:None}))
 
-                           else
-                           {:None})))
+                                     else
+                                     {:None})])))
 
        (the' .private (?:global tape)
              ($ Projection Name)
              (let' [[address tape] tape]
-                   (.when# (list:item address tape)
-                           {:Some {:Name _,full_name}}
-                           (let' [[_ full_name] _,full_name
-                                  [name_of_module proper_name] full_name]
-                                 (if (.text_=# "" name_of_module)
-                                     {:None}
-                                     {:Some [[(natural:next address) tape]
-                                             full_name]}))
+                   (if_case (list:item address tape)
+                            [else
+                             {:None}]
+                            [the_address
+                             (.when# the_address
+                                     {:Name _,full_name}
+                                     (let' [[_ full_name] _,full_name
+                                            [name_of_module proper_name] full_name]
+                                           (if (.text_=# "" name_of_module)
+                                               {:None}
+                                               {:Some [[(natural:next address) tape]
+                                                       full_name]}))
 
-                           else
-                           {:None})))
+                                     else
+                                     {:None})])))
 
        (with_template [,name ,type ,tag]
                       [(the' .private (,name tape)
                              ($ Projection ,type)
                              (let' [[address tape] tape]
-                                   (.when# (list:item address tape)
-                                           {:Some {,tag _,it}}
-                                           (let' [[_ it] _,it]
-                                                 {:Some [[(natural:next address) tape]
-                                                         it]})
+                                   (if_case (list:item address tape)
+                                            [else
+                                             {:None}]
+                                            [the_address
+                                             (.when# the_address
+                                                     {,tag _,it}
+                                                     (let' [[_ it] _,it]
+                                                           {:Some [[(natural:next address) tape]
+                                                                   it]})
 
-                                           else
-                                           {:None})))]
+                                                     else
+                                                     {:None})])))]
 
                       [[?:bit Bit :Bit]
                        [?:natural Natural :Natural]
@@ -3822,40 +3843,41 @@
 (the' .private (total_expansion syntax)
       (type (-> Code
                 (Meta (List Code))))
-      (.when# (|> (all ?:or
-                       (?:variant ?:rest)
-                       (?:tuple ?:rest)
-                       (?:form (?:and ?:name ?:rest))
-                       (?:form ?:rest))
-                  (.is# (type (Projection (Or (List Code)
-                                              (List Code)
-                                              (Or [Name (List Code)]
-                                                  (List Code))))))
-                  (?:value (list syntax)))
-              {:Some {0 0b variant}}
-              (<| (function' (_ lux))
-                  (meta:let lux [variant (.is# (type (Meta (List (List Code))))
-                                               (monad:each meta:monad total_expansion variant))])
-                  (meta:return lux (list (code:variant (list:conjoint variant)))))
-              
-              {:Some {1 0b tuple}}
-              (<| (function' (_ lux))
-                  (meta:let lux [tuple (.is# (type (Meta (List (List Code))))
-                                             (monad:each meta:monad total_expansion tuple))])
-                  (meta:return lux (list (code:tuple (list:conjoint tuple)))))
+      (if_case (|> (all ?:or
+                        (?:variant ?:rest)
+                        (?:tuple ?:rest)
+                        (?:form (?:and ?:name ?:rest))
+                        (?:form ?:rest))
+                   (.is# (type (Projection (Or (List Code)
+                                               (List Code)
+                                               (Or [Name (List Code)]
+                                                   (List Code))))))
+                   (?:value (list syntax)))
+               [else
+                (meta:pure (list syntax))]
+               [the_some
+                (.when# the_some
+                        {0 0b variant}
+                        (<| (function' (_ lux))
+                            (meta:let lux [variant (.is# (type (Meta (List (List Code))))
+                                                         (monad:each meta:monad total_expansion variant))])
+                            (meta:return lux (list (code:variant (list:conjoint variant)))))
 
-              {:Some {2 0b name,tail}}
-              (let' [[name tail] name,tail]
-                    (..total_expansion' total_expansion name tail))
-              
-              {:Some {2 1b form}}
-              (<| (function' (_ lux))
-                  (meta:let lux [form (.is# (type (Meta (List (List Code))))
-                                            (monad:each meta:monad total_expansion form))])
-                  (meta:return lux (list (code:form (list:conjoint form)))))
-              
-              else
-              (meta:pure (list syntax))))
+                        {1 0b tuple}
+                        (<| (function' (_ lux))
+                            (meta:let lux [tuple (.is# (type (Meta (List (List Code))))
+                                                       (monad:each meta:monad total_expansion tuple))])
+                            (meta:return lux (list (code:tuple (list:conjoint tuple)))))
+
+                        {2 0b name,tail}
+                        (let' [[name tail] name,tail]
+                              (..total_expansion' total_expansion name tail))
+                        
+                        {2 1b form}
+                        (<| (function' (_ lux))
+                            (meta:let lux [form (.is# (type (Meta (List (List Code))))
+                                                      (monad:each meta:monad total_expansion form))])
+                            (meta:return lux (list (code:form (list:conjoint form))))))]))
 
 (the' .private (when_expansion:macro pattern body
                                      when_expansion branches)
@@ -3887,17 +3909,18 @@
                                              [|global| (name:normal global)
                                               ?type,value (global_value |global|)]
                                              (.when# ?type,value
-                                                     {:Some [type value]}
-                                                     (if (type:= Pattern type)
-                                                         (monad:let meta:monad
-                                                                    [branches'' ((as (-> Any Macro') value)
-                                                                                 (.list_composite# (list (code:form parameters) body)
-                                                                                                   branches'))]
-                                                                    (when_expansion branches''))
-                                                         (when_expansion:macro (` ((, (code:name global)) (,* parameters)))
-                                                                               body
-                                                                               when_expansion
-                                                                               branches'))
+                                                     {:Some type,value}
+                                                     (let' [[type value] type,value]
+                                                           (if (type:= Pattern type)
+                                                               (monad:let meta:monad
+                                                                          [branches'' ((as (-> Any Macro') value)
+                                                                                       (.list_composite# (list (code:form parameters) body)
+                                                                                                         branches'))]
+                                                                          (when_expansion branches''))
+                                                               (when_expansion:macro (` ((, (code:name global)) (,* parameters)))
+                                                                                     body
+                                                                                     when_expansion
+                                                                                     branches')))
                                                      
                                                      {:None}
                                                      (when_expansion:macro (` ((, (code:name global)) (,* parameters)))
@@ -3931,26 +3954,32 @@
       (type (-> (Stack Code)
                 (Maybe Bundle)))
       (.when# it
-              {:Top {:Name _ ["" name]} {:Empty}}
-              {:Some {:Left name}}
+              {:Top head tail}
+              (.when# head
+                      {:Name _ ["" head]}
+                      (if_case tail
+                               [else
+                                {:Some {:Left head}}]
+                               [_
+                                (monad:let maybe:monad
+                                           [tail (as_bundle tail)]
+                                           (pure {:Right [{:Left head} tail]}))])
 
-              {:Top {:Tuple _,it} {:Empty}}
-              (let' [[_ it] _,it]
-                    (as_bundle (list:as_stack it)))
+                      {:Tuple _,head}
+                      (let' [[_ head] _,head]
+                            (if_case tail
+                                     [else
+                                      (as_bundle (list:as_stack head))]
+                                     [_
+                                      (monad:let maybe:monad
+                                                 [head (as_bundle (list:as_stack head))
+                                                  tail (as_bundle tail)]
+                                                 (pure {:Right [head tail]}))]))
 
-              {:Top {:Name _ ["" head]} tail}
-              (monad:let maybe:monad
-                         [tail (as_bundle tail)]
-                         (pure {:Right [{:Left head} tail]}))
+                      else
+                      {:None})
 
-              {:Top {:Tuple _,head} tail}
-              (let' [[_ head] _,head]
-                    (monad:let maybe:monad
-                               [head (as_bundle (list:as_stack head))
-                                tail (as_bundle tail)]
-                               (pure {:Right [head tail]})))
-
-              else
+              {:Empty}
               {:None}))
 
 (the' .private (?:bundle tape)
@@ -3968,51 +3997,50 @@
 (the' .private (let_pair tuple 'value 'body)
       (type (-> Bundle Code Code
                 (Meta Code)))
-      (.when# tuple
-              {:Left name}
-              (meta:pure (` (.of# (, 'value)
-                                  (.function# (, (code:local name)) (, (code:local name))
-                                              (, 'body)))))
+      (if_case tuple
+               [name
+                (meta:pure (` (.of# (, 'value)
+                                    (.function# (, (code:local name)) (, (code:local name))
+                                                (, 'body)))))]
+               [left,right
+                (let' [[left right] left,right]
+                      (if_case left
+                               [left
+                                (if_case right
+                                         [right
+                                          (meta:pure (` (.of_pair# (.function# (, (code:local left)) (, (code:local left))
+                                                                               (.function# (, (code:local right)) (, (code:local right))
+                                                                                           (, 'body)))
+                                                                   (, 'value))))]
+                                         [else
+                                          (monad:let meta:monad
+                                                     ['right (generated_name "'right")
+                                                      'body (let_pair right 'right 'body)]
+                                                     (pure (` (.of_pair# (.function# (, (code:local left)) (, (code:local left))
+                                                                                     (.function# (, 'right) (, 'right)
+                                                                                                 (, 'body)))
+                                                                         (, 'value)))))])]
+                               [else
+                                (if_case right
+                                         [right
+                                          (monad:let meta:monad
+                                                     ['left (generated_name "'left")
+                                                      'body (let_pair left 'left 'body)]
+                                                     (pure (` (.of_pair# (.function# (, 'left) (, 'left)
+                                                                                     (.function# (, (code:local right)) (, (code:local right))
+                                                                                                 (, 'body)))
 
-              {:Right left,right}
-              (let' [[left right] left,right]
-                    (if_case left
-                             [left
-                              (if_case right
-                                       [right
-                                        (meta:pure (` (.of_pair# (.function# (, (code:local left)) (, (code:local left))
-                                                                             (.function# (, (code:local right)) (, (code:local right))
-                                                                                         (, 'body)))
-                                                                 (, 'value))))]
-                                       [else
-                                        (monad:let meta:monad
-                                                   ['right (generated_name "'right")
-                                                    'body (let_pair right 'right 'body)]
-                                                   (pure (` (.of_pair# (.function# (, (code:local left)) (, (code:local left))
-                                                                                   (.function# (, 'right) (, 'right)
-                                                                                               (, 'body)))
-                                                                       (, 'value)))))])]
-                             [else
-                              (if_case right
-                                       [right
-                                        (monad:let meta:monad
-                                                   ['left (generated_name "'left")
-                                                    'body (let_pair left 'left 'body)]
-                                                   (pure (` (.of_pair# (.function# (, 'left) (, 'left)
-                                                                                   (.function# (, (code:local right)) (, (code:local right))
-                                                                                               (, 'body)))
-
-                                                                       (, 'value)))))]
-                                       [else
-                                        (monad:let meta:monad
-                                                   ['left (generated_name "'left")
-                                                    'right (generated_name "'right")
-                                                    'body (let_pair left 'left 'body)
-                                                    'body (let_pair right 'right 'body)]
-                                                   (pure (` (.of_pair# (.function# (, 'left) (, 'left)
-                                                                                   (.function# (, 'right) (, 'right)
-                                                                                               (, 'body)))
-                                                                       (, 'value)))))])]))))
+                                                                         (, 'value)))))]
+                                         [else
+                                          (monad:let meta:monad
+                                                     ['left (generated_name "'left")
+                                                      'right (generated_name "'right")
+                                                      'body (let_pair left 'left 'body)
+                                                      'body (let_pair right 'right 'body)]
+                                                     (pure (` (.of_pair# (.function# (, 'left) (, 'left)
+                                                                                     (.function# (, 'right) (, 'right)
+                                                                                                 (, 'body)))
+                                                                         (, 'value)))))])]))]))
 
 (the' .private Case
       Type
@@ -4382,20 +4410,18 @@
                            (let' [[bundle 'body] bundle,'body]
                                  (if (natural:= (.i64_+# 1 case)
                                                 every_case)
-                                     (.when# (single_bundle bundle)
-                                             {:Some bundle}
-                                             (let_pair bundle 'value 'body)
-
-                                             {:None}
-                                             (meta:pure 'body))
+                                     (if_case (single_bundle bundle)
+                                              [else
+                                               (meta:pure 'body)]
+                                              [bundle
+                                               (let_pair bundle 'value 'body)])
                                      (monad:let meta:monad
                                                 ['case (generated_name "'case")
-                                                 'then (.when# (single_bundle bundle)
-                                                               {:Some bundle}
-                                                               (let_pair bundle 'case 'body)
-
-                                                               {:None}
-                                                               (pure 'body))
+                                                 'then (if_case (single_bundle bundle)
+                                                                [else
+                                                                 (pure 'body)]
+                                                                [bundle
+                                                                 (let_pair bundle 'case 'body)])
                                                  'else (partial_of_case 'case (.i64_+# 1 case))]
                                                 (pure (` (.of_case# (.function# (, 'case) (, 'case)
                                                                                 (, 'then))
@@ -4427,13 +4453,14 @@
                                     {:None}
                                     {:None}
 
-                                    {:Some [exported? definition]}
-                                    (.when# definition
-                                            {:Alias real_name}
-                                            (type_of_definition real_name state)
-                                            
-                                            {:Definition [def_type expression def_value]}
-                                            {:Some def_type})))])))
+                                    {:Some the_global}
+                                    (let' [[exported? definition] the_global]
+                                          (.when# definition
+                                                  {:Alias real_name}
+                                                  (type_of_definition real_name state)
+                                                  
+                                                  {:Definition [def_type expression def_value]}
+                                                  {:Some def_type}))))])))
 
 (the' .private (type_variable expected context)
       (type (-> Natural (List (Maybe Type))
@@ -4512,12 +4539,11 @@
                                             (if (.text_=# "" module)
                                                 (if_case (in_env name compiler)
                                                          [else
-                                                          (.when# (type_of_definition [current_module name] compiler)
-                                                                  {:Some implementation_type}
-                                                                  {:Right [compiler implementation_type]}
-
-                                                                  _
-                                                                  {:Left (text "Unknown var: " (name:as_text full_name))})]
+                                                          (if_case (type_of_definition [current_module name] compiler)
+                                                                   [else
+                                                                    {:Left (text "Unknown var: " (name:as_text full_name))}]
+                                                                   [implementation_type
+                                                                    {:Right [compiler implementation_type]}])]
                                                          [implementation_type
                                                           {:Right [compiler implementation_type]}])
                                                 (if_case (type_of_definition full_name compiler)
@@ -4614,26 +4640,28 @@
 (the' .private (arity_of_label it)
       (-> Label
           Natural)
-      (.when# it
-              [{:Some label} type]
-              (let' [[every_left right? cohort] label]
-                    (.list_size# cohort))
+      (let' [[?label type] it]
+            (.when# ?label
+                    {:Some label}
+                    (let' [[every_left right? cohort] label]
+                          (.list_size# cohort))
 
-              [{:None} type]
-              1))
+                    {:None}
+                    1)))
 
 (the' .private (index_of_label it)
       (-> Label
           Text)
-      (.when# it
-              [{:Some label} type]
-              (let' [[every_left right? cohort] label]
-                    (natural:as_text (if right?
-                                         (.i64_+# 1 every_left)
-                                         every_left)))
-              
-              [{:None} type]
-              "0"))
+      (let' [[?label type] it]
+            (.when# ?label
+                    {:Some label}
+                    (let' [[every_left right? cohort] label]
+                          (natural:as_text (if right?
+                                               (.i64_+# 1 every_left)
+                                               every_left)))
+                    
+                    {:None}
+                    "0")))
 
 (the' .private list:enumeration
       (type (for_any (_ it)
@@ -4726,28 +4754,27 @@
           Text)
       (.when# it
               {:Path/Bit it}
-              (.when# it
-                      {:Left it}
-                      (if_case it
-                               [then
-                                (text "{"
-                                      " " (bit:as_text 0b)
-                                      " " (path:as_text then)
-                                      "}")]
-                               [then
-                                (text "{"
-                                      " " (bit:as_text 1b)
-                                      " " (path:as_text then)
-                                      "}")])
-                      
-                      {:Right false_then,true_then}
-                      (let' [[false_then true_then] false_then,true_then]
-                            (text "{"
-                                  " " (bit:as_text 0b)
-                                  " " (path:as_text false_then)
-                                  " " (bit:as_text 1b)
-                                  " " (path:as_text true_then)
-                                  "}")))
+              (if_case it
+                       [it
+                        (if_case it
+                                 [then
+                                  (text "{"
+                                        " " (bit:as_text 0b)
+                                        " " (path:as_text then)
+                                        "}")]
+                                 [then
+                                  (text "{"
+                                        " " (bit:as_text 1b)
+                                        " " (path:as_text then)
+                                        "}")])]
+                       [false_then,true_then
+                        (let' [[false_then true_then] false_then,true_then]
+                              (text "{"
+                                    " " (bit:as_text 0b)
+                                    " " (path:as_text false_then)
+                                    " " (bit:as_text 1b)
+                                    " " (path:as_text true_then)
+                                    "}"))])
 
               {:Path/Natural it}
               (switch:as_text natural:as_text path:as_text it)
@@ -4892,14 +4919,13 @@
       (type (for_any (_ it)
                      (-> (Stack it)
                          (List it))))
-      (.when# it
-              {:Empty}
-              (list)
-
-              {:Top head,tail}
-              (let' [[head tail] head,tail]
-                    (.list_composite# (list head)
-                                      (stack:as_list tail)))))
+      (if_case it
+               [empty
+                (list)]
+               [head,tail
+                (let' [[head tail] head,tail]
+                      (.list_composite# (list head)
+                                        (stack:as_list tail)))]))
 
 (the' .private (record:by_code it)
       (type (-> (List Code)
@@ -4937,15 +4963,14 @@
                 (Property_List Code)))
       (list:each (<| (function' (_ slot,value))
                      (let' [[[label reality] value] slot,value])
-                     [(.when# label
-                              {:Some label}
-                              (let' [[every_left right? cohort] label]
-                                    (natural:as_text (if right?
-                                                         (.i64_+# 1 every_left)
-                                                         every_left)))
-
-                              {:None}
-                              "???")
+                     [(if_case label
+                               [else
+                                "???"]
+                               [label
+                                (let' [[every_left right? cohort] label]
+                                      (natural:as_text (if right?
+                                                           (.i64_+# 1 every_left)
+                                                           every_left)))])
                       value])
                  it))
 
@@ -5027,15 +5052,16 @@
                                                     [tag (tag_as_label tag)
                                                      .let' [[exported? tag] tag]
                                                      path (path (tuple_in_variant value) body)]
-                                                    (.when# tag
-                                                            [{:Some [every_left right? cohort]} type]
-                                                            (pure (path_variant (.list_size# cohort)
-                                                                                every_left
-                                                                                right?
-                                                                                path))
+                                                    (let' [[the_tag type] tag]
+                                                          (.when# the_tag
+                                                                  {:Some [every_left right? cohort]}
+                                                                  (pure (path_variant (.list_size# cohort)
+                                                                                      every_left
+                                                                                      right?
+                                                                                      path))
 
-                                                            [{:None} type]
-                                                            (..path/failure pattern)))
+                                                                  {:None}
+                                                                  (..path/failure pattern))))
 
                                          else
                                          (..path/failure pattern))))
@@ -5047,41 +5073,40 @@
                             (tuple_path path it body)
 
                             else
-                            (.when# (record:by_code it)
-                                    {:Some record}
-                                    (monad:let meta:monad
-                                               [record (record:by_slot record)]
-                                               (.when# (.when# (list:as_stack record)
-                                                               {:Top [[label expectation] value] tail}
-                                                               (if (list:every? (<| (function' (_ field))
-                                                                                    (type:= expectation (record:type_of_field field)))
-                                                                                record)
-                                                                   (.when# label
-                                                                           {:Some [every_left right? cohort]}
-                                                                           {:Some (.list_size# cohort)}
+                            (if_case (record:by_code it)
+                                     [else
+                                      (tuple_path path it body)]
+                                     [record
+                                      (monad:let meta:monad
+                                                 [record (record:by_slot record)]
+                                                 (.when# (.when# (list:as_stack record)
+                                                                 {:Top [[label expectation] value] tail}
+                                                                 (if (list:every? (<| (function' (_ field))
+                                                                                      (type:= expectation (record:type_of_field field)))
+                                                                                  record)
+                                                                     (.when# label
+                                                                             {:Some [every_left right? cohort]}
+                                                                             {:Some (.list_size# cohort)}
 
+                                                                             {:None}
+                                                                             {:None})
+                                                                     {:None})
+
+                                                                 else
+                                                                 {:None})
+                                                         {:Some size_of_cohort}
+                                                         (let' [record (record:in_order record)]
+                                                               (if (natural:= size_of_cohort (.list_size# record))
+                                                                   (.when# (record:as_tuple record)
+                                                                           {:Some in_order}
+                                                                           (tuple_path path in_order body)
+                                                                           
                                                                            {:None}
-                                                                           {:None})
-                                                                   {:None})
+                                                                           (..path/failure pattern))
+                                                                   (..path/failure pattern)))
 
-                                                               else
-                                                               {:None})
-                                                       {:Some size_of_cohort}
-                                                       (let' [record (record:in_order record)]
-                                                             (if (natural:= size_of_cohort (.list_size# record))
-                                                                 (.when# (record:as_tuple record)
-                                                                         {:Some in_order}
-                                                                         (tuple_path path in_order body)
-                                                                         
-                                                                         {:None}
-                                                                         (..path/failure pattern))
-                                                                 (..path/failure pattern)))
-
-                                                       {:None}
-                                                       (..path/failure pattern)))
-
-                                    {:None}
-                                    (tuple_path path it body))))
+                                                         {:None}
+                                                         (..path/failure pattern)))])))
 
               {:Form @,it}
               (let' [[@ it] @,it]
@@ -5164,10 +5189,11 @@
                                               {:Right tail_true}
                                               {:Some {:Path/Bit {:Right [head_false tail_true]}}})
                                       
-                                      {:Right [tail_false tail_true]}
-                                      (monad:let maybe:monad
-                                                 [it (path:or 'common head_false tail_false)]
-                                                 (pure {:Path/Bit {:Right [it tail_true]}})))
+                                      {:Right tail_false,tail_true}
+                                      (let' [[tail_false tail_true] tail_false,tail_true]
+                                            (monad:let maybe:monad
+                                                       [it (path:or 'common head_false tail_false)]
+                                                       (pure {:Path/Bit {:Right [it tail_true]}}))))
                               
                               {:Right head_true}
                               (.when# tail
@@ -5181,31 +5207,32 @@
                                                          [it (path:or 'common head_true tail_true)]
                                                          (pure {:Path/Bit {:Left {:Left it}}})))
                                       
-                                      {:Right [tail_false tail_true]}
-                                      (monad:let maybe:monad
-                                                 [it (path:or 'common head_true tail_true)]
-                                                 (pure {:Path/Bit {:Right [tail_false it]}}))))
+                                      {:Right tail_false,tail_true}
+                                      (let' [[tail_false tail_true] tail_false,tail_true]
+                                            (monad:let maybe:monad
+                                                       [it (path:or 'common head_true tail_true)]
+                                                       (pure {:Path/Bit {:Right [tail_false it]}})))))
                       
                       {:Right head_false,head_true}
                       (let' [[head_false head_true] head_false,head_true]
                             (.when# tail
                                     {:Left tail}
-                                    (.when# tail
-                                            {:Left tail_false}
-                                            (monad:let maybe:monad
-                                                       [it (path:or 'common head_false tail_false)]
-                                                       (pure {:Path/Bit {:Right [it head_true]}}))
-                                            
-                                            {:Right tail_true}
-                                            (monad:let maybe:monad
-                                                       [it (path:or 'common head_true tail_true)]
-                                                       (pure {:Path/Bit {:Right [head_false it]}})))
+                                    (if_case tail
+                                             [tail_false
+                                              (monad:let maybe:monad
+                                                         [it (path:or 'common head_false tail_false)]
+                                                         (pure {:Path/Bit {:Right [it head_true]}}))]
+                                             [tail_true
+                                              (monad:let maybe:monad
+                                                         [it (path:or 'common head_true tail_true)]
+                                                         (pure {:Path/Bit {:Right [head_false it]}}))])
                                     
-                                    {:Right [tail_false tail_true]}
-                                    (monad:let maybe:monad
-                                               [then_false (path:or 'common head_false tail_false)
-                                                then_true (path:or 'common head_true tail_true)]
-                                               (pure {:Path/Bit {:Right [then_false then_true]}})))))
+                                    {:Right tail_false,tail_true}
+                                    (let' [[tail_false tail_true] tail_false,tail_true]
+                                          (monad:let maybe:monad
+                                                     [then_false (path:or 'common head_false tail_false)
+                                                      then_true (path:or 'common head_true tail_true)]
+                                                     (pure {:Path/Bit {:Right [then_false then_true]}}))))))
 
               [{:Path/Item item_of_head head}
                {:Path/Item item_of_tail tail}]
@@ -5298,21 +5325,22 @@
                   (monad:let maybe:monad
                              [it (monad:each maybe:monad
                                              (function' (_ head,tail)
-                                                        (.when# head,tail
-                                                                [{:Some head} {:Some tail}]
-                                                                (monad:let maybe:monad
-                                                                           [it (path:or 'common head tail)]
-                                                                           (pure {:Some it}))
-
-                                                                [head {:None}]
-                                                                (pure head)
-                                                                
-                                                                [{:None} tail]
-                                                                (pure tail)
-
-                                                                else
-                                                                (comment [{:None} {:None}]
-                                                                         (pure {:None}))))
+                                                        (let' [[head tail] head,tail]
+                                                              (if_case head
+                                                                       [else
+                                                                        (if_case tail
+                                                                                 [else
+                                                                                  (pure {:None})]
+                                                                                 [tail'
+                                                                                  (pure tail)])]
+                                                                       [head
+                                                                        (if_case tail
+                                                                                 [else
+                                                                                  (pure {:Some head})]
+                                                                                 [tail
+                                                                                  (monad:let maybe:monad
+                                                                                             [it (path:or 'common head tail)]
+                                                                                             (pure {:Some it}))])])))
                                              (list:zipped_2 head tail))]
                              (pure {:Path/Case it}))
                   {:None})
@@ -5335,23 +5363,21 @@
 (the' .private (top context)
       (type (-> (Stack Code)
                 (Meta [Code (Stack Code)])))
-      (.when# context
-              {:Top head,tail}
-              (let' [[head tail] head,tail]
-                    (meta:pure [head tail]))
-
-              {:Empty}
-              (failure "!!! top")))
+      (if_case context
+               [else
+                (failure "!!! top")]
+               [head,tail
+                (let' [[head tail] head,tail]
+                      (meta:pure [head tail]))]))
 
 (the' .private (path:else it)
       (type (-> (Maybe Code)
                 (Meta Code)))
-      (.when# it
-              {:Some it}
-              (meta:pure it)
-
-              {:None}
-              (failure "!!! path:else")))
+      (if_case it
+               [else
+                (failure "!!! path:else")]
+               [it
+                (meta:pure it)]))
 
 (the' .private (path/case:more? it)
       (type (Predicate (Stack (Maybe Path))))
@@ -5359,11 +5385,13 @@
               {:Empty}
               false
               
-              {:Top {:Some then} tail}
-              true
-
-              {:Top {:None} tail}
-              (path/case:more? tail)))
+              {:Top the_head,tail}
+              (let' [[the_head tail] the_head,tail]
+                    (if_case the_head
+                             [else
+                              (path/case:more? tail)]
+                             [then
+                              true]))))
 
 (the' .private (path/case:as_code path:as_code context else it)
       (type (-> (-> (Stack Code) (Maybe Code) Path
@@ -5408,29 +5436,31 @@
                                              (.function# (, (code:local @tail)) (, (code:local @tail)) (, 'else))
                                              (, 'top)))))
 
-              {:Top {:Some then} tail}
-              (monad:let meta:monad
-                         ['top,context (top context)
-                          .let' [['top context] 'top,context]
-                          @case (generated_name "@case")
-                          'then (path:as_code {:Top @case context} else then)
-                          'else (if (path/case:more? tail)
-                                    (path/case:as_code path:as_code {:Top @case context} else tail)
-                                    (path:else else))]
-                         (pure (` (.of_case# (.function# (, @case) (, @case) (, 'then))
-                                             (.function# (, @case) (, @case) (, 'else))
-                                             (, 'top)))))
-
-              {:Top {:None} tail}
-              (monad:let meta:monad
-                         ['top,context (top context)
-                          .let' [['top context] 'top,context]
-                          @case (generated_name "@case")
-                          'then (path/case:as_code path:as_code {:Top @case context} else tail)
-                          'else (path:else else)]
-                         (pure (` (.of_case# (.function# (, @case) (, @case) (, 'else))
-                                             (.function# (, @case) (, @case) (, 'then))
-                                             (, 'top)))))
+              {:Top the_head,tail}
+              (let' [[the_head tail] the_head,tail]
+                    (if_case the_head
+                             [_
+                              (monad:let meta:monad
+                                         ['top,context (top context)
+                                          .let' [['top context] 'top,context]
+                                          @case (generated_name "@case")
+                                          'then (path/case:as_code path:as_code {:Top @case context} else tail)
+                                          'else (path:else else)]
+                                         (pure (` (.of_case# (.function# (, @case) (, @case) (, 'else))
+                                                             (.function# (, @case) (, @case) (, 'then))
+                                                             (, 'top)))))]
+                             [then
+                              (monad:let meta:monad
+                                         ['top,context (top context)
+                                          .let' [['top context] 'top,context]
+                                          @case (generated_name "@case")
+                                          'then (path:as_code {:Top @case context} else then)
+                                          'else (if (path/case:more? tail)
+                                                    (path/case:as_code path:as_code {:Top @case context} else tail)
+                                                    (path:else else))]
+                                         (pure (` (.of_case# (.function# (, @case) (, @case) (, 'then))
+                                                             (.function# (, @case) (, @case) (, 'else))
+                                                             (, 'top)))))]))
 
               else
               (failure "!!! path/case:as_code")))
@@ -5493,9 +5523,11 @@
               (.when# it
                       {:Left it}
                       (monad:let meta:monad
-                                 [.let' [[expectation then] (.when# it
-                                                                    {:Left then} [false then]
-                                                                    {:Right then} [true then])]
+                                 [.let' [[expectation then] (if_case it
+                                                                     [then
+                                                                      [false then]]
+                                                                     [then
+                                                                      [true then]])]
                                   'top,context (top context)
                                   .let' [['top context] 'top,context]
                                   'then (path:as_code context else then)
@@ -5508,15 +5540,16 @@
                                                 'else
                                                 'then))))
                       
-                      {:Right [false_then true_then]}
-                      (monad:let meta:monad
-                                 ['top,context (top context)
-                                  .let' [['top context] 'top,context]
-                                  'false_then (path:as_code context else false_then)
-                                  'true_then (path:as_code context else true_then)]
-                                 (pure ('if 'top
-                                            'true_then
-                                            'false_then))))
+                      {:Right false_then,true_then}
+                      (let' [[false_then true_then] false_then,true_then]
+                            (monad:let meta:monad
+                                       ['top,context (top context)
+                                        .let' [['top context] 'top,context]
+                                        'false_then (path:as_code context else false_then)
+                                        'true_then (path:as_code context else true_then)]
+                                       (pure ('if 'top
+                                                  'true_then
+                                                  'false_then)))))
 
               {:Path/Natural it}
               (switch:as_code code:natural
@@ -5649,256 +5682,257 @@
       (macro (_ tokens)
              (.when# (|> (?:and ?:any ?:rest)
                          (?:value tokens))
-                     {:Some ['term branches]}
-                     (monad:let meta:monad
-                                [expansion (when_expansion branches)
-                                 '_ (generated_name "'_")]
-                                (.when# (?:value expansion ?:when)
-                                        {:Some {:When/Complete_If 'then 'else}}
-                                        (pure (list ('if 'term 'then 'else)))
+                     {:Some 'term,branches}
+                     (let' [['term branches] 'term,branches]
+                           (monad:let meta:monad
+                                      [expansion (when_expansion branches)
+                                       '_ (generated_name "'_")]
+                                      (.when# (?:value expansion ?:when)
+                                              {:Some {:When/Complete_If 'then 'else}}
+                                              (pure (list ('if 'term 'then 'else)))
 
-                                        {:Some {:When/Partial_If case 'then variable 'else}}
-                                        (pure (list (let' ['term (` (..is ..Bit
-                                                                          (, 'term)))]
-                                                          (.if# case
-                                                                ('if 'term
-                                                                     'then
-                                                                     (` (.of# 0b
-                                                                              (.function# (, (code:local variable)) (, (code:local variable))
-                                                                                          (, 'else)))))
-                                                                ('if 'term
-                                                                     (` (.of# 1b
-                                                                              (.function# (, (code:local variable)) (, (code:local variable))
-                                                                                          (, 'then))))
-                                                                     'else)))))
+                                              {:Some {:When/Partial_If case 'then variable 'else}}
+                                              (pure (list (let' ['term (` (..is ..Bit
+                                                                                (, 'term)))]
+                                                                (.if# case
+                                                                      ('if 'term
+                                                                           'then
+                                                                           (` (.of# 0b
+                                                                                    (.function# (, (code:local variable)) (, (code:local variable))
+                                                                                                (, 'else)))))
+                                                                      ('if 'term
+                                                                           (` (.of# 1b
+                                                                                    (.function# (, (code:local variable)) (, (code:local variable))
+                                                                                                (, 'then))))
+                                                                           'else)))))
 
-                                        {:Some {:When/If_Natural every_then variable 'else}} (if_natural '_ 'term every_then variable 'else)
-                                        {:Some {:When/If_Integer every_then variable 'else}} (if_integer '_ 'term every_then variable 'else)
-                                        {:Some {:When/If_Revolution every_then variable 'else}} (if_revolution '_ 'term every_then variable 'else)
-                                        {:Some {:When/If_Real every_then variable 'else}} (if_real '_ 'term every_then variable 'else)
-                                        {:Some {:When/If_Text every_then variable 'else}} (if_text '_ 'term every_then variable 'else)
+                                              {:Some {:When/If_Natural every_then variable 'else}} (if_natural '_ 'term every_then variable 'else)
+                                              {:Some {:When/If_Integer every_then variable 'else}} (if_integer '_ 'term every_then variable 'else)
+                                              {:Some {:When/If_Revolution every_then variable 'else}} (if_revolution '_ 'term every_then variable 'else)
+                                              {:Some {:When/If_Real every_then variable 'else}} (if_real '_ 'term every_then variable 'else)
+                                              {:Some {:When/If_Text every_then variable 'else}} (if_text '_ 'term every_then variable 'else)
 
-                                        {:Some {:When/Let bundle 'body}}
-                                        (monad:let meta:monad
-                                                   [it (let_pair bundle 'term 'body)]
-                                                   (pure (list it)))
+                                              {:Some {:When/Let bundle 'body}}
+                                              (monad:let meta:monad
+                                                         [it (let_pair bundle 'term 'body)]
+                                                         (pure (list it)))
 
-                                        {:Some {:When/Complete_Binary_Of_Case [[condition_of_then variable_of_then] 'then]
-                                                                              [[condition_of_else variable_of_else] 'body_of_else]}}
-                                        (if (bit:= condition_of_then condition_of_else)
-                                            (failure "Redundancy in case patterns.")
-                                            (pure (list (if condition_of_then
-                                                            (` (.of_case# (.function# (, (code:local variable_of_else)) (, (code:local variable_of_else))
-                                                                                      (, 'body_of_else))
-                                                                          (.function# (, (code:local variable_of_then)) (, (code:local variable_of_then))
-                                                                                      (, 'then))
-                                                                          (, 'term)))
-                                                            (` (.of_case# (.function# (, (code:local variable_of_then)) (, (code:local variable_of_then))
-                                                                                      (, 'then))
-                                                                          (.function# (, (code:local variable_of_else)) (, (code:local variable_of_else))
-                                                                                      (, 'body_of_else))
-                                                                          (, 'term)))))))
+                                              {:Some {:When/Complete_Binary_Of_Case [[condition_of_then variable_of_then] 'then]
+                                                                                    [[condition_of_else variable_of_else] 'body_of_else]}}
+                                              (if (bit:= condition_of_then condition_of_else)
+                                                  (failure "Redundancy in case patterns.")
+                                                  (pure (list (if condition_of_then
+                                                                  (` (.of_case# (.function# (, (code:local variable_of_else)) (, (code:local variable_of_else))
+                                                                                            (, 'body_of_else))
+                                                                                (.function# (, (code:local variable_of_then)) (, (code:local variable_of_then))
+                                                                                            (, 'then))
+                                                                                (, 'term)))
+                                                                  (` (.of_case# (.function# (, (code:local variable_of_then)) (, (code:local variable_of_then))
+                                                                                            (, 'then))
+                                                                                (.function# (, (code:local variable_of_else)) (, (code:local variable_of_else))
+                                                                                            (, 'body_of_else))
+                                                                                (, 'term)))))))
 
-                                        {:Some {:When/Partial_Binary_Of_Case [[condition_of_then variable_of_then] 'then]
-                                                                             [variable_of_else 'body_of_else]}}
-                                        (monad:let meta:monad
-                                                   ['it (generated_name "'it")
-                                                    '_ (generated_name "'_")
-                                                    .let' ['else ('let (code:local variable_of_else) 'it
-                                                                       'body_of_else)]]
-                                                   (pure (list ('let 'it 'term
-                                                                     (if condition_of_then
-                                                                         (` (.of_case# (.function# (, '_) (, '_)
-                                                                                                   (, 'else))
-                                                                                       (.function# (, (code:local variable_of_then)) (, (code:local variable_of_then))
-                                                                                                   (, 'then))
-                                                                                       (, 'it)))
-                                                                         (` (.of_case# (.function# (, (code:local variable_of_then)) (, (code:local variable_of_then))
-                                                                                                   (, 'then))
-                                                                                       (.function# (, '_) (, '_)
-                                                                                                   (, 'else))
-                                                                                       (, 'it))))))))
+                                              {:Some {:When/Partial_Binary_Of_Case [[condition_of_then variable_of_then] 'then]
+                                                                                   [variable_of_else 'body_of_else]}}
+                                              (monad:let meta:monad
+                                                         ['it (generated_name "'it")
+                                                          '_ (generated_name "'_")
+                                                          .let' ['else ('let (code:local variable_of_else) 'it
+                                                                             'body_of_else)]]
+                                                         (pure (list ('let 'it 'term
+                                                                           (if condition_of_then
+                                                                               (` (.of_case# (.function# (, '_) (, '_)
+                                                                                                         (, 'else))
+                                                                                             (.function# (, (code:local variable_of_then)) (, (code:local variable_of_then))
+                                                                                                         (, 'then))
+                                                                                             (, 'it)))
+                                                                               (` (.of_case# (.function# (, (code:local variable_of_then)) (, (code:local variable_of_then))
+                                                                                                         (, 'then))
+                                                                                             (.function# (, '_) (, '_)
+                                                                                                         (, 'else))
+                                                                                             (, 'it))))))))
 
-                                        {:Some {:When/Complete_Of_Case [head tail else]}}
-                                        (monad:let meta:monad
-                                                   [tag_of_head (|> head pair:left pair:left tag_as_label)
-                                                    every_tag (is (type (Meta (List [Label (List Bundle) Code])))
-                                                                  (monad:each meta:monad
-                                                                              (function' (_ it)
-                                                                                         (monad:let meta:monad
-                                                                                                    [.let' [[[tag content] body] it]
-                                                                                                     label (tag_as_label tag)
-                                                                                                     .let' [[exported? label] label]]
-                                                                                                    (pure [label content body])))
-                                                                              (.list_composite# (list head) tail)))
-                                                    .let' [expectation_for_type (pair:right (pair:right tag_of_head))
-                                                           expectation_for_arity (arity_of_label (pair:right tag_of_head))
-                                                           in_order (is (type (Property_List [(List Bundle) Code]))
-                                                                        (list:mix (function' (_ it)
-                                                                                             (let' [[label content body] it]
-                                                                                                   (property:with (index_of_label label)
-                                                                                                                  [content body])))
-                                                                                  every_tag
-                                                                                  (list)))]]
-                                                   (if (and (not (natural:= 1 expectation_for_arity))
-                                                            (list:every? (function' (_ tag)
-                                                                                    (type:= expectation_for_type
-                                                                                            (pair:right (pair:left tag))))
-                                                                         every_tag))
-                                                       (.when# else
-                                                               {:Some [local_of_else body_of_else]}
-                                                               (if (natural:= expectation_for_arity (.list_size# in_order))
-                                                                   (failure "")
-                                                                   (.when# 'term
-                                                                           {:Name @ name_of_'term}
-                                                                           (monad:let meta:monad
-                                                                                      [type_of_input (type_of_reference name_of_'term)
-                                                                                       .let' ['local 'term]
-                                                                                       'else (generated_name "'else")
-                                                                                       type_of_output type:expectation
-                                                                                       'partial_of_case (partial_of_case expectation_for_arity in_order 'else 'term 'local 0)]
-                                                                                      (pure (list ('let 'else (` (..else (, (let' ['local_of_else (code:local local_of_else)]
-                                                                                                                                  ('function {:None} (stack 'local_of_else)
-                                                                                                                                             body_of_else)))
-                                                                                                                         (, 'term)))
-                                                                                                        'partial_of_case))))
+                                              {:Some {:When/Complete_Of_Case [head tail else]}}
+                                              (monad:let meta:monad
+                                                         [tag_of_head (|> head pair:left pair:left tag_as_label)
+                                                          every_tag (is (type (Meta (List [Label (List Bundle) Code])))
+                                                                        (monad:each meta:monad
+                                                                                    (function' (_ it)
+                                                                                               (monad:let meta:monad
+                                                                                                          [.let' [[[tag content] body] it]
+                                                                                                           label (tag_as_label tag)
+                                                                                                           .let' [[exported? label] label]]
+                                                                                                          (pure [label content body])))
+                                                                                    (.list_composite# (list head) tail)))
+                                                          .let' [expectation_for_type (pair:right (pair:right tag_of_head))
+                                                                 expectation_for_arity (arity_of_label (pair:right tag_of_head))
+                                                                 in_order (is (type (Property_List [(List Bundle) Code]))
+                                                                              (list:mix (function' (_ it)
+                                                                                                   (let' [[label content body] it]
+                                                                                                         (property:with (index_of_label label)
+                                                                                                                        [content body])))
+                                                                                        every_tag
+                                                                                        (list)))]]
+                                                         (if (and (not (natural:= 1 expectation_for_arity))
+                                                                  (list:every? (function' (_ tag)
+                                                                                          (type:= expectation_for_type
+                                                                                                  (pair:right (pair:left tag))))
+                                                                               every_tag))
+                                                             (.when# else
+                                                                     {:Some local_of_else,body_of_else}
+                                                                     (let' [[local_of_else body_of_else] local_of_else,body_of_else]
+                                                                           (if (natural:= expectation_for_arity (.list_size# in_order))
+                                                                               (failure "")
+                                                                               (.when# 'term
+                                                                                       {:Name @ name_of_'term}
+                                                                                       (monad:let meta:monad
+                                                                                                  [type_of_input (type_of_reference name_of_'term)
+                                                                                                   .let' ['local 'term]
+                                                                                                   'else (generated_name "'else")
+                                                                                                   type_of_output type:expectation
+                                                                                                   'partial_of_case (partial_of_case expectation_for_arity in_order 'else 'term 'local 0)]
+                                                                                                  (pure (list ('let 'else (` (..else (, (let' ['local_of_else (code:local local_of_else)]
+                                                                                                                                              ('function {:None} (stack 'local_of_else)
+                                                                                                                                                         body_of_else)))
+                                                                                                                                     (, 'term)))
+                                                                                                                    'partial_of_case))))
 
-                                                                           else
-                                                                           (monad:let meta:monad
-                                                                                      ['local (generated_name "'local")]
-                                                                                      (pure (list ('let 'local 'term
-                                                                                                        (` (..when (, 'local)
-                                                                                                                   (,* branches)))))))))
+                                                                                       else
+                                                                                       (monad:let meta:monad
+                                                                                                  ['local (generated_name "'local")]
+                                                                                                  (pure (list ('let 'local 'term
+                                                                                                                    (` (..when (, 'local)
+                                                                                                                               (,* branches))))))))))
 
-                                                               {:None}
-                                                               (if (natural:= expectation_for_arity (.list_size# in_order))
-                                                                   (.when# 'term
-                                                                           {:Name _}
-                                                                           (monad:let meta:monad
-                                                                                      ['complete_of_case (complete_of_case in_order 'term 0)]
-                                                                                      (pure (list 'complete_of_case)))
+                                                                     {:None}
+                                                                     (if (natural:= expectation_for_arity (.list_size# in_order))
+                                                                         (.when# 'term
+                                                                                 {:Name _}
+                                                                                 (monad:let meta:monad
+                                                                                            ['complete_of_case (complete_of_case in_order 'term 0)]
+                                                                                            (pure (list 'complete_of_case)))
 
-                                                                           else
-                                                                           (monad:let meta:monad
-                                                                                      ['local (generated_name "'local")
-                                                                                       'complete_of_case (complete_of_case in_order 'local 0)]
-                                                                                      (pure (list ('let 'local 'term
-                                                                                                        'complete_of_case)))))
-                                                                   (failure "")))
-                                                       (failure "")))
+                                                                                 else
+                                                                                 (monad:let meta:monad
+                                                                                            ['local (generated_name "'local")
+                                                                                             'complete_of_case (complete_of_case in_order 'local 0)]
+                                                                                            (pure (list ('let 'local 'term
+                                                                                                              'complete_of_case)))))
+                                                                         (failure "")))
+                                                             (failure "")))
 
-                                        {:Some {:When/Simple_Record [[[slot_of_head value_of_head] tail] 'body]}}
-                                        (<| (monad:let meta:monad
-                                                       [slot_of_head (slot_as_label slot_of_head)
-                                                        .let' [[exported? slot_of_head] slot_of_head
-                                                               [_ expectation_for_type] slot_of_head
-                                                               expectation_for_arity (arity_of_label slot_of_head)]
-                                                        tail (monad:each meta:monad
-                                                                         (function' (_ slot,value)
-                                                                                    (monad:let meta:monad
-                                                                                               [.let' [[slot value] slot,value]
-                                                                                                slot (slot_as_label slot)
-                                                                                                .let' [[exported? [slot type]] slot]]
-                                                                                               (if (type:= expectation_for_type type)
-                                                                                                   (pure [[slot type] value])
-                                                                                                   (failure "Cannot mix slots from different types of records."))))
-                                                                         tail)
-                                                        .let' [in_order (is (type (Property_List Code))
-                                                                            (list:mix (function' (_ slot,value)
-                                                                                                 (let' [[slot value] slot,value]
-                                                                                                       (property:with (index_of_label slot)
-                                                                                                                      value)))
-                                                                                      (.list_composite# (list [slot_of_head value_of_head])
-                                                                                                        tail)
-                                                                                      (list)))]])
-                                            (if (natural:= expectation_for_arity (.list_size# in_order))
-                                                (.when# (monad:each maybe:monad
-                                                                    (function' (_ index)
-                                                                               (let' [[index _] index]
-                                                                                     (property:value (natural:as_text index) in_order)))
-                                                                    (list:enumeration in_order))
-                                                        {:Some as_tuple}
-                                                        (pure (list (` (..when (, 'term)
-                                                                               [(,* as_tuple)]
-                                                                               (, 'body)))))
+                                              {:Some {:When/Simple_Record [[[slot_of_head value_of_head] tail] 'body]}}
+                                              (<| (monad:let meta:monad
+                                                             [slot_of_head (slot_as_label slot_of_head)
+                                                              .let' [[exported? slot_of_head] slot_of_head
+                                                                     [_ expectation_for_type] slot_of_head
+                                                                     expectation_for_arity (arity_of_label slot_of_head)]
+                                                              tail (monad:each meta:monad
+                                                                               (function' (_ slot,value)
+                                                                                          (monad:let meta:monad
+                                                                                                     [.let' [[slot value] slot,value]
+                                                                                                      slot (slot_as_label slot)
+                                                                                                      .let' [[exported? [slot type]] slot]]
+                                                                                                     (if (type:= expectation_for_type type)
+                                                                                                         (pure [[slot type] value])
+                                                                                                         (failure "Cannot mix slots from different types of records."))))
+                                                                               tail)
+                                                              .let' [in_order (is (type (Property_List Code))
+                                                                                  (list:mix (function' (_ slot,value)
+                                                                                                       (let' [[slot value] slot,value]
+                                                                                                             (property:with (index_of_label slot)
+                                                                                                                            value)))
+                                                                                            (.list_composite# (list [slot_of_head value_of_head])
+                                                                                                              tail)
+                                                                                            (list)))]])
+                                                  (if (natural:= expectation_for_arity (.list_size# in_order))
+                                                      (if_case (is (Maybe (List Code))
+                                                                   (monad:each maybe:monad
+                                                                               (function' (_ index)
+                                                                                          (let' [[index _] index]
+                                                                                                (property:value (natural:as_text index) in_order)))
+                                                                               (list:enumeration in_order)))
+                                                               [else
+                                                                (failure "")]
+                                                               [as_tuple
+                                                                (pure (list (` (..when (, 'term)
+                                                                                       [(,* as_tuple)]
+                                                                                       (, 'body)))))])
+                                                      (failure "Invalid size for record.")))
 
-                                                        {:None}
-                                                        (failure ""))
-                                                (failure "Invalid size for record.")))
-
-                                        {:Some {:When/If_List [every_clause name_of_else 'body_of_else]}}
-                                        (let' [in_order (is (type (Property_List Code))
-                                                            (list:mix (function' (_ pattern,'body)
-                                                                                 (let' [[pattern 'body] pattern,'body]
-                                                                                       (property:with (natural:as_text (.list_size# pattern))
-                                                                                                      'body)))
-                                                                      every_clause
-                                                                      (list)))]
-                                              (if (natural:= (.list_size# every_clause)
-                                                             (.list_size# in_order))
-                                                  (monad:let meta:monad
-                                                             ['it (generated_name "'it")]
-                                                             (pure (list (<| ('let 'it 'term)
-                                                                             (list:mix (function' (_ clause 'else)
-                                                                                                  (let' [[pattern 'body] clause]
-                                                                                                        ('if (` (.i64_=# (, (code:natural (.list_size# pattern)))
-                                                                                                                         (.list_size# (, 'it))))
-                                                                                                             (list:mix (function' (_ member 'then)
-                                                                                                                                  (let' [[address binding] member]
-                                                                                                                                        ('let (code:local binding)
-                                                                                                                                              (` (.list_item# (, (code:natural address)) (, 'it)))
-                                                                                                                                              'then)))
-                                                                                                                       (list:in_reverse (list:enumeration pattern))
-                                                                                                                       'body)
-                                                                                                             'else)))
-                                                                                       every_clause)
-                                                                             ('let (code:local name_of_else) 'it
-                                                                                   'body_of_else)))))
-                                                  (failure "Redundancy in list patterns.")))
-
-                                        else
-                                        (.when# 'term
-                                                {:Name @ ["" @term]}
-                                                (.when# (|> (?:many (?:and ?:any ?:any))
-                                                            (?:value expansion))
-                                                        {:Some every_branch}
+                                              {:Some {:When/If_List [every_clause name_of_else 'body_of_else]}}
+                                              (let' [in_order (is (type (Property_List Code))
+                                                                  (list:mix (function' (_ pattern,'body)
+                                                                                       (let' [[pattern 'body] pattern,'body]
+                                                                                             (property:with (natural:as_text (.list_size# pattern))
+                                                                                                            'body)))
+                                                                            every_clause
+                                                                            (list)))]
+                                                    (if (natural:= (.list_size# every_clause)
+                                                                   (.list_size# in_order))
                                                         (monad:let meta:monad
-                                                                   [every_path (monad:each meta:monad
-                                                                                           (function' (_ pattern,body)
-                                                                                                      (let' [[pattern body] pattern,body]
-                                                                                                            (..path pattern {:Path/Body body})))
-                                                                                           every_branch)
-                                                                    'common (generated_name "'common")]
-                                                                   (.when# (list:split 1 (list:in_reverse every_path))
-                                                                           [(.list# else) every_then]
-                                                                           (.when# (monad:mix maybe:monad
-                                                                                              (..path:or (code:as_text 'common))
-                                                                                              every_then
-                                                                                              else)
-                                                                                   {:Some path}
-                                                                                   (monad:let meta:monad
-                                                                                              ['path (path:as_code (stack (code:local @term))
-                                                                                                                   {:None}
-                                                                                                                   path)]
-                                                                                              (pure (list 'path)))
+                                                                   ['it (generated_name "'it")]
+                                                                   (pure (list (<| ('let 'it 'term)
+                                                                                   (list:mix (function' (_ clause 'else)
+                                                                                                        (let' [[pattern 'body] clause]
+                                                                                                              ('if (` (.i64_=# (, (code:natural (.list_size# pattern)))
+                                                                                                                               (.list_size# (, 'it))))
+                                                                                                                   (list:mix (function' (_ member 'then)
+                                                                                                                                        (let' [[address binding] member]
+                                                                                                                                              ('let (code:local binding)
+                                                                                                                                                    (` (.list_item# (, (code:natural address)) (, 'it)))
+                                                                                                                                                    'then)))
+                                                                                                                             (list:in_reverse (list:enumeration pattern))
+                                                                                                                             'body)
+                                                                                                                   'else)))
+                                                                                             every_clause)
+                                                                                   ('let (code:local name_of_else) 'it
+                                                                                         'body_of_else)))))
+                                                        (failure "Redundancy in list patterns.")))
+
+                                              else
+                                              (.when# 'term
+                                                      {:Name @ ["" @term]}
+                                                      (if_case (|> (?:many (?:and ?:any ?:any))
+                                                                   (?:value expansion))
+                                                               [else
+                                                                (failure "")]
+                                                               [every_branch
+                                                                (monad:let meta:monad
+                                                                           [every_path (monad:each meta:monad
+                                                                                                   (function' (_ pattern,body)
+                                                                                                              (let' [[pattern body] pattern,body]
+                                                                                                                    (..path pattern {:Path/Body body})))
+                                                                                                   every_branch)
+                                                                            'common (generated_name "'common")]
+                                                                           (.when# (list:split 1 (list:in_reverse every_path))
+                                                                                   [(.list# else) every_then]
+                                                                                   (if_case (is (Maybe Path)
+                                                                                                (monad:mix maybe:monad
+                                                                                                           (..path:or (code:as_text 'common))
+                                                                                                           every_then
+                                                                                                           else))
+                                                                                            [else
+                                                                                             (failure "")]
+                                                                                            [path
+                                                                                             (monad:let meta:monad
+                                                                                                        ['path (path:as_code (stack (code:local @term))
+                                                                                                                             {:None}
+                                                                                                                             path)]
+                                                                                                        (pure (list 'path)))])
                                                                                    
-                                                                                   {:None}
-                                                                                   (failure ""))
-                                                                           
-                                                                           _
-                                                                           (failure "")))
+                                                                                   _
+                                                                                   (failure "")))])
 
-                                                        {:None}
-                                                        (failure ""))
+                                                      else
+                                                      (monad:let meta:monad
+                                                                 ['value (generated_name "'value")]
+                                                                 (pure (list ('let 'value 'term
+                                                                                   (` (..when (, 'value)
+                                                                                              (,* branches)))))))))))
 
-                                                else
-                                                (monad:let meta:monad
-                                                           ['value (generated_name "'value")]
-                                                           (pure (list ('let 'value 'term
-                                                                             (` (..when (, 'value)
-                                                                                        (,* branches))))))))))
-
-                     else
+                     {:None}
                      (failure ""))))
 
 (the' .public let
