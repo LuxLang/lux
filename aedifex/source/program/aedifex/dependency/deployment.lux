@@ -32,7 +32,7 @@
    ["[1]/[0]" type]
    ["[1]/[0]" extension (.only Extension)]
    ["[1]/[0]" versioning]
-   ["[1]/[0]" snapshot (.only)
+   ["[1]/[0]" snapshot (.only Snapshot)
     ["[1]/[0]" version (.only)
      ["[1]/[0]" value]]]]
   ["[1][0]" metadata
@@ -43,112 +43,113 @@
    ["[1]/[0]" status (.only Status)]]])
 
 (the (with_status repository version_template [artifact type] [data status])
-  (-> (Repository Future) ///artifact.Version Dependency [Binary Status] (Future (Try Any)))
-  (let [artifact (text (///artifact.uri version_template artifact)
-                       (///artifact/extension.extension type))
-        deploy_hash (is (for_any (_ h)
-                          (-> (Format Text (Hash h)) Extension (Hash h)
-                              (Future (Try Any))))
-                        (function (_ format extension hash)
-                          (|> hash
-                              (by format as)
-                              (by utf8.binary as)
-                              (by repository upload (text artifact extension)))))]
-    (monad.let [! (try.with future.monad)]
-      [_ (by repository upload artifact data)]
-      (when status
-        {///dependency/status.:Unverified}
-        (pure [])
-        
-        {///dependency/status.:Partial partial}
-        (when partial
-          {.:Left sha1}
-          (deploy_hash ///hash.sha1_format ///artifact/extension.sha1 sha1)
-          
-          {.:Right md5}
-          (deploy_hash ///hash.md5_format ///artifact/extension.md5 md5))
-        
-        {///dependency/status.:Verified sha1 md5}
-        (monad.let !
-          [_ (deploy_hash ///hash.sha1_format ///artifact/extension.sha1 sha1)]
-          (deploy_hash ///hash.md5_format ///artifact/extension.md5 md5))))))
+     (-> (Repository Future) ///artifact.Version Dependency [Binary Status] (Future (Try Any)))
+     (let [artifact (text (///artifact.uri version_template artifact)
+                          (///artifact/extension.extension type))
+           deploy_hash (is (for_any (_ h)
+                                    (-> (Format Text (Hash h)) Extension (Hash h)
+                                        (Future (Try Any))))
+                           (function (_ format extension hash)
+                                     (|> hash
+                                         (by format as)
+                                         (by utf8.binary as)
+                                         (by repository upload (text artifact extension)))))]
+          (monad.let [! (try.with future.monad)]
+                     [_ (by repository upload artifact data)]
+                     (when status
+                           {///dependency/status.:Unverified}
+                           (pure [])
+                           
+                           {///dependency/status.:Partial partial}
+                           (when partial
+                                 {.:Left sha1}
+                                 (deploy_hash ///hash.sha1_format ///artifact/extension.sha1 sha1)
+                                 
+                                 {.:Right md5}
+                                 (deploy_hash ///hash.md5_format ///artifact/extension.md5 md5))
+                           
+                           {///dependency/status.:Verified sha1 md5}
+                           (monad.let !
+                                      [_ (deploy_hash ///hash.sha1_format ///artifact/extension.sha1 sha1)]
+                                      (deploy_hash ///hash.md5_format ///artifact/extension.md5 md5))))))
 
 (the (artifacts type status)
-  (-> ///artifact/type.Type Status
-      (List ///artifact/type.Type))
-  (expansion.let [<sha1> (text type ///artifact/extension.sha1)
-                  <md5> (text type ///artifact/extension.md5)]
-    (list:composite (list type)
-                    (when status
-                      {///dependency/status.:Unverified}
-                      (list)
-                      
-                      {///dependency/status.:Partial partial}
-                      (list (when partial
-                              {.:Left _} <sha1>
-                              {.:Right _} <md5>))
-                      
-                      {///dependency/status.:Verified _}
-                      (list <sha1> <md5>)))))
+     (-> ///artifact/type.Type Status
+         (List ///artifact/type.Type))
+     (expansion.let [<sha1> (text type ///artifact/extension.sha1)
+                     <md5> (text type ///artifact/extension.md5)]
+                    (list:composite (list type)
+                                    (when status
+                                          {///dependency/status.:Unverified}
+                                          (list)
+                                          
+                                          {///dependency/status.:Partial partial}
+                                          (list (when partial
+                                                      {.:Left _} <sha1>
+                                                      {.:Right _} <md5>))
+                                          
+                                          {///dependency/status.:Verified _}
+                                          (list <sha1> <md5>)))))
 
 (the (update_snapshot [artifact type] now snapshot)
-  (-> Dependency Instant Metadata (Try Metadata))
-  (monad.let try.monad
-    [now (is (Try ///artifact/time.Time)
-             (///artifact/time.of_instant now))
-     .let [version_template (its ///artifact.:version artifact)
-           snapshot (|> snapshot
-                        (revised [///metadata/snapshot.:versioning ///artifact/versioning.:snapshot]
-                                 (function (_ snapshot)
-                                   (when snapshot
-                                     {///artifact/snapshot.:Local}
-                                     {///artifact/snapshot.:Local}
-                                     
-                                     {///artifact/snapshot.:Remote [_ build]}
-                                     {///artifact/snapshot.:Remote [now (++ build)]})))
-                        (has [///metadata/snapshot.:versioning ///artifact/versioning.:last_updated] now))
-           versioning_snapshot (its [///metadata/snapshot.:versioning ///artifact/versioning.:snapshot] snapshot)]]
-    (pure (|> snapshot
-              (has [///metadata/snapshot.:versioning ///artifact/versioning.:versions]
-                   (list [///artifact/snapshot/version.:extension type
-                          ///artifact/snapshot/version.:value (///artifact/snapshot/version/value.as_text
-                                                               [///artifact/snapshot/version/value.:version version_template
-                                                                ///artifact/snapshot/version/value.:snapshot versioning_snapshot])
-                          ///artifact/snapshot/version.:updated now]))
-              (comment (has [///metadata/snapshot.:versioning ///artifact/versioning.:snapshot]
-                            (list:composite (..artifacts type (pair.right (its ///package.:library package)))
-                                            (..artifacts ///artifact/type.pom (pair.right (its ///package.:pom package))))))
-              ))))
+     (-> Dependency Instant Metadata (Try Metadata))
+     (monad.let try.monad
+                [now (is (Try ///artifact/time.Time)
+                         (///artifact/time.of_instant now))
+                 .let [version_template (its ///artifact.:version artifact)
+                       snapshot (|> snapshot
+                                    (revised [///metadata/snapshot.:versioning ///artifact/versioning.:snapshot]
+                                             (is (Change Snapshot)
+                                                 (function (_ snapshot)
+                                                           (when snapshot
+                                                                 {///artifact/snapshot.:Local}
+                                                                 {///artifact/snapshot.:Local}
+                                                                 
+                                                                 {///artifact/snapshot.:Remote [_ build]}
+                                                                 {///artifact/snapshot.:Remote [now (++ build)]}))))
+                                    (has [///metadata/snapshot.:versioning ///artifact/versioning.:last_updated] now))
+                       versioning_snapshot (its [///metadata/snapshot.:versioning ///artifact/versioning.:snapshot] snapshot)]]
+                (pure (|> snapshot
+                          (has [///metadata/snapshot.:versioning ///artifact/versioning.:versions]
+                               (list [///artifact/snapshot/version.:extension type
+                                      ///artifact/snapshot/version.:value (///artifact/snapshot/version/value.as_text
+                                                                           [///artifact/snapshot/version/value.:version version_template
+                                                                            ///artifact/snapshot/version/value.:snapshot versioning_snapshot])
+                                      ///artifact/snapshot/version.:updated now]))
+                          (comment (has [///metadata/snapshot.:versioning ///artifact/versioning.:snapshot]
+                                        (list:composite (..artifacts type (pair.right (its ///package.:library package)))
+                                                        (..artifacts ///artifact/type.pom (pair.right (its ///package.:pom package))))))
+                          ))))
 
 (the .public (one repository [artifact type] package)
-  (-> (Repository Future) Dependency Package (Future (Try Artifact)))
-  (monad.let [! future.monad]
-    [now (future.soon instant.now)
-     .let [version_template (its ///artifact.:version artifact)]]
-    (monad.let (try.with !)
-      [_ (with_status repository version_template [artifact type] (its ///package.:library package))
+     (-> (Repository Future) Dependency Package (Future (Try Artifact)))
+     (monad.let [! future.monad]
+                [now (future.soon instant.now)
+                 .let [version_template (its ///artifact.:version artifact)]]
+                (monad.let (try.with !)
+                           [_ (with_status repository version_template [artifact type] (its ///package.:library package))
 
-       _ (let [[pom pom_data status] (its ///package.:pom package)]
-           (with_status repository
-                        version_template
-                        [artifact ///artifact/type.pom]
-                        [pom_data
-                         status]))
+                            _ (let [[pom pom_data status] (its ///package.:pom package)]
+                                   (with_status repository
+                                                version_template
+                                                [artifact ///artifact/type.pom]
+                                                [pom_data
+                                                 status]))
 
-       snapshot (///metadata/snapshot.read repository artifact)
-       snapshot (by ! pure (..update_snapshot [artifact type] now snapshot))
-       _ (///metadata/snapshot.write repository artifact snapshot)
-       project (///metadata/artifact.read repository artifact)
-       _ (|> project
-             (has ///metadata/artifact.:versions (list version_template))
-             (has ///metadata/artifact.:last_updated now)
-             (///metadata/artifact.write repository artifact))]
-      (pure artifact))))
+                            snapshot (///metadata/snapshot.read repository artifact)
+                            snapshot (by ! pure (..update_snapshot [artifact type] now snapshot))
+                            _ (///metadata/snapshot.write repository artifact snapshot)
+                            project (///metadata/artifact.read repository artifact)
+                            _ (|> project
+                                  (has ///metadata/artifact.:versions (list version_template))
+                                  (has ///metadata/artifact.:last_updated now)
+                                  (///metadata/artifact.write repository artifact))]
+                           (pure artifact))))
 
 (the .public (all repository resolution)
-  (-> (Repository Future) Resolution (Future (Try (Set Artifact))))
-  (let [! (try.with future.monad)]
-    (|> (dictionary.entries resolution)
-        (list.each' ! (function (_ [dependency package])
-                        (..one repository dependency package)))
-        (by ! each (set.of_list ///artifact.hash)))))
+     (-> (Repository Future) Resolution (Future (Try (Set Artifact))))
+     (let [! (try.with future.monad)]
+          (|> (dictionary.entries resolution)
+              (list.each' ! (function (_ [dependency package])
+                                      (..one repository dependency package)))
+              (by ! each (set.of_list ///artifact.hash)))))
