@@ -1,5 +1,6 @@
 # Reference
 
+0. [Effectful Recursion Schemes](https://effekt-lang.org/blog/recursion-schemes/)
 0. [An Introduction to Recursion Schemes](https://blog.sumtypeofway.com/posts/introduction-to-recursion-schemes.html)
 0. [Recursion Schemes, Part II: A Mob of Morphisms](https://blog.sumtypeofway.com/posts/recursion-schemes-part-2.html)
 0. [Recursion Schemes, Part III: Folds in Context](https://blog.sumtypeofway.com/posts/recursion-schemes-part-3.html)
