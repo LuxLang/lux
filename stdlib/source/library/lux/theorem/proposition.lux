@@ -9,9 +9,10 @@
    [data
     ["[0]" case]
     ["[0]" pair]
-    ["[0]" text]
+    ["[0]" text (.only \n)]
     [collection
      ["[0]" stack]
+     ["[0]" dictionary (.only Dictionary)]
      ["[0]" list (.open monad monoid)
       ["?[1]" \\projection]
       ["[0]" property]]]]
@@ -54,7 +55,9 @@
    [logic
     ["[0]" bit]]
    [aspect
-    ["[0]" view]]]])
+    ["[0]" view]]
+   [function
+    [predicate (.only Predicate)]]]])
 
 (comment "https://en.wikipedia.org/wiki/Identity_(mathematics)"
          (every .public Identity
@@ -623,6 +626,102 @@
 
                     else
                     [0 left_or_right 'term])))
+
+(the (indentation it)
+     (-> Natural
+         Text)
+     (|> " "
+         (list.repeated it)
+         text.together))
+
+(the (nest indentation it)
+     (-> Text
+         (Change Text))
+     (text.replaced \n (text \n indentation) it))
+
+(the line?
+     (Predicate Text)
+     (|>> (text.contains? \n)
+          not))
+
+(<| (the .public (pretty_analysis alias)
+         (-> reference.Alias
+             (text.Injection analysis.Term)))
+    (function (pretty_analysis analysis))
+    (.when analysis
+           {@type.:Simple @ it}
+           (analysis/simple.as_text it)
+           
+           {@type.:Complex @ it}
+           "???"
+           
+           {@type.:Reference @ it}
+           (reference.custom alias it)
+           
+           {@type.:When @ analysis [head tail]}
+           "???"
+           
+           {@type.:Abstraction @ environment body}
+           (.let [prefix "(.function# "
+                  indentation (..indentation (text.size prefix))]
+                 (text prefix
+                       (|> environment
+                           (list:each pretty_analysis)
+                           (text.interposed (text \n " "))
+                           (text.inside ["[" "]"])
+                           (nest indentation))
+                       (nest indentation (text \n (pretty_analysis body)))
+                       ")"))
+           
+           {@type.:Application @ _}
+           (.let [[abstraction every_parameter] (analysis.reification analysis)
+                  abstraction (pretty_analysis abstraction)
+                  size_of_parenthesis 1
+                  size_of_space 1
+                  prefix (text "(" (nest (..indentation size_of_parenthesis) abstraction))
+                  line? (line? abstraction)
+                  indentation (..indentation (.if line?
+                                                  (n.+ size_of_space (text.size prefix))
+                                                  size_of_space))]
+                 (text prefix
+                       (|> every_parameter
+                           (list:each pretty_analysis)
+                           (text.interposed \n)
+                           (text " ")
+                           (nest indentation))
+                       ")"))
+
+           (..term @ register name)
+           (text "(" (by n.base_10 as register)
+                 " " (text.as_text name)
+                 ")")
+
+           (..'case @ left_or_right 'term)
+           (.let [[every_left left_or_right 'term] (as_variant left_or_right 'term)
+                  prefix (text "{" (by n.base_10 as every_left)
+                               " " (bit.as_text left_or_right)
+                               " ")]
+                 (text prefix
+                       (nest (..indentation (text.size prefix))
+                             (pretty_analysis 'term))
+                       "}"))
+
+           (..'pair @ 'left 'right)
+           (|> (stack.partial 'left (tail_of_tuple 'right))
+               (view.of list.stack)
+               (list:each pretty_analysis)
+               (text.interposed \n)
+               (text.inside ["[" "]"])
+               (nest (..indentation 1)))
+           
+           {@type.:Extension @ name every_parameter}
+           (.let [prefix (text "(" (by (name.relative "") as name) " ")]
+                 (text prefix
+                       (|> every_parameter
+                           (list:each pretty_analysis)
+                           (text.interposed \n)
+                           (nest (..indentation (text.size prefix))))
+                       ")"))))
 
 (the .public (analysis:as_text relative_to analysis)
      (-> module.Name
