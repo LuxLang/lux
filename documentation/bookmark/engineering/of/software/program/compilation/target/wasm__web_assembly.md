@@ -23,6 +23,7 @@
 
 # Reference
 
+0. [Endive: A JVM native WebAssembly runtime](https://github.com/bytecodealliance/endive)
 0. [GraalWasm: A high-performance embeddable WebAssembly runtime for Java](https://www.graalvm.org/webassembly/)
 0. [Awesome WebAssembly runtimes](https://github.com/jcbhmr/awesome-webassembly-runtimes)
 0. [Chicory Runtime](https://github.com/dylibso/chicory)
