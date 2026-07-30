@@ -5,7 +5,6 @@
 
 # Concurrency
 
-0. []()
 0. [Wasm threads are now available in all browsers](https://old.reddit.com/r/WebAssembly/comments/rk83mr/wasm_threads_are_now_available_in_all_browsers/)
 
 # Platform
@@ -23,6 +22,7 @@
 
 # Reference
 
+0. [The best WebAssembly runtime may still be no runtime at all](https://00f.net/2026/07/08/webassembly-compilation-to-c-2026/)
 0. [Endive: A JVM native WebAssembly runtime](https://github.com/bytecodealliance/endive)
 0. [GraalWasm: A high-performance embeddable WebAssembly runtime for Java](https://www.graalvm.org/webassembly/)
 0. [Awesome WebAssembly runtimes](https://github.com/jcbhmr/awesome-webassembly-runtimes)
