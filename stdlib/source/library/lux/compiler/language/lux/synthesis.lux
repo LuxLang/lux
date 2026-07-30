@@ -1,7 +1,6 @@
 (.using
  [library
-  [lux (.except :Reification
-                :locals :source
+  [lux (.except :locals :source
                 i64 local
                 let exec when its variant tuple text
                 if and
@@ -69,31 +68,26 @@
      (dictionary.empty variable.hash))
 
 (every .public (Abstraction' it)
-       (Record [:environment (Environment it)
-                :arity Arity
+       (Record [:arity Arity
+                :environment (Environment it)
                 :body it]))
-
-(every .public (Reification' it)
-       (Record [:function it
-                :arguments (List it)]))
 
 (every .public (When it)
        (Record [:input it
                 :output (/path.Path it)]))
 
-(every .public (Function it)
-       (Variant {:Abstraction (Abstraction' it)}
-                {:Reification (Reification' it)}))
-
 (every .public (Control it)
        (Variant {:When (When it)}
-                {:Function (Function it)}))
+                {:Function (Abstraction' it)}))
 
 (every .public (Term _)
        (Variant {:Simple Provenance Simple}
                 {:Reference Provenance Reference}
                 {:Control Provenance (Control Term)}
                 {:Extension Provenance (Extension Term)}))
+
+(every .public Reification
+       [Term (List Term)])
 
 (the .public (provenance it)
      (-> Term
@@ -121,9 +115,6 @@
 
 (every .public Abstraction
        (Abstraction' Term))
-
-(every .public Reification
-       (Reification' Term))
 
 (the .public unit
      Text
@@ -191,16 +182,20 @@
                            {..:When}
                            content)]))
 
-(template.with [<name> <family> <tag>]
+(template.with [<name> <family>]
                [(the .public <name>
                      (template.macro (<name> <@> content)
                                      [(.<| {..:Control <@>}
                                            {<family>}
-                                           {<tag>}
                                            content)]))]
 
-               [[abstraction ..:Function ..:Abstraction]
-                [reification ..:Function ..:Reification]])
+               [[abstraction ..:Function]])
+
+(`` (template.the .public (reification ,@ ,abstraction ,every_argument)
+                  [{..:Extension ,@ [@type.:name [(,, (static.text .prelude))
+                                                  (,, (static.text (extension.synthesis extension/lux.reification)))]
+                                     @type.:parameters (.list ,abstraction
+                                                              (..tuple ,@ ,every_argument))]}]))
 
 (`` (template.the .public (loop ,@ ,start ,every_initial_value ,iteration)
                   [{..:Extension ,@ [@type.:name [(,, (static.text .prelude))
@@ -225,22 +220,15 @@
 
             {:Control _ control}
             (.when control
-                   {:Function function}
-                   (.when function
-                          {:Abstraction [environment arity body]}
-                          (.let [environment' (|> environment
-                                                  (list:each as_text)
-                                                  (text.interposed " ")
-                                                  (text.inside ["[" "]"]))]
-                                (|> (.text environment' " " (%.natural arity) " " (as_text body))
-                                    (text.inside ["{:function " "}"])))
-                          
-                          {:Reification func args}
-                          (|> args
-                              (list:each as_text)
-                              (text.interposed " ")
-                              (.text (as_text func) " ")
-                              (text.inside ["(" ")"])))
+                   {:Function [..:arity arity
+                               ..:environment environment
+                               ..:body body]}
+                   (.let [environment' (|> environment
+                                           (list:each as_text)
+                                           (text.interposed " ")
+                                           (text.inside ["[" "]"]))]
+                         (|> (.text environment' " " (%.natural arity) " " (as_text body))
+                             (text.inside ["{:function " "}"])))
 
                    {:When input path}
                    (|> (.text (as_text input) " " (/path.as_text as_text path))
@@ -265,46 +253,34 @@
 (the (function_equality it)
      (for_any (_ it)
               (-> (Equality it)
-                  (Equality (Function it))))
+                  (Equality (Abstraction' it))))
      (with "/:[0]" it
            (implementation
-            (the (= expected actual)
-                 (.when [expected actual]
-                        [{:Abstraction [expected_environment expected_arity expected_body]}
-                         {:Abstraction [actual_environment actual_arity actual_body]}]
-                        (.and (by (list.equality /:=) = expected_environment actual_environment)
-                              (n.= expected_arity actual_arity)
-                              (/:= expected_body actual_body))
-                        
-                        [{:Reification [expected_abstraction expected_arguments]}
-                         {:Reification [actual_abstraction actual_arguments]}]
-                        (.and (/:= expected_abstraction actual_abstraction)
-                              (by (list.equality /:=) = expected_arguments actual_arguments))
-                        
-                        _
-                        false)))))
+            (the (= [..:arity expected_arity
+                     ..:environment expected_environment
+                     ..:body expected_body]
+                    [..:arity actual_arity
+                     ..:environment actual_environment
+                     ..:body actual_body])
+                 (.and (by (list.equality /:=) = expected_environment actual_environment)
+                       (n.= expected_arity actual_arity)
+                       (/:= expected_body actual_body))))))
 
 (the (function_hash super)
      (for_any (_ it)
               (-> (Hash it)
-                  (Hash (Function it))))
+                  (Hash (Abstraction' it))))
      (implementation
       (the equality
            (..function_equality (by super equality)))
       
-      (the (hash value)
-           (.when value
-                  {:Abstraction [environment arity body]}
-                  (all n.x 2
-                       (by (list.hash super) hash environment)
-                       (by n.hash hash arity)
-                       (by super hash body))
-                  
-                  {:Reification [abstraction arguments]}
-                  (all n.x 3
-                       (by super hash abstraction)
-                       (by (list.hash super) hash arguments))
-                  ))))
+      (the (hash [..:arity arity
+                  ..:environment environment
+                  ..:body body])
+           (all n.x
+                (by n.hash hash arity)
+                (by (list.hash super) hash environment)
+                (by super hash body)))))
 
 (the (control_equality it)
      (for_any (_ it)
@@ -627,15 +603,11 @@
                                                           (all random.and
                                                                random
                                                                (/path.random 0 random)))
-                                          random_function (is (Random (Function Term))
-                                                              (all random.or
-                                                                   (all random.and
-                                                                        (random.list 1 random)
-                                                                        random.natural
-                                                                        random)
-                                                                   (all random.and
-                                                                        random
-                                                                        (random.list 1 random))))]
+                                          random_function (is (Random (Abstraction' Term))
+                                                              (all random.and
+                                                                   random.natural
+                                                                   (random.list 1 random)
+                                                                   random))]
                                          (all random.or
                                               random_when
                                               random_function)))
