@@ -76,7 +76,7 @@
      (monad.let [! random.monad]
                 [size (by ! each (n.% 5) random.natural)]
                 (|> ..random_variable
-                    (by ! each (|>> (/.variable provenance.dummy)))
+                    (by ! each (|>> {/.:Variable provenance.dummy}))
                     (random.list size))))
 
 (the \\projection
@@ -108,8 +108,27 @@
                                       [\\projection.f64 \\projection.this_f64 random.unit_real /.f64 real.equality]
                                       [\\projection.text \\projection.this_text (random.unicode 1) /.text text.equality]
                                       [\\projection.local \\projection.this_local random.natural /.local n.equality]
-                                      [\\projection.foreign \\projection.this_foreign random.natural /.foreign n.equality]
-                                      [\\projection.constant \\projection.this_constant ..random_constant /.constant name.equality]]))
+                                      [\\projection.foreign \\projection.this_foreign random.natural /.foreign n.equality]]))
+
+                  (monad.let [! random.monad]
+                             [[expected_module expected_proper] ..random_constant
+                              [dummy_module dummy_proper] (|> ..random_constant
+                                                              (random.only (|>> (by name.equality = [expected_module expected_proper])
+                                                                                not)))]
+                             (all _.and
+                                  (_.coverage [\\projection.constant]
+                                              (|> \\projection.constant
+                                                  (?list.value (list (/.constant provenance.dummy expected_module expected_proper)))
+                                                  (match? (^.multi {try.:Success actual}
+                                                                   (by name.equality = [expected_module expected_proper] actual)))))
+                                  (_.coverage [\\projection.this_constant]
+                                              (and (|> (\\projection.this_constant [expected_module expected_proper])
+                                                       (?list.value (list (/.constant provenance.dummy expected_module expected_proper)))
+                                                       (match? {try.:Success _}))
+                                                   (|> (\\projection.this_constant [expected_module expected_proper])
+                                                       (?list.value (list (/.constant provenance.dummy dummy_module dummy_proper)))
+                                                       (match? {try.:Failure error}))))
+                                  ))
 
                   (monad.let [! random.monad]
                              [expected_bit random.bit
@@ -184,7 +203,7 @@
          (`` (all _.and
                   (,, (template.with [,tag ,expected]
                                      [(_.coverage [,tag]
-                                                  (when (is /.Term (,tag expected_provenance ,expected))
+                                                  (when (,tag expected_provenance ,expected)
                                                         (,tag actual_provenance actual)
                                                         (and (identical? expected_provenance actual_provenance)
                                                              (identical? ,expected actual))
@@ -209,12 +228,11 @@
                      expected_text (random.lower_cased 1)])
          (all _.and
               (_.coverage [/.tuple]
-                          (let [expected_tuple (is (List /.Term)
-                                                   (list (/.bit expected_provenance expected_bit)
-                                                         (/.i64 expected_provenance expected_i64)
-                                                         (/.f64 expected_provenance expected_f64)
-                                                         (/.text expected_provenance expected_text)))]
-                               (when (is /.Term (/.tuple expected_provenance expected_tuple))
+                          (let [expected_tuple (list (/.bit expected_provenance expected_bit)
+                                                     (/.i64 expected_provenance expected_i64)
+                                                     (/.f64 expected_provenance expected_f64)
+                                                     (/.text expected_provenance expected_text))]
+                               (when (/.tuple expected_provenance expected_tuple)
                                      (/.tuple actual_provenance actual_tuple)
                                      (and (identical? expected_provenance actual_provenance)
                                           (identical? expected_tuple actual_tuple))
@@ -229,15 +247,11 @@
                     [expected_provenance provenanceT.random
                      
                      expected_register random.natural
-                     expected_variable (is (Random Variable)
-                                           (random.or random.natural
-                                                      random.natural))
-                     expected_constant (nameT.random 1 2)])
-         (_.for [/.:Reference])
+                     [expected_module expected_proper] (nameT.random 1 2)])
          (`` (all _.and
                   (,, (template.with [,tag ,expected]
                                      [(_.coverage [,tag]
-                                                  (when (is /.Term (,tag expected_provenance ,expected))
+                                                  (when (,tag expected_provenance ,expected)
                                                         (,tag actual_provenance actual)
                                                         (and (identical? expected_provenance actual_provenance)
                                                              (identical? ,expected actual))
@@ -246,9 +260,16 @@
                                                         false))]
 
                                      [[/.local expected_register]
-                                      [/.foreign expected_register]
-                                      [/.variable expected_variable]
-                                      [/.constant expected_constant]]))))))
+                                      [/.foreign expected_register]]))
+                  (_.coverage [/.constant]
+                              (when (/.constant expected_provenance expected_module expected_proper)
+                                    (/.constant actual_provenance actual_module actual_proper)
+                                    (and (identical? expected_provenance actual_provenance)
+                                         (identical? expected_module actual_module)
+                                         (identical? expected_proper actual_proper))
+
+                                    else
+                                    false))))))
 
 (the control/when
      Test
@@ -272,9 +293,9 @@
                  /.:When
                  /.when])
          (`` (all _.and
-                  (let [expected_when (is /.Term (/.bit expected_provenance expected_bit))
-                        expected_then (is /.Term (/.text expected_provenance expected_text))
-                        expected_else (is /.Term (/.f64 expected_provenance expected_f64))]
+                  (let [expected_when (/.bit expected_provenance expected_bit)
+                        expected_then (/.text expected_provenance expected_text)
+                        expected_else (/.f64 expected_provenance expected_f64)]
                        (all _.and
                             (<| (_.for [/.If
                                         /.:if_when /.:if_then /.:if_else])
@@ -461,8 +482,8 @@
 
                                               else
                                               false))))
-                  (let [expected_input (is /.Term (/.text expected_provenance expected_text))
-                        expected_body (is /.Term (/.f64 expected_provenance expected_f64))]
+                  (let [expected_input (/.text expected_provenance expected_text)
+                        expected_body (/.f64 expected_provenance expected_f64)]
                        (all _.and
                             (_.coverage [/.Let
                                          /.:let_binding /.:let_input /.:let_body
@@ -479,7 +500,7 @@
                                               false))
                             (_.coverage [/.flat_let]
                                         (let [expected_register' (++ expected_register)
-                                              expected_input' (is /.Term (/.text expected_provenance (text expected_text expected_text)))]
+                                              expected_input' (/.text expected_provenance (text expected_text expected_text))]
                                              (when (<| /.flat_let
                                                        (/.let expected_provenance expected_register expected_input)
                                                        (/.let expected_provenance expected_register' expected_input')
@@ -493,8 +514,8 @@
 
                                                    else
                                                    false)))))
-                  (let [expected_before (is /.Term (/.text expected_provenance expected_text))
-                        expected_after (is /.Term (/.f64 expected_provenance expected_f64))]
+                  (let [expected_before (/.text expected_provenance expected_text)
+                        expected_after (/.f64 expected_provenance expected_f64)]
                        (all _.and
                             (_.coverage [/.Exec
                                          /.:exec_before /.:exec_after
@@ -509,7 +530,7 @@
                                               else
                                               false))
                             (_.coverage [/.flat_exec]
-                                        (let [expected_before' (is /.Term (/.text expected_provenance (text expected_text expected_text)))]
+                                        (let [expected_before' (/.text expected_provenance (text expected_text expected_text))]
                                              (when (<| /.flat_exec
                                                        (/.exec expected_provenance expected_before)
                                                        (/.exec expected_provenance expected_before')
@@ -659,21 +680,20 @@
          (`` (all _.and
                   ..control/when
                   (<| (_.for [/.:Function])
-                      (let [expected_environment (is (List /.Term)
-                                                     (list (/.bit expected_provenance expected_bit)
-                                                           (/.i64 expected_provenance expected_i64)
-                                                           (/.f64 expected_provenance expected_f64)
-                                                           (/.text expected_provenance expected_text)))
-                            expected_term (is /.Term (/.text expected_provenance expected_text))])
+                      (let [expected_environment (list (/.bit expected_provenance expected_bit)
+                                                       (/.i64 expected_provenance expected_i64)
+                                                       (/.f64 expected_provenance expected_f64)
+                                                       (/.text expected_provenance expected_text))
+                            expected_term (/.text expected_provenance expected_text)])
                       (all _.and
                            (_.coverage [/.Abstraction /.Abstraction'
                                         /.:environment /.:arity /.:body
                                         
                                         /.abstraction]
-                                       (when (is /.Term (/.abstraction expected_provenance
-                                                                       [/.:environment expected_environment
-                                                                        /.:arity expected_arity
-                                                                        /.:body expected_term]))
+                                       (when (/.abstraction expected_provenance
+                                                            [/.:environment expected_environment
+                                                             /.:arity expected_arity
+                                                             /.:body expected_term])
                                              (/.abstraction actual_provenance
                                                             [/.:environment actual_environment
                                                              /.:arity actual_arity
@@ -687,7 +707,7 @@
                                              false))
                            (_.coverage [/.Reification
                                         /.reification]
-                                       (when (is /.Term (/.reification expected_provenance expected_term expected_environment))
+                                       (when (/.reification expected_provenance expected_term expected_environment)
                                              (/.reification actual_provenance actual_term actual_environment)
                                              (and (identical? expected_provenance actual_provenance)
                                                   (identical? expected_term actual_term)
