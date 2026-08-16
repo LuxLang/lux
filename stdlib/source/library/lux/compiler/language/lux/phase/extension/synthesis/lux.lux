@@ -515,10 +515,13 @@
      (..custom
       [(all ?.and ?list.any ?list.any)
        (function (_ name synthesis archive ['value 'body])
-                 (monad.let phase.monad
+                 (monad.let [! phase.monad]
                             ['value (synthesis archive 'value)
-                             'body (synthesis archive 'body)
-                             register synthesis.locals
+                             [register 'body] (<| (monad.let !
+                                                             [register synthesis.locals
+                                                              'body (synthesis archive 'body)])
+                                                  synthesis.with_new_local
+                                                  (pure [register 'body]))
                              .let [@ (synthesis.provenance 'value)]]
                             (pure (when (valid_body register 'body)
                                         {try.:Success 'body}
@@ -760,11 +763,14 @@
             ?list.any
             ?list.any)
        (function (_ name synthesis archive ['case 'left 'right])
-                 (monad.let phase.monad
+                 (monad.let [! phase.monad]
                             ['case (synthesis archive 'case)
-                             'left (synthesis archive 'left)
-                             'right (synthesis archive 'right)
-                             register synthesis.locals
+                             [register 'left 'right] (<| (monad.let !
+                                                                    [register synthesis.locals
+                                                                     'left (synthesis archive 'left)
+                                                                     'right (synthesis archive 'right)])
+                                                         synthesis.with_new_local
+                                                         (pure [register 'left 'right]))
                              .let [@ (synthesis.provenance 'case)
                                    'then (<| (function (_ 'it))
                                              (try.else (synthesis.reification @ 'it (list (synthesis.local @ register))))
@@ -791,19 +797,19 @@
      Handler
      (..custom
       [(all ?.and ?list.any ?list.any)
-       (function (_ name synthesis archive [left right])
-                 (expansion.let [,extension (static.text (extension.synthesis extension/lux.pair))]
-                                (template.let [(flat_pair ,left ,right)
-                                               [(when ,right
-                                                      {synthesis.:Extension @ [.prelude ,extension] tail}
-                                                      {synthesis.:Extension @ [.prelude ,extension] (list:composite (list ,left) tail)}
+       (<| (function (_ name synthesis archive [left right]))
+           (expansion.let [,extension (static.text (extension.synthesis extension/lux.pair))])
+           (template.let [(flat_pair ,left ,right)
+                          [(when ,right
+                                 {synthesis.:Extension @ [.prelude ,extension] tail}
+                                 {synthesis.:Extension @ [.prelude ,extension] (list:composite (list ,left) tail)}
 
-                                                      else
-                                                      {synthesis.:Extension (synthesis.provenance ,left) [.prelude ,extension] (list ,left ,right)})]]
-                                              (monad.let phase.monad
-                                                         [left (synthesis archive left)
-                                                          right (synthesis archive right)]
-                                                         (pure (flat_pair left right))))))]))
+                                 else
+                                 {synthesis.:Extension (synthesis.provenance ,left) [.prelude ,extension] (list ,left ,right)})]])
+           (monad.let phase.monad
+                      [left (synthesis archive left)
+                       right (synthesis archive right)])
+           (pure (flat_pair left right)))]))
 
 (every Side
        [Natural Bit @type.Register])
@@ -877,11 +883,16 @@
      (..custom
       [(all ?.and ?list.any ?list.any)
        (function (_ name synthesis archive [pair body])
-                 (<| (monad.let phase.monad
+                 (<| (monad.let [! phase.monad]
                                 [pair (synthesis archive pair)
-                                 body (synthesis archive body)
-                                 left synthesis.locals
-                                 .let [right (++ left)]])
+                                 [left right body] (<| (monad.let !
+                                                                  [left synthesis.locals])
+                                                       synthesis.with_new_local
+                                                       (monad.let !
+                                                                  [right synthesis.locals
+                                                                   body (synthesis archive body)])
+                                                       synthesis.with_new_local
+                                                       (pure [left right body]))])
                      pure
                      (try.else (.let [@ (synthesis.provenance pair)]
                                      (<| {synthesis.:Control @}
@@ -933,22 +944,28 @@
             ?list.any
             ?list.any)
        (<| (function (_ name synthesis archive ['list 'nil 'cons]))
-           (monad.let phase.monad
+           (monad.let [! phase.monad]
                       ['list (synthesis archive 'list)
                        'nil (synthesis archive 'nil)
-                       register_of_head synthesis.locals
-                       .let [register_of_tail (++ register_of_head)]
-                       'cons (synthesis archive 'cons)])
-           phase.of_try
-           (monad.let try.monad
-                      ['cons (valid_body register_of_head 'cons)
-                       'cons (valid_body register_of_tail 'cons)])
-           (pure (.let [@ (synthesis.provenance 'list)]
-                       {synthesis.:Extension @ [.prelude (extension.synthesis name)]
-                                             (list 'list
-                                                   'nil
-                                                   (synthesis.local @ register_of_head)
-                                                   'cons)})))]))
+                       [register_of_head register_of_tail 'cons] (<| (monad.let !
+                                                                                [register_of_head synthesis.locals])
+                                                                     synthesis.with_new_local
+                                                                     (monad.let !
+                                                                                [register_of_tail synthesis.locals
+                                                                                 'cons (synthesis archive 'cons)])
+                                                                     synthesis.with_new_local
+                                                                     (pure [register_of_head register_of_tail 'cons]))
+                       .let [@ (synthesis.provenance 'list)
+                             'cons (try.else (synthesis.reification @ 'cons (list (synthesis.local @ register_of_head)
+                                                                                  (synthesis.local @ register_of_tail)))
+                                             (monad.let try.monad
+                                                        ['cons (valid_body register_of_head 'cons)]
+                                                        (valid_body register_of_tail 'cons)))]])
+           (pure {synthesis.:Extension @ [.prelude (extension.synthesis name)]
+                                       (list 'list
+                                             'nil
+                                             (synthesis.local @ register_of_head)
+                                             'cons)}))]))
 
 (the (flat_text_composite expected)
      (-> Name

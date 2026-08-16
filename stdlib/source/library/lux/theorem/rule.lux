@@ -4,14 +4,13 @@
    [abstract
     [[0] monad]]
    [error
-    [[0] try (.only Try) (.open functor)]
-    [[0] exception (.only Exception)]]
+    [[0] try (.only Try)]
+    [[0] exception]]
    [data
     [[0] pair]
     [collection
      [[0] list (.open functor)]
      [[0] dictionary (.only Dictionary)]]]
-   [[0] function]
    [logic
     [[0] bit]]
    [math
@@ -25,7 +24,6 @@
     [[0] static]
     [[0] provenance]]
    [macro
-    [["^"] pattern]
     [[0] template]
     [[0] expansion]]
    [compiler
@@ -36,13 +34,12 @@
      [[0] variable]]
     [language
      [lux
-      [[0] analysis (.only)
-       [[0] simple]
-       [[0] pattern]]]]]]]
+      [[0] analysis]]]]]]
  [//
   [["?"] proposition]
   [["in"] substitution (.only Substitution Rule)]
-  [[0] term]])
+  [[0] term]
+  [[0] context (.only Context)]])
 
 (the (substitution_of_local expectation value)
      (-> @type.Register analysis.Term
@@ -363,287 +360,14 @@
            else
            (exception.except in.not_valid [(.name ..if_case) it])))
 
-(exception.the .public (foreign_is_not_known [closure foreign])
-               (Exception [(List analysis.Term) @type.Register])
-               (exception.report (list ["Expected" (exception.listing (term.as_text "")
-                                                                      closure)]
-                                       ["Foreign" (.by natural.base_10 as foreign)])))
-
-(the (with_closure closure)
-     (-> (List analysis.Term) analysis.Term
-         (Try analysis.Term))
-     (.function (of it)
-                (when it
-                      {@type.:Simple @ _}
-                      {try.:Success it}
-                      
-                      {@type.:Complex @ it}
-                      (when it
-                            {@type.:Complex_Variant it}
-                            (try:each (.function (_ value)
-                                                 (|> it
-                                                     (has @type.:value value)
-                                                     {@type.:Complex_Variant}
-                                                     {@type.:Complex @}))
-                                      (of (its @type.:value it)))
-                            
-                            {@type.:Complex_Tuple it}
-                            (try:each (|>> {@type.:Complex_Tuple}
-                                           {@type.:Complex @})
-                                      (list.each' try.monad of it)))
-                      
-                      {@type.:Reference @ it'}
-                      (when it'
-                            {@type.:Variable_Reference it'}
-                            (when it'
-                                  {@type.:Local _}
-                                  {try.:Success it}
-                                  
-                                  {@type.:Foreign foreign}
-                                  (when (list.item foreign closure)
-                                        {try.:Success it}
-                                        {try.:Success it}
-
-                                        {try.:Failure _}
-                                        (exception.except ..foreign_is_not_known [closure foreign])))
-                            
-                            {@type.:Constant_Reference _}
-                            {try.:Success it})
-                      
-                      {@type.:When @ input [head tail]}
-                      (monad.let [! try.monad]
-                                 [input (of input)
-                                  .let [of_then (is (-> analysis.Branch
-                                                        (Try analysis.Branch))
-                                                    (.function (_ it)
-                                                               (monad.let !
-                                                                          [then (of (its @type.:then it))]
-                                                                          (pure (has @type.:then then it)))))]
-                                  head (of_then head)
-                                  tail (list.each' try.monad of_then tail)]
-                                 (pure {@type.:When @ input [head tail]}))
-                      
-                      {@type.:Abstraction @ environment body}
-                      (monad.let try.monad
-                                 [environment (list.each' try.monad of environment)]
-                                 (pure {@type.:Abstraction @ environment body}))
-                      
-                      {@type.:Application @ parameter abstraction}
-                      (monad.let try.monad
-                                 [parameter (of parameter)
-                                  abstraction (of abstraction)]
-                                 (pure {@type.:Application @ parameter abstraction}))
-                      
-                      {@type.:Extension @ name parameters}
-                      (monad.let try.monad
-                                 [parameters (list.each' try.monad of parameters)]
-                                 (pure {@type.:Extension @ name parameters})))))
-
-(every Context
-       (Dictionary @type.Register analysis.Term))
-
-(the empty
-     Context
-     (dictionary.empty natural.hash))
-
-(exception.the .public (cannot_extract_context [alias expected actual])
-               (Exception [reference.Alias analysis.Term analysis.Term])
-               (exception.report (list ["Expected" (term.pretty alias expected)]
-                                       ["Actual" (term.pretty alias actual)])))
-
-(exception.the .public (contradiction [alias expected actual])
-               (Exception [reference.Alias analysis.Term analysis.Term])
-               (exception.report (list ["Expected" (term.pretty alias expected)]
-                                       ["Actual" (term.pretty alias actual)])))
-
-(the (context alias original_expected original_actual it)
-     (-> reference.Alias analysis.Term analysis.Term Context
-         (Try Context))
-     (loop (context [expected original_expected
-                     actual original_actual
-                     it it])
-           (when [expected actual]
-                 [(term.new _ @ name) _]
-                 (when (dictionary.value @ it)
-                       {try.:Success expected}
-                       (.if (.with analysis.equality
-                                   (= expected actual))
-                            {try.:Success it}
-                            (exception.except ..contradiction [alias original_expected original_actual]))
-
-                       {try.:Failure not_known!}
-                       {try.:Success (dictionary.has @ actual it)})
-                 
-                 [{@type.:Simple _ expected'} {@type.:Simple _ actual'}]
-                 (.if (.with simple.equality
-                             (= expected' actual'))
-                      {try.:Success it}
-                      (exception.except ..cannot_extract_context [alias original_expected original_actual]))
-                 
-                 [{@type.:Complex _ {@type.:Complex_Variant [expected_lefts expected_right? expected_choice]}}
-                  {@type.:Complex _ {@type.:Complex_Variant [actual_lefts actual_right? actual_choice]}}]
-                 (.if (.and (natural.= expected_lefts actual_lefts)
-                            (bit.= expected_right? actual_right?))
-                      (context expected_choice actual_choice it)
-                      (exception.except ..cannot_extract_context [alias original_expected original_actual]))
-
-                 [{@type.:Complex _ {@type.:Complex_Tuple expected'}}
-                  {@type.:Complex _ {@type.:Complex_Tuple actual'}}]
-                 (.if (natural.= (list.size expected') (list.size actual'))
-                      (list.mix' try.monad (function.uncurried context) (list.zipped_2 expected' actual') it)
-                      (exception.except ..cannot_extract_context [alias original_expected original_actual]))
-                 
-                 [{@type.:Reference _ expected'} {@type.:Reference _ actual'}]
-                 (.if (.with reference.equality
-                             (= expected' actual'))
-                      {try.:Success it}
-                      (exception.except ..cannot_extract_context [alias original_expected original_actual]))
-                 
-                 [{@type.:When _ expected_input
-                               [[expected_output_head_pattern expected_output_head]
-                                expected_output_tail]}
-                  {@type.:When _ actual_input
-                               [[actual_output_head_pattern actual_output_head]
-                                actual_output_tail]}]
-                 (.if (.and (natural.= (list.size expected_output_tail)
-                                       (list.size actual_output_tail))
-                            (pattern.= expected_output_head_pattern
-                                       actual_output_head_pattern))
-                      (monad.let [! try.monad]
-                                 [it (context expected_input actual_input it)
-                                  it (context expected_output_head actual_output_head it)]
-                                 (list.mix' !
-                                            (.function (_ [[expected_output_tail_pattern expected_output_tail]
-                                                           [actual_output_tail_pattern actual_output_tail]]
-                                                          it)
-                                                       (.if (pattern.= expected_output_tail_pattern
-                                                                       actual_output_tail_pattern)
-                                                            (context expected_output_tail actual_output_tail it)
-                                                            (exception.except ..cannot_extract_context [alias original_expected original_actual])))
-                                            (list.zipped_2 expected_output_tail actual_output_tail)
-                                            it))
-                      (exception.except ..cannot_extract_context [alias original_expected original_actual]))
-                 
-                 [{@type.:Abstraction _ expected_environment expected_body}
-                  {@type.:Abstraction _ actual_environment actual_body}]
-                 (monad.let try.monad
-                            [expected_body (with_closure expected_environment expected_body)
-                             actual_body (with_closure actual_environment actual_body)]
-                            (context expected_body actual_body it))
-                 
-                 [{@type.:Application _ expected_parameter expected_abstraction}
-                  {@type.:Application _ actual_parameter actual_abstraction}]
-                 (monad.let try.monad
-                            [it (context expected_abstraction actual_abstraction it)]
-                            (context expected_parameter actual_parameter it))
-                 
-                 [{@type.:Extension _ expected_name expected_parameters}
-                  {@type.:Extension _ actual_name actual_parameters}]
-                 (.if (.and (name.= expected_name actual_name)
-                            (natural.= (list.size expected_parameters)
-                                       (list.size actual_parameters)))
-                      (list.mix' try.monad
-                                 (function (_ [expected_parameter actual_parameter])
-                                           (context expected_parameter actual_parameter))
-                                 (list.zipped_2 expected_parameters actual_parameters)
-                                 it)
-                      (exception.except ..cannot_extract_context [alias original_expected original_actual]))
-
-                 else
-                 (exception.except ..cannot_extract_context [alias original_expected original_actual]))))
-
-(the (substitution context)
-     (-> Context analysis.Term
-         (Try analysis.Term))
-     (.function (substitution it)
-                (when it
-                      (term.new _ @ name)
-                      (try.and/or (dictionary.value @ context)
-                                  {try.:Success it})
-
-                      (^.or {@type.:Simple @ _}
-                            {@type.:Reference @ _})
-                      {try.:Success it}
-
-                      {@type.:Complex @ it}
-                      (when it
-                            {@type.:Complex_Variant [lefts right? it]}
-                            (monad.let try.monad
-                                       [it (substitution it)]
-                                       (pure {@type.:Complex @ {@type.:Complex_Variant [lefts right? it]}}))
-                            
-                            {@type.:Complex_Tuple it}
-                            (monad.let [! try.monad]
-                                       [it (list.each' ! substitution it)]
-                                       (pure {@type.:Complex @ {@type.:Complex_Tuple it}})))
-                      
-                      {@type.:Application @ parameter abstraction}
-                      (monad.let try.monad
-                                 [parameter (substitution parameter)
-                                  abstraction (substitution abstraction)]
-                                 (pure {@type.:Application @ parameter abstraction}))
-
-                      {@type.:Abstraction @ environment body}
-                      (monad.let try.monad
-                                 [body (substitution body)]
-                                 (pure {@type.:Abstraction @ environment body}))
-
-                      {@type.:When _ input
-                                   [[output_head_pattern output_head]
-                                    output_tail]}
-                      (monad.let [! try.monad]
-                                 [input (substitution input)
-                                  output_head (substitution output_head)
-                                  output_tail (list.each' ! (.function (_ [pattern body])
-                                                                       (monad.let !
-                                                                                  [body (substitution body)]
-                                                                                  (pure [pattern body])))
-                                                          output_tail)]
-                                 (pure {@type.:When _ input
-                                                    [[output_head_pattern output_head]
-                                                     output_tail]}))
-
-                      {@type.:Extension _ name every_parameter}
-                      (monad.let [! try.monad]
-                                 [every_parameter (list.each' ! substitution every_parameter)]
-                                 (pure {@type.:Extension _ name every_parameter})))))
-
-(the (substitution' context it)
-     (-> Context ?.Proposition
-         (Try ?.Proposition))
-     (when it
-           {?.:Identity this that}
-           (monad.let try.monad
-                      [this (substitution context this)
-                       that (substitution context that)]
-                      (pure {?.:Identity this that}))
-
-           {?.:Disjunction this that}
-           (monad.let try.monad
-                      [this (substitution' context this)
-                       that (substitution' context that)]
-                      (pure {?.:Disjunction this that}))
-
-           {?.:Conjunction this that}
-           (monad.let try.monad
-                      [this (substitution' context this)
-                       that (substitution' context that)]
-                      (pure {?.:Conjunction this that}))
-
-           {?.:Entailment premise conclusion}
-           (monad.let try.monad
-                      [premise (substitution' context premise)
-                       conclusion (substitution' context conclusion)]
-                      (pure {?.:Entailment premise conclusion}))))
-
 (the .public (=' identity
                  context it)
      (-> ?.Proposition
          Rule)
      (monad.let try.monad
                 [[slow fast] (?.identity identity)
-                 context (..context (its in.:alias context) slow it ..empty)]
-                (substitution context fast)))
+                 context (context.new (its in.:alias context) slow it)]
+                (context.substitution context fast)))
 
 (the .public proposition
      (for_any (_ proof)
