@@ -32,15 +32,12 @@
      [lux
       [[0] analysis]]]]]]
  [//
+  [state (.only State)]
   [["?"] proposition]
   [[0] term]])
 
-(every .public Context
-       (Record [:every_global Lux
-                :alias reference.Alias]))
-
 (every .public (Fact premise conclusion)
-       (-> Context
+       (-> State
            (-> premise
                (Try conclusion))))
 
@@ -55,10 +52,10 @@
     (every .public Rule
            (Substitution analysis.Term)))
 
-(the .public any
-     Rule
-     (.function (_ context it)
-                {try.:Success it}))
+(<| (the .public any
+         Rule)
+    (.function (_ state it))
+    {try.:Success it})
 
 (exception.the .public (not_valid [where term])
                (Exception [Name analysis.Term])
@@ -66,14 +63,14 @@
                                         ["Term" (term.as_text "" term)])))
 
 (the .public (case expectation by_case
-                   context it)
+                   state it)
      (-> Bit
          (Change Rule))
      (when it
            (term.case @ reality it')
            (.if (bit.= expectation reality)
                 (try:each (|>> (term.case @ reality))
-                          (by_case context it'))
+                          (by_case state it'))
                 (exception.except ..not_valid [(name ..case) it]))
 
            else
@@ -122,21 +119,17 @@
     {?.:Identity [?.:slow (pattern match)
                   ?.:fast input]})
 
-(every .public (Case it)
-       (-> it
-           Rule))
-
 (the .public (if by_this by_then by_else
-                 context it)
+                 state it)
      (-> Rule Rule Rule
          Rule)
      (when it
            {@type.:Extension @ [.prelude (static.text (extension.analysis extension/lux.if))]
                              (.list this then else)}
            (monad.let [! try.monad]
-                      [this (by_this context this)
-                       then (by_then context then)
-                       else (by_else context else)]
+                      [this (by_this state this)
+                       then (by_then state then)
+                       else (by_else state else)]
                       (pure {@type.:Extension @ [.prelude (static.text (extension.analysis extension/lux.if))]
                                               (.list this then else)}))
 
@@ -153,52 +146,52 @@
             else
             (exception.except ..not_valid [(name ..as_pair) it])))
 
-(the .public (pair in_left in_right
-                   context it)
-     (-> Rule Rule
-         Rule)
-     (monad.let try.monad
-                [[left right] (as_pair it)
-                 left (in_left context left)
-                 right (in_right context right)]
-                (pure (term.pair provenance.dummy left right))))
+(<| (the .public (pair in_left in_right
+                       state it)
+         (-> Rule Rule
+             Rule))
+    (monad.let try.monad
+               [[left right] (as_pair it)
+                left (in_left state left)
+                right (in_right state right)])
+    (pure (term.pair provenance.dummy left right)))
 
 (every .public (Closure it)
-       (-> (List analysis.Term) Natural Context
+       (-> (List analysis.Term) Natural State
            (Try [Natural it])))
 
-(the .public (it by_it)
-     (-> Rule
-         (Closure ?.Proposition))
-     (.function (_ closure foreign context)
-                (monad.let try.monad
-                           [term (list.item foreign closure)
-                            term (by_it context term)]
-                           (pure [(++ foreign) {?.:Identity [?.:slow (analysis.foreign provenance.dummy foreign)
-                                                             ?.:fast term]}]))))
+(<| (the .public (it by_it)
+         (-> Rule
+             (Closure ?.Proposition)))
+    (.function (_ closure foreign state))
+    (monad.let try.monad
+               [term (list.item foreign closure)
+                term (by_it state term)])
+    (pure [(++ foreign) {?.:Identity [?.:slow (analysis.foreign provenance.dummy foreign)
+                                      ?.:fast term]}]))
 
-(the .public (and this that)
-     (for_any (_ this that)
-              (-> (Closure this) (Closure that)
-                  (Closure [this that])))
-     (.function (_ closure foreign context)
-                (monad.let try.monad
-                           [[foreign this] (this closure foreign context)
-                            [foreign that] (that closure foreign context)]
-                           (pure [foreign [this that]]))))
+(<| (the .public (and this that)
+         (for_any (_ this that)
+                  (-> (Closure this) (Closure that)
+                      (Closure (And this that)))))
+    (.function (_ closure foreign state))
+    (monad.let try.monad
+               [[foreign this] (this closure foreign state)
+                [foreign that] (that closure foreign state)])
+    (pure [foreign [this that]]))
 
 (the .public (function closure by_body
-                       context it)
+                       state it)
      (for_any (_ it)
-              (-> (Closure it) (Case it)
+              (-> (Closure it) (-> it Rule)
                   Rule))
      (when it
            {@type.:Abstraction @ closure' body}
-           (when (closure closure' 0 context)
+           (when (closure closure' 0 state)
                  {try.:Success [every_foreign_read closure]}
                  (.if (natural.= (list.size closure') every_foreign_read)
                       (monad.let try.monad
-                                 [body ((by_body closure) context body)]
+                                 [body ((by_body closure) state body)]
                                  (pure {@type.:Abstraction @ (.list) body}))
                       (exception.except ..not_valid [(name ..function) it]))
 
@@ -209,7 +202,7 @@
            (exception.except ..not_valid [(name ..function) it])))
 
 (the (extension expectation by_parameter/*
-                context it)
+                state it)
      (for_any (_ it)
               (-> Name (List Rule)
                   Rule))
@@ -220,7 +213,7 @@
                                  (list.size parameter/*)))
                 (monad.let [! try.monad]
                            [parameter/* (list.each' ! (.function (_ [by_parameter parameter])
-                                                                 (by_parameter context parameter))
+                                                                 (by_parameter state parameter))
                                                     (list.zipped_2 by_parameter/* parameter/*))]
                            (pure {@type.:Extension @ reality parameter/*}))
                 (exception.except ..not_valid [(name ..extension) it]))
@@ -264,13 +257,13 @@
                every_parameter
                by_abstraction))
 
-(the .public (= left right
-                context it)
-     (-> Rule Rule
-         (Fact ?.Proposition ?.Proposition))
-     (monad.let try.monad
-                [[slow fast] (?.identity it)
-                 slow (left context slow)
-                 fast (right context fast)]
-                (pure {?.:Identity [?.:slow slow
-                                    ?.:fast fast]})))
+(<| (the .public (= left right
+                    state it)
+         (-> Rule Rule
+             (Fact ?.Proposition ?.Proposition)))
+    (monad.let try.monad
+               [[slow fast] (?.identity it)
+                slow (left state slow)
+                fast (right state fast)])
+    (pure {?.:Identity [?.:slow slow
+                        ?.:fast fast]}))
