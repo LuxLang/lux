@@ -7010,11 +7010,6 @@
                           (text left right))))
       "" template))
 
-(the (alias_stand_in index)
-     (-> Natural
-         Text)
-     (text "[" (natural:as_text index) "]"))
-
 (the Context_Of_Module
      (type (Stack Text)))
 
@@ -7040,22 +7035,30 @@
 
 (the (module_alias context moniker)
      (-> Context_Of_Module Moniker
-         Text)
-     (let [aliased (list:mix (function (_ piece total)
-                                       (text total (when piece
-                                                         {:Left literal}
-                                                         literal
-                                                         
-                                                         {:Right reference}
-                                                         (alias_stand_in reference))))
-                             moniker
-                             "")]
-          (|> context
-              (stack:mix (function (_ replacement [index aliased])
-                                   [(.i64_+# 1 index)
-                                    (replaced (alias_stand_in index) replacement aliased)])
-                         [0 aliased])
-              pair:right)))
+         (Maybe Text))
+     (monad:mix maybe:monad
+                (function (_ piece total)
+                          (when piece
+                                {:Left literal}
+                                {:Some (text total literal)}
+                                
+                                {:Right reference}
+                                (monad:let maybe:monad
+                                           [reference (stack:item reference context)]
+                                           (pure (text total reference)))))
+                moniker
+                ""))
+
+(the (of_maybe it)
+     (for_any (_ it)
+              (-> (Maybe it)
+                  (Meta it)))
+     (when it
+           {:Some it}
+           (meta:pure it)
+
+           {:None}
+           (failure "[of_maybe]")))
 
 (the parallel_hierarchy_sigil
      "\")
@@ -7208,7 +7211,7 @@
 
                                                                                                  {:None}
                                                                                                  (..absolute_module_name nested? relative_root module_name))
-                                                                      .let [module_alias (..module_alias {:Top module_name context} alias)]
+                                                                      module_alias (of_maybe (..module_alias {:Top module_name context} alias))
                                                                       sub_imports (imports_of 1b absolute_module_name {:Top module_alias context} extra)]
                                                                      (pure (when referral
                                                                                  (list)
@@ -7383,8 +7386,9 @@
                 [pattern (monad:each meta:monad
                                      (function (_ [slot slot_type])
                                                (monad:let meta:monad
-                                                          [.let [[_ slot_name] slot
-                                                                 local ["" (..module_alias (stack slot_name) alias)]]
+                                                          [.let [[_ slot_name] slot]
+                                                           local (of_maybe (..module_alias (stack slot_name) alias))
+                                                           .let [local ["" local]]
                                                            implementation (every_slot slot_type)]
                                                           (pure [(list (code:name slot)
                                                                        (code:name local))
@@ -7534,8 +7538,10 @@
                                  (pure (list:conjoint decls')))
 
                       else
-                      (pure (list (` (.the# .private (, (code:local (..module_alias (stack proper imported_module) alias)))
-                                            (, source+))))))))
+                      (monad:let meta:monad
+                                 [alias (of_maybe (..module_alias (stack proper imported_module) alias))]
+                                 (pure (list (` (.the# .private (, (code:local alias))
+                                                       (, source+)))))))))
 
 (the (implementation_declarations imported_module alias implementation)
      (-> Text Moniker Name
