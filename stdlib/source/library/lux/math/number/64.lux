@@ -8,14 +8,12 @@
    [error
     [[0] try (.only Try)]]
    [function
-    [predicate (.only Predicate)]]]]
- [/
-  [["n"] natural]])
+    [predicate (.only Predicate)]]]])
 
 (the .public Number
      .I64)
 
-(the with_template (.in_module# .prelude .with_template))
+(the template:with (.in_module# .prelude .template:with))
 
 (the .public bits_per_byte
      8)
@@ -23,47 +21,170 @@
 (the .public bytes_per_i64
      8)
 
+(the template:macro (.in_module# .prelude template:macro))
+
+(template:with [,name ,extension]
+               [(<| (the ,name)
+                    (template:macro (_ ,parameter ,subject))
+                    [(,extension ,parameter ,subject)])]
+
+               [[n:= .b64_=#]
+                [n:+ .i64_+#]
+                [n:- .i64_-#]
+                ])
+
+(template:with [<name> <op>]
+               [(the .public (<name> parameter subject)
+                     (<| (-> (I64 Any))
+                         (for_any (_ it))
+                         (Change (I64 it)))
+                     (<op> parameter subject))]
+
+               [[or .b64_or#]
+                [and .b64_and#]
+                [and/or .b64_and/or#]
+                ])
+
 (the .public width
      Natural
-     (n.x ..bits_per_byte
-          ..bytes_per_i64))
+     (.natural (.int_x# (.integer ..bits_per_byte)
+                        (.integer ..bytes_per_i64))))
 
-(comment "TODO: Do some form of type specialization."
-         (every .public Shift
-                Natural))
+(<| (comment "TODO: Do some form of type specialization.")
+    (every .public Shift)
+    Natural)
+
+(the mask_of_shift
+     Shift
+     (-- ..width))
 
 (the .public shift
      (-> Natural
          Shift)
-     (n.% ..width))
+     (..and ..mask_of_shift))
 
 (the .public (opposite it)
      (Change Shift)
-     (n.- (shift it) ..width))
+     (n:- (shift it) ..width))
 
-(with_template [<parameter_type> <name> <op>]
-               [(the .public (<name> parameter subject)
-                     (for_any (_ it)
-                              (-> <parameter_type>
-                                  (Change (I64 it))))
-                     (<op> parameter subject))]
+(the high
+     (-> (I64 Any)
+         I64)
+     (|>> (.i64_right# 32)))
 
-               [[(I64 Any) and/or .i64_or#]
-                [(I64 Any) or .i64_xor#]
-                [(I64 Any) and .i64_and#]
-                
-                [Shift << .i64_left#]
-                [Shift >> .i64_right#]])
+(the low
+     (-> (I64 Any)
+         I64)
+     (let [mask (|> 1 (.i64_left# 32) (.i64_-# 1))]
+          (|>> (.b64_and# mask))))
 
-(alias [left_shifted]
-       ..<<)
+(the (n:< reference it)
+     (-> Natural Natural
+         Bit)
+     (let [referenceH (..high reference)
+           itH (..high it)]
+          (if (.int_<# referenceH itH)
+              .true
+              (if (.b64_=# referenceH itH)
+                  (.int_<# (..low reference)
+                           (..low it))
+                  .false))))
 
-(alias [right_shifted]
-       ..>>)
+(<| (comment "https://en.wikipedia.org/wiki/Mask_(computing)")
+    (every .public Mask)
+    I64)
 
-(comment "https://en.wikipedia.org/wiki/Mask_(computing)"
-         (every .public Mask
-                I64))
+(template:with [,b ,name]
+               [(the .public ,name
+                     Mask
+                     (.b64# ,b ,b ,b ,b ,b ,b ,b ,b
+                            ,b ,b ,b ,b ,b ,b ,b ,b
+                            ,b ,b ,b ,b ,b ,b ,b ,b
+                            ,b ,b ,b ,b ,b ,b ,b ,b
+                            ,b ,b ,b ,b ,b ,b ,b ,b
+                            ,b ,b ,b ,b ,b ,b ,b ,b
+                            ,b ,b ,b ,b ,b ,b ,b ,b
+                            ,b ,b ,b ,b ,b ,b ,b ,b))]
+
+               [[0b false]
+                [1b true]
+                ])
+
+(the meta:failure (.in_module# .prelude .failure))
+(the meta:pure (.in_module# .prelude meta:pure))
+
+(template:with [,name ,extension]
+               [(<| (the ,name)
+                    (macro (_ parameter,'subject))
+                    (when parameter,'subject
+                          (list {.:Natural @ parameter} 'subject)
+                          (meta:pure (list (loop (of [parameter parameter
+                                                      'it 'subject])
+                                                 (when parameter
+                                                       0 'it
+                                                       _ (of (-- parameter)
+                                                             (` (,extension 1 (, 'it))))))))
+
+                          else
+                          (meta:failure "")))]
+
+               [[static_<< .i64_left#]
+                [static_>> .i64_right#]
+                ])
+
+(<| (the shift_by)
+    (template:macro (_ ,by ,<> ,extension ,parameter ,subject))
+    [(,<> (n:- ,by ,parameter) (,extension ,by ,subject))])
+
+(<| (the if_shift)
+    (template:macro (_ ,by ,<> ,extension ,parameter ,subject
+                       ,under))
+    [(if (n:< ,by ,parameter)
+         ,under
+         (shift_by ,by ,<> ,extension ,parameter ,subject))])
+
+(template:with [,<> ,static ,extension]
+               [(the .public (,<> parameter subject)
+                     (<| (-> Shift)
+                         (for_any (_ it))
+                         (Change (I64 it)))
+                     (if (n:< 64 parameter)
+                         (<| (if_shift 32 ,<> ,static parameter subject)
+                             (if_shift 16 ,<> ,static parameter subject)
+                             (if_shift 08 ,<> ,static parameter subject)
+                             (if_shift 04 ,<> ,static parameter subject)
+                             (if_shift 02 ,<> ,static parameter subject)
+                             (if (n:< 01 parameter)
+                                 (,static 00 subject)
+                                 (,static 01 subject)))
+                         (,extension parameter subject)))]
+
+               [[dynamic_<< static_<< .i64_left#]
+                [dynamic_>> static_>> .i64_right#]
+                ])
+
+(template:with [,name ,static ,dynamic]
+               [(<| (the .public ,name)
+                    (macro (_ parameter,'subject))
+                    (when parameter,'subject
+                          (list {.:Natural @ parameter} 'subject)
+                          (meta:pure (list (` (,static (, {.:Natural @ parameter}) (, 'subject)))))
+
+                          (list {.:Natural @ parameter})
+                          (meta:pure (list (` (|>> (,static (, {.:Natural @ parameter}))))))
+
+                          (list 'parameter 'subject)
+                          (meta:pure (list (` (,dynamic (, 'parameter) (, 'subject)))))
+
+                          (list 'parameter)
+                          (meta:pure (list (` (,dynamic (, 'parameter)))))
+
+                          else
+                          (meta:failure "")))]
+
+               [[<< ..static_<< ..dynamic_<<]
+                [>> ..static_>> ..dynamic_>>]
+                ])
 
 (every .public Address
        Natural)
@@ -71,19 +192,12 @@
 (the .public (bit position)
      (-> Address
          Mask)
-     (|> 1 .i64 (<< (n.% ..width position))))
+     (<< (..and ..mask_of_shift position)
+         (.i64 1)))
 
 (the .public sign
      Mask
      (..bit (-- ..width)))
-
-(the .public false
-     Mask
-     (.i64 +0))
-
-(the .public true
-     Mask
-     (.i64 -1))
 
 (the .public not
      (for_any (_ it)
@@ -95,24 +209,24 @@
          Mask)
      (when amount_of_bits
            0 ..false
-           bits (when (n.% ..width bits)
+           bits (when (..and ..mask_of_shift bits)
                       0 ..true
-                      bits (|> 1 .i64 (<< (n.% ..width bits)) .--))))
+                      bits (|> 1 .i64 (<< (..and ..mask_of_shift bits)) .--))))
 
 (the (with_shift shift value)
      (-> Shift
          (Change Natural))
      (|> value
          (>> shift)
-         (n.+ value)))
+         (n:+ value)))
 
 (the .public (ones it)
      (-> (I64 Any)
          Natural)
-     (let [ones' (n.- (|> it (>> 1) (..and 6148914691236517205) i64)
+     (let [ones' (n:- (|> it (>> 1) (..and 6148914691236517205) i64)
                       (i64 it))]
           (|> ones'
-              (>> 2) (..and 3689348814741910323) (n.+ (..and 3689348814741910323 ones'))
+              (>> 2) (..and 3689348814741910323) (n:+ (..and 3689348814741910323 ones'))
               (with_shift 4) (..and 1085102592571150095)
               (with_shift 8)
               (with_shift 16)
@@ -125,7 +239,7 @@
                   (Change (I64 it))))
      (|> index ..bit ..not (..and input)))
 
-(with_template [<name> <op>]
+(template:with [<name> <op>]
                [(the .public (<name> index input)
                      (for_any (_ it)
                               (-> Address
@@ -133,14 +247,15 @@
                      (|> index ..bit (<op> input)))]
 
                [[one     ..and/or]
-                [flipped ..or]])
+                [flipped ..or]
+                ])
 
 (the .public (zero? index input)
      (-> Address
          (Predicate (I64 Any)))
      (|> (.i64 input)
          (..and (..bit index))
-         (n.= 0)))
+         (n:= 0)))
 
 (the .public (one? index input)
      (-> Address
@@ -150,7 +265,7 @@
 (every .public Rotation
        Shift)
 
-(with_template [<name> <forward> <backward>]
+(template:with [<name> <forward> <backward>]
                [(the .public (<name> distance input)
                      (for_any (_ it)
                               (-> Rotation
@@ -159,7 +274,8 @@
                                (<backward> (opposite distance) input)))]
 
                [[left_rotated  << >>]
-                [right_rotated >> <<]])
+                [right_rotated >> <<]
+                ])
 
 (the .public (region offset size)
      (-> Rotation Natural
@@ -171,7 +287,7 @@
               (Equality (I64 it)))
      (implementation
       (the (= expected actual)
-           (.i64_=# expected actual))))
+           (n:= expected actual))))
 
 (alias [=]
        ..equality)
@@ -184,7 +300,7 @@
 
       (the hash (|>> .natural))))
 
-(with_template [<monoid> <identity> <composite>]
+(template:with [<monoid> <identity> <composite>]
                [(the .public <monoid>
                      (for_any (_ it)
                               (Monoid (I64 it)))
@@ -193,49 +309,27 @@
                       (the composite <composite>)))]
 
                [[disjunction ..false ..and/or]
-                [conjunction ..true ..and]])
+                [conjunction ..true ..and]
+                ])
 
 (the .public in_reverse
-     (for_any (_ it)
-              (Change (I64 it)))
-     (let [swapper (is (-> Natural
-                           (for_any (_ it)
-                                    (Change (I64 it))))
-                       (function (_ power)
-                                 (let [size (<< power 1)
-                                       repetitions (is (-> Natural
-                                                           (Change Text))
-                                                       (function (_ times character)
-                                                                 (loop (of [iterations 1
-                                                                            output character])
-                                                                       (if (n.< times iterations)
-                                                                           (of (++ iterations)
-                                                                               (.text_composite# character output))
-                                                                           output))))
-                                       pattern (repetitions (n./ (n.+ size size) ..width)
-                                                            (.text_composite# (repetitions size "1")
-                                                                              (repetitions size "0")))
+     (<| (for_any (_ it))
+         (Change (I64 it)))
+     (let [in_reverse' (<| (is (<| (-> Natural Natural)
+                                   (for_any (_ it))
+                                   (Change (I64 it))))
+                           (function (_ power pattern value))
+                           (let [size (<< power 1)])
+                           (..or (>> size (..and pattern value))
+                                 (<< size (..and (..not pattern) value))))]
+          (|>> (in_reverse' 5 11111111,11111111,11111111,11111111,00000000,00000000,00000000,00000000,b)
+               (in_reverse' 4 11111111,11111111,00000000,00000000,11111111,11111111,00000000,00000000,b)
+               (in_reverse' 3 11111111,00000000,11111111,00000000,11111111,00000000,11111111,00000000,b)
+               (in_reverse' 2 11110000,11110000,11110000,11110000,11110000,11110000,11110000,11110000,b)
+               (in_reverse' 1 11001100,11001100,11001100,11001100,11001100,11001100,11001100,11001100,b)
+               (in_reverse' 0 10101010,10101010,10101010,10101010,10101010,10101010,10101010,10101010,b))))
 
-                                       high (try.trusted (by n.base_02 of pattern))
-                                       low (..right_rotated size high)]
-                                      (function (_ value)
-                                                (..and/or (>> size (..and high value))
-                                                          (<< size (..and low value)))))))
-           
-           swap_01 (swapper 0)
-           swap_02 (swapper 1)
-           swap_04 (swapper 2)
-           swap_08 (swapper 3)
-           swap_16 (swapper 4)
-           swap_32 (swapper 5)]
-          (|>> swap_32
-               swap_16
-               swap_08
-               swap_04
-               swap_02
-               swap_01)))
-
-(with_template [<--> <++>]
+(template:with [<--> <++>]
                [(alias [<-->]
                        .--)
 
@@ -243,21 +337,25 @@
                        .++)]
 
                [[decrement increment]
+                [predecessor successor]
                 [less more]
                 [previous next]
-                [before after]])
+                [before after]
+                ])
 
-(the (highest_bit' shift it)
-     (-> Natural (I64 Any)
-         Natural)
-     (when (.natural it)
-           0 0
-           _ (when shift
-                   0 0
-                   _ (let [cut_off (<< shift 1)]
-                          (if (n.< cut_off (.natural it))
-                              (highest_bit' (>> 1 shift) it)
-                              (n.+ shift (highest_bit' (>> 1 shift) (>> shift it))))))))
+(<| (the (highest_bit' shift it)
+         (-> Natural (I64 Any)
+             Natural))
+    (when (.natural it)
+          0 0
+          else)
+    (when shift
+          0 0
+          else)
+    (let [cut_off (<< shift 1)])
+    (if (n:< cut_off (.natural it))
+        (highest_bit' (>> 1 shift) it)
+        (n:+ shift (highest_bit' (>> 1 shift) (>> shift it)))))
 
 (the .public (highest_bit it)
      (-> (I64 Any)
