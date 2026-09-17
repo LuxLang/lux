@@ -213,121 +213,6 @@
                                                    (list.enumeration (list.in_reverse every_side))
                                                    body)))))))
 
-(the size_of_list
-     (_.Bytecode Any)
-     _.arraylength)
-
-(the item_of_list
-     (_.Bytecode Any)
-     _.aaload)
-
-(the head_of_list
-     (_.Bytecode Any)
-     (all _.composite
-          (_.int (/32.of +0))
-          ..item_of_list))
-
-(the system:arraycopy
-     (_.Bytecode Any)
-     (_.invokestatic ..$System "arraycopy"
-                     (type.method [(list)
-                                   (list jvm/type.value type.int
-                                         jvm/type.value type.int
-                                         type.int)
-                                   type.void
-                                   (list)])))
-
-(the tail_of_list
-     (_.Bytecode Any)
-     (let [size_of_tail (all _.composite
-                             ..size_of_list
-                             (_.int (/32.of +1))
-                             _.isub)
-           empty_tail (_.anewarray $Object)]
-          (comment [complete_list]
-                   (all _.composite
-                        _.dup size_of_tail
-                        _.dup empty_tail
-
-                        (comment [empty_tail
-                                  complete_list
-                                  size_of_tail
-                                  empty_tail]
-                                 _.dup_x2)
-
-                        (comment [empty_tail
-                                  complete_list
-                                  empty_tail
-                                  size_of_tail]
-                                 _.swap)
-
-                        (_.int (/32.of +1))
-                        _.dup_x2
-                        (comment [empty_tail
-                                  complete_list +1
-                                  empty_tail
-                                  size_of_tail]
-                                 _.pop)
-
-                        (_.int (/32.of +0))
-                        _.dup_x1
-                        (comment [empty_tail
-                                  complete_list +1
-                                  empty_tail +0
-                                  size_of_tail]
-                                 _.pop)
-                        
-                        (comment [empty_tail]
-                                 system:arraycopy)))))
-
-(the if_list
-     (<| ..custom
-         [(all ?.and
-               ?list.any
-               ?list.any
-               (?.and ?synthesis.local
-                      ?list.any))]
-         (function (_ translation archive [the_list if_nil [register_of_head if_cons]])
-                   (monad.let phase.monad
-                              [the_list (translation archive the_list)
-                               if_nil (translation archive if_nil)
-                               if_cons (translation archive if_cons)
-                               .let [register_of_tail (++ register_of_head)
-
-                                     size_of_list! (all _.composite
-                                                        _.dup
-                                                        ..size_of_list)
-                                     bind_head! (all _.composite
-                                                     _.dup
-                                                     head_of_list
-                                                     (_.astore register_of_head))
-                                     bind_tail! (all _.composite
-                                                     tail_of_list
-                                                     (_.astore register_of_tail))]]
-                              (pure (monad.let _.monad
-                                               [@nil _.new_label
-                                                @end _.new_label
-                                                .let [if_nil! (all _.composite
-                                                                   (_.set_label @nil)
-                                                                   _.pop
-                                                                   if_nil
-                                                                   (<| (_.when_acknowledged @end)
-                                                                       (_.set_label @end)))
-                                                      if_cons! (all _.composite
-                                                                    bind_head!
-                                                                    bind_tail!
-                                                                    if_cons
-                                                                    (_.when_continuous (_.goto @end)))
-                                                      if_list! (all _.composite
-                                                                    size_of_list!
-                                                                    (_.ifeq @nil)
-                                                                    if_cons!
-                                                                    if_nil!)]]
-                                               (all _.composite
-                                                    the_list
-                                                    (_.checkcast jvm/type.list)
-                                                    if_list!)))))))
-
 (the with_basic
      (Change Bundle)
      (|>> (with extension/lux.when_char ..lux:syntax_char_case!)
@@ -335,8 +220,7 @@
           (with extension/lux.try (unary ..lux:try))
           (with extension/lux.case ..case)
           (with extension/lux.pair ..pair)
-          (with extension/lux.let_pair ..let_pair)
-          (with extension/lux.if_list ..if_list)))
+          (with extension/lux.let_pair ..let_pair)))
 
 (template.with [<name> <op>]
                [(the (<name> [maskG inputG])
@@ -636,7 +520,7 @@
 
                 parts
                 (monad.let [! _.monad]
-                           [_ (_.int (/32.of +0))
+                           [_ _.iconst_0
                             _ (list.each' ! (is (-> (_.Bytecode Any)
                                                     (_.Bytecode Any))
                                                 (function (_ it)
@@ -719,6 +603,15 @@
      (|>> (with extension/lux.log! (unary ..io:log))
           (with extension/lux.error (unary ..io:error))))
 
+(the (list_has! position value)
+     (-> (_.Bytecode Any) (_.Bytecode Any)
+         (_.Bytecode Any))
+     (all _.composite
+          _.dup
+          position
+          value
+          _.aastore))
+
 (the (lux:list elements)
      (Variadic (_.Bytecode Any))
      (all _.composite
@@ -726,13 +619,12 @@
           (_.anewarray $Object)
           (|> elements
               list.enumeration
-              (list:each (function (_ [where what])
-                                   (all _.composite
-                                        _.dup
-                                        (_.int (/32.of (.integer where)))
-                                        what
-                                        _.aastore)))
+              (list:each (function (_ [where what]) (list_has! (_.int (/32.of (.integer where))) what)))
               (list.complete _.monad))))
+
+(the size_of_list
+     (_.Bytecode Any)
+     _.arraylength)
 
 (the (lux:list_size it)
      (Unary (_.Bytecode Any))
@@ -742,12 +634,26 @@
           ..size_of_list
           ..lux_natural))
 
+(the item_of_list
+     (_.Bytecode Any)
+     _.aaload)
+
 (the (lux:list_item [address it])
      (Binary (_.Bytecode Any))
      (all _.composite
           it (_.checkcast jvm/type.list)
           address ..jvm_int
           ..item_of_list))
+
+(the system:arraycopy
+     (_.Bytecode Any)
+     (_.invokestatic ..$System "arraycopy"
+                     (type.method [(list)
+                                   (list jvm/type.value type.int
+                                         jvm/type.value type.int
+                                         type.int)
+                                   type.void
+                                   (list)])))
 
 (the (lux:list_composite [prefix suffix])
      (Binary (_.Bytecode Any))
@@ -783,7 +689,7 @@
                 (_.anewarray $Object))
 
            beginning
-           (_.int (/32.of +0))
+           _.iconst_0
 
            copy_of_prefix
            (all _.composite
@@ -806,9 +712,216 @@
                copy_of_prefix
                copy_of_suffix)))
 
+(the (shift_list! offset it)
+     (-> (_.Bytecode Any)
+         (Change (_.Bytecode Any)))
+     (all _.composite
+          (comment []
+                   [old_list 0 old_list]
+                   (all _.composite
+                        it _.dup _.iconst_0 _.swap))
+          (comment [old_list 0 old_list]
+                   [old_list 0 old_size new_size]
+                   (all _.composite
+                        size_of_list _.dup _.iconst_1 _.iadd))
+          (comment [old_list 0 old_size new_size]
+                   [old_size new_list old_list 0 new_list offset old_size]
+                   (all _.composite
+                        (_.anewarray $Object) _.dup2_x2 _.swap offset _.swap))
+          (comment [old_size new_list old_list 0 new_list offset old_size]
+                   [old_size new_list]
+                   system:arraycopy)))
+
+(the (list_head [head it])
+     (Binary (_.Bytecode Any))
+     (all _.composite
+          (shift_list! _.iconst_1 it)
+          (comment [old_size new_list]
+                   [new_list]
+                   (all _.composite
+                        _.swap
+                        _.pop))
+          (comment [new_list]
+                   [new_list]
+                   (list_has! _.iconst_0 head))))
+
+(the (list_tail [tail it])
+     (Binary (_.Bytecode Any))
+     (all _.composite
+          (comment []
+                   [old_size new_list]
+                   (shift_list! _.iconst_1 it))
+          (comment [old_size new_list]
+                   [new_list]
+                   (all _.composite
+                        _.dup_x1
+                        _.swap
+                        tail
+                        _.aastore))))
+
+(the head_of_list
+     (_.Bytecode Any)
+     (all _.composite
+          _.iconst_0
+          ..item_of_list))
+
+(the last_of_list
+     (_.Bytecode Any)
+     (all _.composite
+          _.dup ..size_of_list _.iconst_1 _.isub
+          ..item_of_list))
+
+(the tail_of_list
+     (_.Bytecode Any)
+     (let [size_of_rest (all _.composite
+                             ..size_of_list
+                             _.iconst_1
+                             _.isub)
+           the_rest (_.anewarray $Object)]
+          (comment [complete_list]
+                   (all _.composite
+                        (comment [complete_list]
+                                 [complete_list size_of_rest]
+                                 (all _.composite
+                                      _.dup
+                                      size_of_rest))
+                        (comment [complete_list size_of_rest]
+                                 [complete_list size_of_rest the_rest]
+                                 (all _.composite
+                                      _.dup
+                                      the_rest))
+                        (comment [complete_list size_of_rest the_rest]
+                                 [the_rest complete_list size_of_rest the_rest]
+                                 _.dup_x2)
+                        (comment [the_rest complete_list size_of_rest the_rest]
+                                 [the_rest complete_list the_rest size_of_rest]
+                                 _.swap)
+
+                        (comment [the_rest complete_list the_rest size_of_rest]
+                                 [the_rest complete_list the_rest size_of_rest 1]
+                                 [the_rest complete_list 1 the_rest size_of_rest 1]
+                                 (all _.composite
+                                      _.iconst_1
+                                      _.dup_x2))
+                        (comment [the_rest complete_list 1 the_rest size_of_rest 1]
+                                 [the_rest complete_list 1 the_rest size_of_rest]
+                                 _.pop)
+                        (comment [the_rest complete_list 1 the_rest size_of_rest]
+                                 [the_rest complete_list 1 the_rest 0 size_of_rest]
+                                 (all _.composite
+                                      _.iconst_0
+                                      _.swap))
+                        (comment [the_rest]
+                                 [the_rest]
+                                 system:arraycopy)))))
+
+(the front_of_list
+     (_.Bytecode Any)
+     (let [size_of_rest (all _.composite
+                             ..size_of_list
+                             _.iconst_1
+                             _.isub)
+           the_rest (_.anewarray $Object)]
+          (comment [complete_list]
+                   (all _.composite
+                        (comment [complete_list]
+                                 [complete_list size_of_rest]
+                                 (all _.composite
+                                      _.dup
+                                      size_of_rest))
+                        (comment [complete_list size_of_rest]
+                                 [complete_list size_of_rest the_rest]
+                                 (all _.composite
+                                      _.dup
+                                      the_rest))
+                        (comment [complete_list size_of_rest the_rest]
+                                 [the_rest complete_list size_of_rest the_rest]
+                                 _.dup_x2)
+                        (comment [the_rest complete_list size_of_rest the_rest]
+                                 [the_rest complete_list the_rest size_of_rest]
+                                 _.swap)
+                        (comment [the_rest complete_list the_rest size_of_rest]
+                                 [the_rest complete_list 0 the_rest size_of_rest 0]
+                                 (all _.composite
+                                      _.iconst_0
+                                      _.dup_x2))
+                        (comment [the_rest complete_list 0 the_rest size_of_rest 0]
+                                 [the_rest complete_list 0 the_rest 0 size_of_rest]
+                                 _.swap)
+                        (comment [the_rest complete_list 0 the_rest 0 size_of_rest]
+                                 [the_rest]
+                                 system:arraycopy)))))
+
+(template.with [,name ,end ,rest]
+               [(the ,name
+                     (<| ..custom
+                         [(all ?.and
+                               ?list.any
+                               ?list.any
+                               (?.and ?synthesis.local
+                                      ?list.any))]
+                         (function (_ translation archive ['list 'nil [register_of_end 'cons]])
+                                   (monad.let phase.monad
+                                              ['list (translation archive 'list)
+                                               'nil (translation archive 'nil)
+                                               'cons (translation archive 'cons)
+                                               .let [register_of_rest (++ register_of_end)
+
+                                                     size_of_list! (all _.composite
+                                                                        _.dup
+                                                                        ..size_of_list)
+                                                     bind_end! (all _.composite
+                                                                    _.dup
+                                                                    ,end
+                                                                    (_.astore register_of_end))
+                                                     bind_rest! (all _.composite
+                                                                     ,rest
+                                                                     (_.astore register_of_rest))]]
+                                              (pure (monad.let _.monad
+                                                               [@nil _.new_label
+                                                                @end _.new_label
+                                                                .let ['nil (all _.composite
+                                                                                (_.set_label @nil)
+                                                                                _.pop
+                                                                                'nil
+                                                                                (<| (_.when_acknowledged @end)
+                                                                                    (_.set_label @end)))
+                                                                      'cons (all _.composite
+                                                                                 bind_end!
+                                                                                 bind_rest!
+                                                                                 'cons
+                                                                                 (_.when_continuous (_.goto @end)))
+                                                                      if_list! (all _.composite
+                                                                                    size_of_list!
+                                                                                    (_.ifeq @nil)
+                                                                                    'cons
+                                                                                    'nil)]]
+                                                               (all _.composite
+                                                                    'list
+                                                                    (_.checkcast jvm/type.list)
+                                                                    if_list!)))))))]
+
+               [[list_head_if ..head_of_list ..tail_of_list]
+                [list_tail_if ..last_of_list ..front_of_list]
+                ])
+
+(<| (the list_empty)
+    ..custom
+    [?list.empty]
+    (function (_ translation archive _))
+    (phase:pure (all _.composite
+                     _.iconst_0
+                     (_.anewarray $Object))))
+
 (the with_list
      (Change Bundle)
-     (|>> (with extension/lux.list (variadic ..lux:list))
+     (|>> (with extension/lux.list_empty ..list_empty)
+          (with extension/lux.list_head (binary ..list_head))
+          (with extension/lux.list_tail (binary ..list_tail))
+          (with extension/lux.list_head_if ..list_head_if)
+          (with extension/lux.list_tail_if ..list_tail_if)
+
+          (with extension/lux.list (variadic ..lux:list))
           (with extension/lux.list_size (unary ..lux:list_size))
           (with extension/lux.list_item (binary ..lux:list_item))
           (with extension/lux.list_composite (binary ..lux:list_composite))
