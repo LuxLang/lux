@@ -712,18 +712,18 @@
                copy_of_prefix
                copy_of_suffix)))
 
-(the (shift_list! offset it)
-     (-> (_.Bytecode Any)
+(the (shift_list! size_of_expansion offset it)
+     (-> (_.Bytecode Any) (_.Bytecode Any)
          (Change (_.Bytecode Any)))
      (all _.composite
           (comment []
                    [old_list 0 old_list]
                    (all _.composite
-                        it _.dup _.iconst_0 _.swap))
+                        it (_.checkcast jvm/type.list) _.dup _.iconst_0 _.swap))
           (comment [old_list 0 old_list]
                    [old_list 0 old_size new_size]
                    (all _.composite
-                        size_of_list _.dup _.iconst_1 _.iadd))
+                        size_of_list _.dup size_of_expansion _.iadd))
           (comment [old_list 0 old_size new_size]
                    [old_size new_list old_list 0 new_list offset old_size]
                    (all _.composite
@@ -732,32 +732,60 @@
                    [old_size new_list]
                    system:arraycopy)))
 
-(the (list_head [head it])
-     (Binary (_.Bytecode Any))
-     (all _.composite
-          (shift_list! _.iconst_1 it)
-          (comment [old_size new_list]
-                   [new_list]
-                   (all _.composite
-                        _.swap
-                        _.pop))
-          (comment [new_list]
-                   [new_list]
-                   (list_has! _.iconst_0 head))))
+(<| (the list_head)
+    ..custom
+    [(all ?.and
+          ?list.any
+          (?.many ?list.any))]
+    (function (_ translation archive ['it every_end]))
+    (monad.let [! phase.monad]
+               ['it (translation archive 'it)
+                every_end (list.each' ! (translation archive) every_end)
+                .let [size_of_expansion (_.int (/32.of (.integer (list.size every_end))))]])
+    (pure (all _.composite
+               (shift_list! size_of_expansion size_of_expansion 'it)
+               (comment [old_size new_list]
+                        [new_list]
+                        (all _.composite
+                             _.swap
+                             _.pop))
+               (comment [new_list]
+                        [new_list]
+                        (list.mix (<| (function (_ [position 'end] before))
+                                      (all _.composite
+                                           before
+                                           (list_has! (_.int (/32.of (.integer position))) 'end)))
+                                  (list.enumeration (list.in_reverse every_end))
+                                  ..no_op)))))
 
-(the (list_tail [tail it])
-     (Binary (_.Bytecode Any))
-     (all _.composite
-          (comment []
-                   [old_size new_list]
-                   (shift_list! _.iconst_1 it))
-          (comment [old_size new_list]
-                   [new_list]
-                   (all _.composite
-                        _.dup_x1
-                        _.swap
-                        tail
-                        _.aastore))))
+(<| (the list_tail)
+    ..custom
+    [(all ?.and
+          ?list.any
+          (?.many ?list.any))]
+    (function (_ translation archive ['it every_end]))
+    (monad.let [! phase.monad]
+               ['it (translation archive 'it)
+                every_end (list.each' ! (translation archive) every_end)
+                .let [size_of_expansion (_.int (/32.of (.integer (list.size every_end))))]])
+    (pure (all _.composite
+               (shift_list! size_of_expansion _.iconst_0 'it)
+               (comment [old_size new_list]
+                        [new_list old_size]
+                        _.swap)
+               (list.mix (<| (function (_ [position 'end] before))
+                             (all _.composite
+                                  before
+                                  _.dup2
+                                  (_.int (/32.of (.integer position)))
+                                  _.iadd
+                                  'end
+                                  _.aastore))
+                         (list.enumeration every_end)
+                         ..no_op)
+               (comment [new_list old_size]
+                        [new_list]
+                        _.pop))))
 
 (the head_of_list
      (_.Bytecode Any)
@@ -916,8 +944,8 @@
 (the with_list
      (Change Bundle)
      (|>> (with extension/lux.list_empty ..list_empty)
-          (with extension/lux.list_head (binary ..list_head))
-          (with extension/lux.list_tail (binary ..list_tail))
+          (with extension/lux.list_head ..list_head)
+          (with extension/lux.list_tail ..list_tail)
           (with extension/lux.list_head_if ..list_head_if)
           (with extension/lux.list_tail_if ..list_tail_if)
 
