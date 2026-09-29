@@ -713,8 +713,8 @@
                copy_of_prefix
                copy_of_suffix)))
 
-(the (shift_list! size_of_expansion offset it)
-     (-> (_.Bytecode Any) (_.Bytecode Any)
+(the (shift_list! size_of_front_expansion size_of_back_expansion offset it)
+     (-> (_.Bytecode Any) (_.Bytecode Any) (_.Bytecode Any)
          (Change (_.Bytecode Any)))
      (all _.composite
           (comment []
@@ -724,7 +724,7 @@
           (comment [old_list 0 old_list]
                    [old_list 0 old_size new_size]
                    (all _.composite
-                        size_of_list _.dup size_of_expansion _.iadd))
+                        size_of_list _.dup size_of_front_expansion _.iadd size_of_back_expansion _.iadd))
           (comment [old_list 0 old_size new_size]
                    [old_size new_list old_list 0 new_list offset old_size]
                    (all _.composite
@@ -733,60 +733,67 @@
                    [old_size new_list]
                    system:arraycopy)))
 
-(<| (the list_head)
+(<| (the list_extension!)
     ..custom
     [(all ?.and
-          ?list.any
-          (?.many ?list.any))]
-    (function (_ translation archive ['it every_end]))
+          (?synthesis.bundle (?.some ?list.any))
+          (?synthesis.bundle (?.some ?list.any))
+          ?list.any)]
+    (function (_ translation archive [head tail 'it]))
     (monad.let [! phase.monad]
                ['it (translation archive 'it)
-                every_end (list.each' ! (translation archive) every_end)
-                .let [size_of_expansion (_.int (/32.of (.integer (list.size every_end))))]])
-    (pure (all _.composite
-               (shift_list! size_of_expansion size_of_expansion 'it)
-               (comment [old_size new_list]
-                        [new_list]
-                        (all _.composite
-                             _.swap
-                             _.pop))
-               (comment [new_list]
-                        [new_list]
-                        (list.mix (<| (function (_ [position 'end] before))
-                                      (all _.composite
-                                           before
-                                           (list_has! (_.int (/32.of (.integer position))) 'end)))
-                                  (list.enumeration (list.in_reverse every_end))
-                                  ..no_op)))))
+                
+                head (list.each' ! (translation archive) head)
+                .let [size_of_expansion_of_head (_.int (/32.of (.integer (list.size head))))]
 
-(<| (the list_tail)
-    ..custom
-    [(all ?.and
-          ?list.any
-          (?.many ?list.any))]
-    (function (_ translation archive ['it every_end]))
-    (monad.let [! phase.monad]
-               ['it (translation archive 'it)
-                every_end (list.each' ! (translation archive) every_end)
-                .let [size_of_expansion (_.int (/32.of (.integer (list.size every_end))))]])
+                tail (list.each' ! (translation archive) tail)
+                .let [size_of_expansion_of_tail (_.int (/32.of (.integer (list.size tail))))]
+
+                .let [correction_for_expansion_of_head
+                      (when head
+                            (list)
+                            ..no_op
+
+                            else
+                            (all _.composite
+                                 size_of_expansion_of_head
+                                 _.iadd))
+
+                      expansion_of_head
+                      (comment [new_list]
+                               [new_list]
+                               (list.mix (<| (function (_ [position 'end] before))
+                                             (all _.composite
+                                                  before
+                                                  (list_has! (_.int (/32.of (.integer position))) 'end)))
+                                         (list.enumeration head)
+                                         ..no_op))
+
+                      expansion_of_tail
+                      (comment [new_list old_size]
+                               [new_list old_size]
+                               (list.mix (<| (function (_ [position 'end] before))
+                                             (all _.composite
+                                                  before
+                                                  _.dup2
+                                                  (_.int (/32.of (.integer position)))
+                                                  _.iadd
+                                                  correction_for_expansion_of_head
+                                                  'end
+                                                  _.aastore))
+                                         (list.enumeration tail)
+                                         ..no_op))]])
     (pure (all _.composite
-               (shift_list! size_of_expansion _.iconst_0 'it)
+               (shift_list! size_of_expansion_of_head size_of_expansion_of_tail size_of_expansion_of_head 'it)
                (comment [old_size new_list]
                         [new_list old_size]
                         _.swap)
-               (list.mix (<| (function (_ [position 'end] before))
-                             (all _.composite
-                                  before
-                                  _.dup2
-                                  (_.int (/32.of (.integer position)))
-                                  _.iadd
-                                  'end
-                                  _.aastore))
-                         (list.enumeration every_end)
-                         ..no_op)
+               expansion_of_tail
                (comment [new_list old_size]
                         [new_list]
-                        _.pop))))
+                        _.pop)
+               expansion_of_head
+               )))
 
 (template.with [,name ,access ,offset]
                [(<| (the ,name)
@@ -864,8 +871,7 @@
 (the with_list
      (Change Bundle)
      (|>> (with extension/lux.list_empty ..list_empty)
-          (with extension/lux.list_head ..list_head)
-          (with extension/lux.list_tail ..list_tail)
+          (with extension/lux.list_extension! ..list_extension!)
           (with extension/lux.list_head_if ..list_head_if)
           (with extension/lux.list_tail_if ..list_tail_if)
 
