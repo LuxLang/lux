@@ -461,7 +461,6 @@ Called by `imenu--generic-function'."
 							   (function-definition (or* "function" "|>>" "<<|"
 														 "program"))
 							   (remember (or* "remember" "to_do" "fix_me"))
-							   (extension (or* "analysis" "synthesis" "translation" "declaration"))
 							   (definition (or* "\\.using"
 												"the" "every"
 												"alias")))
@@ -492,7 +491,6 @@ Called by `imenu--generic-function'."
 								   function-application
 								   function-definition
 								   remember
-								   extension
 								   definition
 								   ;; ;;;;;;;;;;;;;;;;;;;;;;
 								   "undefined"
