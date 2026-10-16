@@ -429,11 +429,9 @@ Called by `imenu--generic-function'."
 
 		   (special_form (let (;; Control
 							   (control//flow (or* "when" "exec" "let" "loop"
-												   "if" "unless"))
+												   "if"))
 							   (control//pattern-matching (or* "open"))
 							   (control//logic (or* "and" "and/or"))
-							   (control//contract (or* "pre" "post"))
-							   (control//polymorphism (or* "method"))
 							   ;; Type
 							   (type//syntax (or* "Union" "Or" "Variant"
 												  "Tuple" "And" "Record"
@@ -443,9 +441,7 @@ Called by `imenu--generic-function'."
 												  "for_some"
 												  "Interface"
 												  "type"))
-							   (type//checking (or* "is" "as" "let" "as_expected" "type_of" "sharing" "by_example" "hole"))
-							   (type//dynamic (or* "dynamic" "static"))
-							   (type//capability (or* "capability"))
+							   (type//checking (or* "is" "as" "let" "as_expected" "type_of"))
 							   ;; Data
 							   (data//record (or* "its" "has" "revised"))
 							   (data//interface (or* "use" "implementation" "with" "by"))
@@ -455,24 +451,18 @@ Called by `imenu--generic-function'."
 							   (code//super-quotation (or* "``" ",,"))
 							   (code//macro (or* "macro"))
 							   ;; Miscellaneous
-							   (alternative-format (or* "character" "bin" "oct" "hex"))
 							   (documentation (or* "comment"))
 							   (function-application (or* "|>" "<|" "all"))
 							   (function-definition (or* "function" "|>>" "<<|"
 														 "program"))
-							   (remember (or* "remember" "to_do" "fix_me"))
 							   (definition (or* "\\.using"
 												"the" "every"
 												"alias")))
 						   (let ((control (or* control//flow
 											   control//pattern-matching
-											   control//logic
-											   control//contract
-											   control//polymorphism))
+											   control//logic))
 								 (type (or* type//syntax
-											type//checking
-											type//dynamic
-											type//capability))
+											type//checking))
 								 (data (or* data//record
 											data//interface
 											data//collection))
@@ -486,18 +476,12 @@ Called by `imenu--generic-function'."
 								   data
 								   code
 								   ;; ;;;;;;;;;;;;;;;;;;;;;;
-								   alternative-format
 								   documentation
 								   function-application
 								   function-definition
-								   remember
 								   definition
 								   ;; ;;;;;;;;;;;;;;;;;;;;;;
-								   "undefined"
-								   "io"
-								   "infix"
-								   "message"
-								   "regex")
+								   "undefined")
 							  "\\>"))))
 		   (definition_in_prelude separator_in_name)
 		   (in-current-module (concat separator_in_name separator_in_name))
