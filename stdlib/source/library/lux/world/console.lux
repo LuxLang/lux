@@ -28,7 +28,7 @@
             read)
         (is (-> [] (! (Try Text)))
             read_line)
-        (is (-> Text (! (Try Any)))
+        (is (-> [Text] (! (Try Any)))
             write)
         (is (-> [] (! (Try Any)))
             close)))
@@ -38,12 +38,14 @@
      (`` (implementation
           (,, (template.with [<capability>]
                              [(the <capability>
-                                   (|>> (by console <capability>) future.soon))]
+                                   (|>> (by console <capability>)
+                                        future.soon))]
 
                              [[read]
                               [read_line]
                               [write]
-                              [close]])))))
+                              [close]
+                              ])))))
 
 (exception.the cannot_close)
 
@@ -66,37 +68,37 @@
 
                   (exception.the cannot_open)
 
-                  (the .public default
-                       (IO (Try (Console IO)))
-                       (monad.let io.monad
-                                  [?jvm_console (java/lang/System:console [])]
-                                  (when ?jvm_console
-                                        {.:None}
-                                        (pure (exception.except ..cannot_open []))
+                  (<| (the .public default
+                           (IO (Try (Console IO))))
+                      (monad.let io.monad
+                                 [?jvm_console (java/lang/System:console [])])
+                      (when ?jvm_console
+                            {.:None}
+                            (pure (exception.except ..cannot_open []))
 
-                                        {.:Some jvm_console}
-                                        (let [jvm_input (java/lang/System:in)
-                                              jvm_output (java/lang/System:out)]
-                                             (<| pure
-                                                 {try.:Success}
-                                                 (is (comment "TODO: Remove ASAP"
-                                                              (Console IO)))
-                                                 (implementation
-                                                  (the (read _)
-                                                       (|> jvm_input
-                                                           (java/io/InputStream:read [])
-                                                           (by (try.with io.monad) each (|>> ffi.of_int .natural))))
-                                                  
-                                                  (the (read_line _)
-                                                       (io:each (try:each (|>> ffi.of_string))
-                                                                (java/io/Console:readLine [] jvm_console)))
-                                                  
-                                                  (the (write message)
-                                                       (java/io/PrintStream:print [(ffi.as_string message)] jvm_output))
-                                                  
-                                                  (the close
-                                                       (|>> (exception.except ..cannot_close)
-                                                            pure)))))))))
+                            {.:Some jvm_console})
+                      (let [jvm_input (java/lang/System:in)
+                            jvm_output (java/lang/System:out)])
+                      pure
+                      {try.:Success}
+                      (is (comment "TODO: Remove ASAP"
+                                   (Console IO)))
+                      (implementation
+                       (the (read _)
+                            (|> jvm_input
+                                (java/io/InputStream:read [])
+                                (by (try.with io.monad) each (|>> ffi.of_int .natural))))
+                       
+                       (the (read_line _)
+                            (io:each (try:each (|>> ffi.of_string))
+                                     (java/io/Console:readLine [] jvm_console)))
+                       
+                       (the (write message)
+                            (java/io/PrintStream:print [(ffi.as_string message)] jvm_output))
+                       
+                       (the close
+                            (|>> (exception.except ..cannot_close)
+                                 pure)))))
            
            target.js
            (these (ffi.the Buffer
@@ -117,47 +119,45 @@
 
                   (exception.the cannot_read)
 
-                  (the !read
-                       (template.macro (_ <type> <query>)
-                                       [(let [it (io.value (process:stdin))]
-                                             (when (Readable_Stream:read [] it)
-                                                   {.:Some buffer}
-                                                   (let [input (Buffer:toString [] buffer)]
-                                                        (when (is (Maybe [<type> Text])
-                                                                  <query>)
-                                                              {.:Some [head tail]}
-                                                              (exec
-                                                               (Readable_Stream:unshift|String [tail] it)
-                                                               (future:pure {try.:Success head}))
-                                                              
-                                                              {.:None}
-                                                              (exec
-                                                               (Readable_Stream:unshift|Buffer [buffer] it)
-                                                               (future:pure (exception.except ..cannot_read [])))))
+                  (template.the (!read <type> <query>)
+                                [(<| (let [it (io.value (process:stdin))])
+                                     (when (Readable_Stream:read [] it)
+                                           {.:None}
+                                           (future:pure (exception.except ..cannot_read []))
 
-                                                   {.:None}
-                                                   (future:pure (exception.except ..cannot_read []))))]))
+                                           {.:Some buffer})
+                                     (let [input (Buffer:toString [] buffer)])
+                                     (when (is (Maybe [<type> Text])
+                                               <query>)
+                                           {.:Some [head tail]}
+                                           (exec (Readable_Stream:unshift|String [tail] it)
+                                                 (future:pure {try.:Success head}))
+                                           
+                                           {.:None}
+                                           (exec (Readable_Stream:unshift|Buffer [buffer] it)
+                                                 (future:pure (exception.except ..cannot_read [])))))])
 
                   (the .public default
                        (Maybe (Console Future))
                        (if ffi.on_node_js?
                            {.:Some (implementation
-                                    (the (read _)
-                                         (!read Character (monad.let maybe.monad
-                                                                     [head (text.character 0 input)
-                                                                      [_ tail] (text.split_at 1 input)]
-                                                                     (pure [head tail]))))
+                                    (<| (the (read _))
+                                        (!read Character)
+                                        (monad.let maybe.monad
+                                                   [head (text.character 0 input)
+                                                    [_ tail] (text.split_at 1 input)])
+                                        (pure [head tail]))
                                     
-                                    (the (read_line _)
-                                         (!read Text (text.split_by text.\n input)))
+                                    (<| (the (read_line _))
+                                        (!read Text)
+                                        (text.split_by text.\n input))
                                     
-                                    (the (write it)
-                                         (let [[read! write!] (is [(future.Future (Try [])) (future.Resolver (Try []))]
-                                                                  (future.future []))]
-                                              (exec
-                                               (Writable_Stream:write [it (ffi.function (_ []) Any (io.value (write! {try.:Success []})))]
-                                                                      (io.value (process:stdout)))
-                                               read!)))
+                                    (<| (the (write it))
+                                        (let [[read! write!] (is [(future.Future (Try [])) (future.Resolver (Try []))]
+                                                                 (future.future []))])
+                                        (exec (Writable_Stream:write [it (ffi.function (_ []) Any (io.value (write! {try.:Success []})))]
+                                                                     (io.value (process:stdout))))
+                                        read!)
                                     
                                     (the close
                                          (|>> (exception.except ..cannot_close) future:pure)))}
@@ -166,8 +166,10 @@
            (comment "else"
                     (these)))
 
-(the .public (write_line message console)
-     (for_any (_ !) (-> Text (Console !) (! (Try Any))))
+(the .public (write_line console message)
+     (<| (for_any (_ !))
+         (-> (Console !) Text
+             (! (Try Any))))
      (by console write (text message \n)))
 
 (every .public (Memory s)
@@ -176,54 +178,55 @@
             on_read)
         (is (-> s (Try [s Text]))
             on_read_line)
-        (is (-> Text s (Try s))
+        (is (-> [Text] s (Try s))
             on_write)
         (is (-> s (Try s))
             on_close)))
 
-(the .public (memory memory init)
-     (for_any (_ s)
-              (-> (Memory s) s
-                  (Console IO)))
-     (let [state (atom.atom init)]
-          (`` (implementation
-               (,, (template.with [<method> <memory>]
-                                  [(the (<method> _)
-                                        (monad.let [! io.monad]
-                                                   [|state| (atom.read! state)]
-                                                   (when (by memory <memory> |state|)
-                                                         {try.:Success [|state| output]}
-                                                         (monad.let !
-                                                                    [_ (atom.write! |state| state)]
-                                                                    (pure {try.:Success output}))
-                                                         
-                                                         {try.:Failure error}
-                                                         (pure {try.:Failure error}))))]
+(<| (the .public (memory memory init)
+         (<| (for_any (_ s))
+             (-> (Memory s) s
+                 (Console IO))))
+    (let [state (atom.atom init)])
+    (`` (implementation
+         (,, (template.with [<method> <memory>]
+                            [(<| (the (<method> _))
+                                 (monad.let [! io.monad]
+                                            [|state| (atom.read! state)])
+                                 (when (by memory <memory> |state|)
+                                       {try.:Success [|state| output]}
+                                       (monad.let !
+                                                  [_ (atom.write! |state| state)]
+                                                  (pure {try.:Success output}))
+                                       
+                                       {try.:Failure error}
+                                       (pure {try.:Failure error})))]
 
-                                  [[read on_read]
-                                   [read_line on_read_line]]))
+                            [[read on_read]
+                             [read_line on_read_line]
+                             ]))
 
-               (the (write input)
-                    (monad.let [! io.monad]
-                               [|state| (atom.read! state)]
-                               (when (by memory on_write input |state|)
-                                     {try.:Success |state|}
-                                     (monad.let !
-                                                [_ (atom.write! |state| state)]
-                                                (pure {try.:Success []}))
-                                     
-                                     {try.:Failure error}
-                                     (pure {try.:Failure error}))))
+         (<| (the (write input))
+             (monad.let [! io.monad]
+                        [|state| (atom.read! state)])
+             (when (by memory on_write input |state|)
+                   {try.:Success |state|}
+                   (monad.let !
+                              [_ (atom.write! |state| state)]
+                              (pure {try.:Success []}))
+                   
+                   {try.:Failure error}
+                   (pure {try.:Failure error})))
 
-               (the (close _)
-                    (monad.let [! io.monad]
-                               [|state| (atom.read! state)]
-                               (when (by memory on_close |state|)
-                                     {try.:Success |state|}
-                                     (monad.let !
-                                                [_ (atom.write! |state| state)]
-                                                (pure {try.:Success []}))
-                                     
-                                     {try.:Failure error}
-                                     (pure {try.:Failure error}))))
-               ))))
+         (<| (the (close _))
+             (monad.let [! io.monad]
+                        [|state| (atom.read! state)])
+             (when (by memory on_close |state|)
+                   {try.:Success |state|}
+                   (monad.let !
+                              [_ (atom.write! |state| state)]
+                              (pure {try.:Success []}))
+                   
+                   {try.:Failure error}
+                   (pure {try.:Failure error})))
+         )))
